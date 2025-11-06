@@ -7,9 +7,15 @@ name = "w2t_bkin"
 version = "0.0.1"
 description = "Mouse wiskers body kinematics and behaviour"
 authors = [{ name = "Larkum Lab" }]
+license = { text = "Apache-2.0" }
 
 readme = "README.md"
-classifiers = ["Programming Language :: Python :: 3"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
 dependencies = []
 requires-python = "~=3.10.0"
 
