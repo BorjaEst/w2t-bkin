@@ -1,0 +1,13 @@
+pipeline
+docs
+nwb
+sync
+pose
+facemap
+data
+validation
+testing
+dev
+faq
+glossary
+releases

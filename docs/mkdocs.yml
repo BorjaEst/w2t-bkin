@@ -1,4 +1,34 @@
-site_name: w2t-bkin
-# 
-site_author: Larkum Lab
-# 
+site_name: w2t-bkin Docs
+site_description: Multi-camera mouse behavior to NWB pipeline
+site_url: ""
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+nav:
+  - Overview: docs/overview.md
+  - Quickstart: docs/quickstart.md
+  - Configuration: docs/configuration.md
+  - Pipeline:
+      - Stages: docs/pipeline.md
+      - Synchronization: docs/sync.md
+      - Pose & Facemap: docs/pose-facemap.md
+      - NWB Mapping: docs/nwb-mapping.md
+  - CLI Reference: docs/cli.md
+  - Data Layout: docs/data-layout.md
+  - Validation & QC: docs/qc-validation.md
+  - Testing & CI: docs/testing-ci.md
+  - Developer Guide: docs/developer-guide.md
+  - FAQ: docs/faq.md
+  - Glossary: docs/glossary.md
+  - Changelog: docs/changelog.md
+docs_dir: docs
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+      toc_depth: 2
