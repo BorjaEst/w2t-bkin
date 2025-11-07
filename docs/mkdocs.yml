@@ -24,7 +24,7 @@ nav:
   - FAQ: docs/faq.md
   - Glossary: docs/glossary.md
   - Changelog: docs/changelog.md
-docs_dir: docs
+docs_dir: .
 plugins:
   - search
 markdown_extensions:
