@@ -1,4 +1,4 @@
-# Fundamental Requirements (Editable)
+# Fundamental Requirements
 
 Functional requirements (FR)
 
@@ -16,7 +16,7 @@ Functional requirements (FR)
   - BehavioralTimeSeries for Facemap signals
 - FR-8: The pipeline shall generate a QC HTML report summarizing sync integrity, pose confidence, and Facemap metrics.
 - FR-9: The pipeline shall validate the NWB with nwbinspector and save the report.
-- FR-10: The pipeline shall be driven by a YAML configuration and a CLI with subcommands (ingest, sync, transcode, label-extract, infer, facemap, to-nwb, validate, report).
+- FR-10: The pipeline shall be driven by a TOML configuration (validated via Pydantic models) and a CLI with subcommands (ingest, sync, transcode, label-extract, infer, facemap, to-nwb, validate, report).
 
 Optional functional requirements (OFR)
 
@@ -39,14 +39,14 @@ Non-functional requirements (NFR)
 - NFR-7: Modularity: Pose/Facemap stages shall be optional; the pipeline shall import precomputed results without requiring inference.
 - NFR-8: Data integrity: The pipeline shall verify input file existence and optionally record checksums.
 - NFR-9: Privacy: The pipeline shall avoid storing PII and support anonymized subject IDs.
-- NFR-10: Configurability: All file patterns, paths, and toggles (e.g., transcode enabled) shall be configurable via YAML.
+- NFR-10: Configurability & Type Safety: All file patterns, paths, and toggles (e.g., transcode enabled) shall be configurable via TOML and enforced by Pydantic (with environment variable overrides via pydantic-settings).
 - NFR-11: Provenance: The pipeline shall embed configuration and software versions into the NWB or sidecar metadata.
 - NFR-12: Testability and CI: The repository shall organize tests under `tests/` using pytest, include a minimal synthetic dataset for fast runs, and support CI jobs that run linting, type checks, and tests.
   Repository conventions
 - Code lives under `src/` (importable package `w2t_bkin`), tests under `tests/` (pytest), documentation under `docs/` (MkDocs).
 - Pretrained models are kept under `models/` by default and can be overridden via `paths.models_root`.
 
-Configuration keys (reference skeleton)
+Configuration keys (TOML + Pydantic reference skeleton)
 
 - project: { name, n_cameras }
 - paths: { raw_root, intermediate_root, output_root, models_root }
@@ -62,7 +62,7 @@ Configuration keys (reference skeleton)
 
 CLI commands (contract)
 
-- ingest: Build session manifest from config; fail if expected files are missing.
+- ingest: Build session manifest from config; fail if expected files are missing. Writes manifest.json with normalized absolute paths and metadata.
 - sync: Produce per-camera timestamps and summary stats; non-zero exit on severe mismatches.
 - transcode: If enabled, transcode videos; otherwise no-op with clear log.
 - label-extract / infer: Prepare datasets or run inference; or import existing results.

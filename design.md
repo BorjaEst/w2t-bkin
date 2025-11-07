@@ -12,7 +12,7 @@ Goals
 
 - Reproducible, configuration-driven pipeline that ingests videos + sync, harmonizes labels, and exports NWB with QC and validation.
 - Scales from laptop to HPC; idempotent stages; clear artifacts and logs.
-- Minimal assumptions about lab-specific data layout; configurable via YAML.
+- Minimal assumptions about lab-specific data layout; configurable via TOML using Pydantic models (pydantic-settings for environment overrides).
 
 Inputs
 
@@ -38,7 +38,7 @@ Pipeline stages (no calibration)
 
 - Discover session resources (videos, sync files, optional labels).
 - Extract video metadata (codec, fps, duration, resolution).
-- Build a single manifest.yaml per session with normalized paths and key metadata.
+- Build a single manifest.json per session with normalized paths and key metadata (JSON for easy downstream consumption; source config remains TOML).
 - Compute checksums for provenance (optional).
 - Optionally discover and register event logs (e.g., `*.ndjson`) for trials/behavioral events; record absolute paths in the manifest.
 
@@ -92,7 +92,7 @@ Pipeline stages (no calibration)
   - Facemap traces preview and summary stats.
   - Per-camera video metadata and any anomalies.
 
-Configuration model (YAML; minimal, modifiable)
+Configuration model (TOML + Pydantic; strongly typed, modifiable)
 
 - project: name, n_cameras=5, skeleton definition.
 - paths: raw_root, intermediate_root, output_root, models_root (default: ./models).
@@ -120,7 +120,7 @@ Repository layout and testing
   - Include small synthetic fixtures under data/raw/testing to keep tests fast and deterministic.
 - docs/: Project documentation (MkDocs), with site config `docs/mkdocs.yml` and content under `docs/docs/`.
 - models/: Pretrained models and related metadata (default models_root).
-- configs/: Example YAML configuration templates.
+- configs/: Example TOML configuration templates and Pydantic model references.
 - scripts/: Utility scripts for maintenance and developer workflows.
 - .github/workflows/: CI pipelines (lint, type-check, tests, docs build).
 
@@ -184,3 +184,41 @@ Glossary
 Out of scope (per request)
 
 - Camera calibration (intrinsic/extrinsic) is not performed.
+
+Software stack and tools
+
+- Core language/runtime
+  - Python (3.10+): primary implementation language for all pipeline stages.
+- Scientific/data processing
+  - numpy: fast numeric operations for sync math and arrays.
+  - pandas: tabular I/O (CSV/Parquet/NDJSON) and data wrangling for manifests, timestamps, pose/facemap tables.
+- NWB ecosystem
+  - pynwb: write the NWB file and containers (Devices, ImageSeries, TimeSeries).
+  - ndx-pose: store pose estimation results with skeletons and confidence.
+  - nwbinspector: validate NWB output for compliance; produce a JSON report.
+- Video I/O and metadata
+  - FFmpeg/ffprobe (system binaries): probe codecs/metadata; optional transcoding for reliable seeking.
+  - ffmpeg-python: Pythonic wrapper to construct FFmpeg transcode/probe commands.
+  - OpenCV (cv2): optional lightweight frame access/verification during QC or sampling.
+- Configuration and validation
+  - pydantic + pydantic-settings: typed config classes with validation, defaults, env var overrides.
+  - tomllib (Python 3.11+) / tomli (Python 3.10): parse TOML config files for loading typed configuration.
+- CLI, logging, orchestration
+  - Typer: ergonomic CLI with subcommands (ingest, sync, transcode, to-nwb, etc.).
+  - logging + rich: structured logs with readable console formatting.
+- QC report generation
+  - Jinja2: HTML templating for the QC report shell.
+  - Plotly (offline) or Matplotlib/Seaborn: generate interactive or static charts (drift, confidence histograms, previews).
+- Testing and code quality
+  - pytest: unit/integration tests over synthetic datasets.
+  - ruff: fast linting (style + simple correctness rules).
+  - mypy: static type checks to harden interfaces and data contracts.
+  - pre-commit: run ruff/mypy/formatting hooks locally and in CI.
+- Documentation and CI
+  - MkDocs (+ mkdocs-material): user/developer docs site.
+  - GitHub Actions: CI for lint, type, tests, docs build, and nwbinspector checks.
+
+Notes
+
+- FFmpeg/ffprobe must be available on the system PATH for metadata probing and transcoding.
+- Extras groups (e.g., pose, facemap, docs, dev) will be defined in pyproject to keep optional dependencies separate.

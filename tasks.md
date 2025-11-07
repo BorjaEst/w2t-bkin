@@ -2,15 +2,15 @@
 
 Milestone 0 — Project scaffolding
 
-- T0.1 Initialize repo structure: src/ (package code), configs/ (YAML templates), tests/ (pytest), scripts/, docs/ (MkDocs), models/ (pretrained), .github/workflows
+- T0.1 Initialize repo structure: src/ (package code), configs/ (TOML templates + Pydantic models), tests/ (pytest), scripts/, docs/ (MkDocs), models/ (pretrained), .github/workflows
 - T0.2 Add pyproject with dependencies (pynwb, ndx-pose, nwbinspector, numpy/pandas, typer, ffmpeg-python, opencv)
 - T0.3 Implement basic CLI skeleton and logging
 - Acceptance: `mmnwb --help` works; CI runs lint/type/tests
 
 Milestone 1 — Ingestion and manifest
 
-- T1.1 Define YAML config template (paths, session, video, sync, labels, facemap, nwb, qc)
-- T1.2 Implement ingest command: discover videos (5 cams), sync files, and optional event logs (e.g., `*_training.ndjson`, `*_trial_stats.ndjson`); compute metadata; write manifest.yaml (with absolute paths for all discovered assets)
+- T1.1 Define TOML config template + Pydantic Settings models (paths, session, video, sync, labels, facemap, nwb, qc)
+- T1.2 Implement ingest command: discover videos (5 cams), sync files, and optional event logs (e.g., `*_training.ndjson`, `*_trial_stats.ndjson`); compute metadata; write manifest.json (with absolute paths for all discovered assets)
 - T1.3 Add checksums (optional) and basic input validation
 - Acceptance: Manifest includes absolute paths and video metadata for a sample session
 
@@ -87,3 +87,33 @@ Cross-cutting tasks
 - C2 Determinism and idempotence (seed control, stable outputs)
 - C3 Performance profiling on representative sessions
 - C4 Data privacy (subject anonymization policy)
+
+Tooling overview (cross-reference milestones)
+
+- Python 3.10+: runtime for all milestones.
+- Typer: CLI scaffolding (T0.3) and stage commands (T1–T7).
+- pydantic + pydantic-settings + tomli/tomllib: typed TOML config parsing & validation for T1.1 & ingest.
+- numpy/pandas: ingestion metadata (T1), sync computations (T2), pose/facemap tables (T4–T5), NWB assembly helpers (T6).
+- FFmpeg/ffprobe + ffmpeg-python: video metadata (T1), transcoding (T3).
+- OpenCV (optional): frame sampling (T4.1) and QC spot checks (T7.2).
+- pynwb + ndx-pose: NWB creation and pose containers (T6).
+- nwbinspector: validation stage (T7.1) + CI.
+- Jinja2 + Plotly/Matplotlib: QC HTML report generation (T7.2).
+- pytest: tests (T8.1–T8.2); synthetic dataset fixtures.
+- ruff + mypy + pre-commit: code quality (T0.3, T8.3) and CI.
+- MkDocs: documentation site (T9.x) with quickstart and developer guide.
+- GitHub Actions: CI pipeline executing lint, type checks, tests, nwbinspector, docs build (T8/T9/T10).
+
+Extras (dependency groups)
+
+- Base: core runtime + ingestion + NWB (numpy, pandas, pynwb).
+- pose: ndx-pose, DLC/SLEAP-related dependencies (added later as needed).
+- facemap: facemap extraction libraries (added when implementing T5.1).
+- docs: MkDocs and theme.
+- dev: pytest, ruff, mypy, pre-commit, nwbinspector.
+
+Implementation notes
+
+- Each milestone introducing a new dependency updates pyproject and (if needed) pins versions for determinism.
+- Pre-commit hooks enforce lint/type before commits (supports NFR-1, NFR-2, NFR-12).
+- Performance profiling (C3) may add optional dependencies like tqdm for progress; kept out of base install.
