@@ -367,12 +367,19 @@ This pipeline turns raw multi-view behavioral recordings plus timing and event l
 
 ---
 
+## 2025-11-04 – Rotation kickoff
+
+- Documented base recording setup and initial segmentation/tracking approach (see top sections).
+- Confirmed cameras monitor pupils, whiskers, and face of the mouse.
+
 ## 2025-11-06 – Defining the project skeleton
 
 - Repository scaffolded based on Cookiecutter Data Science (with changes). GitHub project: `w2t-bkin`.
 - Licensing initialized for open science reuse: added `LICENSE` (Apache-2.0).
 
-## 2025-11-04 – Rotation kickoff
+## 2025-11-07 – Project ideation
 
-- Documented base recording setup and initial segmentation/tracking approach (see top sections).
-- Confirmed cameras monitor pupils, whiskers, and face of the mouse.
+- Created first draft for documentation.
+- training.ndjson: contains session information at each timepoint (t, phase, trial, valid, marker positions). (Missing start/end times for each trial.)
+- trial_stats.ndjson: contains summary statistics for each trial (duration, outcome, counts).
+- We need TTL or frame counters for synchronization (because relying on nominal FPS is risky).
