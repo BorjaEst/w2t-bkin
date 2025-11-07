@@ -16,7 +16,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
-dependencies = []
+dependencies = ["PyYAML~=6.0.0", "jsonschema~=4.15.0"]
 requires-python = "~=3.10.0"
 
 [tool.black]
