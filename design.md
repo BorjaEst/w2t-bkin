@@ -1,224 +1,209 @@
-# Design: Multi-camera Mouse Behavior to NWB Pipeline (No Calibration)
+---
+post_title: "Design — Modular Architecture (W2T BKin)"
+author1: "Project Team"
+post_slug: "design-modular-w2t-bkin"
+microsoft_alias: "na"
+featured_image: "/assets/og.png"
+categories: ["pipeline", "docs", "sync", "nwb"]
+tags: ["design", "architecture", "modular"]
+ai_note: "Draft produced with AI assistance, reviewed by maintainers."
+summary: "Modular technical design for a multi-stage behavioral data pipeline producing NWB with synchronization, pose, facial metrics, and QC."
+post_date: "2025-11-08"
+---
 
-Scope and assumptions
+<!-- markdownlint-disable MD041 -->
 
-- Five hardware-synchronized cameras (cam0–cam4), no camera calibration required (intrinsic/extrinsic are assumed correct or not needed).
-- Hardware synchronization via TTL triggers or frame counters to derive per-frame timestamps.
-- Pose estimation labels from DeepLabCut (DLC) and/or SLEAP; facial metrics via Facemap.
-- Outputs are packaged into NWB using pynwb and ndx-pose, with external video file references preferred.
-- Optional video transcoding for frame-accurate seeking and storage normalization (skip if not needed).
+## 1. Architectural Overview
 
-Goals
+The system is a multi-stage, configuration-driven pipeline organized into modular Python packages.
+Each stage operates independently, consuming a manifest and producing deterministic artifacts. No
+camera calibration or 3D fusion is performed.
 
-- Reproducible, configuration-driven pipeline that ingests videos + sync, harmonizes labels, and exports NWB with QC and validation.
-- Scales from laptop to HPC; idempotent stages; clear artifacts and logs.
-- Minimal assumptions about lab-specific data layout; configurable via TOML using Pydantic models (pydantic-settings for environment overrides).
+## 2. Module Breakdown
 
-Inputs
+| Package     | Responsibility                                                          | Key Inputs                    | Key Outputs                                  |
+| ----------- | ----------------------------------------------------------------------- | ----------------------------- | -------------------------------------------- |
+| `config`    | Load/validate TOML, provide typed settings                              | TOML env vars                 | Settings objects                             |
+| `ingest`    | Discover session assets, extract video metadata, build manifest         | Raw files, settings           | `manifest.json`                              |
+| `sync`      | Parse TTL/frame counters, derive per-frame timestamps, drift/drop stats | Sync logs, manifest           | `timestamps_cam{i}.csv`, `sync_summary.json` |
+| `transcode` | Optional mezzanine encoding                                             | Raw videos, settings          | Transcoded videos + metadata                 |
+| `pose`      | Import/harmonize DLC/SLEAP outputs, skeleton mapping                    | Pose files/models             | Harmonized pose tables                       |
+| `facemap`   | Import/compute facial metrics and align timestamps                      | Face video, models            | Metrics table + metadata                     |
+| `events`    | Normalize NDJSON behavioral logs to Trials/Events schema                | NDJSON logs                   | Normalized events, trials table              |
+| `nwb`       | Assemble NWB file with all available data & provenance                  | Manifest, stage outputs       | `session_id.nwb`                             |
+| `qc`        | Render HTML QC report                                                   | Stage summaries, NWB metadata | `index.html`                                 |
+| `cli`       | Typer application exposing subcommands                                  | Settings                      | User-facing CLI                              |
+| `utils`     | Shared helpers (I/O, hashing, timing)                                   | Internal calls                | Reusable primitives                          |
 
-- Raw video files for 5 cameras (ideally constant frame rate, but not required).
-- Sync signals: TTL events or per-frame trigger logs.
-- Optional session event logs (e.g., NDJSON) that describe trials or behavioral events; these are NOT sync TTL and are used for Trials/BehavioralEvents in NWB, not for deriving video timestamps.
-- Optional precomputed pose (DLC/SLEAP) and Facemap outputs, or models to run inference. Pretrained models are stored under the repository `models/` directory by default (configurable), and model paths can be absolute.
+## 3. Data Contracts
 
-Outputs
+### 3.1 Manifest (JSON)
 
-- NWB file:
-  - Devices: 5 Camera devices.
-  - Acquisition: per-camera ImageSeries with per-frame timestamps, linking external video files.
-  - Sync: TTL TimeSeries and/or event series used to compute timestamps.
-  - Pose: ndx-pose PoseEstimation/PoseEstimationSeries per model/run, harmonized to a canonical skeleton.
-  - Facial metrics: BehavioralTimeSeries (e.g., motion energy, pupil, whisker).
-- QC report (HTML) summarizing sync integrity, frame drops, drift, pose confidence, Facemap trace previews.
-- nwbinspector validation report.
+Fields: `session_id`, `videos[{camera_id,path,codec,fps,duration,resolution}]`, `sync[{path,type}]`,
+`events[{path,kind}]`, `pose[{path,format}]`, `facemap[{path}]`, `config_snapshot`, `provenance`.
+Invariant: All paths absolute; optional resources are omitted rather than null.
 
-Pipeline stages (no calibration)
+### 3.2 Timestamp CSV
 
-1. Ingestion and manifest
+Columns: `frame_index,int`, `timestamp,float_seconds`. Strict monotonic increase; length equals
+decoded frame count.
 
-- Discover session resources (videos, sync files, optional labels).
-- Extract video metadata (codec, fps, duration, resolution).
-- Build a single manifest.json per session with normalized paths and key metadata (JSON for easy downstream consumption; source config remains TOML).
-- Compute checksums for provenance (optional).
-- Optionally discover and register event logs (e.g., `*.ndjson`) for trials/behavioral events; record absolute paths in the manifest.
+### 3.3 Pose Harmonized Table (Parquet preferred)
 
-2. Synchronization
+Columns: `time`, `keypoint`, `x_px`, `y_px`, `confidence`, plus metadata sidecar JSON with skeleton
+and model hashes. Primary key: (`time`,`keypoint`).
 
-- Parse hardware TTL or frame counter logs.
-- Map frame indices to a common timebase; detect dropped/duplicate frames; compute drift metrics.
-- Emit per-camera timestamp CSVs and a sync_summary.json with diagnostics.
-- Note: Session event NDJSON files are not used for synchronization; accepted sync inputs are TTL pulse logs or camera frame counter logs (e.g., CSV/TSV with timestamps/levels).
+### 3.4 Facemap Metrics
 
-3. Optional video transcoding
+Wide table: `time` + metric columns (e.g., `pupil_area`, `motion_energy`). Missing samples preserved
+as NaN.
 
-- Re-encode to a mezzanine format that guarantees frame-accurate seeking and uniform keyframe interval.
-- Typical choice: MP4 (H.264), constant frame rate or per-frame timestamps retained externally, keyframe every N frames (e.g., 30 or 60).
-- Skippable if raw files already work reliably downstream.
+### 3.5 Trials Table
 
-4. Pose and facial features
+Columns: `trial_id`, `start_time`, `stop_time`, `phase_first`, `phase_last`, `declared_duration`,
+`observed_span`, `duration_delta`, `qc_flags`.
 
-- DLC/SLEAP:
-  - Prepare training/inference datasets (frame sampling lists) or import precomputed outputs.
-  - Harmonize outputs to a canonical skeleton: consistent keypoint order, units (pixels), and per-frame timestamps aligned to the selected camera/timebase.
-  - Manage multi-model, multi-run provenance; store confidence scores; optional smoothing/interpolation.
-  - Model discovery: resolve model paths relative to `paths.models_root` (default: project `models/`) or accept absolute paths.
-- Facemap:
-  - Extract ROI-based facial signals with timestamps aligned to the timebase.
-  - Save time series in standardized CSV/Parquet prior to NWB assembly.
+### 3.6 QC Summary JSON
 
-5. NWB packaging
+Sections: `sync`, `pose`, `facemap`, `events`, `provenance`, each with minimal stats + file
+references.
 
-- Create NWBFile with subject/session metadata.
-- Devices: five Cameras.
-- Acquisition: ImageSeries per camera:
-  - Use external_file references to original or mezzanine videos.
-  - Provide per-frame timestamps derived from sync outputs.
-- Sync TimeSeries: write TTL events or derived triggers.
-- Pose (ndx-pose):
-  - One PoseEstimation container per tool/model/run; PoseEstimationSeries per camera view if needed.
-  - Store skeleton definition and provenance (config hash, model version).
-- Facemap: BehavioralTimeSeries for each derived facial metric.
-- Trials/behavioral events: If event logs are present (e.g., `*_trial_stats.ndjson` and per-sample `*_training.ndjson`), populate:
-  - A TimeIntervals table ("trials") with trial-level fields from the stats NDJSON, and
-  - BehavioralEvents or a ProcessingModule with event TimeSeries for per-sample entries from the training NDJSON.
-- Save to output/session_id/session_id.nwb.
+## 4. Interfaces & Public APIs
 
-6. Validation and QC
+Example (Typer CLI and Python import use):
 
-- Run nwbinspector, save JSON report next to the NWB.
-- Generate HTML QC report:
-  - Sync integrity (drops, drift over time).
-  - Pose keypoint confidence distributions and missing data.
-  - Facemap traces preview and summary stats.
-  - Per-camera video metadata and any anomalies.
+```python
+from w2t_bkin.sync import compute_timestamps
+timestamps, summary = compute_timestamps(sync_logs, primary_clock='cam0')
+```
 
-Configuration model (TOML + Pydantic; strongly typed, modifiable)
+Function contract pattern:
 
-- project: name, n_cameras=5, skeleton definition.
-- paths: raw_root, intermediate_root, output_root, models_root (default: ./models).
-- session: id, subject_id, date, experimenter, description, optional demographics.
-- video: filename pattern; fps=null to infer; transcode block (enabled, codec, crf, preset, keyint).
-- sync: TTL files, channel names/polarity, tolerances; primary_clock.
-- labels: dlc/sleap (model paths, whether to run inference or import).
-- facemap: run flag, ROI parameters (if any).
-- nwb: session_description, link_external_video (true), file_name template.
-- qc: report flag and output directory.
-- logging: level.
-- events: pattern(s) and format for event logs (e.g., `**/*_training.ndjson`, `**/*_trial_stats.ndjson`).
+- Inputs: Typed dataclasses / pydantic models (avoid raw dicts)
+- Outputs: Tuple of domain objects + summary dataclass
 
-Orchestration
+## 5. Processing Flow
 
-- CLI-first orchestration (e.g., Typer/Click) with subcommands:
-  - ingest, sync, transcode, label-extract, infer, facemap, to-nwb, validate, report
-- Each stage reads the session manifest and writes stage artifacts to intermediate/session_id/<stage>/.
-- Idempotent design: re-running a stage overwrites or caches deterministically; supports --force to rebuild.
+1. `config` loads settings → passed to `ingest`.
+2. `ingest` builds `manifest.json`.
+3. `sync` consumes manifest + sync logs → per-camera timestamps.
+4. `transcode` (optional) produces stable video derivatives (manifest extended with mezzanine refs).
+5. `pose` / `facemap` import or compute features aligning to session timebase.
+6. `events` derives Trials/Events if present.
+7. `nwb` assembles NWB; stores provenance and external video references.
+8. `validate` (subcommand) runs nwbinspector.
+9. `qc` renders HTML from summaries.
 
-Repository layout and testing
+## 6. Error Handling Strategy
 
-- src/w2t_bkin: Source code for pipeline modules and the CLI entry points.
-- tests/: Pytest-based unit and integration tests for pipeline components.
-  - Include small synthetic fixtures under data/raw/testing to keep tests fast and deterministic.
-- docs/: Project documentation (MkDocs), with site config `docs/mkdocs.yml` and content under `docs/docs/`.
-- models/: Pretrained models and related metadata (default models_root).
-- configs/: Example TOML configuration templates and Pydantic model references.
-- scripts/: Utility scripts for maintenance and developer workflows.
-- .github/workflows/: CI pipelines (lint, type-check, tests, docs build).
+| Error Class            | Cause                            | Response                                |
+| ---------------------- | -------------------------------- | --------------------------------------- |
+| MissingInputError      | Required file absent             | Fail fast, log path, suggest config key |
+| TimestampMismatchError | Non-monotonic or length mismatch | Abort sync stage with diagnostics       |
+| DriftThresholdExceeded | Drift beyond tolerance           | Warn or abort based on severity flag    |
+| DataIntegrityWarning   | Gaps/NaNs beyond expected        | Proceed, mark in QC flags               |
+| ConfigValidationError  | Invalid TOML field               | Abort before any stage runs             |
 
-Testing strategy
+All exceptions subclass a base `PipelineError` for central logging.
 
-- Use pytest with test files under tests/ named `test_*.py`.
-- Cover core logic: ingestion discovery, sync math (TTL parsing, drift, drop detection), NWB writer mapping, and optional stages (pose/facemap).
-- Prefer fast, deterministic tests using tiny synthetic datasets stored in repo under data/raw/testing.
-- Validate CLI subcommands minimally (e.g., `--help` and dry-run paths) to ensure wiring remains intact.
+## 7. Logging & Diagnostics
 
-Data layout (recommended)
+- Structured JSON logs optional via config toggle.
+- Each stage writes `{stage}_summary.json` with machine-readable stats.
+- Include timing (wall + CPU), memory (approx), input counts, anomaly flags.
 
-- raw/<session_id>/cam{i}.mp4 (or lab-specific names via pattern)
-- raw/<session_id>/sync_ttl.csv (or equivalent)
-- raw/<session_id>/\*\_training.ndjson (per-sample behavioral events)
-- raw/<session_id>/\*\_trial_stats.ndjson (trial-level summaries)
-- models/{dlc|sleap}/... (pretrained model files, config, and metadata)
-- intermediate/<session_id>/sync/ timestamps_cam{i}.csv, sync_summary.json
-- intermediate/<session_id>/video/ transcoded files (if enabled)
-- intermediate/<session_id>/labels/{dlc|sleap}/ harmonized outputs
-- intermediate/<session_id>/facemap/ signals.csv or parquet + metadata.json
-- intermediate/<session_id>/events/ normalized event tables and metadata.json (if applicable)
-- output/<session_id>/<session_id>.nwb
-- qc/<session_id>/index.html
+## 8. Performance Considerations
 
-NWB mapping details
+- Use streaming parsing for large TTL logs (iterators). Avoid loading entire video into memory.
+- Parallelization: frame timestamp derivation per camera; pose/facemap inference on separate threads or processes.
+- Optional caching: hashed raw file + config snapshot to skip recomputation.
 
-- Devices: 5x Camera devices named camera_0..camera_4.
-- Acquisition: ImageSeries camera_i_video with:
-  - format: "external", external_file: [absolute or relative video path]
-  - timestamps: per-frame array from sync stage
-- Sync:
-  - TimeSeries "camera_triggers" (for the raw TTL) with timestamps of edges used.
-- Pose (ndx-pose):
-  - PoseEstimation with attributes: software version, model hash, skeleton.
-  - PoseEstimationSeries per camera or fused, with timestamps and confidence.
-- Facemap:
-  - ProcessingModule "facemap" with BehavioralTimeSeries for metrics (e.g., motion energy, pupil area).
-- Provenance:
-  - Store pipeline config snapshot and git commit in NWB file notes or a processing module.
+## 9. Testing Strategy
 
-Quality principles and best practices
+- Unit tests: pure function logic (timestamp math, gap detection, skeleton mapping).
+- Integration tests: miniature session pipeline end-to-end (synthetic 10-frame videos + mock TTL).
+- CLI tests: invoke subcommands with temp directory; assert artifact presence.
+- Property tests (optional): invariants (monotonic timestamps, confidence in [0,1]).
 
-- Deterministic processing; record configuration and versions.
-- Prefer external video linking to avoid ballooning NWB size.
-- Validate inputs early; emit actionable errors (missing camera file, TTL mismatch).
-- Keep sync inputs and behavioral event logs clearly separated in the manifest; do not infer timestamps from event NDJSON.
-- Harmonize skeletons and keep a registry with stable names/indices.
-- Treat inference as optional; import existing outputs without forcing retraining.
-- Keep rich logs and minimal plots for QC; avoid heavy inline images unless requested.
+## 10. Modularity & Extensibility
 
-Security/ethics
+- New stages added by creating a subpackage and registering a CLI subcommand in `cli/app.py`.
+- Clear separation: no stage imports another stage's internals; only shared contracts from `utils` or `domain`.
+- Domain models shared in `domain` subpackage (to be created) for types like `VideoMetadata`, `TimestampSeries`.
 
-- No PII; anonymize subject IDs as needed.
-- Do not embed sensitive raw video into the NWB unless policy allows.
+## 11. Provenance Capture
 
-Glossary
+- Config snapshot (TOML serialized) stored in NWB `notes` or a `/processing/provenance` module.
+- Git commit hash via `utils.git.get_commit()`.
+- Dependency versions subset (`pip freeze` filtered) saved alongside QC summary.
 
-- Transcoding: Re-encoding video to another codec/container or parameters (e.g., constant frame rate, keyframe interval) for reliable seeking, size reduction, or compatibility. Optional when source videos already behave well across tools.
+## 12. Security & Privacy
 
-Out of scope (per request)
+- Absolute paths stored only in local artifacts; NWB uses relative paths when feasible.
+- Subject identifiers anonymized; no facial images embedded.
 
-- Camera calibration (intrinsic/extrinsic) is not performed.
+## 13. Quality Gates
 
-Software stack and tools
+- Build: import all subpackages without ImportError.
+- Lint: ruff passes (style + basic issues).
+- Types: mypy passes with strict optional checks for core modules.
+- Validate: nwbinspector no critical errors.
+- QC: drift < threshold, drop frames ratio < configured max.
 
-- Core language/runtime
-  - Python (3.10+): primary implementation language for all pipeline stages.
-- Scientific/data processing
-  - numpy: fast numeric operations for sync math and arrays.
-  - pandas: tabular I/O (CSV/Parquet/NDJSON) and data wrangling for manifests, timestamps, pose/facemap tables.
-- NWB ecosystem
-  - pynwb: write the NWB file and containers (Devices, ImageSeries, TimeSeries).
-  - ndx-pose: store pose estimation results with skeletons and confidence.
-  - nwbinspector: validate NWB output for compliance; produce a JSON report.
-- Video I/O and metadata
-  - FFmpeg/ffprobe (system binaries): probe codecs/metadata; optional transcoding for reliable seeking.
-  - ffmpeg-python: Pythonic wrapper to construct FFmpeg transcode/probe commands.
-  - OpenCV (cv2): optional lightweight frame access/verification during QC or sampling.
-- Configuration and validation
-  - pydantic + pydantic-settings: typed config classes with validation, defaults, env var overrides.
-  - tomllib (Python 3.11+) / tomli (Python 3.10): parse TOML config files for loading typed configuration.
-- CLI, logging, orchestration
-  - Typer: ergonomic CLI with subcommands (ingest, sync, transcode, to-nwb, etc.).
-  - logging + rich: structured logs with readable console formatting.
-- QC report generation
-  - Jinja2: HTML templating for the QC report shell.
-  - Plotly (offline) or Matplotlib/Seaborn: generate interactive or static charts (drift, confidence histograms, previews).
-- Testing and code quality
-  - pytest: unit/integration tests over synthetic datasets.
-  - ruff: fast linting (style + simple correctness rules).
-  - mypy: static type checks to harden interfaces and data contracts.
-  - pre-commit: run ruff/mypy/formatting hooks locally and in CI.
-- Documentation and CI
-  - MkDocs (+ mkdocs-material): user/developer docs site.
-  - GitHub Actions: CI for lint, type, tests, docs build, and nwbinspector checks.
+## 14. Future Enhancements (Backlog)
 
-Notes
+- Vectorized drift visualization improvements.
+- Incremental re-run: stage-level dependency graph with minimal recomputation.
+- Plugin system for custom behavioral event derivations.
+- Streaming NWB writing for very large sessions.
 
-- FFmpeg/ffprobe must be available on the system PATH for metadata probing and transcoding.
-- Extras groups (e.g., pose, facemap, docs, dev) will be defined in pyproject to keep optional dependencies separate.
+## 15. Glossary (Selected)
+
+- Drift: cumulative deviation between cameras' timebases.
+- Mezzanine: normalized transcoded copy optimized for seeking.
+- Harmonization: mapping heterogeneous pose outputs to canonical schema.
+
+## 16. Decision Records Placeholder
+
+Decision records will be stored under `docs/decisions/` following the project template.
+
+## 17. Sequence Example (Text Diagram)
+
+```text
+config → ingest → manifest.json
+manifest + sync logs → sync → timestamps & sync_summary
+videos (+ optional transcode) → transcode → mezzanine/*
+pose raw → pose → pose_harmonized.parquet
+facemap raw → facemap → facemap_metrics.parquet
+events ndjson → events → trials.csv + events.csv
+all artifacts → nwb → session.nwb
+session.nwb → validate → nwbinspector.json
+summaries → qc → index.html
+```
+
+## 18. Directory Conventions (Refined)
+
+| Path                             | Purpose                       |
+| -------------------------------- | ----------------------------- |
+| `data/raw/<session>`             | Original videos and logs      |
+| `data/interim/<session>/sync`    | Timestamp CSVs & sync summary |
+| `data/interim/<session>/pose`    | Harmonized pose tables        |
+| `data/interim/<session>/facemap` | Facial metrics                |
+| `data/interim/<session>/events`  | Normalized events/trials      |
+| `data/interim/<session>/video`   | Mezzanine videos              |
+| `data/processed/<session>`       | Final NWB + validation report |
+| `data/qc/<session>`              | QC HTML & assets              |
+
+## 19. Validation Checklist
+
+- Timestamps monotonic per camera.
+- Drop/duplicate counts within thresholds.
+- Pose confidence median within expected range.
+- Trials non-overlapping; flagged mismatches documented.
+- NWB passes inspector.
+
+## 20. Summary Sentence
+
+The modular architecture cleanly partitions ingestion, synchronization, transformation, packaging,
+validation, and reporting into isolated, testable Python subpackages producing reproducible NWB
+datasets with transparent quality metrics.
