@@ -613,8 +613,8 @@ class TestEnvironmentOverrides:
         Issue: Design phase - Environment override validation
         """
         # Arrange
-        monkeypatch.setenv("W2T_BKIN_SYNC_TOLERANCE_MS", "5.0")
-        monkeypatch.setenv("W2T_BKIN_LOGGING_LEVEL", "DEBUG")
+        monkeypatch.setenv("W2T_BKIN_SYNC__TOLERANCE_MS", "5.0")
+        monkeypatch.setenv("W2T_BKIN_LOGGING__LEVEL", "DEBUG")
 
         manifest_path = temp_workdir / "manifest.json"
         subprocess.run(
@@ -637,7 +637,7 @@ class TestEnvironmentOverrides:
             ["w2t-bkin", "sync", str(manifest_path), "--output", str(sync_output_dir)],
             capture_output=True,
             text=True,
-            env={**subprocess.os.environ, "W2T_BKIN_SYNC_TOLERANCE_MS": "5.0"},
+            env={**subprocess.os.environ, "W2T_BKIN_SYNC__TOLERANCE_MS": "5.0"},
         )
 
         # Assert

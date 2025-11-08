@@ -195,7 +195,7 @@ class TestSettingsLoading:
         from w2t_bkin.cli import app
 
         runner = CliRunner()
-        env = {"W2T_BKIN_SESSION_ROOT": "/custom/path"}
+        env = {"W2T_BKIN_SESSION__ROOT": "/custom/path"}
 
         # Act
         result = runner.invoke(app, ["ingest", "--help"], env=env)

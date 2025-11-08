@@ -371,8 +371,8 @@ tolerance_ms = 2.0
         )
 
         # Set environment override
-        monkeypatch.setenv("W2T_BKIN_SYNC_TOLERANCE_MS", "5.0")
-        monkeypatch.setenv("W2T_BKIN_PROJECT_NAME", "overridden-project")
+        monkeypatch.setenv("W2T_BKIN_SYNC__TOLERANCE_MS", "5.0")
+        monkeypatch.setenv("W2T_BKIN_PROJECT__NAME", "overridden-project")
 
         # Act
         settings = load_settings(config_path)
@@ -438,8 +438,8 @@ crf = 23
         )
 
         # Override nested field
-        monkeypatch.setenv("W2T_BKIN_VIDEO_TRANSCODE_ENABLED", "true")
-        monkeypatch.setenv("W2T_BKIN_VIDEO_TRANSCODE_CRF", "18")
+        monkeypatch.setenv("W2T_BKIN_VIDEO__TRANSCODE__ENABLED", "true")
+        monkeypatch.setenv("W2T_BKIN_VIDEO__TRANSCODE__CRF", "18")
 
         # Act
         settings = load_settings(config_path)
