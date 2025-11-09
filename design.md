@@ -207,3 +207,74 @@ summaries → qc → index.html
 The modular architecture cleanly partitions ingestion, synchronization, transformation, packaging,
 validation, and reporting into isolated, testable Python subpackages producing reproducible NWB
 datasets with transparent quality metrics.
+
+## 21. Package Dependency Tree
+
+This section defines the code-level import dependencies and the runtime/dataflow dependencies between
+packages. It enforces a layered architecture with no cyclic dependencies and no cross-stage imports.
+
+### 21.1 Code-level Import Layers (Allowable Imports Only)
+
+- Layer 0 — Foundations (no imports between them):
+  - `utils` (helpers only; does not import any stage)
+  - `domain` (pure types and contracts; does not import any other project package)
+- Layer 1 — Configuration:
+  - `config` → may import: `domain`, `utils`
+- Layer 2 — Processing Stages (parallel, must not import each other):
+  - `ingest` → may import: `config`, `domain`, `utils`
+  - `sync` → may import: `config`, `domain`, `utils`
+  - `transcode` → may import: `config`, `domain`, `utils`
+  - `pose` → may import: `config`, `domain`, `utils`
+  - `facemap` → may import: `config`, `domain`, `utils`
+  - `events` → may import: `config`, `domain`, `utils`
+- Layer 3 — Assembly & Reporting:
+  - `nwb` → may import: `config`, `domain`, `utils` (must not import stage internals)
+  - `qc` → may import: `config`, `domain`, `utils` (must not import stage internals)
+- Layer 4 — Entry Points:
+  - `cli` → may import: `config`, `utils`, `domain`, and each stage package's public APIs
+
+Import constraints:
+
+- No stage imports another stage's internals (e.g., `pose` ✗→ `sync`, `events` ✗→ `pose`).
+- `domain` and `utils` are import-only roots and must not import project packages.
+- `nwb` and `qc` consume outputs via contracts/IO and must not import stage internals.
+- `cli` is the only package allowed to depend on all stages for orchestration.
+
+For quick reference, an allowable import tree (arrows point to what a package may import):
+
+```text
+utils        domain
+  ↑            ↑
+   \          /
+    -> config
+          ↑
+   ┌──────┼────────────────────────────────────────────┐
+   │      │        │         │       │         │       │
+ ingest  sync   transcode   pose   facemap   events    │
+   ↑       ↑        ↑         ↑       ↑        ↑       │
+    \______|________|_________|_______|________|______/
+                          |
+                        nwb, qc
+                          ↑
+                          |
+                         cli
+```
+
+### 21.2 Runtime/Dataflow Dependencies (Artifacts)
+
+The dataflow/DAG describes which stage outputs are consumed by others at runtime (not imports):
+
+- `config` → provides settings to all stages.
+- `ingest` → produces `manifest.json` consumed by `sync`, `transcode`, `pose`, `facemap`, `events`, `nwb`.
+- `sync` → produces per-camera timestamp CSVs and `sync_summary.json` consumed by `nwb`, `qc`.
+- `transcode` (optional) → produces mezzanine videos referenced by `nwb`.
+- `pose` (optional) → produces harmonized pose tables consumed by `nwb`, summarized by `qc`.
+- `facemap` (optional) → produces metrics consumed by `nwb`, summarized by `qc`.
+- `events` (optional) → produces normalized trials/events consumed by `nwb`, summarized by `qc`.
+- `nwb` → produces the NWB file and may embed provenance/snapshots; its inspector report feeds `qc`.
+- `qc` → renders HTML from all stage summaries and NWB metadata.
+
+Notes:
+
+- Dataflow dependencies do not mandate import dependencies; they are connected via files/contracts.
+- Parallelism: Layer 2 stages can run independently once `config`/`ingest` have produced inputs.
