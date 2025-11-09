@@ -1,13 +1,11 @@
 """Unit tests for the domain module.
 
-Tests shared domain models used across pipeline stages including VideoMetadata,
-TimestampSeries, PoseTable, MetricsTable, and Manifest as specified in
-domain/requirements.md and design.md.
+Tests all data contracts and domain models as specified in design.md §3 and api.md §3.1.
+All tests follow TDD Red Phase principles with clear EARS requirements.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -15,105 +13,25 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
+# ============================================================================
+# VideoMetadata Tests
+# ============================================================================
+
+
 class TestVideoMetadata:
-    """Test VideoMetadata domain model (MR-1, Design §3.1)."""
+    """Test VideoMetadata domain model (API §3.1)."""
 
-    def test_Should_CreateValidModel_When_AllFieldsProvided_MR1(self):
-        """THE MODULE SHALL provide VideoMetadata typed model.
+    def test_Should_CreateVideoMetadata_When_ValidInputs_Issue_Domain_VideoMeta(self):
+        """THE SYSTEM SHALL create VideoMetadata with valid inputs.
 
-        Requirements: MR-1, Design §3.1 - Manifest video fields
-        Issue: Domain module - VideoMetadata model
+        Requirements: FR-1 (Ingest five camera videos)
+        Design: §3.1 (Manifest JSON)
+        Issue: Domain - VideoMetadata creation
         """
         # Arrange
         from w2t_bkin.domain import VideoMetadata
 
         # Act
-        video = VideoMetadata(
-            camera_id=0,
-            path=Path("/data/raw/cam0.mp4"),
-            codec="h264",
-            fps=30.0,
-            duration=60.0,
-            resolution=(1920, 1080),
-        )
-
-        # Assert
-        assert video.camera_id == 0
-        assert video.path == Path("/data/raw/cam0.mp4")
-        assert video.codec == "h264"
-        assert video.fps == 30.0
-        assert video.duration == 60.0
-        assert video.resolution == (1920, 1080)
-
-    def test_Should_ValidateCameraID_When_Creating_MR2(self):
-        """THE MODULE SHALL validate VideoMetadata invariants.
-
-        Requirements: MR-2
-        Issue: Domain module - VideoMetadata validation
-        """
-        # Arrange
-        from w2t_bkin.domain import VideoMetadata
-
-        # Act & Assert - Camera ID should be non-negative
-        with pytest.raises((ValueError, TypeError)):
-            VideoMetadata(
-                camera_id=-1,
-                path=Path("/data/cam.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-
-    def test_Should_ValidateFPS_When_Creating_MR2(self):
-        """THE MODULE SHALL validate FPS is positive.
-
-        Requirements: MR-2
-        Issue: Domain module - FPS validation
-        """
-        # Arrange
-        from w2t_bkin.domain import VideoMetadata
-
-        # Act & Assert
-        with pytest.raises((ValueError, TypeError)):
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam.mp4"),
-                codec="h264",
-                fps=-30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-
-    def test_Should_ValidateDuration_When_Creating_MR2(self):
-        """THE MODULE SHALL validate duration is non-negative.
-
-        Requirements: MR-2
-        Issue: Domain module - Duration validation
-        """
-        # Arrange
-        from w2t_bkin.domain import VideoMetadata
-
-        # Act & Assert
-        with pytest.raises((ValueError, TypeError)):
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=-60.0,
-                resolution=(1920, 1080),
-            )
-
-    def test_Should_ConvertToDict_When_Serializing_MR1(self):
-        """THE MODULE SHALL support serialization to dict.
-
-        Requirements: MR-1
-        Issue: Domain module - VideoMetadata serialization
-        """
-        # Arrange
-        from w2t_bkin.domain import VideoMetadata
-
         video = VideoMetadata(
             camera_id=0,
             path=Path("/data/cam0.mp4"),
@@ -123,391 +41,135 @@ class TestVideoMetadata:
             resolution=(1920, 1080),
         )
 
-        # Act
-        video_dict = video.model_dump() if hasattr(video, "model_dump") else video.__dict__
-
         # Assert
-        assert isinstance(video_dict, dict)
-        assert video_dict["camera_id"] == 0
-        assert video_dict["codec"] == "h264"
+        assert video.camera_id == 0
+        assert video.path == Path("/data/cam0.mp4")
+        assert video.codec == "h264"
+        assert video.fps == 30.0
+        assert video.duration == 60.0
+        assert video.resolution == (1920, 1080)
 
+    def test_Should_RaiseValueError_When_NegativeCameraId_Issue_Domain_VideoIdValidation(self):
+        """THE SYSTEM SHALL reject negative camera_id.
 
-class TestTimestampSeries:
-    """Test TimestampSeries domain model (MR-1, MR-2, Design §3.2)."""
-
-    def test_Should_CreateValidModel_When_MonotonicTimestamps_MR1_MR2(self):
-        """THE MODULE SHALL create TimestampSeries with monotonic validation.
-
-        Requirements: MR-1, MR-2, Design §3.2 - Strict monotonic increase
-        Issue: Domain module - TimestampSeries model
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - VideoMetadata camera_id validation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-
-        frame_indices = [0, 1, 2, 3, 4]
-        timestamps = [0.0, 0.033, 0.066, 0.099, 0.132]
-
-        # Act
-        ts_series = TimestampSeries(frame_indices=frame_indices, timestamps=timestamps)
-
-        # Assert
-        assert len(ts_series.frame_indices) == 5
-        assert len(ts_series.timestamps) == 5
-        assert ts_series.timestamps[0] == 0.0
-
-    def test_Should_RaiseError_When_NonMonotonic_MR2(self):
-        """THE MODULE SHALL validate monotonicity for TimestampSeries.
-
-        Requirements: MR-2, Design §3.2 - Invariant enforcement
-        Issue: Domain module - Monotonicity validation
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-
-        frame_indices = [0, 1, 2, 3]
-        timestamps = [0.0, 0.033, 0.030, 0.066]  # Non-monotonic
+        from w2t_bkin.domain import VideoMetadata
 
         # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            TimestampSeries(frame_indices=frame_indices, timestamps=timestamps)
+        with pytest.raises(ValueError) as exc_info:
+            VideoMetadata(
+                camera_id=-1,
+                path=Path("/data/cam.mp4"),
+                codec="h264",
+                fps=30.0,
+                duration=60.0,
+                resolution=(1920, 1080),
+            )
+        assert "camera_id" in str(exc_info.value).lower()
 
-    def test_Should_RaiseError_When_LengthMismatch_MR2(self):
-        """THE MODULE SHALL validate frame_indices and timestamps have same length.
+    def test_Should_RaiseValueError_When_NonPositiveFPS_Issue_Domain_VideoFPSValidation(self):
+        """THE SYSTEM SHALL reject non-positive fps.
 
-        Requirements: MR-2
-        Issue: Domain module - Length validation
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - VideoMetadata fps validation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-
-        frame_indices = [0, 1, 2]
-        timestamps = [0.0, 0.033]  # Mismatched length
+        from w2t_bkin.domain import VideoMetadata
 
         # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            TimestampSeries(frame_indices=frame_indices, timestamps=timestamps)
+        with pytest.raises(ValueError) as exc_info:
+            VideoMetadata(
+                camera_id=0,
+                path=Path("/data/cam.mp4"),
+                codec="h264",
+                fps=0.0,
+                duration=60.0,
+                resolution=(1920, 1080),
+            )
+        assert "fps" in str(exc_info.value).lower()
 
-    def test_Should_ValidateNonNegativeTimestamps_When_Creating_MR2(self):
-        """THE MODULE SHALL validate timestamps are non-negative.
+    def test_Should_RaiseValueError_When_NegativeDuration_Issue_Domain_VideoDurationValidation(self):
+        """THE SYSTEM SHALL reject negative duration.
 
-        Requirements: MR-2
-        Issue: Domain module - Timestamp value validation
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - VideoMetadata duration validation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-
-        frame_indices = [0, 1, 2]
-        timestamps = [-0.1, 0.0, 0.033]  # Negative timestamp
+        from w2t_bkin.domain import VideoMetadata
 
         # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            TimestampSeries(frame_indices=frame_indices, timestamps=timestamps)
+        with pytest.raises(ValueError) as exc_info:
+            VideoMetadata(
+                camera_id=0,
+                path=Path("/data/cam.mp4"),
+                codec="h264",
+                fps=30.0,
+                duration=-10.0,
+                resolution=(1920, 1080),
+            )
+        assert "duration" in str(exc_info.value).lower()
 
-    def test_Should_SupportIteration_When_Accessing_MR1(self):
-        """THE MODULE SHALL support iteration over frame/timestamp pairs.
+    def test_Should_RaiseValueError_When_InvalidResolution_Issue_Domain_VideoResolutionValidation(self):
+        """THE SYSTEM SHALL reject invalid resolution tuples.
 
-        Requirements: MR-1
-        Issue: Domain module - TimestampSeries usability
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - VideoMetadata resolution validation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
+        from w2t_bkin.domain import VideoMetadata
 
-        frame_indices = [0, 1, 2]
-        timestamps = [0.0, 0.033, 0.066]
-        ts_series = TimestampSeries(frame_indices=frame_indices, timestamps=timestamps)
+        # Act & Assert - resolution with zero
+        with pytest.raises(ValueError) as exc_info:
+            VideoMetadata(
+                camera_id=0,
+                path=Path("/data/cam.mp4"),
+                codec="h264",
+                fps=30.0,
+                duration=60.0,
+                resolution=(0, 1080),
+            )
+        assert "resolution" in str(exc_info.value).lower()
 
-        # Act
-        pairs = list(zip(ts_series.frame_indices, ts_series.timestamps))
+    def test_Should_BeFrozen_When_Immutable_Issue_Domain_VideoImmutability(self):
+        """THE SYSTEM SHALL make VideoMetadata immutable.
 
-        # Assert
-        assert len(pairs) == 3
-        assert pairs[0] == (0, 0.0)
-        assert pairs[2] == (2, 0.066)
-
-
-class TestPoseTable:
-    """Test PoseTable domain model (MR-1, Design §3.3)."""
-
-    def test_Should_CreateValidModel_When_PoseDataProvided_MR1(self):
-        """THE MODULE SHALL provide PoseTable typed model.
-
-        Requirements: MR-1, Design §3.3 - Pose harmonized table
-        Issue: Domain module - PoseTable model
+        Requirements: NFR-1 (Reproducibility)
+        Issue: Domain - VideoMetadata immutability
         """
         # Arrange
-        from w2t_bkin.domain import PoseTable
+        from w2t_bkin.domain import VideoMetadata
 
-        # Act
-        pose_table = PoseTable(
-            time=[0.0, 0.033, 0.066],
-            keypoint=["nose", "nose", "nose"],
-            x_px=[100.0, 102.0, 104.0],
-            y_px=[200.0, 202.0, 204.0],
-            confidence=[0.95, 0.96, 0.94],
+        video = VideoMetadata(
+            camera_id=0,
+            path=Path("/data/cam.mp4"),
+            codec="h264",
+            fps=30.0,
+            duration=60.0,
+            resolution=(1920, 1080),
         )
 
-        # Assert
-        assert len(pose_table.time) == 3
-        assert pose_table.keypoint[0] == "nose"
-        assert pose_table.x_px[0] == 100.0
-        assert pose_table.confidence[0] == 0.95
-
-    def test_Should_ValidateConfidenceRange_When_Creating_MR2(self):
-        """THE MODULE SHALL validate confidence values in [0, 1].
-
-        Requirements: MR-2, Design §3.3
-        Issue: Domain module - Confidence validation
-        """
-        # Arrange
-        from w2t_bkin.domain import PoseTable
-
-        # Act & Assert - Confidence > 1
-        with pytest.raises((ValueError, AssertionError)):
-            PoseTable(
-                time=[0.0],
-                keypoint=["nose"],
-                x_px=[100.0],
-                y_px=[200.0],
-                confidence=[1.5],
-            )
-
-    def test_Should_ValidateNegativeConfidence_When_Creating_MR2(self):
-        """THE MODULE SHALL reject negative confidence values.
-
-        Requirements: MR-2
-        Issue: Domain module - Confidence bounds
-        """
-        # Arrange
-        from w2t_bkin.domain import PoseTable
-
         # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            PoseTable(
-                time=[0.0],
-                keypoint=["nose"],
-                x_px=[100.0],
-                y_px=[200.0],
-                confidence=[-0.1],
-            )
-
-    def test_Should_ValidateEqualLengths_When_Creating_MR2(self):
-        """THE MODULE SHALL validate all arrays have equal length.
-
-        Requirements: MR-2
-        Issue: Domain module - Array length consistency
-        """
-        # Arrange
-        from w2t_bkin.domain import PoseTable
-
-        # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            PoseTable(
-                time=[0.0, 0.033],
-                keypoint=["nose"],  # Mismatched length
-                x_px=[100.0, 102.0],
-                y_px=[200.0, 202.0],
-                confidence=[0.95, 0.96],
-            )
-
-    def test_Should_SupportMetadata_When_Provided_MR1(self):
-        """THE MODULE SHALL support metadata sidecar for skeleton/model info.
-
-        Requirements: MR-1, Design §3.3 - Metadata sidecar
-        Issue: Domain module - PoseTable metadata
-        """
-        # Arrange
-        from w2t_bkin.domain import PoseTable
-
-        metadata = {
-            "skeleton": "mouse_skeleton_v1",
-            "model_hash": "abc123",
-        }
-
-        # Act
-        pose_table = PoseTable(
-            time=[0.0],
-            keypoint=["nose"],
-            x_px=[100.0],
-            y_px=[200.0],
-            confidence=[0.95],
-            metadata=metadata,
-        )
-
-        # Assert
-        assert pose_table.metadata["skeleton"] == "mouse_skeleton_v1"
-        assert pose_table.metadata["model_hash"] == "abc123"
+        with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
+            video.camera_id = 1
 
 
-class TestMetricsTable:
-    """Test MetricsTable domain model for Facemap (MR-1, Design §3.4)."""
-
-    def test_Should_CreateValidModel_When_MetricsProvided_MR1(self):
-        """THE MODULE SHALL provide MetricsTable typed model.
-
-        Requirements: MR-1, Design §3.4 - Facemap metrics
-        Issue: Domain module - MetricsTable model
-        """
-        # Arrange
-        from w2t_bkin.domain import MetricsTable
-
-        # Act
-        metrics = MetricsTable(
-            time=[0.0, 0.033, 0.066],
-            pupil_area=[100.0, 102.0, 104.0],
-            motion_energy=[0.5, 0.6, 0.55],
-        )
-
-        # Assert
-        assert len(metrics.time) == 3
-        assert metrics.pupil_area[0] == 100.0
-        assert metrics.motion_energy[1] == 0.6
-
-    def test_Should_AllowNaN_When_MissingSamples_MR1(self):
-        """THE MODULE SHALL preserve NaN for missing samples.
-
-        Requirements: MR-1, Design §3.4 - Missing samples as NaN
-        Issue: Domain module - NaN handling
-        """
-        # Arrange
-        import math
-
-        from w2t_bkin.domain import MetricsTable
-
-        # Act
-        metrics = MetricsTable(
-            time=[0.0, 0.033, 0.066],
-            pupil_area=[100.0, float("nan"), 104.0],
-            motion_energy=[0.5, 0.6, float("nan")],
-        )
-
-        # Assert
-        assert math.isnan(metrics.pupil_area[1])
-        assert math.isnan(metrics.motion_energy[2])
-
-    def test_Should_ValidateEqualLengths_When_Creating_MR2(self):
-        """THE MODULE SHALL validate all metric arrays have equal length.
-
-        Requirements: MR-2
-        Issue: Domain module - Metrics length validation
-        """
-        # Arrange
-        from w2t_bkin.domain import MetricsTable
-
-        # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            MetricsTable(
-                time=[0.0, 0.033, 0.066],
-                pupil_area=[100.0, 102.0],  # Mismatched length
-                motion_energy=[0.5, 0.6, 0.55],
-            )
-
-    def test_Should_SupportDynamicMetrics_When_Created_MR1(self):
-        """THE MODULE SHALL support dynamic metric columns.
-
-        Requirements: MR-1, Design §3.4 - Wide table with variable metrics
-        Issue: Domain module - Dynamic metrics support
-        """
-        # Arrange
-        from w2t_bkin.domain import MetricsTable
-
-        # Act
-        metrics = MetricsTable(
-            time=[0.0, 0.033],
-            custom_metric_1=[1.0, 2.0],
-            custom_metric_2=[3.0, 4.0],
-        )
-
-        # Assert
-        assert hasattr(metrics, "custom_metric_1")
-        assert hasattr(metrics, "custom_metric_2")
-        assert metrics.custom_metric_1[0] == 1.0
-
-
-class TestTrialsTable:
-    """Test TrialsTable domain model for events (MR-1, Design §3.5)."""
-
-    def test_Should_CreateValidModel_When_TrialsProvided_MR1(self):
-        """THE MODULE SHALL provide TrialsTable typed model.
-
-        Requirements: MR-1, Design §3.5 - Trials table
-        Issue: Domain module - TrialsTable model
-        """
-        # Arrange
-        from w2t_bkin.domain import TrialsTable
-
-        # Act
-        trials = TrialsTable(
-            trial_id=[1, 2, 3],
-            start_time=[0.0, 10.0, 20.0],
-            stop_time=[9.0, 19.0, 29.0],
-            phase_first=["baseline", "stimulus", "baseline"],
-            phase_last=["baseline", "stimulus", "baseline"],
-            declared_duration=[9.0, 9.0, 9.0],
-            observed_span=[9.0, 9.0, 9.0],
-            duration_delta=[0.0, 0.0, 0.0],
-            qc_flags=["", "", ""],
-        )
-
-        # Assert
-        assert len(trials.trial_id) == 3
-        assert trials.start_time[0] == 0.0
-        assert trials.stop_time[0] == 9.0
-
-    def test_Should_ValidatePositiveDuration_When_Creating_MR2(self):
-        """THE MODULE SHALL validate stop_time > start_time.
-
-        Requirements: MR-2
-        Issue: Domain module - Trial duration validation
-        """
-        # Arrange
-        from w2t_bkin.domain import TrialsTable
-
-        # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            TrialsTable(
-                trial_id=[1],
-                start_time=[10.0],
-                stop_time=[5.0],  # Invalid: stop < start
-                phase_first=["baseline"],
-                phase_last=["baseline"],
-                declared_duration=[5.0],
-                observed_span=[5.0],
-                duration_delta=[0.0],
-                qc_flags=[""],
-            )
-
-    def test_Should_ValidateUniqueTrialIDs_When_Creating_MR2(self):
-        """THE MODULE SHALL validate trial IDs are unique.
-
-        Requirements: MR-2
-        Issue: Domain module - Trial ID uniqueness
-        """
-        # Arrange
-        from w2t_bkin.domain import TrialsTable
-
-        # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            TrialsTable(
-                trial_id=[1, 1, 2],  # Duplicate trial ID
-                start_time=[0.0, 10.0, 20.0],
-                stop_time=[9.0, 19.0, 29.0],
-                phase_first=["baseline", "stimulus", "baseline"],
-                phase_last=["baseline", "stimulus", "baseline"],
-                declared_duration=[9.0, 9.0, 9.0],
-                observed_span=[9.0, 9.0, 9.0],
-                duration_delta=[0.0, 0.0, 0.0],
-                qc_flags=["", "", ""],
-            )
+# ============================================================================
+# Manifest Tests
+# ============================================================================
 
 
 class TestManifest:
-    """Test Manifest domain model (MR-1, Design §3.1)."""
+    """Test Manifest domain model (API §3.1)."""
 
-    def test_Should_CreateValidModel_When_AllFieldsProvided_MR1(self):
-        """THE MODULE SHALL provide Manifest typed model.
+    def test_Should_CreateManifest_When_ValidInputs_Issue_Domain_ManifestCreation(self):
+        """THE SYSTEM SHALL create Manifest with valid inputs.
 
-        Requirements: MR-1, Design §3.1 - Manifest structure
-        Issue: Domain module - Manifest model
+        Requirements: FR-1 (Ingest assets), NFR-1 (Reproducibility)
+        Design: §3.1 (Manifest JSON)
+        Issue: Domain - Manifest creation
         """
         # Arrange
         from w2t_bkin.domain import Manifest, VideoMetadata
@@ -523,26 +185,25 @@ class TestManifest:
             )
             for i in range(5)
         ]
+        sync = [{"path": "/data/sync_ttl.csv", "type": "ttl"}]
 
         # Act
         manifest = Manifest(
-            session_id="session_001",
+            session_id="test_001",
             videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={"project": {"name": "test"}},
-            provenance={"git_commit": "abc123"},
+            sync=sync,
         )
 
         # Assert
-        assert manifest.session_id == "session_001"
+        assert manifest.session_id == "test_001"
         assert len(manifest.videos) == 5
-        assert manifest.config_snapshot["project"]["name"] == "test"
+        assert len(manifest.sync) == 1
 
-    def test_Should_ValidateAbsolutePaths_When_Creating_MR2(self):
-        """THE MODULE SHALL validate all paths are absolute.
+    def test_Should_RaiseValueError_When_EmptySessionId_Issue_Domain_ManifestSessionValidation(self):
+        """THE SYSTEM SHALL reject empty session_id.
 
-        Requirements: MR-2, Design §3.1 - Invariant: All paths absolute
-        Issue: Domain module - Path validation
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - Manifest session_id validation
         """
         # Arrange
         from w2t_bkin.domain import Manifest, VideoMetadata
@@ -550,7 +211,49 @@ class TestManifest:
         videos = [
             VideoMetadata(
                 camera_id=0,
-                path=Path("relative/path.mp4"),  # Relative path
+                path=Path("/data/cam0.mp4"),
+                codec="h264",
+                fps=30.0,
+                duration=60.0,
+                resolution=(1920, 1080),
+            )
+        ]
+        sync = [{"path": "/data/sync.csv", "type": "ttl"}]
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            Manifest(session_id="", videos=videos, sync=sync)
+        assert "session_id" in str(exc_info.value).lower()
+
+    def test_Should_RaiseValueError_When_EmptyVideosList_Issue_Domain_ManifestVideosValidation(self):
+        """THE SYSTEM SHALL reject empty videos list.
+
+        Requirements: FR-1 (Ingest five camera videos)
+        Issue: Domain - Manifest videos validation
+        """
+        # Arrange
+        from w2t_bkin.domain import Manifest
+
+        sync = [{"path": "/data/sync.csv", "type": "ttl"}]
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            Manifest(session_id="test_001", videos=[], sync=sync)
+        assert "videos" in str(exc_info.value).lower()
+
+    def test_Should_RaiseValueError_When_EmptySyncList_Issue_Domain_ManifestSyncValidation(self):
+        """THE SYSTEM SHALL reject empty sync list.
+
+        Requirements: FR-2 (Hardware sync inputs required)
+        Issue: Domain - Manifest sync validation
+        """
+        # Arrange
+        from w2t_bkin.domain import Manifest, VideoMetadata
+
+        videos = [
+            VideoMetadata(
+                camera_id=0,
+                path=Path("/data/cam0.mp4"),
                 codec="h264",
                 fps=30.0,
                 duration=60.0,
@@ -559,20 +262,15 @@ class TestManifest:
         ]
 
         # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            Manifest(
-                session_id="session_001",
-                videos=videos,
-                sync=[],
-                config_snapshot={},
-                provenance={},
-            )
+        with pytest.raises(ValueError) as exc_info:
+            Manifest(session_id="test_001", videos=videos, sync=[])
+        assert "sync" in str(exc_info.value).lower()
 
-    def test_Should_OmitOptionalResources_When_NotPresent_MR1(self):
-        """THE MODULE SHALL omit optional resources rather than use null.
+    def test_Should_AllowOptionalFields_When_NotProvided_Issue_Domain_ManifestOptionals(self):
+        """THE SYSTEM SHALL allow optional fields (pose, facemap, events).
 
-        Requirements: MR-1, Design §3.1 - Optional resources omitted
-        Issue: Domain module - Optional field handling
+        Requirements: NFR-7 (Modularity - optional stages)
+        Issue: Domain - Manifest optional fields
         """
         # Arrange
         from w2t_bkin.domain import Manifest, VideoMetadata
@@ -587,243 +285,656 @@ class TestManifest:
                 resolution=(1920, 1080),
             )
         ]
+        sync = [{"path": "/data/sync.csv", "type": "ttl"}]
 
         # Act
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[],
-            config_snapshot={},
-            provenance={},
-            # pose, facemap, events omitted
-        )
+        manifest = Manifest(session_id="test_001", videos=videos, sync=sync)
 
         # Assert
-        manifest_dict = manifest.model_dump(exclude_none=True) if hasattr(manifest, "model_dump") else vars(manifest)
-        # Optional fields should either be missing or empty lists (not None)
-        if "pose" in manifest_dict:
-            assert manifest_dict["pose"] is not None
-        if "facemap" in manifest_dict:
-            assert manifest_dict["facemap"] is not None
+        assert manifest.events == []
+        assert manifest.pose == []
+        assert manifest.facemap == []
 
-    def test_Should_SerializeToJSON_When_Required_MR1(self):
-        """THE MODULE SHALL support JSON serialization.
 
-        Requirements: MR-1
-        Issue: Domain module - Manifest serialization
+# ============================================================================
+# TimestampSeries Tests
+# ============================================================================
+
+
+class TestTimestampSeries:
+    """Test TimestampSeries domain model (API §3.1)."""
+
+    def test_Should_CreateTimestampSeries_When_ValidInputs_Issue_Domain_TimestampCreation(self):
+        """THE SYSTEM SHALL create TimestampSeries with monotonic timestamps.
+
+        Requirements: FR-2 (Compute per-frame timestamps)
+        Design: §3.2 (Timestamp CSV - monotonic increase)
+        Issue: Domain - TimestampSeries creation
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        from w2t_bkin.domain import TimestampSeries
 
         # Act
-        if hasattr(manifest, "model_dump_json"):
-            json_str = manifest.model_dump_json()
-        else:
-            json_str = json.dumps(manifest, default=str)
-
-        # Assert
-        assert isinstance(json_str, str)
-        parsed = json.loads(json_str)
-        assert parsed["session_id"] == "session_001"
-
-
-class TestQCSummary:
-    """Test QCSummary domain model (MR-1, Design §3.6)."""
-
-    def test_Should_CreateValidModel_When_SummaryDataProvided_MR1(self):
-        """THE MODULE SHALL provide QCSummary typed model.
-
-        Requirements: MR-1, Design §3.6 - QC summary JSON
-        Issue: Domain module - QCSummary model
-        """
-        # Arrange
-        from w2t_bkin.domain import QCSummary
-
-        # Act
-        summary = QCSummary(
-            sync={"drift_max_ms": 1.5, "dropped_frames": 2},
-            pose={"confidence_median": 0.95, "total_keypoints": 1000},
-            facemap={"pupil_area_mean": 100.0},
-            events={"trial_count": 10},
-            provenance={"pipeline_version": "0.1.0"},
+        ts = TimestampSeries(
+            frame_index=[0, 1, 2, 3],
+            timestamp_sec=[0.0, 0.0333, 0.0666, 0.1000],
         )
 
         # Assert
-        assert summary.sync["drift_max_ms"] == 1.5
-        assert summary.pose["confidence_median"] == 0.95
-        assert summary.provenance["pipeline_version"] == "0.1.0"
+        assert ts.n_frames == 4
+        assert ts.duration == pytest.approx(0.1000, abs=1e-6)
 
-    def test_Should_SupportOptionalSections_When_Creating_MR1(self):
-        """THE MODULE SHALL support optional QC sections.
+    def test_Should_RaiseValueError_When_LengthMismatch_Issue_Domain_TimestampLengthValidation(self):
+        """THE SYSTEM SHALL reject mismatched frame_index and timestamp_sec lengths.
 
-        Requirements: MR-1
-        Issue: Domain module - Optional QC sections
+        Requirements: Design §3.2 (Timestamp CSV)
+        Issue: Domain - TimestampSeries length validation
         """
         # Arrange
-        from w2t_bkin.domain import QCSummary
-
-        # Act - Only some sections provided
-        summary = QCSummary(
-            sync={"drift_max_ms": 1.5},
-            provenance={"pipeline_version": "0.1.0"},
-        )
-
-        # Assert
-        assert summary.sync["drift_max_ms"] == 1.5
-        assert summary.provenance["pipeline_version"] == "0.1.0"
-
-
-class TestDomainErrors:
-    """Test domain-specific error classes (Design §6)."""
-
-    def test_Should_ProvideCustomErrors_When_Importing_MR1(self):
-        """THE MODULE SHALL provide domain-specific error classes.
-
-        Requirements: MR-1, Design §6 - Error handling
-        Issue: Domain module - Custom exceptions
-        """
-        # Arrange & Act
-        from w2t_bkin.domain import (
-            DataIntegrityWarning,
-            MissingInputError,
-            TimestampMismatchError,
-        )
-
-        # Assert - Errors should be importable
-        assert issubclass(MissingInputError, Exception)
-        assert issubclass(TimestampMismatchError, Exception)
-        assert issubclass(DataIntegrityWarning, Warning)
-
-    def test_Should_SubclassPipelineError_When_Defined_MR1(self):
-        """THE MODULE SHALL ensure all errors subclass PipelineError.
-
-        Requirements: MR-1, Design §6 - Central logging
-        Issue: Domain module - Error hierarchy
-        """
-        # Arrange
-        from w2t_bkin.domain import MissingInputError, PipelineError
+        from w2t_bkin.domain import TimestampSeries
 
         # Act & Assert
-        assert issubclass(MissingInputError, PipelineError)
+        with pytest.raises(ValueError) as exc_info:
+            TimestampSeries(
+                frame_index=[0, 1, 2],
+                timestamp_sec=[0.0, 0.0333],
+            )
+        assert "equal length" in str(exc_info.value).lower()
 
+    def test_Should_RaiseValueError_When_Empty_Issue_Domain_TimestampEmptyValidation(self):
+        """THE SYSTEM SHALL reject empty TimestampSeries.
 
-class TestModelImmutability:
-    """Test model immutability and small focused design (M-NFR-1)."""
-
-    def test_Should_BeImmutable_When_CreatingVideoMetadata_MNFR1(self):
-        """THE MODULE SHALL keep models immutable where appropriate.
-
-        Requirements: M-NFR-1
-        Issue: Domain module - Immutability
+        Requirements: Design §3.2 (Timestamp CSV)
+        Issue: Domain - TimestampSeries empty validation
         """
         # Arrange
-        from w2t_bkin.domain import VideoMetadata
+        from w2t_bkin.domain import TimestampSeries
 
-        video = VideoMetadata(
-            camera_id=0,
-            path=Path("/data/cam0.mp4"),
-            codec="h264",
-            fps=30.0,
-            duration=60.0,
-            resolution=(1920, 1080),
-        )
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            TimestampSeries(frame_index=[], timestamp_sec=[])
+        assert "empty" in str(exc_info.value).lower()
 
-        # Act & Assert - Should not allow modification
-        with pytest.raises((AttributeError, TypeError, ValueError)):
-            video.camera_id = 1
+    def test_Should_RaiseValueError_When_NonMonotonic_Issue_Domain_TimestampMonotonicValidation(self):
+        """THE SYSTEM SHALL reject non-monotonic timestamps.
 
-    def test_Should_AvoidCyclicDependencies_When_Importing_MNFR1(self):
-        """THE MODULE SHALL avoid cyclic dependencies.
-
-        Requirements: M-NFR-1
-        Issue: Domain module - Dependency management
-        """
-        # Arrange & Act
-        # Domain module should import cleanly without circular dependencies
-        import w2t_bkin.domain
-
-        # Assert - Should be able to access all models
-        assert hasattr(w2t_bkin.domain, "VideoMetadata")
-        assert hasattr(w2t_bkin.domain, "TimestampSeries")
-        assert hasattr(w2t_bkin.domain, "PoseTable")
-        assert hasattr(w2t_bkin.domain, "Manifest")
-
-
-class TestBackwardCompatibility:
-    """Test backward compatibility considerations (M-NFR-2)."""
-
-    def test_Should_SupportOptionalFields_When_Adding_MNFR2(self):
-        """THE MODULE SHALL support backward-compatible changes.
-
-        Requirements: M-NFR-2
-        Issue: Domain module - Backward compatibility
+        Requirements: Design §3.2 (Timestamp CSV - strict monotonic increase)
+        Issue: Domain - TimestampSeries monotonic validation
         """
         # Arrange
-        from w2t_bkin.domain import VideoMetadata
+        from w2t_bkin.domain import TimestampSeries
 
-        # Act - Create with minimal required fields (old schema)
-        video = VideoMetadata(
-            camera_id=0,
-            path=Path("/data/cam0.mp4"),
-            codec="h264",
-            fps=30.0,
-            duration=60.0,
-            resolution=(1920, 1080),
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            TimestampSeries(
+                frame_index=[0, 1, 2, 3],
+                timestamp_sec=[0.0, 0.0333, 0.0333, 0.1000],  # Duplicate at index 2
+            )
+        assert "monotonic" in str(exc_info.value).lower()
+
+    def test_Should_ComputeDuration_When_ValidSeries_Issue_Domain_TimestampDuration(self):
+        """THE SYSTEM SHALL compute duration correctly.
+
+        Requirements: FR-2 (Timestamps in common session timebase)
+        Issue: Domain - TimestampSeries duration property
+        """
+        # Arrange
+        from w2t_bkin.domain import TimestampSeries
+
+        ts = TimestampSeries(
+            frame_index=[0, 1, 2],
+            timestamp_sec=[10.0, 10.5, 11.0],
         )
 
-        # Assert - Should work with base fields
-        assert video.camera_id == 0
+        # Act
+        duration = ts.duration
 
-    def test_Should_SerializeWithVersion_When_Appropriate_MNFR2(self):
-        """THE MODULE SHALL consider versioned schemas for compatibility.
+        # Assert
+        assert duration == pytest.approx(1.0, abs=1e-6)
 
-        Requirements: M-NFR-2, Design - Future notes
-        Issue: Domain module - Schema versioning
+
+# ============================================================================
+# SyncSummary Tests
+# ============================================================================
+
+
+class TestSyncSummary:
+    """Test SyncSummary domain model (API §3.1)."""
+
+    def test_Should_CreateSyncSummary_When_ValidInputs_Issue_Domain_SyncSummaryCreation(self):
+        """THE SYSTEM SHALL create SyncSummary with camera stats and drift.
+
+        Requirements: FR-3 (Detect drops/duplicates/drift)
+        Design: §3.6 (QC Summary JSON)
+        Issue: Domain - SyncSummary creation
+        """
+        # Arrange
+        from w2t_bkin.domain import SyncSummary
+
+        # Act
+        summary = SyncSummary(
+            per_camera_stats={"cam0": {"n_frames": 300}, "cam1": {"n_frames": 298}},
+            drift_stats={"max": 1.5, "mean": 0.3, "std": 0.5},
+            drop_counts={"cam0": 0, "cam1": 2},
+        )
+
+        # Assert
+        assert len(summary.per_camera_stats) == 2
+        assert summary.drift_stats["max"] == 1.5
+        assert summary.drop_counts["cam1"] == 2
+
+    def test_Should_RaiseValueError_When_EmptyCameraStats_Issue_Domain_SyncSummaryValidation(self):
+        """THE SYSTEM SHALL reject empty per_camera_stats.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - SyncSummary validation
+        """
+        # Arrange
+        from w2t_bkin.domain import SyncSummary
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            SyncSummary(
+                per_camera_stats={},
+                drift_stats={},
+                drop_counts={},
+            )
+        assert "per_camera_stats" in str(exc_info.value).lower()
+
+    def test_Should_AllowWarnings_When_Provided_Issue_Domain_SyncSummaryWarnings(self):
+        """THE SYSTEM SHALL support optional warnings list.
+
+        Requirements: FR-3 (Report drift/drops with summary)
+        Issue: Domain - SyncSummary warnings
+        """
+        # Arrange
+        from w2t_bkin.domain import SyncSummary
+
+        # Act
+        summary = SyncSummary(
+            per_camera_stats={"cam0": {"n_frames": 300}},
+            drift_stats={},
+            drop_counts={},
+            warnings=["Drift exceeded threshold on cam1"],
+        )
+
+        # Assert
+        assert len(summary.warnings) == 1
+        assert "Drift" in summary.warnings[0]
+
+
+# ============================================================================
+# PoseSample & PoseTable Tests
+# ============================================================================
+
+
+class TestPoseSample:
+    """Test PoseSample domain model (API §3.1)."""
+
+    def test_Should_CreatePoseSample_When_ValidInputs_Issue_Domain_PoseSampleCreation(self):
+        """THE SYSTEM SHALL create PoseSample with confidence in [0,1].
+
+        Requirements: FR-5 (Import pose with confidence scores)
+        Design: §3.3 (Pose Harmonized Table)
+        Issue: Domain - PoseSample creation
+        """
+        # Arrange
+        from w2t_bkin.domain import PoseSample
+
+        # Act
+        sample = PoseSample(
+            time=1.0,
+            keypoint="nose",
+            x_px=320.5,
+            y_px=240.2,
+            confidence=0.95,
+        )
+
+        # Assert
+        assert sample.time == 1.0
+        assert sample.keypoint == "nose"
+        assert sample.confidence == 0.95
+
+    def test_Should_RaiseValueError_When_ConfidenceOutOfRange_Issue_Domain_PoseSampleConfidenceValidation(self):
+        """THE SYSTEM SHALL reject confidence outside [0,1].
+
+        Requirements: Design §3.3 (Pose confidence in [0,1])
+        Issue: Domain - PoseSample confidence validation
+        """
+        # Arrange
+        from w2t_bkin.domain import PoseSample
+
+        # Act & Assert - confidence > 1
+        with pytest.raises(ValueError) as exc_info:
+            PoseSample(time=1.0, keypoint="nose", x_px=320.0, y_px=240.0, confidence=1.5)
+        assert "confidence" in str(exc_info.value).lower()
+
+        # Act & Assert - confidence < 0
+        with pytest.raises(ValueError):
+            PoseSample(time=1.0, keypoint="nose", x_px=320.0, y_px=240.0, confidence=-0.1)
+
+    def test_Should_RaiseValueError_When_EmptyKeypoint_Issue_Domain_PoseSampleKeypointValidation(self):
+        """THE SYSTEM SHALL reject empty keypoint name.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - PoseSample keypoint validation
+        """
+        # Arrange
+        from w2t_bkin.domain import PoseSample
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            PoseSample(time=1.0, keypoint="", x_px=320.0, y_px=240.0, confidence=0.9)
+        assert "keypoint" in str(exc_info.value).lower()
+
+
+class TestPoseTable:
+    """Test PoseTable domain model (API §3.1)."""
+
+    def test_Should_CreatePoseTable_When_ValidRecords_Issue_Domain_PoseTableCreation(self):
+        """THE SYSTEM SHALL create PoseTable from pose samples.
+
+        Requirements: FR-5 (Harmonize pose outputs)
+        Design: §3.3 (Pose Harmonized Table)
+        Issue: Domain - PoseTable creation
+        """
+        # Arrange
+        from w2t_bkin.domain import PoseSample, PoseTable
+
+        records = [
+            PoseSample(time=1.0, keypoint="nose", x_px=320.0, y_px=240.0, confidence=0.95),
+            PoseSample(time=1.0, keypoint="left_ear", x_px=310.0, y_px=230.0, confidence=0.90),
+        ]
+
+        # Act
+        table = PoseTable(records=records, skeleton_meta={"model": "dlc"})
+
+        # Assert
+        assert table.n_samples == 2
+        assert table.keypoints == {"nose", "left_ear"}
+        assert table.skeleton_meta["model"] == "dlc"
+
+    def test_Should_RaiseValueError_When_EmptyRecords_Issue_Domain_PoseTableValidation(self):
+        """THE SYSTEM SHALL reject empty pose records.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - PoseTable validation
+        """
+        # Arrange
+        from w2t_bkin.domain import PoseTable
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            PoseTable(records=[])
+        assert "empty" in str(exc_info.value).lower()
+
+    def test_Should_ComputeKeypoints_When_MultipleRecords_Issue_Domain_PoseTableKeypoints(self):
+        """THE SYSTEM SHALL extract unique keypoint names.
+
+        Requirements: FR-5 (Canonical skeleton mapping)
+        Issue: Domain - PoseTable keypoints property
+        """
+        # Arrange
+        from w2t_bkin.domain import PoseSample, PoseTable
+
+        records = [
+            PoseSample(time=1.0, keypoint="nose", x_px=320.0, y_px=240.0, confidence=0.95),
+            PoseSample(time=1.5, keypoint="nose", x_px=321.0, y_px=241.0, confidence=0.93),
+            PoseSample(time=1.0, keypoint="tail", x_px=400.0, y_px=300.0, confidence=0.85),
+        ]
+
+        # Act
+        table = PoseTable(records=records)
+
+        # Assert
+        assert table.keypoints == {"nose", "tail"}
+        assert table.n_samples == 3
+
+
+# ============================================================================
+# FacemapMetrics Tests
+# ============================================================================
+
+
+class TestFacemapMetrics:
+    """Test FacemapMetrics domain model (API §3.1)."""
+
+    def test_Should_CreateFacemapMetrics_When_ValidInputs_Issue_Domain_FacemapCreation(self):
+        """THE SYSTEM SHALL create FacemapMetrics with aligned time series.
+
+        Requirements: FR-6 (Import/compute facial metrics)
+        Design: §3.4 (Facemap Metrics)
+        Issue: Domain - FacemapMetrics creation
+        """
+        # Arrange
+        from w2t_bkin.domain import FacemapMetrics
+
+        # Act
+        metrics = FacemapMetrics(
+            time=[0.0, 0.033, 0.066],
+            metric_columns={
+                "pupil_area": [100.0, 105.0, 102.0],
+                "motion_energy": [0.5, 0.6, 0.55],
+            },
+        )
+
+        # Assert
+        assert metrics.n_samples == 3
+        assert metrics.metrics == ["pupil_area", "motion_energy"]
+
+    def test_Should_RaiseValueError_When_EmptyTime_Issue_Domain_FacemapTimeValidation(self):
+        """THE SYSTEM SHALL reject empty time series.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - FacemapMetrics time validation
+        """
+        # Arrange
+        from w2t_bkin.domain import FacemapMetrics
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            FacemapMetrics(time=[], metric_columns={})
+        assert "time" in str(exc_info.value).lower()
+
+    def test_Should_RaiseValueError_When_LengthMismatch_Issue_Domain_FacemapLengthValidation(self):
+        """THE SYSTEM SHALL reject metric columns with mismatched lengths.
+
+        Requirements: Design §3.4 (Facemap Metrics)
+        Issue: Domain - FacemapMetrics length validation
+        """
+        # Arrange
+        from w2t_bkin.domain import FacemapMetrics
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            FacemapMetrics(
+                time=[0.0, 0.033, 0.066],
+                metric_columns={
+                    "pupil_area": [100.0, 105.0],  # Only 2 values
+                },
+            )
+        assert "length" in str(exc_info.value).lower() or "metric" in str(exc_info.value).lower()
+
+
+# ============================================================================
+# Event & Trial Tests
+# ============================================================================
+
+
+class TestEvent:
+    """Test Event domain model (API §3.1)."""
+
+    def test_Should_CreateEvent_When_ValidInputs_Issue_Domain_EventCreation(self):
+        """THE SYSTEM SHALL create Event with time and kind.
+
+        Requirements: FR-11 (Import events as BehavioralEvents)
+        Design: §3.5 (Events table)
+        Issue: Domain - Event creation
+        """
+        # Arrange
+        from w2t_bkin.domain import Event
+
+        # Act
+        event = Event(time=5.0, kind="reward", payload={"amount": 1})
+
+        # Assert
+        assert event.time == 5.0
+        assert event.kind == "reward"
+        assert event.payload["amount"] == 1
+
+    def test_Should_RaiseValueError_When_EmptyKind_Issue_Domain_EventKindValidation(self):
+        """THE SYSTEM SHALL reject empty event kind.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - Event kind validation
+        """
+        # Arrange
+        from w2t_bkin.domain import Event
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            Event(time=5.0, kind="")
+        assert "kind" in str(exc_info.value).lower()
+
+    def test_Should_RaiseValueError_When_NegativeTime_Issue_Domain_EventTimeValidation(self):
+        """THE SYSTEM SHALL reject negative event time.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - Event time validation
+        """
+        # Arrange
+        from w2t_bkin.domain import Event
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            Event(time=-1.0, kind="start")
+        assert "time" in str(exc_info.value).lower()
+
+
+class TestTrial:
+    """Test Trial domain model (API §3.1)."""
+
+    def test_Should_CreateTrial_When_ValidInputs_Issue_Domain_TrialCreation(self):
+        """THE SYSTEM SHALL create Trial with valid time interval.
+
+        Requirements: FR-11 (Import events as Trials TimeIntervals)
+        Design: §3.5 (Trials Table)
+        Issue: Domain - Trial creation
+        """
+        # Arrange
+        from w2t_bkin.domain import Trial
+
+        # Act
+        trial = Trial(
+            trial_id=1,
+            start_time=10.0,
+            stop_time=15.0,
+            phase_first="baseline",
+            phase_last="stimulus",
+        )
+
+        # Assert
+        assert trial.trial_id == 1
+        assert trial.duration == pytest.approx(5.0, abs=1e-6)
+
+    def test_Should_RaiseValueError_When_StopBeforeStart_Issue_Domain_TrialTimeValidation(self):
+        """THE SYSTEM SHALL reject stop_time <= start_time.
+
+        Requirements: Design §3.5 (Trials non-overlapping)
+        Issue: Domain - Trial time validation
+        """
+        # Arrange
+        from w2t_bkin.domain import Trial
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            Trial(trial_id=1, start_time=10.0, stop_time=9.0)
+        assert "stop_time" in str(exc_info.value).lower()
+
+    def test_Should_RaiseValueError_When_NegativeStartTime_Issue_Domain_TrialStartValidation(self):
+        """THE SYSTEM SHALL reject negative start_time.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Domain - Trial start_time validation
+        """
+        # Arrange
+        from w2t_bkin.domain import Trial
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            Trial(trial_id=1, start_time=-1.0, stop_time=5.0)
+        assert "start_time" in str(exc_info.value).lower()
+
+    def test_Should_ComputeDuration_When_ValidTimes_Issue_Domain_TrialDuration(self):
+        """THE SYSTEM SHALL compute trial duration correctly.
+
+        Requirements: Design §3.5 (Trials Table - observed_span)
+        Issue: Domain - Trial duration property
+        """
+        # Arrange
+        from w2t_bkin.domain import Trial
+
+        trial = Trial(trial_id=1, start_time=2.5, stop_time=7.8)
+
+        # Act
+        duration = trial.duration
+
+        # Assert
+        assert duration == pytest.approx(5.3, abs=1e-6)
+
+
+# ============================================================================
+# NWBAssemblyOptions Tests
+# ============================================================================
+
+
+class TestNWBAssemblyOptions:
+    """Test NWBAssemblyOptions domain model (API §3.1)."""
+
+    def test_Should_CreateNWBOptions_When_Defaults_Issue_Domain_NWBOptionsCreation(self):
+        """THE SYSTEM SHALL create NWBAssemblyOptions with defaults.
+
+        Requirements: FR-7 (Export NWB), FR-10 (Configuration-driven)
+        Issue: Domain - NWBAssemblyOptions creation
+        """
+        # Arrange
+        from w2t_bkin.domain import NWBAssemblyOptions
+
+        # Act
+        options = NWBAssemblyOptions()
+
+        # Assert
+        assert options.link_external_video is True
+        assert options.file_name == ""
+
+    def test_Should_CreateNWBOptions_When_CustomValues_Issue_Domain_NWBOptionsCustom(self):
+        """THE SYSTEM SHALL accept custom NWB assembly options.
+
+        Requirements: FR-10 (Configuration-driven)
+        Issue: Domain - NWBAssemblyOptions custom values
+        """
+        # Arrange
+        from w2t_bkin.domain import NWBAssemblyOptions
+
+        # Act
+        options = NWBAssemblyOptions(
+            link_external_video=False,
+            file_name="custom_session.nwb",
+            session_description="Custom session",
+            lab="Test Lab",
+            institution="Test University",
+        )
+
+        # Assert
+        assert options.link_external_video is False
+        assert options.file_name == "custom_session.nwb"
+        assert options.lab == "Test Lab"
+
+
+# ============================================================================
+# QCReportSummary Tests
+# ============================================================================
+
+
+class TestQCReportSummary:
+    """Test QCReportSummary domain model (API §3.1)."""
+
+    def test_Should_CreateQCReportSummary_When_Defaults_Issue_Domain_QCReportCreation(self):
+        """THE SYSTEM SHALL create QCReportSummary with optional sections.
+
+        Requirements: FR-8 (Generate QC HTML report)
+        Design: §3.6 (QC Summary JSON)
+        Issue: Domain - QCReportSummary creation
+        """
+        # Arrange
+        from w2t_bkin.domain import QCReportSummary
+
+        # Act
+        summary = QCReportSummary()
+
+        # Assert
+        assert summary.has_pose is False
+        assert summary.has_facemap is False
+
+    def test_Should_DetectPosePresence_When_PoseOverviewProvided_Issue_Domain_QCReportPoseDetection(self):
+        """THE SYSTEM SHALL detect pose data presence.
+
+        Requirements: NFR-7 (Optional stages)
+        Issue: Domain - QCReportSummary pose detection
+        """
+        # Arrange
+        from w2t_bkin.domain import QCReportSummary
+
+        # Act
+        summary = QCReportSummary(pose_overview={"n_keypoints": 10})
+
+        # Assert
+        assert summary.has_pose is True
+
+    def test_Should_DetectFacemapPresence_When_FacemapOverviewProvided_Issue_Domain_QCReportFacemapDetection(self):
+        """THE SYSTEM SHALL detect facemap data presence.
+
+        Requirements: NFR-7 (Optional stages)
+        Issue: Domain - QCReportSummary facemap detection
+        """
+        # Arrange
+        from w2t_bkin.domain import QCReportSummary
+
+        # Act
+        summary = QCReportSummary(facemap_overview={"n_metrics": 2})
+
+        # Assert
+        assert summary.has_facemap is True
+
+
+# ============================================================================
+# Integration Tests
+# ============================================================================
+
+
+class TestDomainIntegration:
+    """Integration tests combining multiple domain models."""
+
+    def test_Should_CreateCompleteManifest_When_AllComponents_Issue_Domain_Integration(self):
+        """THE SYSTEM SHALL support complete manifest with all optional components.
+
+        Requirements: FR-1 through FR-11 (Full pipeline)
+        Issue: Domain - Integration workflow
         """
         # Arrange
         from w2t_bkin.domain import Manifest, VideoMetadata
 
         videos = [
             VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
+                camera_id=i,
+                path=Path(f"/data/cam{i}.mp4"),
                 codec="h264",
                 fps=30.0,
                 duration=60.0,
                 resolution=(1920, 1080),
             )
+            for i in range(5)
         ]
+        sync = [{"path": "/data/sync_ttl.csv", "type": "ttl"}]
+        pose = [{"path": "/data/pose_dlc.h5", "format": "dlc"}]
+        facemap = [{"path": "/data/facemap_metrics.npy"}]
+        events = [{"path": "/data/events.ndjson", "kind": "ndjson"}]
 
+        # Act
         manifest = Manifest(
-            session_id="session_001",
+            session_id="test_full_001",
             videos=videos,
-            sync=[],
-            config_snapshot={},
-            provenance={},
+            sync=sync,
+            pose=pose,
+            facemap=facemap,
+            events=events,
+            config_snapshot={"n_cameras": 5},
+            provenance={"git_commit": "abc1234"},
         )
 
-        # Act - Check if schema version is tracked
-        manifest_dict = manifest.model_dump() if hasattr(manifest, "model_dump") else vars(manifest)
-
-        # Assert - Version field may exist for future compatibility
-        # This is optional but recommended for backward compatibility
-        assert manifest_dict is not None
+        # Assert
+        assert len(manifest.videos) == 5
+        assert len(manifest.pose) == 1
+        assert len(manifest.facemap) == 1
+        assert len(manifest.events) == 1
+        assert manifest.provenance["git_commit"] == "abc1234"
