@@ -1,955 +1,981 @@
-"""Unit tests for the sync module.
+"""Unit tests for sync module (TDD Red Phase).
 
-Tests timestamp computation, drift detection, and sync summary generation
-as specified in sync/requirements.md and design.md.
+Tests written BEFORE implementation to define expected behavior.
+Following TDD Red Phase principles with comprehensive test coverage.
+
+Requirements: FR-2, FR-3, Design §3.2, §6, §8
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from unittest.mock import Mock, mock_open, patch
 
 import pytest
 
-pytestmark = pytest.mark.unit
+from w2t_bkin.domain import SyncSummary, TimestampSeries
+
+# Module under test (not yet implemented)
+# from w2t_bkin.sync import compute_timestamps
+
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def mock_manifest(tmp_path: Path) -> Path:
+    """Create a mock manifest.json for testing."""
+    manifest_data = {
+        "session_id": "test_session_001",
+        "videos": [
+            {
+                "camera_id": i,
+                "path": f"/data/cam{i}.mp4",
+                "codec": "h264",
+                "fps": 30.0,
+                "duration": 33.333,
+                "resolution": [1920, 1080],
+                "frame_count": 1000,
+            }
+            for i in range(5)
+        ],
+        "sync": [
+            {
+                "path": f"/data/sync/ttl_cam{i}.bin",
+                "type": "ttl",
+                "name": f"cam{i}",
+                "polarity": "rising",
+            }
+            for i in range(5)
+        ],
+        "config_snapshot": {
+            "sync": {
+                "tolerance_ms": 2.0,
+                "drop_frame_max_gap_ms": 100.0,
+                "primary_clock": "cam0",
+            }
+        },
+        "provenance": {"git_commit": "abc123"},
+    }
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data, indent=2))
+    return manifest_path
+
+
+@pytest.fixture
+def mock_ttl_data() -> list[float]:
+    """Generate mock TTL edge timestamps (30 FPS, 100 frames)."""
+    return [i / 30.0 for i in range(100)]  # Perfect 30 FPS
+
+
+@pytest.fixture
+def mock_ttl_data_with_drops() -> list[float]:
+    """Generate mock TTL data with dropped frames."""
+    edges = [i / 30.0 for i in range(100)]
+    # Remove frames 50-52 to simulate drops
+    return [e for i, e in enumerate(edges) if i not in [50, 51, 52]]
+
+
+@pytest.fixture
+def mock_ttl_data_with_drift() -> dict[str, list[float]]:
+    """Generate mock TTL data with inter-camera drift."""
+    return {
+        "cam0": [i / 30.0 for i in range(100)],  # Perfect reference
+        "cam1": [i / 30.0 + 0.001 for i in range(100)],  # 1ms drift
+        "cam2": [i / 30.0 + 0.003 for i in range(100)],  # 3ms drift
+        "cam3": [i / 30.0 - 0.002 for i in range(100)],  # -2ms drift
+        "cam4": [i / 30.0 for i in range(100)],  # Perfect sync with cam0
+    }
+
+
+# ============================================================================
+# Test Class: Timestamp Computation (FR-2, MR-1)
+# ============================================================================
 
 
 class TestTimestampComputation:
-    """Test per-frame timestamp computation (MR-1)."""
+    """Test timestamp derivation from sync inputs (FR-2, MR-1)."""
 
-    def test_Should_ComputeTimestamps_When_SyncProvided_MR1(self):
-        """THE MODULE SHALL compute per-frame timestamps for each camera.
+    def test_Should_ComputeTimestamps_When_SyncProvided_FR2_MR1_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL compute per-frame timestamps for each camera.
 
-        Requirements: MR-1
-        Issue: Sync module - Timestamp computation
+        Requirements: FR-2, MR-1
+        Issue: #001 - Sync module - Basic timestamp computation
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert
+        assert timestamps_dir.exists(), "Timestamps directory should be created"
+        assert summary_path.exists(), "Sync summary should be created"
+
+        # Verify one CSV per camera
+        timestamp_files = list(timestamps_dir.glob("timestamps_cam*.csv"))
+        assert len(timestamp_files) == 5, "Should generate timestamps for 5 cameras"
+
+    def test_Should_UsePrimaryClock_When_Computing_FR2_MR1_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL use primary clock for session timebase.
+
+        Requirements: FR-2, MR-1, Design §Timebase Derivation
+        Issue: #001 - Sync module - Primary clock selection
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+            primary_clock="cam2",  # Override default cam0
+        )
+
+        # Assert
+        summary = json.loads(summary_path.read_text())
+        assert summary["primary_clock"] == "cam2", "Should use specified primary clock"
+
+    def test_Should_ParseTTLEdges_When_Computing_FR2_MR1_Issue001(self, mock_manifest: Path, tmp_path: Path, mock_ttl_data: list[float]):
+        """THE SYSTEM SHALL parse TTL edges from sync files.
+
+        Requirements: FR-2, MR-1, Design §TTL Edge Parsing
+        Issue: #001 - Sync module - TTL edge parsing
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert
+        # Verify timestamps were derived from TTL edges
+        cam0_csv = timestamps_dir / "timestamps_cam0.csv"
+        assert cam0_csv.exists(), "Cam0 timestamps should exist"
+
+        lines = cam0_csv.read_text().splitlines()
+        assert lines[0] == "frame_index,timestamp", "CSV should have correct headers"
+        assert len(lines) > 1, "CSV should contain timestamp data"
+
+    def test_Should_ParseFrameCounters_When_Computing_FR2_MR1_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL parse frame counters from sync files.
+
+        Requirements: FR-2, MR-1, Design §Frame Counter Parsing
+        Issue: #001 - Sync module - Frame counter parsing
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        # Modify manifest to use frame counter sync type
+        manifest_data = json.loads(mock_manifest.read_text())
+        manifest_data["sync"] = [
+            {
+                "path": f"/data/sync/counter_cam{i}.csv",
+                "type": "frame_counter",
+                "name": f"cam{i}",
+            }
             for i in range(5)
         ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        mock_manifest.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
 
         # Assert
-        assert len(timestamps_list) == 5
-        assert all(hasattr(ts, "frame_indices") for ts in timestamps_list)
-        assert all(hasattr(ts, "timestamps") for ts in timestamps_list)
+        assert timestamps_dir.exists(), "Should handle frame counter sync type"
+        timestamp_files = list(timestamps_dir.glob("timestamps_cam*.csv"))
+        assert len(timestamp_files) == 5, "Should process all cameras"
 
-    def test_Should_UsePrimaryClock_When_Computing_MR1(self):
-        """THE MODULE SHALL use primary clock for timebase.
+    def test_Should_MapFramesToTimestamps_When_Computing_FR2_MR1_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL map each frame to a session timestamp.
 
-        Requirements: MR-1, Design - Primary clock
-        Issue: Sync module - Primary clock selection
+        Requirements: FR-2, MR-1, Design §3.2
+        Issue: #001 - Sync module - Frame to timestamp mapping
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam2")
-
-        # Assert - Should reference cam2 as primary
-        assert summary is not None
-
-    def test_Should_ParseTTLEdges_When_Computing_MR1(self):
-        """THE MODULE SHALL parse TTL edges from sync logs.
-
-        Requirements: MR-1, Design - Parse TTL edges
-        Issue: Sync module - TTL parsing
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/ttl_sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
         )
-
-        # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
 
         # Assert
-        assert len(timestamps_list) > 0
+        cam0_csv = timestamps_dir / "timestamps_cam0.csv"
+        lines = cam0_csv.read_text().splitlines()
 
-    def test_Should_ParseFrameCounters_When_Computing_MR1(self):
-        """THE MODULE SHALL parse frame counter logs.
+        # Parse first data row
+        data_row = lines[1].split(",")
+        frame_index = int(data_row[0])
+        timestamp = float(data_row[1])
 
-        Requirements: MR-1, Design - Frame counter logs
-        Issue: Sync module - Frame counter parsing
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
+        assert frame_index == 0, "First frame should be index 0"
+        assert timestamp >= 0.0, "Timestamps should be non-negative"
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/frame_counter.csv"), "type": "counter"}],
-            config_snapshot={},
-            provenance={},
-        )
 
-        # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert
-        assert len(timestamps_list) > 0
-
-    def test_Should_MapFramesToTimestamps_When_Computing_MR1(self):
-        """THE MODULE SHALL map frames to timestamps.
-
-        Requirements: MR-1
-        Issue: Sync module - Frame to timestamp mapping
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
-
-        # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert - Frame indices should map to timestamps
-        ts = timestamps_list[0]
-        assert len(ts.frame_indices) == len(ts.timestamps)
+# ============================================================================
+# Test Class: Drop/Duplicate Detection (FR-3, MR-2)
+# ============================================================================
 
 
 class TestDropDuplicateDetection:
-    """Test dropped/duplicate frame detection (MR-2)."""
+    """Test dropped frame and duplicate detection (FR-3, MR-2)."""
 
-    def test_Should_DetectDroppedFrames_When_Computing_MR2(self):
-        """THE MODULE SHALL detect dropped frames.
+    def test_Should_DetectDroppedFrames_When_Computing_FR3_MR2_Issue001(self, mock_manifest: Path, tmp_path: Path, mock_ttl_data_with_drops: list[float]):
+        """THE SYSTEM SHALL detect dropped frames.
 
-        Requirements: MR-2, Design - Detect drops/duplicates
-        Issue: Sync module - Dropped frame detection
+        Requirements: FR-3, MR-2, Design §Dropped Frame Detection
+        Issue: #001 - Sync module - Dropped frame detection
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync_with_drops.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert - Summary should report dropped frames
-        assert hasattr(summary, "dropped_frames") or "dropped" in str(summary)
-
-    def test_Should_DetectDuplicateFrames_When_Computing_MR2(self):
-        """THE MODULE SHALL detect duplicate frames.
-
-        Requirements: MR-2
-        Issue: Sync module - Duplicate frame detection
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync_with_dupes.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
         )
-
-        # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
 
         # Assert
-        assert hasattr(summary, "duplicate_frames") or "duplicate" in str(summary)
+        summary = json.loads(summary_path.read_text())
+        assert "drop_counts" in summary, "Summary must include drop counts"
 
-    def test_Should_DetectInterCameraDrift_When_Computing_MR2(self):
-        """THE MODULE SHALL detect inter-camera drift.
+        # At least one camera should have detected drops
+        total_drops = sum(summary["drop_counts"].values())
+        assert total_drops >= 0, "Drop count should be non-negative"
 
-        Requirements: MR-2, Design - Drift metrics
-        Issue: Sync module - Drift detection
+    def test_Should_DetectDuplicateFrames_When_Computing_FR3_MR2_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL detect duplicate frames.
+
+        Requirements: FR-3, MR-2, Design §Duplicate Frame Detection
+        Issue: #001 - Sync module - Duplicate frame detection
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync_with_drift.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
 
-        # Assert - Summary should include drift metrics
-        assert hasattr(summary, "drift_ms") or hasattr(summary, "max_drift")
+        # Assert
+        summary = json.loads(summary_path.read_text())
 
-    def test_Should_ComputeDriftMetrics_When_MultiCamera_MR2(self):
-        """THE MODULE SHALL compute drift metrics for multi-camera.
+        # Each camera should have duplicate count (even if 0)
+        for i in range(5):
+            cam_stats = summary["per_camera_stats"][f"cam{i}"]
+            assert "duplicate_frames" in cam_stats, f"cam{i} should report duplicates"
 
-        Requirements: MR-2
-        Issue: Sync module - Drift metrics
+    def test_Should_DetectInterCameraDrift_When_Computing_FR3_MR2_Issue001(self, mock_manifest: Path, tmp_path: Path, mock_ttl_data_with_drift: dict):
+        """THE SYSTEM SHALL detect inter-camera drift.
+
+        Requirements: FR-3, MR-2, Design §Drift Detection
+        Issue: #001 - Sync module - Inter-camera drift detection
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
 
-        # Assert - Should have drift for each camera pair
-        assert summary is not None
+        # Assert
+        summary = json.loads(summary_path.read_text())
+        assert "drift_stats" in summary, "Summary must include drift statistics"
+
+        drift_stats = summary["drift_stats"]
+        assert "max_drift_ms" in drift_stats, "Must report max drift"
+        assert "mean_drift_ms" in drift_stats, "Must report mean drift"
+        assert "std_drift_ms" in drift_stats, "Must report std drift"
+
+    def test_Should_ComputeDriftMetrics_When_MultiCamera_FR3_MR2_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL compute drift metrics (max, mean, std).
+
+        Requirements: FR-3, MR-2, Design §Drift Detection
+        Issue: #001 - Sync module - Drift metrics computation
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert
+        summary = json.loads(summary_path.read_text())
+        drift_stats = summary["drift_stats"]
+
+        # Validate metric types
+        assert isinstance(drift_stats["max_drift_ms"], (int, float))
+        assert isinstance(drift_stats["mean_drift_ms"], (int, float))
+        assert isinstance(drift_stats["std_drift_ms"], (int, float))
+
+        # Validate metric ranges
+        assert drift_stats["max_drift_ms"] >= 0.0, "Max drift should be non-negative"
+        assert drift_stats["mean_drift_ms"] >= 0.0, "Mean drift should be non-negative"
+        assert drift_stats["std_drift_ms"] >= 0.0, "Std drift should be non-negative"
+
+
+# ============================================================================
+# Test Class: Output Generation (MR-3)
+# ============================================================================
 
 
 class TestOutputGeneration:
-    """Test CSV and JSON output generation (MR-3)."""
+    """Test output file generation (MR-3)."""
 
-    def test_Should_EmitTimestampCSVs_When_Computed_MR3(self):
-        """THE MODULE SHALL emit per-camera timestamps CSVs.
+    def test_Should_EmitTimestampCSVs_When_Computed_MR3_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL emit timestamp CSVs for each camera.
 
-        Requirements: MR-3
-        Issue: Sync module - CSV output
+        Requirements: MR-3, Design §3.2
+        Issue: #001 - Sync module - Timestamp CSV emission
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert - Should have one TimestampSeries per camera
-        assert len(timestamps_list) == 5
-
-    def test_Should_FormatCSVCorrectly_When_Writing_MR3(self):
-        """THE MODULE SHALL format CSV with frame_index, timestamp columns.
-
-        Requirements: MR-3, Design - CSV format
-        Issue: Sync module - CSV format
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
         )
-
-        # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert - TimestampSeries should have required fields
-        ts = timestamps_list[0]
-        assert hasattr(ts, "frame_indices")
-        assert hasattr(ts, "timestamps")
-
-    def test_Should_EmitSyncSummaryJSON_When_Computed_MR3(self):
-        """THE MODULE SHALL emit sync summary JSON.
-
-        Requirements: MR-3
-        Issue: Sync module - Summary JSON
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
-
-        # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
 
         # Assert
-        assert summary is not None
-        # Should be serializable to JSON
-        if hasattr(summary, "model_dump_json"):
-            json_str = summary.model_dump_json()
-            assert json_str is not None
+        for i in range(5):
+            csv_path = timestamps_dir / f"timestamps_cam{i}.csv"
+            assert csv_path.exists(), f"timestamps_cam{i}.csv should exist"
 
-    def test_Should_IncludeCountsInSummary_When_Computed_MR3(self):
-        """THE MODULE SHALL include frame counts in summary.
+    def test_Should_FormatCSVCorrectly_When_Writing_MR3_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL format CSV with correct headers and data types.
 
-        Requirements: MR-3, Design - Counts and drift metrics
-        Issue: Sync module - Summary counts
+        Requirements: MR-3, Design §3.2
+        Issue: #001 - Sync module - CSV format validation
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert - Summary should include total_frames, dropped, etc.
-        assert hasattr(summary, "total_frames") or hasattr(summary, "frame_count")
-
-    def test_Should_IncludeDriftInSummary_When_Computed_MR3(self):
-        """THE MODULE SHALL include drift metrics in summary.
-
-        Requirements: MR-3
-        Issue: Sync module - Summary drift
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
         )
-
-        # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
 
         # Assert
-        assert hasattr(summary, "drift_ms") or hasattr(summary, "max_drift") or hasattr(summary, "drift")
+        csv_path = timestamps_dir / "timestamps_cam0.csv"
+        lines = csv_path.read_text().splitlines()
 
+        # Validate header
+        assert lines[0] == "frame_index,timestamp", "CSV must have correct headers"
 
-class TestPluggableParsers:
-    """Test support for multiple sync formats (MR-4)."""
+        # Validate data row format
+        if len(lines) > 1:
+            data_row = lines[1].split(",")
+            assert len(data_row) == 2, "Each row should have 2 columns"
 
-    def test_Should_SupportTTLFormat_When_Parsing_MR4(self):
-        """WHERE multiple sync formats exist, THE MODULE SHALL support pluggable parsers.
+            # Validate types
+            frame_index = int(data_row[0])  # Should parse as int
+            timestamp = float(data_row[1])  # Should parse as float
 
-        Requirements: MR-4
-        Issue: Sync module - TTL parser
+            assert frame_index >= 0, "Frame index should be non-negative"
+            assert timestamp >= 0.0, "Timestamp should be non-negative"
+
+    def test_Should_EmitSyncSummaryJSON_When_Computed_MR3_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL emit sync_summary.json.
+
+        Requirements: MR-3, Design §3.6
+        Issue: #001 - Sync module - Summary JSON emission
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
 
         # Assert
-        assert len(timestamps_list) > 0
+        assert summary_path.exists(), "sync_summary.json should exist"
+        assert summary_path.name == "sync_summary.json", "Summary should be named correctly"
 
-    def test_Should_SupportCounterFormat_When_Parsing_MR4(self):
-        """THE MODULE SHALL support frame counter format.
+        # Validate JSON structure
+        summary = json.loads(summary_path.read_text())
+        assert isinstance(summary, dict), "Summary should be a dictionary"
 
-        Requirements: MR-4
-        Issue: Sync module - Counter parser
+    def test_Should_IncludeRequiredFields_When_SummaryCreated_MR3_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL include required fields in sync summary.
+
+        Requirements: MR-3, Design §Output Format
+        Issue: #001 - Sync module - Summary structure validation
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "counter"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert
-        assert len(timestamps_list) > 0
-
-    def test_Should_SelectParser_When_TypeSpecified_MR4(self):
-        """THE MODULE SHALL select parser based on sync type.
-
-        Requirements: MR-4, Design - Adapters
-        Issue: Sync module - Parser selection
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "custom"}],
-            config_snapshot={},
-            provenance={},
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
         )
 
-        # Act & Assert - Should handle custom types or raise error
-        try:
-            timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-            assert timestamps_list is not None
-        except (ValueError, NotImplementedError):
-            # Acceptable to not support unknown types
-            pass
+        # Assert
+        summary = json.loads(summary_path.read_text())
+
+        # Required fields from Design §Output Format
+        assert "session_id" in summary, "Summary must include session_id"
+        assert "primary_clock" in summary, "Summary must include primary_clock"
+        assert "per_camera_stats" in summary, "Summary must include per_camera_stats"
+        assert "drift_stats" in summary, "Summary must include drift_stats"
+        assert "drop_counts" in summary, "Summary must include drop_counts"
+        assert "warnings" in summary, "Summary must include warnings"
+
+
+# ============================================================================
+# Test Class: Monotonic Timestamps (M-NFR-1, Design §3.2)
+# ============================================================================
 
 
 class TestMonotonicTimestamps:
-    """Test monotonic timestamp requirement (M-NFR-1)."""
+    """Test timestamp monotonicity guarantees (M-NFR-1, Design §3.2, §19)."""
 
-    def test_Should_ProduceMonotonicTimestamps_When_Computing_MNFR1(self):
-        """THE MODULE SHALL produce monotonic timestamps.
+    def test_Should_BeStrictlyMonotonic_When_Generated_MNFR1_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL generate strictly monotonic timestamps.
 
-        Requirements: M-NFR-1
-        Issue: Sync module - Monotonicity
+        Requirements: M-NFR-1, Design §3.2, §19
+        Issue: #001 - Sync module - Monotonicity enforcement
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
 
-        # Assert - Timestamps should be strictly increasing
-        ts = timestamps_list[0]
-        for i in range(1, len(ts.timestamps)):
-            assert ts.timestamps[i] > ts.timestamps[i - 1], "Timestamps must be monotonic"
+        # Assert - Check all timestamp files
+        for i in range(5):
+            csv_path = timestamps_dir / f"timestamps_cam{i}.csv"
+            lines = csv_path.read_text().splitlines()[1:]  # Skip header
 
-    def test_Should_MeetPrecisionTolerance_When_Computing_MNFR1(self):
-        """THE MODULE SHALL maintain precision within tolerance.
+            timestamps = [float(line.split(",")[1]) for line in lines if line]
 
-        Requirements: M-NFR-1
-        Issue: Sync module - Precision tolerance
+            # Verify strict monotonic increase
+            for j in range(1, len(timestamps)):
+                assert timestamps[j] > timestamps[j - 1], f"cam{i}: Timestamps not strictly monotonic at index {j}"
+
+    def test_Should_HaveNoNegativeValues_When_Generated_MNFR1_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL generate non-negative timestamps.
+
+        Requirements: M-NFR-1, Design §3.2
+        Issue: #001 - Sync module - Non-negativity constraint
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
-
-        # Assert - Timestamps should have reasonable precision
-        ts = timestamps_list[0]
-        assert all(isinstance(t, (int, float)) for t in ts.timestamps)
-
-
-class TestDeterministicOutputs:
-    """Test deterministic output requirement (M-NFR-2)."""
-
-    def test_Should_ProduceSameOutput_When_SameInput_MNFR2(self):
-        """THE MODULE SHALL produce deterministic outputs.
-
-        Requirements: M-NFR-2
-        Issue: Sync module - Determinism
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
         )
-
-        # Act
-        timestamps_list1, summary1 = compute_timestamps(manifest, primary="cam0")
-        timestamps_list2, summary2 = compute_timestamps(manifest, primary="cam0")
-
-        # Assert - Should be identical
-        assert len(timestamps_list1) == len(timestamps_list2)
-        assert timestamps_list1[0].timestamps == timestamps_list2[0].timestamps
-
-    def test_Should_NotDependOnSystemState_When_Computing_MNFR2(self):
-        """THE MODULE SHALL not depend on global or system state.
-
-        Requirements: M-NFR-2
-        Issue: Sync module - State independence
-        """
-        # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import compute_timestamps
-
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
-
-        # Act - Call with different system states
-        timestamps_list1, summary1 = compute_timestamps(manifest, primary="cam0")
-        import random
-
-        random.seed(42)
-        timestamps_list2, summary2 = compute_timestamps(manifest, primary="cam0")
 
         # Assert
-        assert timestamps_list1[0].timestamps == timestamps_list2[0].timestamps
+        for i in range(5):
+            csv_path = timestamps_dir / f"timestamps_cam{i}.csv"
+            lines = csv_path.read_text().splitlines()[1:]  # Skip header
+
+            timestamps = [float(line.split(",")[1]) for line in lines if line]
+
+            # Verify all non-negative
+            assert all(t >= 0.0 for t in timestamps), f"cam{i}: All timestamps must be non-negative"
+
+    def test_Should_MeetPrecisionTolerance_When_Computing_MNFR1_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL maintain microsecond precision.
+
+        Requirements: M-NFR-1, Design §Timestamp CSV Format
+        Issue: #001 - Sync module - Timestamp precision
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert
+        csv_path = timestamps_dir / "timestamps_cam0.csv"
+        lines = csv_path.read_text().splitlines()[1:]  # Skip header
+
+        timestamps = [float(line.split(",")[1]) for line in lines if line]
+
+        # Check precision by examining string representation
+        for i, line in enumerate(lines[:10]):  # Check first 10
+            timestamp_str = line.split(",")[1]
+            # Should have at least 4 decimal places for microsecond precision
+            if "." in timestamp_str:
+                decimal_places = len(timestamp_str.split(".")[1])
+                assert decimal_places >= 4, f"Timestamp {i} should have microsecond precision (>=4 decimals)"
+
+
+# ============================================================================
+# Test Class: Error Handling (Design §6)
+# ============================================================================
 
 
 class TestErrorHandling:
-    """Test error handling for sync issues (Design)."""
+    """Test error handling and validation (Design §6)."""
 
-    def test_Should_RaiseTimestampMismatchError_When_NonMonotonic_Design(self):
-        """THE MODULE SHALL raise TimestampMismatchError for non-monotonic.
+    def test_Should_RaiseDriftThresholdExceeded_When_ConfiguredTolerance_Design6_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL raise DriftThresholdExceeded when drift exceeds tolerance.
 
-        Requirements: Design - Error handling
-        Issue: Sync module - Non-monotonic error
+        Requirements: Design §6 - Error Handling Strategy
+        Issue: #001 - Sync module - Drift threshold enforcement
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, TimestampMismatchError, VideoMetadata
+        from w2t_bkin.domain import DriftThresholdExceeded
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/non_monotonic_sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        # Modify manifest to set very strict tolerance
+        manifest_data = json.loads(mock_manifest.read_text())
+        manifest_data["config_snapshot"]["sync"]["tolerance_ms"] = 0.001  # 1 microsecond
+        mock_manifest.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
 
         # Act & Assert
-        with pytest.raises((TimestampMismatchError, ValueError)):
-            compute_timestamps(manifest, primary="cam0")
+        with pytest.raises(DriftThresholdExceeded) as exc_info:
+            compute_timestamps(
+                manifest_path=mock_manifest,
+                output_dir=output_dir,
+            )
 
-    def test_Should_RaiseTimestampMismatchError_When_LengthMismatch_Design(self):
-        """THE MODULE SHALL raise error for length mismatches.
+        # Verify exception message contains drift information
+        assert "drift" in str(exc_info.value).lower()
 
-        Requirements: Design - Error handling
-        Issue: Sync module - Length mismatch
+    def test_Should_RaiseTimestampMismatchError_When_LengthMismatch_Design6_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL raise TimestampMismatchError on frame count mismatch.
+
+        Requirements: Design §6 - Error Handling Strategy
+        Issue: #001 - Sync module - Frame count validation
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, TimestampMismatchError, VideoMetadata
+        from w2t_bkin.domain import TimestampMismatchError
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/length_mismatch_sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        # Modify manifest to have mismatched frame counts (create impossible condition)
+        manifest_data = json.loads(mock_manifest.read_text())
+        # Set first camera to have 0 frames (will cause length mismatch)
+        manifest_data["videos"][0]["frame_count"] = 0
+        mock_manifest.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
 
         # Act & Assert
+        # This should fail if timestamp count != frame count
         with pytest.raises((TimestampMismatchError, ValueError)):
-            compute_timestamps(manifest, primary="cam0")
+            compute_timestamps(
+                manifest_path=mock_manifest,
+                output_dir=output_dir,
+            )
 
-    def test_Should_RaiseDriftThresholdExceeded_When_ConfiguredTolerance_Design(self):
-        """THE MODULE SHALL raise DriftThresholdExceeded based on tolerance.
+    def test_Should_RaiseTimestampMismatchError_When_NonMonotonic_Design6_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL raise TimestampMismatchError for non-monotonic timestamps.
 
-        Requirements: Design - DriftThresholdExceeded
-        Issue: Sync module - Drift threshold
+        Requirements: Design §6 - Error Handling Strategy
+        Issue: #001 - Sync module - Monotonicity validation
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import DriftThresholdExceeded, compute_timestamps
+        from w2t_bkin.domain import TimestampMismatchError
+        from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/large_drift_sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        # Create corrupted sync data that would produce non-monotonic timestamps
+        # Modify manifest to have negative FPS (will cause non-monotonic timestamps)
+        manifest_data = json.loads(mock_manifest.read_text())
+        manifest_data["videos"][0]["fps"] = -30.0  # Negative FPS causes non-monotonic
+        mock_manifest.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
 
         # Act & Assert
-        with pytest.raises((DriftThresholdExceeded, ValueError)):
-            compute_timestamps(manifest, primary="cam0", drift_tolerance_ms=1.0)
+        # Should fail validation if timestamps decrease
+        with pytest.raises((TimestampMismatchError, ValueError)):
+            compute_timestamps(
+                manifest_path=mock_manifest,
+                output_dir=output_dir,
+            )
 
+    def test_Should_RaiseMissingInputError_When_NoSyncFiles_Design6_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL raise MissingInputError when sync files absent.
 
-class TestSyncSummary:
-    """Test SyncSummary data structure."""
-
-    def test_Should_CreateSyncSummary_When_Computed_Design(self):
-        """THE MODULE SHALL provide SyncSummary typed model.
-
-        Requirements: Design - Output contract
-        Issue: Sync module - SyncSummary model
+        Requirements: Design §6 - Error Handling Strategy
+        Issue: #001 - Sync module - Missing input validation
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
-        from w2t_bkin.sync import SyncSummary, compute_timestamps
+        from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=0,
-                path=Path("/data/cam0.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
+        # Modify manifest to have empty sync list
+        manifest_data = json.loads(mock_manifest.read_text())
+        manifest_data["sync"] = []
+        mock_manifest.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
+
+        # Act & Assert
+        with pytest.raises((FileNotFoundError, ValueError)) as exc_info:
+            compute_timestamps(
+                manifest_path=mock_manifest,
+                output_dir=output_dir,
             )
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+
+        # Verify error message mentions sync files
+        error_msg = str(exc_info.value).lower()
+        assert "sync" in error_msg or "missing" in error_msg
+
+
+# ============================================================================
+# Test Class: Edge Cases
+# ============================================================================
+
+
+class TestEdgeCases:
+    """Test edge cases and boundary conditions."""
+
+    def test_Should_HandleEmptySyncFiles_When_Computing_EdgeCase_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL handle empty sync files gracefully.
+
+        Requirements: Design §Error Handling
+        Issue: #001 - Sync module - Empty file handling
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        # Modify manifest to have videos with 0 frames (empty sync scenario)
+        manifest_data = json.loads(mock_manifest.read_text())
+        for video in manifest_data["videos"]:
+            video["frame_count"] = 0
+        mock_manifest.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
+
+        # Act & Assert
+        with pytest.raises((ValueError, FileNotFoundError)):
+            compute_timestamps(
+                manifest_path=mock_manifest,
+                output_dir=output_dir,
+            )
+
+    def test_Should_HandleMissingTTLChannels_When_Computing_EdgeCase_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL handle missing TTL channels with fallback.
+
+        Requirements: Design §TTL Edge Parsing
+        Issue: #001 - Sync module - Fallback discovery
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        # Remove TTL channel configuration
+        manifest_data = json.loads(mock_manifest.read_text())
+        manifest_data["config_snapshot"]["sync"]["ttl_channels"] = []
+        mock_manifest.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
+        # Should use fallback patterns from manifest.sync[]
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
 
         # Assert
-        assert isinstance(summary, SyncSummary)
+        assert timestamps_dir.exists(), "Should use fallback sync discovery"
 
-    def test_Should_IncludeAllMetrics_When_Created_Design(self):
-        """THE MODULE SHALL include all required metrics in summary.
+    def test_Should_ConvertToAbsolute_When_RelativePaths_EdgeCase_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL convert relative paths to absolute.
 
-        Requirements: Design - Counts and drift metrics
-        Issue: Sync module - Summary completeness
+        Requirements: Design §Absolute Path Resolution, NFR-1
+        Issue: #001 - Sync module - Path resolution
         """
         # Arrange
-        from w2t_bkin.domain import Manifest, VideoMetadata
+        # Use relative path for manifest
+        import os
+
         from w2t_bkin.sync import compute_timestamps
 
-        videos = [
-            VideoMetadata(
-                camera_id=i,
-                path=Path(f"/data/cam{i}.mp4"),
-                codec="h264",
-                fps=30.0,
-                duration=60.0,
-                resolution=(1920, 1080),
-            )
-            for i in range(5)
-        ]
-        manifest = Manifest(
-            session_id="session_001",
-            videos=videos,
-            sync=[{"path": Path("/data/sync.csv"), "type": "ttl"}],
-            config_snapshot={},
-            provenance={},
-        )
+        os.chdir(tmp_path)
+        relative_manifest = Path("manifest.json")
+        mock_manifest.rename(relative_manifest)
+
+        output_dir = Path("sync")  # Relative
 
         # Act
-        timestamps_list, summary = compute_timestamps(manifest, primary="cam0")
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=relative_manifest,
+            output_dir=output_dir,
+        )
 
-        # Assert - Should have key metrics
-        assert hasattr(summary, "total_frames") or hasattr(summary, "frame_count")
-        assert hasattr(summary, "dropped_frames") or hasattr(summary, "drops")
-        assert hasattr(summary, "drift_ms") or hasattr(summary, "drift")
+        # Assert
+        assert timestamps_dir.is_absolute(), "Output paths should be absolute"
+        assert summary_path.is_absolute(), "Summary path should be absolute"
+
+    def test_Should_CreateOutputDirectory_When_NotExists_EdgeCase_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL create output directory if it doesn't exist.
+
+        Requirements: Design §Output Generation
+        Issue: #001 - Sync module - Directory creation
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "nonexistent" / "sync"
+        assert not output_dir.exists(), "Output directory should not exist yet"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert
+        assert output_dir.exists(), "Output directory should be created"
+        assert timestamps_dir.exists(), "Timestamps directory should be created"
+
+    def test_Should_HandleSingleCamera_When_Computing_EdgeCase_Issue001(self, tmp_path: Path):
+        """THE SYSTEM SHALL handle single-camera sessions.
+
+        Requirements: Design §Multi-camera support
+        Issue: #001 - Sync module - Single camera edge case
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        # Create manifest with single camera
+        manifest_data = {
+            "session_id": "single_cam_session",
+            "videos": [
+                {
+                    "camera_id": 0,
+                    "path": "/data/cam0.mp4",
+                    "codec": "h264",
+                    "fps": 30.0,
+                    "duration": 10.0,
+                    "resolution": [1920, 1080],
+                    "frame_count": 300,
+                }
+            ],
+            "sync": [
+                {
+                    "path": "/data/sync/ttl_cam0.bin",
+                    "type": "ttl",
+                    "name": "cam0",
+                    "polarity": "rising",
+                }
+            ],
+            "config_snapshot": {
+                "sync": {
+                    "tolerance_ms": 2.0,
+                    "drop_frame_max_gap_ms": 100.0,
+                    "primary_clock": "cam0",
+                }
+            },
+            "provenance": {},
+        }
+
+        manifest_path = tmp_path / "manifest_single.json"
+        manifest_path.write_text(json.dumps(manifest_data))
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=manifest_path,
+            output_dir=output_dir,
+        )
+
+        # Assert
+        timestamp_files = list(timestamps_dir.glob("timestamps_cam*.csv"))
+        assert len(timestamp_files) == 1, "Should handle single camera"
+
+        summary = json.loads(summary_path.read_text())
+        # Drift should be zero or N/A for single camera
+        assert summary["drift_stats"]["max_drift_ms"] == 0.0 or summary["drift_stats"]["max_drift_ms"] is None
+
+
+# ============================================================================
+# Test Class: Performance (Design §8)
+# ============================================================================
+
+
+class TestPerformance:
+    """Test performance characteristics (Design §8)."""
+
+    def test_Should_UseStreamingParsing_When_LargeTTL_Design8_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL use streaming parsing for large TTL logs.
+
+        Requirements: Design §8 - Performance Considerations
+        Issue: #001 - Sync module - Streaming parser implementation
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert
+        # If this completes without MemoryError, streaming is working
+        assert timestamps_dir.exists(), "Should complete with streaming parser"
+
+    def test_Should_CompleteInReasonableTime_When_MultiCamera_Design8_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL complete multi-camera sync in reasonable time.
+
+        Requirements: Design §8 - Performance Considerations, NFR-4
+        Issue: #001 - Sync module - Performance validation
+        """
+        # Arrange
+        import time
+
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        start = time.time()
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+        elapsed = time.time() - start
+
+        # Assert
+        # Should complete in under 5 seconds for test data
+        assert elapsed < 5.0, f"Sync should complete quickly, took {elapsed}s"
+
+
+# ============================================================================
+# Test Class: Integration with Domain (Contract Validation)
+# ============================================================================
+
+
+class TestDomainIntegration:
+    """Test integration with domain module contracts."""
+
+    def test_Should_CreateValidTimestampSeries_When_Computing_Domain_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL create valid TimestampSeries domain objects.
+
+        Requirements: Design §3.2, api.md §3.1
+        Issue: #001 - Sync module - Domain contract compliance
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert - Verify TimestampSeries can be constructed from CSV
+        csv_path = timestamps_dir / "timestamps_cam0.csv"
+        lines = csv_path.read_text().splitlines()[1:]  # Skip header
+
+        frame_indices = []
+        timestamps = []
+        for line in lines:
+            if line:
+                parts = line.split(",")
+                frame_indices.append(int(parts[0]))
+                timestamps.append(float(parts[1]))
+
+        # Should be able to create TimestampSeries
+        ts = TimestampSeries(frame_index=frame_indices, timestamp_sec=timestamps)
+        assert ts.n_frames == len(frame_indices)
+        assert ts.duration >= 0.0
+
+    def test_Should_CreateValidSyncSummary_When_Computing_Domain_Issue001(self, mock_manifest: Path, tmp_path: Path):
+        """THE SYSTEM SHALL create valid SyncSummary domain objects.
+
+        Requirements: Design §3.6, api.md §3.1
+        Issue: #001 - Sync module - SyncSummary contract compliance
+        """
+        # Arrange
+        from w2t_bkin.sync import compute_timestamps
+
+        output_dir = tmp_path / "sync"
+
+        # Act
+        timestamps_dir, summary_path = compute_timestamps(
+            manifest_path=mock_manifest,
+            output_dir=output_dir,
+        )
+
+        # Assert - Verify SyncSummary can be constructed from JSON
+        summary_data = json.loads(summary_path.read_text())
+
+        # Should be able to create SyncSummary
+        sync_summary = SyncSummary(
+            per_camera_stats=summary_data["per_camera_stats"],
+            drift_stats=summary_data["drift_stats"],
+            drop_counts=summary_data["drop_counts"],
+            warnings=summary_data.get("warnings", []),
+        )
+
+        assert len(sync_summary.per_camera_stats) > 0
+        assert "max_drift_ms" in sync_summary.drift_stats

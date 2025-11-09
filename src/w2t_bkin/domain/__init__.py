@@ -27,7 +27,33 @@ __all__ = [
     "Event",
     "NWBAssemblyOptions",
     "QCReportSummary",
+    "DriftThresholdExceeded",
+    "TimestampMismatchError",
+    "MissingInputError",
 ]
+
+
+# ============================================================================
+# Custom Exceptions (Design §6)
+# ============================================================================
+
+
+class DriftThresholdExceeded(Exception):
+    """Raised when inter-camera drift exceeds configured tolerance."""
+
+    pass
+
+
+class TimestampMismatchError(ValueError):
+    """Raised when timestamps are non-monotonic or frame count mismatch."""
+
+    pass
+
+
+class MissingInputError(FileNotFoundError):
+    """Raised when required input files are missing."""
+
+    pass
 
 
 # ============================================================================
@@ -38,7 +64,7 @@ __all__ = [
 @dataclass(frozen=True)
 class VideoMetadata:
     """Metadata for a single camera video.
-    
+
     Requirements: FR-1 (Ingest five camera videos)
     Design: §3.1 (Manifest JSON)
     """
@@ -65,7 +91,7 @@ class VideoMetadata:
 @dataclass(frozen=True)
 class Manifest:
     """Session manifest describing all available inputs.
-    
+
     Requirements: FR-1 (Ingest assets), NFR-1 (Reproducibility)
     Design: §3.1 (Manifest JSON)
     """
@@ -98,7 +124,7 @@ class Manifest:
 @dataclass(frozen=True)
 class TimestampSeries:
     """Per-camera frame timestamps.
-    
+
     Requirements: FR-2 (Compute per-frame timestamps)
     Design: §3.2 (Timestamp CSV)
     """
@@ -115,10 +141,7 @@ class TimestampSeries:
         # Verify monotonic increase
         for i in range(1, len(self.timestamp_sec)):
             if self.timestamp_sec[i] <= self.timestamp_sec[i - 1]:
-                raise ValueError(
-                    f"Timestamps must be strictly monotonic increasing at index {i}: "
-                    f"{self.timestamp_sec[i-1]} >= {self.timestamp_sec[i]}"
-                )
+                raise ValueError(f"Timestamps must be strictly monotonic increasing at index {i}: " f"{self.timestamp_sec[i-1]} >= {self.timestamp_sec[i]}")
 
     @property
     def duration(self) -> float:
@@ -134,7 +157,7 @@ class TimestampSeries:
 @dataclass(frozen=True)
 class SyncSummary:
     """Summary statistics for synchronization quality.
-    
+
     Requirements: FR-3 (Detect drops/duplicates/drift)
     Design: §3.6 (QC Summary JSON - sync section)
     """
@@ -158,7 +181,7 @@ class SyncSummary:
 @dataclass(frozen=True)
 class PoseSample:
     """Single pose keypoint observation.
-    
+
     Requirements: FR-5 (Import/harmonize pose with confidence)
     Design: §3.3 (Pose Harmonized Table)
     """
@@ -180,7 +203,7 @@ class PoseSample:
 @dataclass(frozen=True)
 class PoseTable:
     """Harmonized pose table with metadata.
-    
+
     Requirements: FR-5 (Harmonize pose outputs to canonical schema)
     Design: §3.3 (Pose Harmonized Table)
     """
@@ -212,7 +235,7 @@ class PoseTable:
 @dataclass(frozen=True)
 class FacemapMetrics:
     """Facial metrics time series.
-    
+
     Requirements: FR-6 (Import/compute facial metrics)
     Design: §3.4 (Facemap Metrics)
     """
@@ -228,9 +251,7 @@ class FacemapMetrics:
         time_len = len(self.time)
         for metric_name, values in self.metric_columns.items():
             if len(values) != time_len:
-                raise ValueError(
-                    f"Metric '{metric_name}' length {len(values)} != time length {time_len}"
-                )
+                raise ValueError(f"Metric '{metric_name}' length {len(values)} != time length {time_len}")
 
     @property
     def n_samples(self) -> int:
@@ -251,7 +272,7 @@ class FacemapMetrics:
 @dataclass(frozen=True)
 class Event:
     """Behavioral event.
-    
+
     Requirements: FR-11 (Import events as BehavioralEvents)
     Design: §3.5 (Events table)
     """
@@ -271,7 +292,7 @@ class Event:
 @dataclass(frozen=True)
 class Trial:
     """Trial interval with QC metadata.
-    
+
     Requirements: FR-11 (Import events as Trials TimeIntervals)
     Design: §3.5 (Trials Table)
     """
@@ -291,9 +312,7 @@ class Trial:
         if self.start_time < 0:
             raise ValueError(f"start_time must be non-negative, got {self.start_time}")
         if self.stop_time <= self.start_time:
-            raise ValueError(
-                f"stop_time ({self.stop_time}) must be > start_time ({self.start_time})"
-            )
+            raise ValueError(f"stop_time ({self.stop_time}) must be > start_time ({self.start_time})")
 
     @property
     def duration(self) -> float:
@@ -309,7 +328,7 @@ class Trial:
 @dataclass(frozen=True)
 class NWBAssemblyOptions:
     """Options for NWB file assembly.
-    
+
     Requirements: FR-7 (Export NWB), FR-10 (Configuration-driven)
     Design: §3.7 (NWB Assembly)
     """
@@ -334,7 +353,7 @@ class NWBAssemblyOptions:
 @dataclass(frozen=True)
 class QCReportSummary:
     """Quality control report summary.
-    
+
     Requirements: FR-8 (Generate QC HTML report)
     Design: §3.6 (QC Summary JSON)
     """
