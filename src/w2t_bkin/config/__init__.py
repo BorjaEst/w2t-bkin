@@ -1,310 +1,314 @@
-"""Configuration module for w2t-bkin.
+"""Configuration module for W2T BKin pipeline.
 
-Provides strongly-typed configuration loading and validation (TOML + env overrides)
-for all pipeline stages.
+Load and validate TOML configuration with Pydantic models and environment overrides.
+As a Layer 1 module, may import: domain, utils.
+
+Requirements: FR-10 (Configuration-driven), NFR-10 (Type safety)
+Design: design.md §2 (Module Breakdown), §21.1 (Dependency Tree)
+API: api.md §3.3
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
-import sys
-from typing import Literal
+from typing import Any
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomli as tomllib
-    except ImportError:
-        raise ImportError("tomli is required for Python < 3.11. Install with: pip install tomli")
+try:
+    import tomli as tomllib  # Python < 3.11
+except ImportError:
+    import tomllib  # Python >= 3.11
 
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-)
+
+__all__ = [
+    "Settings",
+    "load_settings",
+    "ENV_PREFIX",
+]
+
+ENV_PREFIX = "W2T_"
 
 
-class ConfigValidationError(Exception):
-    """Raised when configuration validation fails."""
-
-    pass
-
-
-# Configuration Models (Pydantic BaseModel with frozen=True for immutability)
+# ============================================================================
+# Configuration Models (FR-10, NFR-10)
+# ============================================================================
 
 
 class ProjectConfig(BaseModel):
     """Project-level configuration."""
 
-    model_config = {"frozen": True}
-
-    name: str = Field(..., description="Project name")
-    n_cameras: int = Field(..., ge=1, description="Number of cameras")
+    name: str = Field(default="w2t-bkin-pipeline")
+    n_cameras: int = Field(default=5, ge=1, le=10)
 
 
 class PathsConfig(BaseModel):
-    """Path configuration for data directories."""
+    """Directory paths configuration."""
 
-    model_config = {"frozen": True}
+    raw_root: Path = Field(default=Path("data/raw"))
+    intermediate_root: Path = Field(default=Path("data/interim"))
+    output_root: Path = Field(default=Path("data/processed"))
+    models_root: Path = Field(default=Path("models"))
 
-    raw_root: Path = Field(..., description="Raw data root directory")
-    intermediate_root: Path = Field(..., description="Intermediate data root directory")
-    output_root: Path = Field(..., description="Output data root directory")
-    models_root: Path = Field(..., description="Models root directory")
+    @field_validator("raw_root", "intermediate_root", "output_root", "models_root", mode="before")
+    @classmethod
+    def expand_path(cls, v: Any) -> Path:
+        """Expand environment variables and user home in paths."""
+        if isinstance(v, str):
+            return Path(os.path.expandvars(os.path.expanduser(v)))
+        return v
 
 
 class SessionConfig(BaseModel):
     """Session metadata configuration."""
 
-    model_config = {"frozen": True}
-
-    id: str = Field(..., description="Session ID")
-    subject_id: str = Field(..., description="Subject ID")
-    date: str = Field(..., description="Session date")
-    experimenter: str = Field(..., description="Experimenter name")
-    description: str = Field(..., description="Session description")
-    sex: str = Field(..., description="Subject sex")
-    age: str = Field(..., description="Subject age")
-    genotype: str = Field(..., description="Subject genotype")
+    id: str = Field(default="")
+    subject_id: str = Field(default="")
+    date: str = Field(default="")
+    experimenter: str = Field(default="")
+    description: str = Field(default="")
+    sex: str = Field(default="")
+    age: str = Field(default="")
+    genotype: str = Field(default="")
 
 
-class VideoTranscodeConfig(BaseModel):
+class TranscodeConfig(BaseModel):
     """Video transcoding configuration."""
 
-    model_config = {"frozen": True}
-
-    enabled: bool = Field(default=True, description="Enable transcoding")
-    codec: str = Field(default="h264", description="Video codec")
-    crf: int = Field(default=23, ge=0, le=51, description="Constant rate factor")
-    preset: str = Field(default="medium", description="Encoding preset")
-    keyint: int = Field(default=30, ge=1, description="Keyframe interval")
+    enabled: bool = Field(default=False)
+    codec: str = Field(default="libx264")
+    crf: int = Field(default=18, ge=0, le=51)
+    preset: str = Field(default="medium")
+    keyint: int = Field(default=30, ge=1)
 
 
 class VideoConfig(BaseModel):
-    """Video configuration."""
+    """Video processing configuration."""
 
-    model_config = {"frozen": True}
-
-    pattern: str = Field(default="cam*.mp4", description="Video file pattern")
-    fps: float = Field(default=30.0, gt=0, description="Frames per second")
-    transcode: VideoTranscodeConfig = Field(default_factory=VideoTranscodeConfig, description="Transcode settings")
+    pattern: str = Field(default="**/*.mp4")
+    fps: float = Field(default=30.0, gt=0)
+    transcode: TranscodeConfig = Field(default_factory=TranscodeConfig)
 
 
 class TTLChannelConfig(BaseModel):
-    """TTL channel configuration for synchronization."""
+    """TTL channel configuration for sync."""
 
-    model_config = {"frozen": True}
+    path: str = Field(default="")
+    name: str = Field(default="")
+    polarity: str = Field(default="rising")
 
-    path: Path = Field(..., description="Path to TTL data file")
-    name: str = Field(..., description="Channel name")
-    polarity: str = Field(..., description="Edge polarity (rising/falling)")
+    @field_validator("polarity")
+    @classmethod
+    def validate_polarity(cls, v: str) -> str:
+        """Validate polarity is either 'rising' or 'falling'."""
+        if v not in ["rising", "falling"]:
+            raise ValueError(f"polarity must be 'rising' or 'falling', got '{v}'")
+        return v
 
 
 class SyncConfig(BaseModel):
     """Synchronization configuration."""
 
-    model_config = {"frozen": True}
-
-    tolerance_ms: float = Field(default=2.0, gt=0, description="Sync tolerance in ms")
-    drop_frame_max_gap_ms: float = Field(default=100.0, gt=0, description="Max gap for dropped frames in ms")
-    primary_clock: str = Field(default="cam0", description="Primary clock source")
-    ttl_channels: list[TTLChannelConfig] = Field(default_factory=list, description="TTL channel configurations")
+    ttl_channels: list[TTLChannelConfig] = Field(default_factory=list)
+    tolerance_ms: float = Field(default=2.0, ge=0)
+    drop_frame_max_gap_ms: float = Field(default=100.0, ge=0)
+    primary_clock: str = Field(default="cam0")
 
 
 class DLCConfig(BaseModel):
     """DeepLabCut configuration."""
 
-    model_config = {"frozen": True}
-
-    model: Path = Field(..., description="Path to DLC model")
-    run_inference: bool = Field(default=False, description="Run DLC inference")
+    model: str = Field(default="")
+    run_inference: bool = Field(default=False)
 
 
 class SLEAPConfig(BaseModel):
     """SLEAP configuration."""
 
-    model_config = {"frozen": True}
-
-    model: Path = Field(..., description="Path to SLEAP model")
-    run_inference: bool = Field(default=False, description="Run SLEAP inference")
+    model: str = Field(default="")
+    run_inference: bool = Field(default=False)
 
 
 class LabelsConfig(BaseModel):
-    """Pose estimation labels configuration."""
+    """Pose labeling configuration."""
 
-    model_config = {"frozen": True}
-
-    dlc: DLCConfig = Field(..., description="DeepLabCut configuration")
-    sleap: SLEAPConfig = Field(..., description="SLEAP configuration")
+    dlc: DLCConfig = Field(default_factory=DLCConfig)
+    sleap: SLEAPConfig = Field(default_factory=SLEAPConfig)
 
 
 class FacemapConfig(BaseModel):
     """Facemap configuration."""
 
-    model_config = {"frozen": True}
-
-    run: bool = Field(default=False, description="Run Facemap")
-    roi: list[int] = Field(default_factory=list, description="Region of interest [x, y, w, h]")
+    run: bool = Field(default=False)
+    roi: str = Field(default="")
 
 
 class NWBConfig(BaseModel):
-    """NWB output configuration."""
+    """NWB export configuration."""
 
-    model_config = {"frozen": True}
-
-    link_external_video: bool = Field(default=True, description="Link external video files")
-    file_name: str = Field(default="session.nwb", description="Output NWB file name")
-    session_description: str = Field(default="Multi-camera behavioral session", description="Session description")
-    lab: str = Field(..., description="Lab name")
-    institution: str = Field(..., description="Institution name")
+    link_external_video: bool = Field(default=True)
+    file_name: str = Field(default="")
+    session_description: str = Field(default="")
+    lab: str = Field(default="")
+    institution: str = Field(default="")
 
 
 class QCConfig(BaseModel):
     """Quality control configuration."""
 
-    model_config = {"frozen": True}
-
-    generate_report: bool = Field(default=True, description="Generate QC report")
-    out: Path = Field(..., description="QC output directory")
+    generate_report: bool = Field(default=True)
+    out: str = Field(default="qc")
 
 
 class LoggingConfig(BaseModel):
     """Logging configuration."""
 
-    model_config = {"frozen": True}
+    level: str = Field(default="INFO")
+    structured: bool = Field(default=False)
 
-    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO", description="Logging level")
+    @field_validator("level")
+    @classmethod
+    def validate_level(cls, v: str) -> str:
+        """Validate log level."""
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        v_upper = v.upper()
+        if v_upper not in valid_levels:
+            raise ValueError(f"level must be one of {valid_levels}, got '{v}'")
+        return v_upper
 
 
 class EventsConfig(BaseModel):
     """Events configuration."""
 
-    model_config = {"frozen": True}
+    patterns: list[str] = Field(
+        default_factory=lambda: ["**/*_training.ndjson", "**/*_trial_stats.ndjson"]
+    )
+    format: str = Field(default="ndjson")
 
-    patterns: list[str] = Field(default_factory=list, description="Event file patterns")
-    format: str = Field(default="ndjson", description="Event file format")
 
-
-class Settings(BaseSettings):
-    """Main settings container with environment override support.
-
-    Environment variables override TOML values using prefix ``W2T_BKIN_`` and the
-    double underscore nested delimiter (``__``). For example:
-
-    - ``W2T_BKIN_PROJECT__NAME`` overrides ``[project].name``
-    - ``W2T_BKIN_SYNC__TOLERANCE_MS`` overrides ``[sync].tolerance_ms``
-    - ``W2T_BKIN_VIDEO__TRANSCODE__CRF`` overrides ``[video.transcode].crf``
-
-    Deterministic precedence (M-NFR-1): ENV > TOML file > defaults.
+class Settings(BaseModel):
+    """Complete pipeline settings.
+    
+    Requirements: FR-10 (Configuration-driven via TOML)
+    Design: requirements.md (Configuration keys)
     """
 
-    model_config = SettingsConfigDict(
-        env_prefix="W2T_BKIN_",
-        env_nested_delimiter="__",
-        case_sensitive=False,
-        frozen=True,
-        extra="forbid",
-    )
-
-    # Root sections / models
-    project: ProjectConfig
-    paths: PathsConfig | None = None
-    session: SessionConfig | None = None
+    project: ProjectConfig = Field(default_factory=ProjectConfig)
+    paths: PathsConfig = Field(default_factory=PathsConfig)
+    session: SessionConfig = Field(default_factory=SessionConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
-    labels: LabelsConfig | None = None
+    labels: LabelsConfig = Field(default_factory=LabelsConfig)
     facemap: FacemapConfig = Field(default_factory=FacemapConfig)
-    nwb: NWBConfig | None = None
-    qc: QCConfig | None = None
+    nwb: NWBConfig = Field(default_factory=NWBConfig)
+    qc: QCConfig = Field(default_factory=QCConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     events: EventsConfig = Field(default_factory=EventsConfig)
 
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ):
-        """Prioritize environment variables over TOML init values.
-
-        By default pydantic-settings v2 loads init values first, then env vars.
-        For configuration we want env vars to *override* file-provided values.
-        Returning sources in this order enforces ENV > INIT > SECRETS which
-        satisfies deterministic precedence (M-NFR-1) and allows overrides for
-        nested fields like ``SYNC__TOLERANCE_MS``.
-        """
-        return (
-            env_settings,  # highest precedence
-            init_settings,  # values parsed from TOML
-            file_secret_settings,  # (unused currently) retained for future layered configs
-        )
+    model_config = {"extra": "forbid"}  # Reject unknown keys
 
 
-def load_settings(path: str | Path) -> Settings:
-    """Load and validate configuration from TOML file with environment overrides.
+# ============================================================================
+# Loading Functions (FR-10, NFR-10)
+# ============================================================================
 
+
+def load_settings(
+    toml_path: Path | str | None = None,
+    env_prefix: str = ENV_PREFIX,
+) -> Settings:
+    """Load and validate settings from TOML and environment.
+    
     Args:
-        path: Path to TOML configuration file (string or Path object)
-
+        toml_path: Path to TOML configuration file (optional)
+        env_prefix: Environment variable prefix (default: W2T_)
+        
     Returns:
-        Immutable Settings object with validated configuration
-
+        Validated Settings object
+        
     Raises:
-        ConfigValidationError: On file not found, parse errors, or validation failures
-
-    Requirements:
-        - MR-1: Load configuration from TOML and environment overrides
-        - MR-2: Validate all keys and types using Pydantic models
-        - MR-3: Provide an immutable settings object
-        - MR-4: Raise descriptive ConfigValidationError on errors
+        FileNotFoundError: If toml_path specified but doesn't exist
+        ValueError: If configuration is invalid
+        
+    Requirements: FR-10 (TOML + Pydantic), NFR-10 (Environment overrides)
+    Design: api.md §3.3
     """
-    config_path = Path(path)
+    config_dict: dict[str, Any] = {}
 
-    # Check file exists
-    if not config_path.exists():
-        raise ConfigValidationError(f"Configuration file not found: {config_path}")
+    # Load from TOML if provided
+    if toml_path is not None:
+        toml_path = Path(toml_path)
+        if not toml_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {toml_path}")
 
-    # Load and parse TOML
+        with open(toml_path, "rb") as f:
+            config_dict = tomllib.load(f)
+
+    # Apply environment variable overrides
+    config_dict = _apply_env_overrides(config_dict, env_prefix)
+
+    # Validate and return
+    return Settings(**config_dict)
+
+
+def _apply_env_overrides(config: dict[str, Any], prefix: str) -> dict[str, Any]:
+    """Apply environment variable overrides to config dict.
+    
+    Supports nested keys with double underscore notation:
+    W2T_PROJECT__NAME=my-project
+    W2T_SYNC__TOLERANCE_MS=5.0
+    
+    Args:
+        config: Configuration dictionary
+        prefix: Environment variable prefix
+        
+    Returns:
+        Configuration with environment overrides applied
+    """
+    for key, value in os.environ.items():
+        if not key.startswith(prefix):
+            continue
+
+        # Remove prefix and split nested keys
+        config_key = key[len(prefix) :].lower()
+        parts = config_key.split("__")
+
+        # Navigate/create nested structure
+        current = config
+        for part in parts[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+
+        # Set the value (try to parse as appropriate type)
+        final_key = parts[-1]
+        current[final_key] = _parse_env_value(value)
+
+    return config
+
+
+def _parse_env_value(value: str) -> Any:
+    """Parse environment variable value to appropriate type.
+    
+    Args:
+        value: String value from environment
+        
+    Returns:
+        Parsed value (bool, int, float, or str)
+    """
+    # Boolean
+    if value.lower() in ("true", "yes", "1"):
+        return True
+    if value.lower() in ("false", "no", "0"):
+        return False
+
+    # Numeric
     try:
-        with open(config_path, "rb") as f:
-            toml_data = tomllib.load(f)
-    except Exception as e:
-        raise ConfigValidationError(f"Failed to parse TOML file {config_path}: {e}") from e
+        if "." in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        pass
 
-    # Validate and create settings with environment overrides
-    # Environment variables will take precedence due to settings_customise_sources
-    try:
-        settings = Settings(**toml_data)
-    except Exception as e:
-        # Extract field name from validation error if possible
-        error_msg = str(e)
-        raise ConfigValidationError(f"Configuration validation failed: {error_msg}") from e
-
-    return settings
-
-
-__all__ = [
-    "Settings",
-    "ProjectConfig",
-    "PathsConfig",
-    "SessionConfig",
-    "VideoConfig",
-    "VideoTranscodeConfig",
-    "SyncConfig",
-    "TTLChannelConfig",
-    "DLCConfig",
-    "SLEAPConfig",
-    "LabelsConfig",
-    "FacemapConfig",
-    "NWBConfig",
-    "QCConfig",
-    "LoggingConfig",
-    "EventsConfig",
-    "ConfigValidationError",
-    "load_settings",
-]
+    # String (default)
+    return value
