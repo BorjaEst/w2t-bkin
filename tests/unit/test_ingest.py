@@ -1,708 +1,839 @@
-"""Unit tests for the ingest module.
+"""Unit tests for ingest module.
 
-Tests session resource discovery and manifest building
-as specified in ingest/requirements.md and design.md.
+Requirements: FR-1 (Ingest five camera videos), NFR-8 (Data integrity)
+Design: design.md §2 (Module Breakdown), §3.1 (Manifest)
 """
 
-from __future__ import annotations
-
+import json
 from pathlib import Path
+import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-pytestmark = pytest.mark.unit
+from w2t_bkin.config import Settings
+from w2t_bkin.domain import Manifest, VideoMetadata
+from w2t_bkin.ingest import (
+    build_manifest,
+    discover_events,
+    discover_facemap,
+    discover_pose,
+    discover_sync_files,
+    discover_videos,
+    extract_video_metadata,
+)
+
+# ============================================================================
+# Fixtures
+# ============================================================================
 
 
-class TestVideoDiscovery:
-    """Test video file discovery (MR-1)."""
+@pytest.fixture
+def settings():
+    """Default settings for testing."""
+    return Settings(
+        session={"id": "test_session"},
+        video={"pattern": "**/*.mp4", "fps": 30.0},
+        sync={"ttl_channels": []},
+        events={"patterns": ["**/*_events.ndjson"]},
+        labels={"dlc": {"model": ""}, "sleap": {"model": ""}},
+        facemap={"run": False},
+    )
 
-    def test_Should_DiscoverFiveCameras_When_Present_MR1(self):
-        """THE MODULE SHALL discover five camera videos.
 
-        Requirements: MR-1
-        Issue: Ingest module - Video discovery
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
+@pytest.fixture
+def mock_session_dir(tmp_path):
+    """Create mock session directory with videos and sync file."""
+    session_dir = tmp_path / "session_001"
+    session_dir.mkdir()
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
+    # Create mock video files
+    for i in range(3):
+        video_file = session_dir / f"cam{i}.mp4"
+        video_file.write_text(f"mock video {i}")
+
+    # Create mock sync file
+    sync_file = session_dir / "sync.bin"
+    sync_file.write_bytes(b"mock sync data")
+
+    return session_dir
+
+
+@pytest.fixture
+def mock_ffprobe_output():
+    """Mock ffprobe JSON output."""
+    return {
+        "streams": [
+            {
+                "codec_name": "h264",
+                "r_frame_rate": "30/1",
+                "duration": "60.5",
+                "width": 1920,
+                "height": 1080,
+            }
+        ]
+    }
+
+
+# ============================================================================
+# Test: build_manifest - Success Cases
+# ============================================================================
+
+
+def test_build_manifest_with_valid_session(mock_session_dir, settings, mock_ffprobe_output):
+    """WHEN building manifest with valid session, THE SYSTEM SHALL create manifest.json."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(mock_session_dir, settings)
 
-        # Assert
-        assert len(manifest.videos) == 5
-        assert all(video.camera_id in range(5) for video in manifest.videos)
+        assert manifest_path.exists()
+        assert manifest_path.name == "manifest.json"
+        assert manifest_path.parent == mock_session_dir
 
-    def test_Should_DiscoverSyncFiles_When_Present_MR1(self):
-        """THE MODULE SHALL discover associated sync files.
 
-        Requirements: MR-1
-        Issue: Ingest module - Sync file discovery
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
+def test_build_manifest_with_custom_output_dir(mock_session_dir, settings, mock_ffprobe_output, tmp_path):
+    """WHEN specifying custom output_dir, THE SYSTEM SHALL write manifest there."""
+    output_dir = tmp_path / "output"
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-            sync_pattern="*.sync",
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(mock_session_dir, settings, output_dir)
 
-        # Assert
-        assert len(manifest.sync) > 0
-        assert all(isinstance(sync["path"], Path) for sync in manifest.sync)
+        assert manifest_path.parent == output_dir
+        assert output_dir.exists()
 
-    def test_Should_ResolveFilePatterns_When_Discovering_MR1(self):
-        """THE MODULE SHALL resolve file patterns to absolute paths.
 
-        Requirements: MR-1, Design - Resolve file patterns
-        Issue: Ingest module - Pattern resolution
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam[0-4].mp4",
+def test_build_manifest_contains_required_fields(mock_session_dir, settings, mock_ffprobe_output):
+    """WHEN manifest created, THE SYSTEM SHALL include all required fields."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(mock_session_dir, settings)
 
-        # Assert
-        assert all(video.path.is_absolute() for video in manifest.videos)
+        with open(manifest_path) as f:
+            manifest_data = json.load(f)
 
-    def test_Should_SortCamerasByID_When_Discovering_MR1(self):
-        """THE MODULE SHALL sort cameras by ID for deterministic ordering.
+        assert "session_id" in manifest_data
+        assert "videos" in manifest_data
+        assert "sync" in manifest_data
+        assert "events" in manifest_data
+        assert "pose" in manifest_data
+        assert "facemap" in manifest_data
+        assert "config_snapshot" in manifest_data
+        assert "provenance" in manifest_data
 
-        Requirements: MR-1, M-NFR-2 - Deterministic ordering
-        Issue: Ingest module - Camera sorting
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
+def test_build_manifest_includes_video_metadata(mock_session_dir, settings, mock_ffprobe_output):
+    """WHEN videos discovered, THE SYSTEM SHALL include metadata in manifest."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(mock_session_dir, settings)
 
-        # Assert - Should be sorted by camera_id
-        camera_ids = [video.camera_id for video in manifest.videos]
-        assert camera_ids == sorted(camera_ids)
+        with open(manifest_path) as f:
+            manifest_data = json.load(f)
+
+        assert len(manifest_data["videos"]) == 3
+
+        for i, video in enumerate(manifest_data["videos"]):
+            assert video["camera_id"] == i
+            assert "path" in video
+            assert "codec" in video
+            assert "fps" in video
+            assert "duration" in video
+            assert "resolution" in video
 
 
-class TestMetadataExtraction:
-    """Test video metadata extraction (MR-2)."""
+def test_build_manifest_uses_session_id_from_settings(mock_session_dir, settings, mock_ffprobe_output):
+    """WHEN session.id set in settings, THE SYSTEM SHALL use it for session_id."""
+    settings.session.id = "custom_session_id"
 
-    def test_Should_ExtractCodec_When_Probing_MR2(self):
-        """THE MODULE SHALL extract codec metadata.
-
-        Requirements: MR-2
-        Issue: Ingest module - Codec extraction
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(mock_session_dir, settings)
 
-        # Assert
-        assert all(video.codec in ["h264", "h265", "vp9", "av1"] for video in manifest.videos)
+        with open(manifest_path) as f:
+            manifest_data = json.load(f)
 
-    def test_Should_ExtractFPS_When_Probing_MR2(self):
-        """THE MODULE SHALL extract frames per second.
+        assert manifest_data["session_id"] == "custom_session_id"
 
-        Requirements: MR-2
-        Issue: Ingest module - FPS extraction
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
+def test_build_manifest_uses_directory_name_when_no_session_id(mock_session_dir, settings, mock_ffprobe_output):
+    """WHEN session.id not set, THE SYSTEM SHALL use directory name as session_id."""
+    settings.session.id = ""
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(mock_session_dir, settings)
 
-        # Assert
-        assert all(video.fps > 0 for video in manifest.videos)
+        with open(manifest_path) as f:
+            manifest_data = json.load(f)
 
-    def test_Should_ExtractDuration_When_Probing_MR2(self):
-        """THE MODULE SHALL extract video duration.
+        assert manifest_data["session_id"] == mock_session_dir.name
 
-        Requirements: MR-2
-        Issue: Ingest module - Duration extraction
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
+def test_build_manifest_includes_provenance(mock_session_dir, settings, mock_ffprobe_output):
+    """WHEN manifest created, THE SYSTEM SHALL include provenance metadata."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(mock_session_dir, settings)
 
-        # Assert
-        assert all(video.duration > 0 for video in manifest.videos)
+        with open(manifest_path) as f:
+            manifest_data = json.load(f)
 
-    def test_Should_ExtractResolution_When_Probing_MR2(self):
-        """THE MODULE SHALL extract video resolution.
+        assert "git_commit" in manifest_data["provenance"]
+        assert "session_dir" in manifest_data["provenance"]
+        assert "output_dir" in manifest_data["provenance"]
 
-        Requirements: MR-2
-        Issue: Ingest module - Resolution extraction
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
+# ============================================================================
+# Test: build_manifest - Error Cases
+# ============================================================================
+
+
+def test_build_manifest_with_nonexistent_session_dir(settings, tmp_path):
+    """WHEN session directory doesn't exist, THE SYSTEM SHALL raise FileNotFoundError."""
+    nonexistent_dir = tmp_path / "nonexistent"
+
+    with pytest.raises(FileNotFoundError) as exc_info:
+        build_manifest(nonexistent_dir, settings)
+
+    assert "not found" in str(exc_info.value).lower()
+
+
+def test_build_manifest_with_no_videos(tmp_path, settings):
+    """WHEN no videos found, THE SYSTEM SHALL raise ValueError."""
+    empty_dir = tmp_path / "empty_session"
+    empty_dir.mkdir()
+
+    # Create sync file
+    sync_file = empty_dir / "sync.bin"
+    sync_file.write_bytes(b"sync")
+
+    with pytest.raises(ValueError) as exc_info:
+        build_manifest(empty_dir, settings)
+
+    assert "no videos found" in str(exc_info.value).lower()
+
+
+def test_build_manifest_with_no_sync_files(tmp_path, settings, mock_ffprobe_output):
+    """WHEN no sync files found, THE SYSTEM SHALL raise ValueError."""
+    session_dir = tmp_path / "no_sync_session"
+    session_dir.mkdir()
+
+    # Create video file
+    video_file = session_dir / "cam0.mp4"
+    video_file.write_text("mock video")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        with pytest.raises(ValueError) as exc_info:
+            build_manifest(session_dir, settings)
 
-        # Assert
-        assert all(len(video.resolution) == 2 and video.resolution[0] > 0 and video.resolution[1] > 0 for video in manifest.videos)
+        assert "no sync files found" in str(exc_info.value).lower()
 
-    def test_Should_UseProbeTools_When_Extracting_MR2_MNFR1(self):
-        """THE MODULE SHALL use probe tools without loading entire videos.
 
-        Requirements: MR-2, M-NFR-1
-        Issue: Ingest module - Probe tools (ffprobe)
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
+def test_build_manifest_with_ffprobe_failure(mock_session_dir, settings):
+    """WHEN ffprobe fails, THE SYSTEM SHALL raise RuntimeError."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["ffprobe"],
+            stderr="ffprobe error",
         )
 
-        # Act & Assert - Should complete without loading full videos
-        manifest = build_manifest(settings)
-        assert manifest is not None
+        with pytest.raises(RuntimeError) as exc_info:
+            build_manifest(mock_session_dir, settings)
 
-    def test_Should_WriteManifestJSON_When_Complete_MR2(self):
-        """THE MODULE SHALL write manifest.json.
+        assert "ffprobe failed" in str(exc_info.value).lower()
 
-        Requirements: MR-2
-        Issue: Ingest module - Manifest writing
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-            output_dir=Path("/data/session_001/processed"),
+# ============================================================================
+# Test: discover_videos
+# ============================================================================
+
+
+def test_discover_videos_finds_multiple_videos(mock_session_dir, settings):
+    """WHEN multiple videos exist, THE SYSTEM SHALL discover all matching pattern."""
+    videos = discover_videos(mock_session_dir, settings)
+
+    assert len(videos) == 3
+    assert all(v.suffix == ".mp4" for v in videos)
+    assert all(v.is_absolute() for v in videos)
+
+
+def test_discover_videos_returns_sorted_list(mock_session_dir, settings):
+    """WHEN discovering videos, THE SYSTEM SHALL return sorted list."""
+    videos = discover_videos(mock_session_dir, settings)
+
+    names = [v.name for v in videos]
+    assert names == sorted(names)
+
+
+def test_discover_videos_with_no_matches(tmp_path, settings):
+    """WHEN no videos match pattern, THE SYSTEM SHALL return empty list."""
+    empty_dir = tmp_path / "no_videos"
+    empty_dir.mkdir()
+
+    videos = discover_videos(empty_dir, settings)
+
+    assert videos == []
+
+
+def test_discover_videos_with_custom_pattern(mock_session_dir, settings):
+    """WHEN custom pattern specified, THE SYSTEM SHALL use it for discovery."""
+    # Create additional .avi file
+    avi_file = mock_session_dir / "cam_extra.avi"
+    avi_file.write_text("avi video")
+
+    settings.video.pattern = "**/*.avi"
+    videos = discover_videos(mock_session_dir, settings)
+
+    assert len(videos) == 1
+    assert videos[0].suffix == ".avi"
+
+
+def test_discover_videos_with_nested_directories(tmp_path, settings):
+    """WHEN videos in nested directories, THE SYSTEM SHALL discover them."""
+    session_dir = tmp_path / "nested_session"
+    subdir = session_dir / "subdir"
+    subdir.mkdir(parents=True)
+
+    video1 = session_dir / "cam0.mp4"
+    video2 = subdir / "cam1.mp4"
+    video1.write_text("video1")
+    video2.write_text("video2")
+
+    videos = discover_videos(session_dir, settings)
+
+    assert len(videos) == 2
+
+
+# ============================================================================
+# Test: extract_video_metadata
+# ============================================================================
+
+
+def test_extract_video_metadata_with_valid_video(tmp_path, mock_ffprobe_output):
+    """WHEN extracting metadata from valid video, THE SYSTEM SHALL return VideoMetadata."""
+    video_path = tmp_path / "test.mp4"
+    video_path.write_text("mock video")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        metadata = extract_video_metadata(video_path, camera_id=0)
 
-        # Assert - Manifest should be serializable to JSON
-        manifest_json = manifest.model_dump_json() if hasattr(manifest, "model_dump_json") else str(manifest)
-        assert manifest_json is not None
+        assert isinstance(metadata, VideoMetadata)
+        assert metadata.camera_id == 0
+        assert metadata.codec == "h264"
+        assert metadata.fps == 30.0
+        assert metadata.duration == 60.5
+        assert metadata.resolution == (1920, 1080)
 
 
-class TestMissingInputHandling:
-    """Test handling of missing required inputs (MR-3)."""
+def test_extract_video_metadata_with_nonexistent_file(tmp_path):
+    """WHEN video file doesn't exist, THE SYSTEM SHALL raise FileNotFoundError."""
+    nonexistent = tmp_path / "nonexistent.mp4"
 
-    def test_Should_FailWithError_When_RequiredVideosMissing_MR3(self):
-        """WHEN required inputs are missing, THE MODULE SHALL fail with MissingInputError.
+    with pytest.raises(FileNotFoundError) as exc_info:
+        extract_video_metadata(nonexistent, camera_id=0)
 
-        Requirements: MR-3
-        Issue: Ingest module - Missing videos error
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.domain import MissingInputError
-        from w2t_bkin.ingest import build_manifest
+    assert "not found" in str(exc_info.value).lower()
 
-        settings = Settings(
-            session_root=Path("/nonexistent/session"),
-            video_pattern="cam*.mp4",
+
+def test_extract_video_metadata_with_ffprobe_error(tmp_path):
+    """WHEN ffprobe fails, THE SYSTEM SHALL raise RuntimeError."""
+    video_path = tmp_path / "test.mp4"
+    video_path.write_text("mock video")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["ffprobe"],
+            stderr="Invalid data",
         )
 
-        # Act & Assert
-        with pytest.raises(MissingInputError):
-            build_manifest(settings)
+        with pytest.raises(RuntimeError) as exc_info:
+            extract_video_metadata(video_path, camera_id=0)
 
-    def test_Should_FailWithError_When_InsufficientVideos_MR3(self):
-        """THE MODULE SHALL fail when fewer than 5 videos found.
+        assert "ffprobe failed" in str(exc_info.value).lower()
 
-        Requirements: MR-3, MR-1 - Five cameras required
-        Issue: Ingest module - Insufficient videos
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.domain import MissingInputError
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/data/incomplete_session"),
-            video_pattern="cam*.mp4",
+def test_extract_video_metadata_with_timeout(tmp_path):
+    """WHEN ffprobe times out, THE SYSTEM SHALL raise RuntimeError."""
+    video_path = tmp_path / "test.mp4"
+    video_path.write_text("mock video")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["ffprobe"], timeout=30)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            extract_video_metadata(video_path, camera_id=0)
+
+        assert "timeout" in str(exc_info.value).lower()
+
+
+def test_extract_video_metadata_with_no_video_stream(tmp_path):
+    """WHEN video has no video stream, THE SYSTEM SHALL raise RuntimeError."""
+    video_path = tmp_path / "test.mp4"
+    video_path.write_text("mock video")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps({"streams": []}),
+            returncode=0,
         )
 
-        # Act & Assert
-        with pytest.raises(MissingInputError):
-            build_manifest(settings)
+        with pytest.raises(RuntimeError) as exc_info:
+            extract_video_metadata(video_path, camera_id=0)
 
-    def test_Should_FailWithError_When_SyncFilesMissing_MR3(self):
-        """THE MODULE SHALL fail when required sync files are missing.
+        assert "no video stream" in str(exc_info.value).lower()
 
-        Requirements: MR-3
-        Issue: Ingest module - Missing sync files
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.domain import MissingInputError
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/data/session_no_sync"),
-            video_pattern="cam*.mp4",
-            sync_pattern="*.sync",
-            sync_required=True,
+def test_extract_video_metadata_with_invalid_json(tmp_path):
+    """WHEN ffprobe output is invalid JSON, THE SYSTEM SHALL raise RuntimeError."""
+    video_path = tmp_path / "test.mp4"
+    video_path.write_text("mock video")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout="invalid json",
+            returncode=0,
         )
 
-        # Act & Assert
-        with pytest.raises(MissingInputError):
-            build_manifest(settings)
+        with pytest.raises(RuntimeError) as exc_info:
+            extract_video_metadata(video_path, camera_id=0)
 
-    def test_Should_ProvideDetailedMessage_When_ErrorRaised_MR3(self):
-        """THE MODULE SHALL provide detailed error messages.
+        assert "failed to parse" in str(exc_info.value).lower()
 
-        Requirements: MR-3, Design - Error handling
-        Issue: Ingest module - Error messages
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.domain import MissingInputError
-        from w2t_bkin.ingest import build_manifest
 
-        settings = Settings(
-            session_root=Path("/nonexistent/session"),
-            video_pattern="cam*.mp4",
+def test_extract_video_metadata_parses_frame_rate_correctly(tmp_path):
+    """WHEN frame rate is fraction, THE SYSTEM SHALL parse to float correctly."""
+    video_path = tmp_path / "test.mp4"
+    video_path.write_text("mock video")
+
+    test_cases = [
+        ("30/1", 30.0),
+        ("60/1", 60.0),
+        ("24000/1001", 23.976023976023978),
+    ]
+
+    for fps_str, expected_fps in test_cases:
+        ffprobe_output = {
+            "streams": [
+                {
+                    "codec_name": "h264",
+                    "r_frame_rate": fps_str,
+                    "duration": "10.0",
+                    "width": 640,
+                    "height": 480,
+                }
+            ]
+        }
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                stdout=json.dumps(ffprobe_output),
+                returncode=0,
+            )
+
+            metadata = extract_video_metadata(video_path, camera_id=0)
+            assert abs(metadata.fps - expected_fps) < 1e-6
+
+
+def test_extract_video_metadata_converts_path_to_absolute(tmp_path):
+    """WHEN video path is relative, THE SYSTEM SHALL convert to absolute."""
+    video_path = tmp_path / "test.mp4"
+    video_path.write_text("mock video")
+
+    ffprobe_output = {
+        "streams": [
+            {
+                "codec_name": "h264",
+                "r_frame_rate": "30/1",
+                "duration": "10.0",
+                "width": 640,
+                "height": 480,
+            }
+        ]
+    }
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(ffprobe_output),
+            returncode=0,
         )
 
-        # Act & Assert
-        with pytest.raises(MissingInputError) as exc_info:
-            build_manifest(settings)
+        # Pass relative path
+        import os
 
-        error_message = str(exc_info.value).lower()
-        assert "missing" in error_message or "not found" in error_message
+        original_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            metadata = extract_video_metadata("test.mp4", camera_id=0)
+            assert metadata.path.is_absolute()
+        finally:
+            os.chdir(original_cwd)
 
 
-class TestOptionalArtifacts:
-    """Test handling of optional artifacts (MR-4)."""
+# ============================================================================
+# Test: discover_sync_files
+# ============================================================================
 
-    def test_Should_RecordEventPaths_When_Present_MR4(self):
-        """WHERE event files are present, THE MODULE SHALL record their paths.
 
-        Requirements: MR-4
-        Issue: Ingest module - Event files
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
+def test_discover_sync_files_with_configured_ttl_channels(tmp_path):
+    """WHEN TTL channels configured, THE SYSTEM SHALL discover from config."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-            events_pattern="*.ndjson",
+    sync_file = session_dir / "sync.bin"
+    sync_file.write_bytes(b"sync data")
+
+    # Create settings with configured TTL channel
+    from w2t_bkin.config import Settings, TTLChannelConfig
+
+    settings = Settings(sync={"ttl_channels": [{"path": "sync.bin", "name": "trigger", "polarity": "rising"}]})
+
+    sync_files = discover_sync_files(session_dir, settings)
+
+    assert len(sync_files) == 1
+    assert sync_files[0]["type"] == "ttl"
+    assert sync_files[0]["name"] == "trigger"
+    assert sync_files[0]["polarity"] == "rising"
+
+
+def test_discover_sync_files_with_fallback_detection(tmp_path, settings):
+    """WHEN no TTL channels configured, THE SYSTEM SHALL use fallback patterns."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    sync_file = session_dir / "sync.bin"
+    sync_file.write_bytes(b"sync data")
+
+    settings.sync.ttl_channels = []
+
+    sync_files = discover_sync_files(session_dir, settings)
+
+    assert len(sync_files) == 1
+    assert sync_files[0]["type"] == "auto_detected"
+
+
+def test_discover_sync_files_with_multiple_patterns(tmp_path, settings):
+    """WHEN multiple sync files match patterns, THE SYSTEM SHALL discover all."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    (session_dir / "sync1.bin").write_bytes(b"sync1")
+    (session_dir / "sync2.csv").write_bytes(b"sync2")
+    (session_dir / "ttl.bin").write_bytes(b"ttl")
+
+    settings.sync.ttl_channels = []
+
+    sync_files = discover_sync_files(session_dir, settings)
+
+    assert len(sync_files) == 3
+
+
+def test_discover_sync_files_returns_absolute_paths(tmp_path, settings):
+    """WHEN discovering sync files, THE SYSTEM SHALL return absolute paths."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    sync_file = session_dir / "sync.bin"
+    sync_file.write_bytes(b"sync data")
+
+    settings.sync.ttl_channels = []
+
+    sync_files = discover_sync_files(session_dir, settings)
+
+    assert len(sync_files) == 1
+    assert Path(sync_files[0]["path"]).is_absolute()
+
+
+def test_discover_sync_files_with_no_sync_files(tmp_path, settings):
+    """WHEN no sync files found, THE SYSTEM SHALL return empty list."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    settings.sync.ttl_channels = []
+
+    sync_files = discover_sync_files(empty_dir, settings)
+
+    assert sync_files == []
+
+
+# ============================================================================
+# Test: discover_events
+# ============================================================================
+
+
+def test_discover_events_finds_matching_files(tmp_path, settings):
+    """WHEN event files match patterns, THE SYSTEM SHALL discover them."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    event_file = session_dir / "trial_events.ndjson"
+    event_file.write_text('{"type": "event"}')
+
+    events = discover_events(session_dir, settings)
+
+    assert len(events) == 1
+    assert events[0]["kind"] == "behavioral"
+    assert events[0]["format"] == "ndjson"
+
+
+def test_discover_events_with_no_files(tmp_path, settings):
+    """WHEN no event files found, THE SYSTEM SHALL return empty list."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    events = discover_events(empty_dir, settings)
+
+    assert events == []
+
+
+def test_discover_events_with_multiple_patterns(tmp_path, settings):
+    """WHEN multiple patterns configured, THE SYSTEM SHALL check all."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    (session_dir / "training_events.ndjson").write_text("{}")
+    (session_dir / "trial_stats_events.ndjson").write_text("{}")
+
+    settings.events.patterns = ["**/*training*.ndjson", "**/*trial_stats*.ndjson"]
+
+    events = discover_events(session_dir, settings)
+
+    assert len(events) == 2
+
+
+# ============================================================================
+# Test: discover_pose
+# ============================================================================
+
+
+def test_discover_pose_finds_dlc_files(tmp_path, settings):
+    """WHEN DLC model configured, THE SYSTEM SHALL discover DLC files."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    dlc_file = session_dir / "video_DLC_resnet50.h5"
+    dlc_file.write_text("dlc data")
+
+    settings.labels.dlc.model = "model.pb"
+
+    pose_files = discover_pose(session_dir, settings)
+
+    assert len(pose_files) == 1
+    assert pose_files[0]["format"] == "dlc"
+    assert pose_files[0]["model"] == "model.pb"
+
+
+def test_discover_pose_finds_sleap_files(tmp_path, settings):
+    """WHEN SLEAP model configured, THE SYSTEM SHALL discover SLEAP files."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    sleap_file = session_dir / "predictions.slp"
+    sleap_file.write_text("sleap data")
+
+    settings.labels.sleap.model = "model.h5"
+
+    pose_files = discover_pose(session_dir, settings)
+
+    assert len(pose_files) == 1
+    assert pose_files[0]["format"] == "sleap"
+    assert pose_files[0]["model"] == "model.h5"
+
+
+def test_discover_pose_with_no_models_configured(tmp_path, settings):
+    """WHEN no pose models configured, THE SYSTEM SHALL return empty list."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    (session_dir / "video_DLC.h5").write_text("dlc")
+
+    settings.labels.dlc.model = ""
+    settings.labels.sleap.model = ""
+
+    pose_files = discover_pose(session_dir, settings)
+
+    assert pose_files == []
+
+
+def test_discover_pose_with_both_dlc_and_sleap(tmp_path, settings):
+    """WHEN both DLC and SLEAP configured, THE SYSTEM SHALL discover both."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    (session_dir / "video_DLC.h5").write_text("dlc")
+    (session_dir / "predictions.slp").write_text("sleap")
+
+    settings.labels.dlc.model = "dlc_model.pb"
+    settings.labels.sleap.model = "sleap_model.h5"
+
+    pose_files = discover_pose(session_dir, settings)
+
+    assert len(pose_files) == 2
+
+
+# ============================================================================
+# Test: discover_facemap
+# ============================================================================
+
+
+def test_discover_facemap_finds_files_when_enabled(tmp_path, settings):
+    """WHEN facemap enabled, THE SYSTEM SHALL discover facemap files."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    facemap_file = session_dir / "video_facemap.npy"
+    facemap_file.write_text("facemap data")
+
+    settings.facemap.run = True
+    settings.facemap.roi = "face"
+
+    facemap_files = discover_facemap(session_dir, settings)
+
+    assert len(facemap_files) == 1
+    assert facemap_files[0]["roi"] == "face"
+
+
+def test_discover_facemap_returns_empty_when_disabled(tmp_path, settings):
+    """WHEN facemap disabled, THE SYSTEM SHALL return empty list."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    (session_dir / "video_facemap.npy").write_text("facemap")
+
+    settings.facemap.run = False
+
+    facemap_files = discover_facemap(session_dir, settings)
+
+    assert facemap_files == []
+
+
+def test_discover_facemap_with_no_files(tmp_path, settings):
+    """WHEN no facemap files found, THE SYSTEM SHALL return empty list."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    settings.facemap.run = True
+
+    facemap_files = discover_facemap(empty_dir, settings)
+
+    assert facemap_files == []
+
+
+# ============================================================================
+# Test: Edge Cases
+# ============================================================================
+
+
+def test_build_manifest_with_relative_session_dir(tmp_path, settings, mock_ffprobe_output):
+    """WHEN session_dir is relative, THE SYSTEM SHALL resolve to absolute."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    (session_dir / "cam0.mp4").write_text("video")
+    (session_dir / "sync.bin").write_bytes(b"sync")
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        import os
 
-        # Assert
-        if hasattr(manifest, "events") and manifest.events:
-            assert len(manifest.events) > 0
-            assert all(Path(e["path"]).suffix == ".ndjson" for e in manifest.events)
+        original_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            manifest_path = build_manifest("session", settings)
 
-    def test_Should_RecordPosePaths_When_Present_MR4(self):
-        """WHERE pose files are present, THE MODULE SHALL record their paths.
+            with open(manifest_path) as f:
+                manifest_data = json.load(f)
 
-        Requirements: MR-4
-        Issue: Ingest module - Pose files
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
+            # All paths should be absolute
+            assert Path(manifest_data["provenance"]["session_dir"]).is_absolute()
+            for video in manifest_data["videos"]:
+                assert Path(video["path"]).is_absolute()
+        finally:
+            os.chdir(original_cwd)
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-            pose_pattern="*.h5",
+
+def test_build_manifest_creates_output_directory(tmp_path, settings, mock_ffprobe_output):
+    """WHEN output directory doesn't exist, THE SYSTEM SHALL create it."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    (session_dir / "cam0.mp4").write_text("video")
+    (session_dir / "sync.bin").write_bytes(b"sync")
+
+    output_dir = tmp_path / "nonexistent" / "nested" / "output"
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(mock_ffprobe_output),
+            returncode=0,
         )
 
-        # Act
-        manifest = build_manifest(settings)
+        manifest_path = build_manifest(session_dir, settings, output_dir)
 
-        # Assert
-        if hasattr(manifest, "pose") and manifest.pose:
-            assert len(manifest.pose) > 0
-            assert all(Path(p["path"]).suffix in [".h5", ".csv"] for p in manifest.pose)
+        assert output_dir.exists()
+        assert manifest_path.parent == output_dir
 
-    def test_Should_RecordFacemapPaths_When_Present_MR4(self):
-        """WHERE facemap files are present, THE MODULE SHALL record their paths.
 
-        Requirements: MR-4
-        Issue: Ingest module - Facemap files
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
+def test_build_manifest_with_empty_session_directory(tmp_path, settings):
+    """WHEN session directory is empty, THE SYSTEM SHALL raise ValueError."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
 
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-            facemap_pattern="*_proc.npy",
-        )
+    with pytest.raises(ValueError):
+        build_manifest(empty_dir, settings)
 
-        # Act
-        manifest = build_manifest(settings)
 
-        # Assert
-        if hasattr(manifest, "facemap") and manifest.facemap:
-            assert len(manifest.facemap) > 0
+def test_discover_videos_with_absolute_and_relative_paths(tmp_path, settings):
+    """WHEN discovering videos, THE SYSTEM SHALL always return absolute paths."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
 
-    def test_Should_OmitOptional_When_NotPresent_MR4(self):
-        """THE MODULE SHALL omit optional paths when not present.
+    (session_dir / "cam0.mp4").write_text("video")
 
-        Requirements: MR-4, Design - Optional artifacts
-        Issue: Ingest module - Optional omission
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
+    videos = discover_videos(session_dir, settings)
 
-        settings = Settings(
-            session_root=Path("/data/minimal_session"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert - Optional fields should be empty or omitted
-        manifest_dict = manifest.model_dump(exclude_none=True) if hasattr(manifest, "model_dump") else {}
-        # Events, pose, facemap should be missing or empty
-        if "events" in manifest_dict:
-            assert manifest_dict["events"] is not None  # Not null, but can be empty list
-
-
-class TestProvenanceCapture:
-    """Test provenance capture in manifest."""
-
-    def test_Should_CaptureConfigSnapshot_When_Building_Design(self):
-        """THE MODULE SHALL capture config snapshot in manifest.
-
-        Requirements: Design - Provenance
-        Issue: Ingest module - Config snapshot
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert
-        assert hasattr(manifest, "config_snapshot")
-        assert manifest.config_snapshot is not None
-
-    def test_Should_CaptureProvenance_When_Building_Design(self):
-        """THE MODULE SHALL capture provenance metadata.
-
-        Requirements: Design - Provenance
-        Issue: Ingest module - Provenance metadata
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert
-        assert hasattr(manifest, "provenance")
-        assert manifest.provenance is not None
-        # Should include timestamp or similar
-        assert len(manifest.provenance) > 0
-
-    def test_Should_IncludeSessionID_When_Building_Design(self):
-        """THE MODULE SHALL include session_id in manifest.
-
-        Requirements: Design - Manifest structure
-        Issue: Ingest module - Session ID
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert
-        assert hasattr(manifest, "session_id")
-        assert manifest.session_id is not None
-        assert len(manifest.session_id) > 0
-
-
-class TestDeterministicOutput:
-    """Test deterministic manifest generation (M-NFR-2)."""
-
-    def test_Should_ProduceSameManifest_When_SameInput_MNFR2(self):
-        """THE MODULE SHALL produce deterministic manifest.
-
-        Requirements: M-NFR-2
-        Issue: Ingest module - Determinism
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest1 = build_manifest(settings)
-        manifest2 = build_manifest(settings)
-
-        # Assert - Core fields should be identical
-        assert manifest1.session_id == manifest2.session_id
-        assert len(manifest1.videos) == len(manifest2.videos)
-        assert [v.camera_id for v in manifest1.videos] == [v.camera_id for v in manifest2.videos]
-
-    def test_Should_UseStableKeys_When_Serializing_MNFR2(self):
-        """THE MODULE SHALL use stable JSON keys.
-
-        Requirements: M-NFR-2
-        Issue: Ingest module - Stable keys
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert - Keys should be consistent
-        expected_keys = ["session_id", "videos", "sync", "config_snapshot", "provenance"]
-        manifest_dict = manifest.model_dump() if hasattr(manifest, "model_dump") else {}
-        assert all(key in expected_keys for key in manifest_dict.keys() if not key.startswith("_"))
-
-    def test_Should_OrderVideos_When_Building_MNFR2(self):
-        """THE MODULE SHALL order videos deterministically.
-
-        Requirements: M-NFR-2
-        Issue: Ingest module - Video ordering
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert - Videos should be sorted by camera_id
-        camera_ids = [video.camera_id for video in manifest.videos]
-        assert camera_ids == sorted(camera_ids)
-
-
-class TestAbsolutePaths:
-    """Test absolute path resolution (Design)."""
-
-    def test_Should_ResolveAbsolutePaths_When_Building_Design(self):
-        """THE MODULE SHALL resolve all paths to absolute.
-
-        Requirements: Design - Absolute paths
-        Issue: Ingest module - Path resolution
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert
-        assert all(video.path.is_absolute() for video in manifest.videos)
-        assert all(Path(sync["path"]).is_absolute() for sync in manifest.sync)
-
-    def test_Should_ValidatePathsExist_When_Building_Design(self):
-        """THE MODULE SHALL verify discovered paths exist.
-
-        Requirements: Design - Path verification
-        Issue: Ingest module - Path validation
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert - This test expects paths to exist during actual execution
-        # In unit test context, we're just verifying the structure
-        assert all(isinstance(video.path, Path) for video in manifest.videos)
-
-
-class TestOptionalChecksums:
-    """Test optional checksum capture (Design - Future notes)."""
-
-    def test_Should_SupportChecksums_When_Enabled_Future(self):
-        """THE MODULE SHALL support optional checksums for provenance.
-
-        Requirements: Design - Future notes
-        Issue: Ingest module - Checksum support
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-            compute_checksums=True,
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert - Checksums may be present in provenance
-        if hasattr(manifest, "provenance") and "checksums" in manifest.provenance:
-            assert len(manifest.provenance["checksums"]) > 0
-
-    def test_Should_SkipChecksums_When_Disabled_Future(self):
-        """THE MODULE SHALL skip checksums when disabled (default).
-
-        Requirements: Design - Future notes
-        Issue: Ingest module - Checksum optional
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert - Should complete without computing checksums
-        assert manifest is not None
-
-
-class TestBuildManifestAPI:
-    """Test build_manifest public API."""
-
-    def test_Should_AcceptSettings_When_Called_Design(self):
-        """THE MODULE SHALL accept Settings as input.
-
-        Requirements: Design - Public interface
-        Issue: Ingest module - API contract
-        """
-        # Arrange
-        import inspect
-
-        from w2t_bkin.config import Settings
-        from w2t_bkin.ingest import build_manifest
-
-        # Assert - Function should accept Settings
-        sig = inspect.signature(build_manifest)
-        params = list(sig.parameters.keys())
-        assert "settings" in params or len(params) >= 1
-
-    def test_Should_ReturnManifest_When_Complete_Design(self):
-        """THE MODULE SHALL return Manifest object.
-
-        Requirements: Design - Public interface
-        Issue: Ingest module - Return type
-        """
-        # Arrange
-        from w2t_bkin.config import Settings
-        from w2t_bkin.domain import Manifest
-        from w2t_bkin.ingest import build_manifest
-
-        settings = Settings(
-            session_root=Path("/data/session_001"),
-            video_pattern="cam*.mp4",
-        )
-
-        # Act
-        manifest = build_manifest(settings)
-
-        # Assert
-        assert isinstance(manifest, Manifest)
+    assert all(v.is_absolute() for v in videos)

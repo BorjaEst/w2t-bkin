@@ -1,225 +1,201 @@
-"""Ingest module for w2t-bkin pipeline.
+"""Ingest module for W2T BKin pipeline.
 
-Discovers session resources (videos, sync files, optional artifacts),
-extracts video metadata using ffprobe, and builds a validated manifest.
+Discover session assets, extract video metadata, and build manifest.
+As a Layer 2 module, may import: config, domain, utils.
 
-Requirements: MR-1, MR-2, MR-3, MR-4, M-NFR-1, M-NFR-2
-Design: ingest/design.md
+Requirements: FR-1 (Ingest five camera videos), NFR-8 (Data integrity)
+Design: design.md §2 (Module Breakdown), §3.1 (Manifest), §21.1 (Layer 2)
+API: api.md §3.4
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import subprocess
 from typing import Any
 
 from w2t_bkin.config import Settings
-from w2t_bkin.domain import Manifest, MissingInputError, VideoMetadata
+from w2t_bkin.domain import Manifest, VideoMetadata
+from w2t_bkin.utils import file_hash, get_commit, write_json
+
+__all__ = [
+    "build_manifest",
+    "extract_video_metadata",
+    "discover_videos",
+    "discover_sync_files",
+    "discover_events",
+    "discover_pose",
+    "discover_facemap",
+]
+
+logger = logging.getLogger(__name__)
 
 
-def build_manifest(settings) -> Manifest:
-    """Build session manifest by discovering and probing resources.
+# ============================================================================
+# Main API (FR-1, API §3.4)
+# ============================================================================
 
-    Discovers five camera videos and associated sync files, extracts metadata
-    using ffprobe without loading full videos, and builds a validated Manifest
-    with absolute paths and provenance.
+
+def build_manifest(
+    session_dir: Path | str,
+    settings: Settings,
+    output_dir: Path | str | None = None,
+) -> Path:
+    """Build manifest from session directory and configuration.
 
     Args:
-        settings: Configuration settings (Settings object or compatible mock)
+        session_dir: Path to session directory containing raw files
+        settings: Validated settings object
+        output_dir: Optional output directory (default: session_dir)
 
     Returns:
-        Validated Manifest object with all discovered resources
+        Path to created manifest.json
 
     Raises:
-        MissingInputError: When required files are missing or insufficient
-        ValueError: When video metadata extraction fails
+        FileNotFoundError: If session_dir doesn't exist
+        ValueError: If required files are missing
 
-    Requirements:
-        - MR-1: Discover five camera videos and associated sync files
-        - MR-2: Extract per-video metadata and write manifest
-        - MR-3: Fail with MissingInputError when required inputs missing
-        - MR-4: Record optional artifacts when present
-        - M-NFR-1: Avoid loading entire videos (use ffprobe)
-        - M-NFR-2: Deterministic ordering and stable keys
+    Requirements: FR-1 (Ingest assets), NFR-1 (Reproducibility), NFR-8 (Data integrity)
+    Design: §3.1 (Manifest JSON), API §3.4
     """
-    # Extract session_root from settings
-    session_root = _get_session_root(settings)
+    session_dir = Path(session_dir).resolve()
+    output_dir = Path(output_dir or session_dir).resolve()
 
-    # Verify session root exists
-    if not session_root.exists():
-        raise MissingInputError(f"Session root directory not found: {session_root.absolute()}")
+    if not session_dir.exists():
+        raise FileNotFoundError(f"Session directory not found: {session_dir}")
 
-    # Discover and validate videos (MR-1, MR-3)
-    # Try direct attribute first (for test mocks), then nested video.pattern
-    if hasattr(settings, "video_pattern"):
-        video_pattern = settings.video_pattern
-    elif hasattr(settings, "video") and hasattr(settings.video, "pattern"):
-        video_pattern = settings.video.pattern
-    else:
-        video_pattern = "cam*.mp4"  # Default fallback
+    logger.info(f"Building manifest for session: {session_dir}")
 
-    video_files = _discover_files(session_root, video_pattern, required=True)
+    # Discover all assets
+    videos = discover_videos(session_dir, settings)
+    sync_files = discover_sync_files(session_dir, settings)
+    events = discover_events(session_dir, settings)
+    pose_files = discover_pose(session_dir, settings)
+    facemap_files = discover_facemap(session_dir, settings)
 
-    if len(video_files) < 5:
-        raise MissingInputError(f"Expected 5 camera videos but found {len(video_files)} " f"matching pattern '{video_pattern}' in {session_root.absolute()}")
+    # Validate minimum requirements
+    if not videos:
+        raise ValueError(f"No videos found matching pattern '{settings.video.pattern}' in {session_dir}")
 
-    # Extract video metadata (MR-2, M-NFR-1)
-    videos_metadata = []
-    for video_path in video_files[:5]:  # Take exactly 5 cameras
-        metadata = _extract_video_metadata(video_path)
-        videos_metadata.append(metadata)
+    if not sync_files:
+        raise ValueError(f"No sync files found in {session_dir}")
 
-    # Sort by camera_id for deterministic ordering (M-NFR-2)
-    videos_metadata.sort(key=lambda v: v.camera_id)
+    # Extract video metadata
+    video_metadata_list = []
+    for camera_id, video_path in enumerate(sorted(videos)):
+        try:
+            metadata = extract_video_metadata(video_path, camera_id)
+            video_metadata_list.append(metadata)
+        except Exception as e:
+            logger.error(f"Failed to extract metadata from {video_path}: {e}")
+            raise
 
-    # Discover sync files (MR-1, MR-3)
-    # Handle both direct attributes (test mocks) and nested structures
-    if hasattr(settings, "sync_pattern"):
-        sync_pattern = settings.sync_pattern
-    else:
-        sync_pattern = "*.sync"  # Default
+    logger.info(f"Discovered {len(video_metadata_list)} videos")
 
-    if hasattr(settings, "sync_required"):
-        sync_required = settings.sync_required
-    else:
-        sync_required = True  # Default: sync is required
+    # Build config snapshot (convert to JSON-serializable format)
+    config_snapshot = settings.model_dump(mode="json")
 
-    sync_files = _discover_files(session_root, sync_pattern, required=sync_required)
+    # Build provenance
+    provenance = {
+        "git_commit": get_commit(),
+        "session_dir": str(session_dir),
+        "output_dir": str(output_dir),
+    }
 
-    if sync_required and len(sync_files) == 0:
-        raise MissingInputError(f"No sync files found matching pattern '{sync_pattern}' " f"in {session_root.absolute()}")
+    # Determine session_id
+    session_id = settings.session.id or session_dir.name
 
-    sync_entries = [{"path": path, "type": "ttl"} for path in sync_files]
-
-    # Discover optional artifacts (MR-4)
-    # Handle both direct attributes (test mocks) and nested structures
-    events_pattern = getattr(settings, "events_pattern", None)
-    events_entries = []
-    if events_pattern:
-        events_files = _discover_files(session_root, events_pattern, required=False)
-        events_entries = [{"path": path, "kind": "ndjson"} for path in events_files]
-
-    pose_pattern = getattr(settings, "pose_pattern", None)
-    pose_entries = []
-    if pose_pattern:
-        pose_files = _discover_files(session_root, pose_pattern, required=False)
-        pose_entries = [{"path": path, "format": "h5"} for path in pose_files]
-
-    facemap_pattern = getattr(settings, "facemap_pattern", None)
-    facemap_entries = []
-    if facemap_pattern:
-        facemap_files = _discover_files(session_root, facemap_pattern, required=False)
-        facemap_entries = [{"path": path} for path in facemap_files]
-
-    # Build config snapshot (Design - Provenance)
-    config_snapshot = _build_config_snapshot(settings)
-
-    # Build provenance metadata (Design - Provenance)
-    provenance = _build_provenance()
-
-    # Determine session_id (Design - Manifest structure)
-    session_id = _get_session_id(settings, session_root)
-
-    # Build and validate manifest
+    # Create manifest
     manifest = Manifest(
         session_id=session_id,
-        videos=videos_metadata,
-        sync=sync_entries,
-        events=events_entries,
-        pose=pose_entries,
-        facemap=facemap_entries,
+        videos=video_metadata_list,
+        sync=sync_files,
+        events=events,
+        pose=pose_files,
+        facemap=facemap_files,
         config_snapshot=config_snapshot,
         provenance=provenance,
     )
 
-    return manifest
+    # Write manifest
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "manifest.json"
+
+    manifest_dict = _manifest_to_dict(manifest)
+    write_json(manifest_path, manifest_dict)
+
+    logger.info(f"Manifest written to: {manifest_path}")
+
+    return manifest_path
 
 
-def _get_session_root(settings) -> Path:
-    """Extract session root path from settings.
-
-    Args:
-        settings: Configuration settings (Settings object or mock)
-
-    Returns:
-        Absolute path to session root directory
-
-    Raises:
-        MissingInputError: When session_root cannot be determined
-    """
-    # Try multiple possible attributes (for test mocks and real Settings)
-    if hasattr(settings, "session_root"):
-        return Path(settings.session_root).absolute()
-
-    if hasattr(settings, "paths") and settings.paths:
-        if hasattr(settings.paths, "raw_root"):
-            return Path(settings.paths.raw_root).absolute()
-
-    raise MissingInputError("Cannot determine session_root from settings. " "Expected 'session_root' attribute or 'paths.raw_root'")
+# ============================================================================
+# Video Discovery & Metadata (FR-1, Design §3.1)
+# ============================================================================
 
 
-def _discover_files(root: Path, pattern: str, required: bool = False) -> list[Path]:
-    """Discover files matching pattern in root directory.
+def discover_videos(session_dir: Path, settings: Settings) -> list[Path]:
+    """Discover video files in session directory.
 
     Args:
-        root: Root directory to search
-        pattern: Glob pattern for file discovery
-        required: Whether to raise error if no files found
+        session_dir: Session directory to search
+        settings: Settings with video.pattern
 
     Returns:
-        List of absolute paths to discovered files, sorted for determinism
+        Sorted list of absolute video paths
 
-    Raises:
-        MissingInputError: When required=True and no files found
+    Requirements: FR-1 (Ingest five camera videos)
     """
-    files = sorted(root.glob(pattern))  # Sort for determinism (M-NFR-2)
+    session_dir = Path(session_dir)
+    pattern = settings.video.pattern
 
-    if required and len(files) == 0:
-        raise MissingInputError(f"No files found matching pattern '{pattern}' in {root.absolute()}")
+    videos = sorted(session_dir.glob(pattern))
 
-    # Ensure absolute paths (Design - absolute paths)
-    return [f.absolute() for f in files]
+    logger.info(f"Found {len(videos)} videos matching '{pattern}'")
+
+    return videos
 
 
-def _extract_video_metadata(video_path: Path) -> VideoMetadata:
-    """Extract video metadata using ffprobe without loading the video.
-
-    Uses ffprobe to extract codec, fps, duration, and resolution efficiently
-    without decoding video frames.
+def extract_video_metadata(
+    video_path: Path | str,
+    camera_id: int,
+) -> VideoMetadata:
+    """Extract metadata from video file using ffprobe.
 
     Args:
-        video_path: Absolute path to video file
+        video_path: Path to video file
+        camera_id: Camera identifier
 
     Returns:
-        VideoMetadata with extracted information
+        VideoMetadata object
 
     Raises:
-        ValueError: When ffprobe fails or metadata cannot be parsed
-        MissingInputError: When video file doesn't exist
+        FileNotFoundError: If video doesn't exist
+        RuntimeError: If ffprobe fails
 
-    Requirements:
-        - MR-2: Extract per-video metadata
-        - M-NFR-1: Avoid loading entire videos
+    Requirements: FR-1 (Extract video metadata), NFR-8 (Data integrity)
+    Design: §3.1 (VideoMetadata contract)
     """
+    video_path = Path(video_path).resolve()
+
     if not video_path.exists():
-        raise MissingInputError(f"Video file not found: {video_path}")
+        raise FileNotFoundError(f"Video file not found: {video_path}")
 
-    # Extract camera_id from filename (e.g., cam0.mp4 -> 0)
-    camera_id = _extract_camera_id(video_path)
-
-    # Run ffprobe to get video metadata as JSON (M-NFR-1)
+    # Run ffprobe to extract metadata
     try:
         result = subprocess.run(
             [
                 "ffprobe",
                 "-v",
-                "quiet",
-                "-print_format",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,r_frame_rate,duration,width,height",
+                "-of",
                 "json",
-                "-show_format",
-                "-show_streams",
                 str(video_path),
             ],
             capture_output=True,
@@ -227,178 +203,247 @@ def _extract_video_metadata(video_path: Path) -> VideoMetadata:
             check=True,
             timeout=30,
         )
-    except subprocess.CalledProcessError as e:
-        raise ValueError(f"ffprobe failed for {video_path}: {e.stderr}") from e
-    except FileNotFoundError:
-        raise ValueError("ffprobe not found. Please install ffmpeg/ffprobe.") from None
-    except subprocess.TimeoutExpired:
-        raise ValueError(f"ffprobe timed out for {video_path}") from None
 
-    # Parse ffprobe JSON output
-    try:
         probe_data = json.loads(result.stdout)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse ffprobe output for {video_path}: {e}") from e
 
-    # Extract video stream information
-    video_stream = None
-    for stream in probe_data.get("streams", []):
-        if stream.get("codec_type") == "video":
-            video_stream = stream
-            break
+        if not probe_data.get("streams"):
+            raise RuntimeError(f"No video stream found in {video_path}")
 
-    if not video_stream:
-        raise ValueError(f"No video stream found in {video_path}")
+        stream = probe_data["streams"][0]
 
-    # Extract metadata fields
-    codec = video_stream.get("codec_name", "unknown")
+        # Parse frame rate (e.g., "30/1" -> 30.0)
+        fps_str = stream.get("r_frame_rate", "30/1")
+        num, den = map(int, fps_str.split("/"))
+        fps = num / den if den != 0 else 30.0
 
-    # Calculate FPS from frame rate ratio
-    fps_str = video_stream.get("r_frame_rate", "30/1")
-    fps = _parse_fps(fps_str)
+        # Parse duration
+        duration = float(stream.get("duration", 0.0))
 
-    # Get duration (from format or stream)
-    duration = float(probe_data.get("format", {}).get("duration", 0.0))
-    if duration == 0.0:
-        duration = float(video_stream.get("duration", 0.0))
+        # Parse resolution
+        width = int(stream.get("width", 0))
+        height = int(stream.get("height", 0))
 
-    # Get resolution
-    width = int(video_stream.get("width", 0))
-    height = int(video_stream.get("height", 0))
-    resolution = (width, height)
+        # Get codec
+        codec = stream.get("codec_name", "unknown")
 
-    # Build VideoMetadata object
-    return VideoMetadata(
-        camera_id=camera_id,
-        path=video_path.absolute(),
-        codec=codec,
-        fps=fps,
-        duration=duration,
-        resolution=resolution,
-    )
-
-
-def _extract_camera_id(video_path: Path) -> int:
-    """Extract camera ID from video filename.
-
-    Expects filename pattern like cam0.mp4, cam1.mp4, etc.
-
-    Args:
-        video_path: Path to video file
-
-    Returns:
-        Camera ID as integer
-
-    Raises:
-        ValueError: When camera ID cannot be extracted
-    """
-    filename = video_path.stem  # e.g., "cam0" from "cam0.mp4"
-
-    # Try to extract numeric suffix
-    import re
-
-    match = re.search(r"(\d+)$", filename)
-
-    if match:
-        return int(match.group(1))
-
-    # Fallback: look for any digits in filename
-    match = re.search(r"(\d+)", filename)
-    if match:
-        return int(match.group(1))
-
-    raise ValueError(f"Cannot extract camera_id from filename: {video_path.name}")
-
-
-def _parse_fps(fps_str: str) -> float:
-    """Parse FPS from ffprobe rational number format.
-
-    Args:
-        fps_str: FPS string in format "num/den" (e.g., "30/1", "30000/1001")
-
-    Returns:
-        FPS as float
-
-    Raises:
-        ValueError: When FPS string cannot be parsed
-    """
-    try:
-        if "/" in fps_str:
-            num, den = fps_str.split("/")
-            return float(num) / float(den)
-        else:
-            return float(fps_str)
-    except (ValueError, ZeroDivisionError) as e:
-        raise ValueError(f"Cannot parse FPS from '{fps_str}': {e}") from e
-
-
-def _build_config_snapshot(settings) -> dict[str, Any]:
-    """Build configuration snapshot for provenance.
-
-    Args:
-        settings: Configuration settings (Settings object or mock)
-
-    Returns:
-        Dictionary representation of settings
-    """
-    # Try to use pydantic's model_dump if available
-    if hasattr(settings, "model_dump"):
-        return settings.model_dump(mode="json")
-    elif hasattr(settings, "dict"):
-        return settings.dict()
-    else:
-        # Fallback to minimal snapshot (for test mocks)
-        return {"type": type(settings).__name__}
-
-
-def _build_provenance() -> dict[str, Any]:
-    """Build provenance metadata.
-
-    Returns:
-        Dictionary with timestamp and optional git commit hash
-    """
-    provenance = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "module": "ingest",
-        "version": "1.0.0",
-    }
-
-    # Try to get git commit hash (optional)
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
+        return VideoMetadata(
+            camera_id=camera_id,
+            path=video_path,
+            codec=codec,
+            fps=fps,
+            duration=duration,
+            resolution=(width, height),
         )
-        provenance["git_commit"] = result.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        # Git not available or not in a git repo - not critical
-        pass
 
-    return provenance
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"ffprobe failed for {video_path}: {e.stderr}") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"ffprobe timeout for {video_path}") from e
+    except (KeyError, ValueError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"Failed to parse ffprobe output for {video_path}: {e}") from e
 
 
-def _get_session_id(settings, session_root: Path) -> str:
-    """Determine session ID from settings or directory name.
+# ============================================================================
+# Sync Discovery (FR-2, Design §3.1)
+# ============================================================================
+
+
+def discover_sync_files(session_dir: Path, settings: Settings) -> list[dict[str, Any]]:
+    """Discover synchronization files.
 
     Args:
-        settings: Configuration settings (Settings object or mock)
-        session_root: Session root directory path
+        session_dir: Session directory to search
+        settings: Settings with sync configuration
 
     Returns:
-        Session ID string
+        List of sync file descriptors with path and type
+
+    Requirements: FR-2 (Sync inputs discovery)
     """
-    # Try to get from session config
-    if hasattr(settings, "session") and settings.session:
-        if hasattr(settings.session, "id"):
-            return settings.session.id
+    session_dir = Path(session_dir)
+    sync_descriptors = []
 
-    # Fallback to directory name
-    return session_root.name
+    # Discover from configured TTL channels
+    for channel in settings.sync.ttl_channels:
+        if channel.path:
+            sync_path = session_dir / channel.path
+            if sync_path.exists():
+                sync_descriptors.append(
+                    {
+                        "path": str(sync_path.resolve()),
+                        "type": "ttl",
+                        "name": channel.name,
+                        "polarity": channel.polarity,
+                    }
+                )
+
+    # Fallback: discover common sync file patterns
+    if not sync_descriptors:
+        common_patterns = ["**/sync*.bin", "**/sync*.csv", "**/ttl*.bin"]
+        for pattern in common_patterns:
+            for sync_path in session_dir.glob(pattern):
+                sync_descriptors.append(
+                    {
+                        "path": str(sync_path.resolve()),
+                        "type": "auto_detected",
+                    }
+                )
+
+    logger.info(f"Found {len(sync_descriptors)} sync files")
+
+    return sync_descriptors
 
 
-__all__ = [
-    "build_manifest",
-]
+# ============================================================================
+# Events Discovery (FR-11, Design §3.1)
+# ============================================================================
+
+
+def discover_events(session_dir: Path, settings: Settings) -> list[dict[str, Any]]:
+    """Discover behavioral event files (optional).
+
+    Args:
+        session_dir: Session directory to search
+        settings: Settings with events.patterns
+
+    Returns:
+        List of event file descriptors (empty if none found)
+
+    Requirements: FR-11 (Optional events import)
+    """
+    session_dir = Path(session_dir)
+    event_descriptors = []
+
+    for pattern in settings.events.patterns:
+        for event_path in session_dir.glob(pattern):
+            event_descriptors.append(
+                {
+                    "path": str(event_path.resolve()),
+                    "kind": "behavioral",
+                    "format": settings.events.format,
+                }
+            )
+
+    logger.info(f"Found {len(event_descriptors)} event files")
+
+    return event_descriptors
+
+
+# ============================================================================
+# Pose Discovery (FR-5, Design §3.1)
+# ============================================================================
+
+
+def discover_pose(session_dir: Path, settings: Settings) -> list[dict[str, Any]]:
+    """Discover pose files (optional).
+
+    Args:
+        session_dir: Session directory to search
+        settings: Settings with labels configuration
+
+    Returns:
+        List of pose file descriptors (empty if none found)
+
+    Requirements: FR-5 (Optional pose import)
+    """
+    session_dir = Path(session_dir)
+    pose_descriptors = []
+
+    # DLC outputs
+    if settings.labels.dlc.model:
+        dlc_pattern = "**/*DLC*.h5"
+        for dlc_path in session_dir.glob(dlc_pattern):
+            pose_descriptors.append(
+                {
+                    "path": str(dlc_path.resolve()),
+                    "format": "dlc",
+                    "model": settings.labels.dlc.model,
+                }
+            )
+
+    # SLEAP outputs
+    if settings.labels.sleap.model:
+        sleap_pattern = "**/*.slp"
+        for sleap_path in session_dir.glob(sleap_pattern):
+            pose_descriptors.append(
+                {
+                    "path": str(sleap_path.resolve()),
+                    "format": "sleap",
+                    "model": settings.labels.sleap.model,
+                }
+            )
+
+    logger.info(f"Found {len(pose_descriptors)} pose files")
+
+    return pose_descriptors
+
+
+# ============================================================================
+# Facemap Discovery (FR-6, Design §3.1)
+# ============================================================================
+
+
+def discover_facemap(session_dir: Path, settings: Settings) -> list[dict[str, Any]]:
+    """Discover facemap files (optional).
+
+    Args:
+        session_dir: Session directory to search
+        settings: Settings with facemap configuration
+
+    Returns:
+        List of facemap file descriptors (empty if none found)
+
+    Requirements: FR-6 (Optional facemap import)
+    """
+    session_dir = Path(session_dir)
+    facemap_descriptors = []
+
+    if settings.facemap.run:
+        facemap_pattern = "**/*facemap*.npy"
+        for facemap_path in session_dir.glob(facemap_pattern):
+            facemap_descriptors.append(
+                {
+                    "path": str(facemap_path.resolve()),
+                    "roi": settings.facemap.roi,
+                }
+            )
+
+    logger.info(f"Found {len(facemap_descriptors)} facemap files")
+
+    return facemap_descriptors
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+
+def _manifest_to_dict(manifest: Manifest) -> dict[str, Any]:
+    """Convert Manifest to JSON-serializable dictionary.
+
+    Args:
+        manifest: Manifest object
+
+    Returns:
+        Dictionary suitable for JSON serialization
+    """
+    return {
+        "session_id": manifest.session_id,
+        "videos": [
+            {
+                "camera_id": v.camera_id,
+                "path": str(v.path),
+                "codec": v.codec,
+                "fps": v.fps,
+                "duration": v.duration,
+                "resolution": v.resolution,
+            }
+            for v in manifest.videos
+        ],
+        "sync": manifest.sync,
+        "events": manifest.events,
+        "pose": manifest.pose,
+        "facemap": manifest.facemap,
+        "config_snapshot": manifest.config_snapshot,
+        "provenance": manifest.provenance,
+    }
