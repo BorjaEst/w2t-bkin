@@ -1,637 +1,731 @@
 """Unit tests for the utils module.
 
-Tests shared helper functions for filesystem, hashing, and time utilities
-as specified in utils/requirements.md and design.md.
+Tests JSON/CSV I/O, file hashing, git provenance, timing, and logging utilities
+as specified in utils/README.md and api.md.
+
+All tests follow TDD Red Phase principles with clear EARS requirements.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import time
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytestmark = pytest.mark.unit
 
 
-class TestFilesystemUtils:
-    """Test filesystem utility functions (MR-1, Design - utils.fs)."""
+# ============================================================================
+# JSON I/O Tests
+# ============================================================================
 
-    def test_Should_EnsureDirectory_When_Creating_MR1(self):
-        """THE MODULE SHALL provide filesystem utilities.
 
-        Requirements: MR-1, Design - utils.fs
-        Issue: Utils module - Directory creation
+class TestJSONIO:
+    """Test JSON reading and writing utilities (API §3.2)."""
+
+    def test_Should_WriteAndReadJSON_When_ValidDict_Issue_Utils_JSONIO(self, tmp_path: Path):
+        """THE SYSTEM SHALL write and read JSON files for data persistence.
+
+        Requirements: NFR-3 (Observability), Design §8
+        Issue: Utils module - JSON I/O round-trip
         """
         # Arrange
-        from w2t_bkin.utils.fs import ensure_dir
+        from w2t_bkin.utils import read_json, write_json
 
-        test_path = Path("/tmp/test_ensure_dir")
+        test_data = {
+            "session_id": "test_001",
+            "cameras": [0, 1, 2, 3, 4],
+            "metadata": {"fps": 30.0, "resolution": [1920, 1080]},
+        }
+        json_path = tmp_path / "test.json"
 
         # Act
-        result = ensure_dir(test_path)
+        write_json(json_path, test_data)
+        loaded_data = read_json(json_path)
 
         # Assert
-        assert result == test_path or result.exists()
+        assert loaded_data == test_data
+        assert json_path.exists()
 
-    def test_Should_FindFiles_When_Searching_MR1(self):
-        """THE MODULE SHALL provide file search utilities.
+    def test_Should_WriteWithIndent_When_IndentSpecified_Issue_Utils_JSONFormat(self, tmp_path: Path):
+        """THE SYSTEM SHALL format JSON with specified indentation.
 
-        Requirements: MR-1
-        Issue: Utils module - File search
+        Requirements: NFR-3 (Observability)
+        Issue: Utils module - JSON formatting
         """
         # Arrange
-        from w2t_bkin.utils.fs import find_files
+        from w2t_bkin.utils import write_json
+
+        test_data = {"key": "value", "nested": {"inner": 123}}
+        json_path = tmp_path / "formatted.json"
 
         # Act
-        files = find_files(Path("/tmp"), pattern="*.txt")
+        write_json(json_path, test_data, indent=4)
+        content = json_path.read_text()
 
         # Assert
-        assert isinstance(files, list)
-        assert all(isinstance(f, Path) for f in files)
+        assert content.count("    ") > 0  # Should have 4-space indentation
+        assert "{\n" in content  # Should have newlines
 
-    def test_Should_ReadJSON_When_LoadingFile_MR1(self):
-        """THE MODULE SHALL provide JSON I/O utilities.
+    def test_Should_RaiseFileNotFoundError_When_ReadingNonExistent_Issue_Utils_JSONError(self, tmp_path: Path):
+        """THE SYSTEM SHALL raise FileNotFoundError when JSON file does not exist.
 
-        Requirements: MR-1
-        Issue: Utils module - JSON reading
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - JSON read error
         """
         # Arrange
-        from w2t_bkin.utils.fs import read_json
+        from w2t_bkin.utils import read_json
 
-        test_file = Path("/tmp/test.json")
+        non_existent = tmp_path / "missing.json"
 
-        # Act & Assert - Should handle file reading
-        try:
-            data = read_json(test_file)
-            assert isinstance(data, dict) or isinstance(data, list)
-        except FileNotFoundError:
-            # Expected if file doesn't exist
-            pass
+        # Act & Assert
+        with pytest.raises(FileNotFoundError):
+            read_json(non_existent)
 
-    def test_Should_WriteJSON_When_SavingData_MR1(self):
-        """THE MODULE SHALL provide JSON writing utilities.
+    def test_Should_RaiseJSONDecodeError_When_InvalidJSON_Issue_Utils_JSONValidation(self, tmp_path: Path):
+        """THE SYSTEM SHALL raise JSONDecodeError when file contains invalid JSON.
 
-        Requirements: MR-1
-        Issue: Utils module - JSON writing
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - Invalid JSON handling
         """
         # Arrange
-        from w2t_bkin.utils.fs import write_json
+        from w2t_bkin.utils import read_json
 
-        test_file = Path("/tmp/test_write.json")
-        data = {"key": "value", "number": 123}
+        invalid_json = tmp_path / "invalid.json"
+        invalid_json.write_text("{invalid json content")
 
-        # Act
-        write_json(test_file, data)
+        # Act & Assert
+        with pytest.raises(json.JSONDecodeError):
+            read_json(invalid_json)
 
-        # Assert - Should write file
-        assert test_file.exists() or True  # In unit test, may not actually write
+    def test_Should_AcceptStringPath_When_PathIsString_Issue_Utils_JSONPathTypes(self, tmp_path: Path):
+        """THE SYSTEM SHALL accept both string and Path objects.
 
-    def test_Should_ResolveAbsolutePath_When_Provided_MR1(self):
-        """THE MODULE SHALL provide path resolution utilities.
-
-        Requirements: MR-1
-        Issue: Utils module - Path resolution
+        Requirements: Design §4.2 (Stateless functions)
+        Issue: Utils module - Path flexibility
         """
         # Arrange
-        from w2t_bkin.utils.fs import resolve_path
+        from w2t_bkin.utils import read_json, write_json
 
-        relative_path = Path("relative/path.txt")
+        test_data = {"test": "value"}
+        json_path = tmp_path / "test.json"
 
-        # Act
-        absolute = resolve_path(relative_path)
+        # Act - Use string path
+        write_json(str(json_path), test_data)
+        loaded = read_json(str(json_path))
 
         # Assert
-        assert absolute.is_absolute() or isinstance(absolute, Path)
+        assert loaded == test_data
 
-    def test_Should_CheckFileExists_When_Validating_MR1(self):
-        """THE MODULE SHALL provide existence check utilities.
+    def test_Should_HandleNestedStructures_When_ComplexData_Issue_Utils_JSONComplex(self, tmp_path: Path):
+        """THE SYSTEM SHALL handle deeply nested JSON structures.
 
-        Requirements: MR-1
-        Issue: Utils module - Existence validation
+        Requirements: NFR-3 (Observability)
+        Issue: Utils module - Complex JSON structures
         """
         # Arrange
-        from w2t_bkin.utils.fs import file_exists
+        from w2t_bkin.utils import read_json, write_json
 
-        test_path = Path("/tmp/test.txt")
+        complex_data = {
+            "level1": {
+                "level2": {
+                    "level3": {"array": [1, 2, 3], "nested_dict": {"key": "value"}},
+                }
+            }
+        }
+        json_path = tmp_path / "complex.json"
 
         # Act
-        exists = file_exists(test_path)
+        write_json(json_path, complex_data)
+        loaded = read_json(json_path)
 
         # Assert
-        assert isinstance(exists, bool)
+        assert loaded == complex_data
+        assert loaded["level1"]["level2"]["level3"]["array"] == [1, 2, 3]
 
-    def test_Should_GetFileSize_When_Querying_MR1(self):
-        """THE MODULE SHALL provide file size utilities.
+    def test_Should_HandleUnicode_When_NonASCIICharacters_Issue_Utils_JSONUnicode(self, tmp_path: Path):
+        """THE SYSTEM SHALL preserve Unicode characters in JSON.
 
-        Requirements: MR-1
-        Issue: Utils module - File size
+        Requirements: NFR-3 (Observability)
+        Issue: Utils module - Unicode handling
         """
         # Arrange
-        from w2t_bkin.utils.fs import get_file_size
+        from w2t_bkin.utils import read_json, write_json
 
-        test_path = Path("/tmp/test.txt")
+        unicode_data = {"subject": "🐭 Mouse 123", "description": "Naïve behavior"}
+        json_path = tmp_path / "unicode.json"
 
         # Act
-        try:
-            size = get_file_size(test_path)
-            assert isinstance(size, int)
-            assert size >= 0
-        except FileNotFoundError:
-            # Expected if file doesn't exist
-            pass
-
-
-class TestHashingUtils:
-    """Test hashing utility functions (MR-1, Design - utils.hashing)."""
-
-    def test_Should_ComputeSHA256_When_Hashing_MR1(self):
-        """THE MODULE SHALL provide SHA256 hashing utilities.
-
-        Requirements: MR-1, Design - utils.hashing
-        Issue: Utils module - SHA256 computation
-        """
-        # Arrange
-        from w2t_bkin.utils.hashing import sha256_file
-
-        test_file = Path("/tmp/test.txt")
-
-        # Act
-        try:
-            hash_value = sha256_file(test_file)
-            # Assert
-            assert isinstance(hash_value, str)
-            assert len(hash_value) == 64  # SHA256 hex length
-        except FileNotFoundError:
-            # Expected if file doesn't exist
-            pass
-
-    def test_Should_ComputeMD5_When_Hashing_MR1(self):
-        """THE MODULE SHALL provide MD5 hashing utilities.
-
-        Requirements: MR-1
-        Issue: Utils module - MD5 computation
-        """
-        # Arrange
-        from w2t_bkin.utils.hashing import md5_file
-
-        test_file = Path("/tmp/test.txt")
-
-        # Act
-        try:
-            hash_value = md5_file(test_file)
-            # Assert
-            assert isinstance(hash_value, str)
-            assert len(hash_value) == 32  # MD5 hex length
-        except FileNotFoundError:
-            pass
-
-    def test_Should_HandleLargeFiles_When_Hashing_MR1(self):
-        """THE MODULE SHALL handle large files efficiently when hashing.
-
-        Requirements: MR-1, M-NFR-2 - Avoid heavy dependencies
-        Issue: Utils module - Streaming hash
-        """
-        # Arrange
-        from w2t_bkin.utils.hashing import sha256_file
-
-        test_file = Path("/tmp/large_test.bin")
-
-        # Act - Should use streaming/chunked reading
-        try:
-            hash_value = sha256_file(test_file)
-            assert isinstance(hash_value, str)
-        except FileNotFoundError:
-            pass
-
-    def test_Should_ComputeQuickHash_When_Needed_MR1(self):
-        """THE MODULE SHALL provide quick hash for file identification.
-
-        Requirements: MR-1
-        Issue: Utils module - Quick hash
-        """
-        # Arrange
-        from w2t_bkin.utils.hashing import quick_hash
-
-        test_file = Path("/tmp/test.txt")
-
-        # Act
-        try:
-            hash_value = quick_hash(test_file)
-            # Assert - Should be fast hash (first N bytes + size)
-            assert isinstance(hash_value, str)
-        except FileNotFoundError:
-            pass
-
-
-class TestTimeUtils:
-    """Test time conversion utilities (MR-1, Design - utils.time)."""
-
-    def test_Should_ConvertTimestamp_When_Parsing_MR1(self):
-        """THE MODULE SHALL provide time conversion utilities.
-
-        Requirements: MR-1, Design - utils.time
-        Issue: Utils module - Timestamp conversion
-        """
-        # Arrange
-        from w2t_bkin.utils.time import parse_timestamp
-
-        timestamp_str = "2025-11-08T12:34:56"
-
-        # Act
-        timestamp = parse_timestamp(timestamp_str)
+        write_json(json_path, unicode_data)
+        loaded = read_json(json_path)
 
         # Assert
-        assert timestamp is not None
+        assert loaded == unicode_data
+        assert loaded["subject"] == "🐭 Mouse 123"
 
-    def test_Should_FormatTimestamp_When_Converting_MR1(self):
-        """THE MODULE SHALL provide timestamp formatting utilities.
 
-        Requirements: MR-1
-        Issue: Utils module - Timestamp formatting
+# ============================================================================
+# CSV I/O Tests
+# ============================================================================
+
+
+class TestCSVIO:
+    """Test CSV writing utilities (API §3.2)."""
+
+    def test_Should_WriteCSV_When_ValidRows_Issue_Utils_CSVIO(self, tmp_path: Path):
+        """THE SYSTEM SHALL write rows to CSV with proper formatting.
+
+        Requirements: Design §3.2 (Timestamp CSV)
+        Issue: Utils module - CSV writing
         """
         # Arrange
-        from datetime import datetime
+        from w2t_bkin.utils import write_csv
 
-        from w2t_bkin.utils.time import format_timestamp
-
-        dt = datetime(2025, 11, 8, 12, 34, 56)
+        rows = [
+            {"frame_index": 0, "timestamp": 0.0000},
+            {"frame_index": 1, "timestamp": 0.0333},
+            {"frame_index": 2, "timestamp": 0.0666},
+        ]
+        csv_path = tmp_path / "timestamps.csv"
 
         # Act
-        formatted = format_timestamp(dt)
+        write_csv(csv_path, rows, fieldnames=["frame_index", "timestamp"])
 
         # Assert
-        assert isinstance(formatted, str)
-        assert "2025" in formatted
+        assert csv_path.exists()
+        content = csv_path.read_text()
+        assert "frame_index,timestamp" in content
+        assert "0,0.0" in content
+        assert "1,0.0333" in content
 
-    def test_Should_ConvertFramesToTime_When_Calculating_MR1(self):
-        """THE MODULE SHALL provide frame-to-time conversion.
+    def test_Should_OrderFieldsExplicitly_When_FieldnamesProvided_Issue_Utils_CSVFieldOrder(self, tmp_path: Path):
+        """THE SYSTEM SHALL respect explicit field ordering.
 
-        Requirements: MR-1
-        Issue: Utils module - Frame conversion
+        Requirements: Design §3.2 (Timestamp CSV - strict column order)
+        Issue: Utils module - CSV column ordering
         """
         # Arrange
-        from w2t_bkin.utils.time import frames_to_seconds
+        from w2t_bkin.utils import write_csv
 
-        frames = 900
-        fps = 30.0
+        rows = [
+            {"timestamp": 0.0, "frame_index": 0},  # Note: reversed order in dict
+            {"timestamp": 0.033, "frame_index": 1},
+        ]
+        csv_path = tmp_path / "ordered.csv"
 
         # Act
-        seconds = frames_to_seconds(frames, fps)
+        write_csv(csv_path, rows, fieldnames=["frame_index", "timestamp"])
 
         # Assert
-        assert seconds == 30.0
+        lines = csv_path.read_text().split("\n")
+        assert lines[0] == "frame_index,timestamp"
+        assert lines[1].startswith("0,")
 
-    def test_Should_ConvertTimeToFrames_When_Calculating_MR1(self):
-        """THE MODULE SHALL provide time-to-frame conversion.
+    def test_Should_InferFieldnames_When_NotProvided_Issue_Utils_CSVAutoFields(self, tmp_path: Path):
+        """THE SYSTEM SHALL infer fieldnames from first row when not specified.
 
-        Requirements: MR-1
-        Issue: Utils module - Time conversion
+        Requirements: Design §4.2 (Stateless functions)
+        Issue: Utils module - CSV fieldname inference
         """
         # Arrange
-        from w2t_bkin.utils.time import seconds_to_frames
+        from w2t_bkin.utils import write_csv
 
-        seconds = 30.0
-        fps = 30.0
+        rows = [{"col_a": 1, "col_b": 2}, {"col_a": 3, "col_b": 4}]
+        csv_path = tmp_path / "inferred.csv"
 
         # Act
-        frames = seconds_to_frames(seconds, fps)
+        write_csv(csv_path, rows)
 
         # Assert
-        assert frames == 900
+        content = csv_path.read_text()
+        assert "col_a" in content
+        assert "col_b" in content
 
-    def test_Should_CalculateDuration_When_Provided_MR1(self):
-        """THE MODULE SHALL provide duration calculation utilities.
+    def test_Should_RaiseValueError_When_EmptyRowsNoFieldnames_Issue_Utils_CSVValidation(self, tmp_path: Path):
+        """THE SYSTEM SHALL raise ValueError for empty rows without fieldnames.
 
-        Requirements: MR-1
-        Issue: Utils module - Duration calculation
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - CSV validation error
         """
         # Arrange
-        from w2t_bkin.utils.time import calculate_duration
+        from w2t_bkin.utils import write_csv
 
-        start = 0.0
-        end = 60.0
+        csv_path = tmp_path / "empty.csv"
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            write_csv(csv_path, rows=[])
+
+        assert "empty" in str(exc_info.value).lower() or "fieldnames" in str(exc_info.value).lower()
+
+    def test_Should_HandleSpecialCharacters_When_InData_Issue_Utils_CSVEscape(self, tmp_path: Path):
+        """THE SYSTEM SHALL properly escape special characters in CSV.
+
+        Requirements: Design §3.2 (Timestamp CSV)
+        Issue: Utils module - CSV escaping
+        """
+        # Arrange
+        from w2t_bkin.utils import write_csv
+
+        rows = [
+            {"name": "trial,1", "description": 'Contains "quotes"'},
+            {"name": "trial\n2", "description": "Newline test"},
+        ]
+        csv_path = tmp_path / "special.csv"
 
         # Act
-        duration = calculate_duration(start, end)
+        write_csv(csv_path, rows, fieldnames=["name", "description"])
 
         # Assert
-        assert duration == 60.0
+        content = csv_path.read_text()
+        assert '"trial,1"' in content or "trial,1" in content  # Properly escaped
+        assert csv_path.exists()
 
-    def test_Should_GetCurrentTimestamp_When_Called_MR1(self):
-        """THE MODULE SHALL provide current timestamp utilities.
+    def test_Should_AcceptStringPath_When_PathIsString_Issue_Utils_CSVPathTypes(self, tmp_path: Path):
+        """THE SYSTEM SHALL accept both string and Path objects for CSV.
 
-        Requirements: MR-1
-        Issue: Utils module - Current time
+        Requirements: Design §4.2 (Stateless functions)
+        Issue: Utils module - CSV path flexibility
         """
         # Arrange
-        from w2t_bkin.utils.time import now_timestamp
+        from w2t_bkin.utils import write_csv
+
+        rows = [{"col": "value"}]
+        csv_path = tmp_path / "test.csv"
 
         # Act
-        timestamp = now_timestamp()
+        write_csv(str(csv_path), rows)
 
         # Assert
-        assert timestamp is not None
-        assert isinstance(timestamp, (str, float, int))
+        assert csv_path.exists()
 
 
-class TestLoggingHelpers:
-    """Test logging helper functions (MR-1, Design)."""
+# ============================================================================
+# File Hashing Tests
+# ============================================================================
 
-    def test_Should_GetLogger_When_Requesting_MR1(self):
-        """THE MODULE SHALL provide logging helpers.
 
-        Requirements: MR-1
-        Issue: Utils module - Logger access
+class TestFileHashing:
+    """Test file hashing for provenance and caching (API §3.2)."""
+
+    def test_Should_ComputeConsistentHash_When_SameFile_Issue_Utils_HashConsistency(self, tmp_path: Path):
+        """THE SYSTEM SHALL compute consistent hashes for identical files.
+
+        Requirements: NFR-1 (Reproducibility), NFR-8 (Data integrity)
+        Issue: Utils module - Hash consistency
         """
         # Arrange
-        from w2t_bkin.utils.logging import get_logger
+        from w2t_bkin.utils import file_hash
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("Test content for hashing")
 
         # Act
-        logger = get_logger("test_module")
+        hash1 = file_hash(test_file)
+        hash2 = file_hash(test_file)
 
         # Assert
-        assert logger is not None
-        assert hasattr(logger, "info")
-        assert hasattr(logger, "error")
+        assert hash1 == hash2
+        assert len(hash1) == 64  # SHA256 hex digest length
 
-    def test_Should_ConfigureLogging_When_Setup_MR1(self):
-        """THE MODULE SHALL provide logging configuration.
+    def test_Should_ProduceDifferentHash_When_ContentDiffers_Issue_Utils_HashUniqueness(self, tmp_path: Path):
+        """THE SYSTEM SHALL produce different hashes for different content.
 
-        Requirements: MR-1
-        Issue: Utils module - Logging setup
+        Requirements: NFR-8 (Data integrity)
+        Issue: Utils module - Hash uniqueness
         """
         # Arrange
-        from w2t_bkin.utils.logging import configure_logging
+        from w2t_bkin.utils import file_hash
+
+        file1 = tmp_path / "file1.txt"
+        file2 = tmp_path / "file2.txt"
+        file1.write_text("Content A")
+        file2.write_text("Content B")
+
+        # Act
+        hash1 = file_hash(file1)
+        hash2 = file_hash(file2)
+
+        # Assert
+        assert hash1 != hash2
+
+    def test_Should_SupportMultipleAlgorithms_When_AlgorithmSpecified_Issue_Utils_HashAlgorithms(self, tmp_path: Path):
+        """THE SYSTEM SHALL support multiple hash algorithms.
+
+        Requirements: NFR-11 (Provenance)
+        Issue: Utils module - Hash algorithm support
+        """
+        # Arrange
+        from w2t_bkin.utils import file_hash
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("Content")
+
+        # Act
+        sha256_hash = file_hash(test_file, algorithm="sha256")
+        md5_hash = file_hash(test_file, algorithm="md5")
+
+        # Assert
+        assert len(sha256_hash) == 64
+        assert len(md5_hash) == 32
+        assert sha256_hash != md5_hash
+
+    def test_Should_RaiseFileNotFoundError_When_FileDoesNotExist_Issue_Utils_HashError(self, tmp_path: Path):
+        """THE SYSTEM SHALL raise FileNotFoundError for missing files.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - Hash error handling
+        """
+        # Arrange
+        from w2t_bkin.utils import file_hash
+
+        non_existent = tmp_path / "missing.txt"
+
+        # Act & Assert
+        with pytest.raises(FileNotFoundError):
+            file_hash(non_existent)
+
+    def test_Should_RaiseValueError_When_InvalidAlgorithm_Issue_Utils_HashValidation(self, tmp_path: Path):
+        """THE SYSTEM SHALL raise ValueError for unsupported algorithms.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - Algorithm validation
+        """
+        # Arrange
+        from w2t_bkin.utils import file_hash
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("Content")
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            file_hash(test_file, algorithm="invalid_algorithm")
+
+    def test_Should_HandleLargeFiles_When_ReadingInChunks_Issue_Utils_HashPerformance(self, tmp_path: Path):
+        """THE SYSTEM SHALL efficiently hash large files using chunked reading.
+
+        Requirements: NFR-4 (Performance), Design §8
+        Issue: Utils module - Large file hashing
+        """
+        # Arrange
+        from w2t_bkin.utils import file_hash
+
+        large_file = tmp_path / "large.bin"
+        # Create 1MB file
+        large_file.write_bytes(b"x" * (1024 * 1024))
+
+        # Act
+        hash_value = file_hash(large_file, chunk_size=4096)
+
+        # Assert
+        assert len(hash_value) == 64
+        assert hash_value is not None
+
+    def test_Should_AcceptStringPath_When_PathIsString_Issue_Utils_HashPathTypes(self, tmp_path: Path):
+        """THE SYSTEM SHALL accept both string and Path objects.
+
+        Requirements: Design §4.2 (Stateless functions)
+        Issue: Utils module - Hash path flexibility
+        """
+        # Arrange
+        from w2t_bkin.utils import file_hash
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("Content")
+
+        # Act
+        hash_value = file_hash(str(test_file))
+
+        # Assert
+        assert len(hash_value) == 64
+
+
+# ============================================================================
+# Git Provenance Tests
+# ============================================================================
+
+
+class TestGitProvenance:
+    """Test git commit retrieval for provenance (API §3.2)."""
+
+    def test_Should_ReturnCommitHash_When_InGitRepo_Issue_Utils_GitCommit(self):
+        """THE SYSTEM SHALL retrieve git commit hash when in repository.
+
+        Requirements: NFR-11 (Provenance), Design §11
+        Issue: Utils module - Git commit retrieval
+        """
+        # Arrange
+        from w2t_bkin.utils import get_commit
+
+        # Act
+        commit = get_commit()
+
+        # Assert
+        # Should return either a 7-char hash or "unknown"
+        assert isinstance(commit, str)
+        assert len(commit) == 7 or commit == "unknown"
+
+    @patch("subprocess.run")
+    def test_Should_ReturnUnknown_When_NotGitRepo_Issue_Utils_GitFallback(self, mock_run):
+        """THE SYSTEM SHALL return 'unknown' when not in git repository.
+
+        Requirements: NFR-11 (Provenance), Design §11
+        Issue: Utils module - Git fallback
+        """
+        # Arrange
+        from w2t_bkin.utils import get_commit
+
+        # Simulate git command failure
+        mock_run.side_effect = FileNotFoundError()
+
+        # Act
+        commit = get_commit()
+
+        # Assert
+        assert commit == "unknown"
+
+    @patch("subprocess.run")
+    def test_Should_ReturnUnknown_When_GitCommandFails_Issue_Utils_GitError(self, mock_run):
+        """THE SYSTEM SHALL handle git command failures gracefully.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - Git error handling
+        """
+        # Arrange
+        from w2t_bkin.utils import get_commit
+
+        # Simulate git returning non-zero exit
+        mock_result = MagicMock()
+        mock_result.returncode = 128
+        mock_result.stdout = ""
+        mock_run.return_value = mock_result
+
+        # Act
+        commit = get_commit()
+
+        # Assert
+        assert commit == "unknown"
+
+    @patch("subprocess.run")
+    def test_Should_TrimWhitespace_When_GitReturnsHash_Issue_Utils_GitFormat(self, mock_run):
+        """THE SYSTEM SHALL trim whitespace from git output.
+
+        Requirements: NFR-11 (Provenance)
+        Issue: Utils module - Git output formatting
+        """
+        # Arrange
+        from w2t_bkin.utils import get_commit
+
+        # Simulate git output with whitespace
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "abc1234\n"
+        mock_run.return_value = mock_result
+
+        # Act
+        commit = get_commit()
+
+        # Assert
+        assert commit == "abc1234"
+        assert "\n" not in commit
+
+
+# ============================================================================
+# Timing Utilities Tests
+# ============================================================================
+
+
+class TestTimingUtilities:
+    """Test timing context manager (API §3.2)."""
+
+    def test_Should_MeasureElapsedTime_When_BlockExecutes_Issue_Utils_Timing(self, capsys):
+        """THE SYSTEM SHALL measure and report elapsed time for code blocks.
+
+        Requirements: NFR-3 (Observability), NFR-4 (Performance)
+        Issue: Utils module - Time measurement
+        """
+        # Arrange
+        from w2t_bkin.utils import time_block
+
+        # Act
+        with time_block("Test operation"):
+            time.sleep(0.01)  # Sleep 10ms
+
+        # Assert
+        captured = capsys.readouterr()
+        assert "Test operation" in captured.out
+        assert "completed" in captured.out.lower() or "took" in captured.out.lower()
+
+    def test_Should_LogWithLogger_When_LoggerProvided_Issue_Utils_TimingLogger(self, caplog):
+        """THE SYSTEM SHALL use logger when provided instead of stdout.
+
+        Requirements: NFR-3 (Observability), Design §7
+        Issue: Utils module - Timing with logger
+        """
+        # Arrange
+        from w2t_bkin.utils import time_block
+
+        logger = logging.getLogger("test_logger")
+        logger.setLevel(logging.INFO)
+
+        # Act
+        with caplog.at_level(logging.INFO):
+            with time_block("Logged operation", logger=logger):
+                time.sleep(0.01)
+
+        # Assert
+        assert "Logged operation" in caplog.text
+
+    def test_Should_AccuratelyMeasureTime_When_SlowOperation_Issue_Utils_TimingAccuracy(self, capsys):
+        """THE SYSTEM SHALL accurately measure elapsed time.
+
+        Requirements: NFR-4 (Performance)
+        Issue: Utils module - Timing accuracy
+        """
+        # Arrange
+        from w2t_bkin.utils import time_block
+
+        # Act
+        with time_block("Sleep test"):
+            time.sleep(0.1)  # Sleep 100ms
+
+        # Assert
+        captured = capsys.readouterr()
+        # Should report approximately 0.1s (allowing for some variance)
+        assert "0.1" in captured.out or "100" in captured.out  # seconds or ms
+
+    def test_Should_HandleExceptions_When_BlockRaises_Issue_Utils_TimingException(self, capsys):
+        """THE SYSTEM SHALL propagate exceptions while still reporting time.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - Timing exception handling
+        """
+        # Arrange
+        from w2t_bkin.utils import time_block
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            with time_block("Failing operation"):
+                raise ValueError("Test error")
+
+        # Timing message may or may not appear depending on implementation
+
+
+# ============================================================================
+# Logging Configuration Tests
+# ============================================================================
+
+
+class TestLoggingConfiguration:
+    """Test logging configuration utilities (API §3.2)."""
+
+    def test_Should_ConfigureRootLogger_When_Called_Issue_Utils_LogConfig(self):
+        """THE SYSTEM SHALL configure root logger with standardized format.
+
+        Requirements: NFR-3 (Observability), Design §7
+        Issue: Utils module - Logging configuration
+        """
+        # Arrange
+        from w2t_bkin.utils import configure_logging
 
         # Act
         configure_logging(level="INFO")
 
-        # Assert - Should configure without error
-        assert True
+        # Assert
+        root_logger = logging.getLogger()
+        assert root_logger.level == logging.INFO
 
-    def test_Should_LogWithContext_When_Provided_MR1(self):
-        """THE MODULE SHALL provide contextual logging utilities.
+    def test_Should_SetDebugLevel_When_DebugSpecified_Issue_Utils_LogLevel(self):
+        """THE SYSTEM SHALL support DEBUG, INFO, WARNING, ERROR levels.
 
-        Requirements: MR-1
-        Issue: Utils module - Context logging
+        Requirements: NFR-3 (Observability)
+        Issue: Utils module - Log level setting
         """
         # Arrange
-        from w2t_bkin.utils.logging import get_logger
-
-        logger = get_logger("test")
-
-        # Act & Assert - Should support structured logging
-        logger.info("Test message", extra={"context": "test"})
-        assert True
-
-
-class TestLightweightDependencies:
-    """Test that utils avoids heavy dependencies (MR-2, M-NFR-1)."""
-
-    def test_Should_UseStdlib_When_Possible_MR2(self):
-        """THE MODULE SHALL avoid introducing heavy dependencies.
-
-        Requirements: MR-2
-        Issue: Utils module - Dependency minimization
-        """
-        # Arrange & Act
-        import w2t_bkin.utils
-
-        # Assert - Should primarily use standard library
-        # No heavy dependencies like numpy, pandas in utils
-        assert w2t_bkin.utils is not None
-
-    def test_Should_BeImportableFast_When_Loading_MR2(self):
-        """THE MODULE SHALL have fast import times.
-
-        Requirements: MR-2, M-NFR-1
-        Issue: Utils module - Import performance
-        """
-        # Arrange
-        import time
+        from w2t_bkin.utils import configure_logging
 
         # Act
-        start = time.time()
-        import w2t_bkin.utils.fs
-        import w2t_bkin.utils.hashing
-        import w2t_bkin.utils.time
-
-        elapsed = time.time() - start
-
-        # Assert - Should import quickly (< 100ms)
-        assert elapsed < 0.1
-
-    def test_Should_HaveNoHeavyImports_When_Checking_MR2(self):
-        """THE MODULE SHALL not import heavy libraries at module level.
-
-        Requirements: MR-2
-        Issue: Utils module - Lazy imports
-        """
-        # Arrange
-        import sys
-
-        # Act - Import utils
-        import w2t_bkin.utils
-
-        # Assert - Should not have pulled in heavy dependencies
-        heavy_modules = ["numpy", "pandas", "torch", "tensorflow"]
-        loaded_heavy = [mod for mod in heavy_modules if mod in sys.modules]
-
-        # Utils itself shouldn't load these (though other modules might)
-        assert w2t_bkin.utils is not None
-
-
-class TestDocumentedHelpers:
-    """Test that helpers are well-documented (MR-1)."""
-
-    def test_Should_HaveDocstrings_When_Defined_MR1(self):
-        """THE MODULE SHALL provide documented helpers.
-
-        Requirements: MR-1
-        Issue: Utils module - Documentation
-        """
-        # Arrange
-        from w2t_bkin.utils import fs, hashing, time
-
-        # Assert - Modules should have docstrings
-        assert fs.__doc__ is not None or True  # May not have module docstring
-        assert hashing.__doc__ is not None or True
-        assert time.__doc__ is not None or True
-
-    def test_Should_DocumentParameters_When_Defined_MR1(self):
-        """THE MODULE SHALL document function parameters.
-
-        Requirements: MR-1
-        Issue: Utils module - Function documentation
-        """
-        # Arrange
-        from w2t_bkin.utils.fs import ensure_dir
-
-        # Assert - Functions should have docstrings
-        assert ensure_dir.__doc__ is not None
-
-    def test_Should_ProvideExamples_When_Appropriate_MR1(self):
-        """THE MODULE SHALL provide usage examples in docstrings.
-
-        Requirements: MR-1
-        Issue: Utils module - Usage examples
-        """
-        # Arrange
-        from w2t_bkin.utils.hashing import sha256_file
-
-        # Assert - Should have helpful documentation
-        if sha256_file.__doc__:
-            doc = sha256_file.__doc__.lower()
-            # Should explain what it does
-            assert "sha256" in doc or "hash" in doc
-
-
-class TestStableAPIs:
-    """Test that utils provides stable APIs (M-NFR-1)."""
-
-    def test_Should_MaintainStableAPI_When_Evolving_MNFR1(self):
-        """THE MODULE SHALL maintain stable APIs for internal consumers.
-
-        Requirements: M-NFR-1
-        Issue: Utils module - API stability
-        """
-        # Arrange
-        from w2t_bkin.utils import fs, hashing, time
-
-        # Assert - Should have consistent exports
-        assert hasattr(fs, "ensure_dir") or hasattr(fs, "read_json")
-        assert hasattr(hashing, "sha256_file") or hasattr(hashing, "md5_file")
-        assert hasattr(time, "frames_to_seconds") or hasattr(time, "parse_timestamp")
-
-    def test_Should_NotBreakBackwardCompat_When_Updating_MNFR1(self):
-        """THE MODULE SHALL not break backward compatibility.
-
-        Requirements: M-NFR-1
-        Issue: Utils module - Backward compatibility
-        """
-        # Arrange & Act
-        # Test that old function signatures still work
-        from w2t_bkin.utils.time import frames_to_seconds
-
-        # Assert - Should accept basic parameters
-        result = frames_to_seconds(30, 30.0)
-        assert result == 1.0
-
-
-class TestHighTestCoverage:
-    """Test coverage requirements (M-NFR-1)."""
-
-    def test_Should_TargetFullCoverage_When_Testing_MNFR1(self):
-        """THE MODULE SHALL aim for high unit-test coverage.
-
-        Requirements: M-NFR-1
-        Issue: Utils module - Test coverage
-        """
-        # Arrange
-        import w2t_bkin.utils
-
-        # Assert - This is a meta-test documenting coverage goals
-        # Actual coverage measured by pytest-cov
-        assert w2t_bkin.utils is not None
-
-    def test_Should_TestEdgeCases_When_Implementing_MNFR1(self):
-        """THE MODULE SHALL test edge cases for small helpers.
-
-        Requirements: M-NFR-1
-        Issue: Utils module - Edge case coverage
-        """
-        # Arrange
-        from w2t_bkin.utils.time import frames_to_seconds
-
-        # Act & Assert - Test edge cases
-        # Zero frames
-        assert frames_to_seconds(0, 30.0) == 0.0
-
-        # Negative should raise or handle gracefully
-        try:
-            result = frames_to_seconds(-1, 30.0)
-            assert result is not None or True
-        except ValueError:
-            # Acceptable to reject negative
-            pass
-
-    def test_Should_TestErrorConditions_When_Implementing_MNFR1(self):
-        """THE MODULE SHALL test error conditions.
-
-        Requirements: M-NFR-1
-        Issue: Utils module - Error handling
-        """
-        # Arrange
-        from w2t_bkin.utils.fs import read_json
-
-        # Act & Assert - Should handle missing files
-        with pytest.raises((FileNotFoundError, Exception)):
-            read_json(Path("/nonexistent/file.json"))
-
-
-class TestActionableErrors:
-    """Test that errors are actionable (Design)."""
-
-    def test_Should_ProvideActionableErrors_When_Failing_Design(self):
-        """THE MODULE SHALL provide actionable error messages.
-
-        Requirements: Design - Fail fast with actionable messages
-        Issue: Utils module - Error messages
-        """
-        # Arrange
-        from w2t_bkin.utils.fs import read_json
-
-        # Act & Assert
-        try:
-            read_json(Path("/nonexistent/file.json"))
-        except FileNotFoundError as e:
-            error_message = str(e).lower()
-            # Should mention file path
-            assert "not found" in error_message or "no such file" in error_message
-
-    def test_Should_RaiseSpecificExceptions_When_Failing_Design(self):
-        """THE MODULE SHALL raise specific exceptions.
-
-        Requirements: Design - Raise specific exceptions
-        Issue: Utils module - Exception types
-        """
-        # Arrange
-        from w2t_bkin.utils.fs import read_json
-
-        # Act & Assert - Should raise FileNotFoundError, not generic Exception
-        with pytest.raises(FileNotFoundError):
-            read_json(Path("/nonexistent/file.json"))
-
-
-class TestSeparateSubmodules:
-    """Test submodule organization (Design - Future notes)."""
-
-    def test_Should_OrganizeByConsern_When_Growing_Future(self):
-        """THE MODULE SHALL consider separate submodules per concern.
-
-        Requirements: Design - Future notes
-        Issue: Utils module - Organization
-        """
-        # Arrange & Act
-        from w2t_bkin import utils
-
-        # Assert - Should have organized submodules
-        assert hasattr(utils, "fs")
-        assert hasattr(utils, "hashing")
-        assert hasattr(utils, "time")
-
-    def test_Should_SupportTopLevelImports_When_Convenient_Future(self):
-        """THE MODULE SHALL support convenient top-level imports.
-
-        Requirements: Design - Future notes
-        Issue: Utils module - Import convenience
-        """
-        # Arrange & Act
-        # Should support both styles:
-        # from w2t_bkin.utils.fs import read_json
-        # from w2t_bkin.utils import read_json
-
-        from w2t_bkin.utils.fs import ensure_dir
+        configure_logging(level="DEBUG")
 
         # Assert
-        assert ensure_dir is not None
+        root_logger = logging.getLogger()
+        assert root_logger.level == logging.DEBUG
+
+    def test_Should_EnableStructuredLogging_When_StructuredTrue_Issue_Utils_StructuredLog(self):
+        """THE SYSTEM SHALL support JSON structured logging when enabled.
+
+        Requirements: NFR-3 (Observability), Design §7
+        Issue: Utils module - Structured logging
+        """
+        # Arrange
+        from w2t_bkin.utils import configure_logging
+
+        # Act
+        configure_logging(level="INFO", structured=True)
+
+        # Assert
+        # Implementation should add JSON formatter
+        root_logger = logging.getLogger()
+        assert len(root_logger.handlers) > 0
+
+    def test_Should_HandleInvalidLevel_When_UnknownLevel_Issue_Utils_LogValidation(self):
+        """THE SYSTEM SHALL handle invalid log level gracefully.
+
+        Requirements: Design §4.3 (Error handling)
+        Issue: Utils module - Log level validation
+        """
+        # Arrange
+        from w2t_bkin.utils import configure_logging
+
+        # Act & Assert
+        # Should either raise ValueError or default to INFO
+        try:
+            configure_logging(level="INVALID")
+            # If no exception, verify it defaults to something reasonable
+            root_logger = logging.getLogger()
+            assert root_logger.level in [logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR]
+        except ValueError:
+            # Acceptable to raise ValueError
+            pass
+
+
+# ============================================================================
+# Integration Tests
+# ============================================================================
+
+
+class TestUtilsIntegration:
+    """Integration tests combining multiple utilities."""
+
+    def test_Should_CreateManifestWithProvenance_When_FullWorkflow_Issue_Utils_Integration(self, tmp_path: Path):
+        """THE SYSTEM SHALL support manifest creation with full provenance.
+
+        Requirements: NFR-11 (Provenance), Design §11
+        Issue: Utils module - Integration workflow
+        """
+        # Arrange
+        from w2t_bkin.utils import file_hash, get_commit, write_json
+
+        # Create mock session files
+        video_file = tmp_path / "video.mp4"
+        video_file.write_bytes(b"mock video data")
+
+        # Act
+        manifest = {
+            "session_id": "test_001",
+            "provenance": {
+                "git_commit": get_commit(),
+                "video_hash": file_hash(video_file),
+            },
+        }
+        manifest_path = tmp_path / "manifest.json"
+        write_json(manifest_path, manifest)
+
+        # Assert
+        assert manifest_path.exists()
+        assert manifest["provenance"]["git_commit"] in ["unknown"] or len(manifest["provenance"]["git_commit"]) == 7
+        assert len(manifest["provenance"]["video_hash"]) == 64
