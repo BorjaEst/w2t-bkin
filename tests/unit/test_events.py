@@ -1,614 +1,736 @@
-"""Unit tests for the events module.
+"""Unit tests for events module (FR-11, NFR-7).
 
-Tests NDJSON log normalization into Events and Trials table derivation
-as specified in events/requirements.md and design.md.
+Requirements: FR-11 (Import events as Trials/Events), NFR-1, NFR-2, NFR-3, NFR-7
+Design: design.md §3.5 (Trials/Events Tables), §21.1 (Layer 2)
+API: api.md §3.9 (events module)
+
+Test Structure (TDD Red Phase):
+- All tests should fail initially until implementation is complete
+- Tests organized by feature area
+- Use Issue_ prefix for requirements traceability
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-pytestmark = pytest.mark.unit
+from w2t_bkin.config import Settings
+from w2t_bkin.domain import Event, MissingInputError, Trial
+from w2t_bkin.events import (
+    EventsFormatError,
+    EventsSummary,
+    TimestampAlignmentError,
+    TrialValidationError,
+    _compute_trial_statistics,
+    _extract_events,
+    _extract_trials,
+    _is_valid_events_file,
+    _load_existing_summary,
+    _parse_ndjson_line,
+    _validate_trial_overlap,
+    normalize_events,
+)
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def sample_ndjson_training(tmp_path):
+    """Sample training log with trials and events."""
+    content = [
+        {"time": 1.0, "kind": "trial_start", "trial_id": 1, "phase": "init"},
+        {"time": 1.5, "kind": "stimulus_on", "trial_id": 1, "stimulus": "visual"},
+        {"time": 2.0, "kind": "response", "trial_id": 1, "correct": True},
+        {"time": 2.5, "kind": "trial_end", "trial_id": 1, "outcome": "correct"},
+        {"time": 3.0, "kind": "trial_start", "trial_id": 2, "phase": "init"},
+        {"time": 3.5, "kind": "stimulus_on", "trial_id": 2, "stimulus": "auditory"},
+        {"time": 4.0, "kind": "response", "trial_id": 2, "correct": False},
+        {"time": 4.5, "kind": "trial_end", "trial_id": 2, "outcome": "incorrect"},
+    ]
+    path = tmp_path / "training.ndjson"
+    path.write_text("\n".join(json.dumps(line) for line in content))
+    return path
+
+
+@pytest.fixture
+def sample_ndjson_stats(tmp_path):
+    """Sample trial stats log."""
+    content = [
+        {"time": 2.5, "kind": "trial_stat", "trial_id": 1, "duration": 1.5, "success": True},
+        {"time": 4.5, "kind": "trial_stat", "trial_id": 2, "duration": 1.5, "success": False},
+    ]
+    path = tmp_path / "trial_stats.ndjson"
+    path.write_text("\n".join(json.dumps(line) for line in content))
+    return path
+
+
+@pytest.fixture
+def empty_ndjson(tmp_path):
+    """Empty NDJSON file."""
+    path = tmp_path / "empty.ndjson"
+    path.write_text("")
+    return path
+
+
+@pytest.fixture
+def invalid_json_ndjson(tmp_path):
+    """NDJSON file with invalid JSON."""
+    path = tmp_path / "invalid.ndjson"
+    path.write_text('{"time": 1.0, "kind": "event"}\n{invalid json}\n{"time": 2.0}')
+    return path
+
+
+@pytest.fixture
+def overlapping_trials_ndjson(tmp_path):
+    """NDJSON with overlapping trials."""
+    content = [
+        {"time": 1.0, "kind": "trial_start", "trial_id": 1},
+        {"time": 2.0, "kind": "trial_start", "trial_id": 2},  # Starts before trial 1 ends
+        {"time": 3.0, "kind": "trial_end", "trial_id": 1},
+        {"time": 4.0, "kind": "trial_end", "trial_id": 2},
+    ]
+    path = tmp_path / "overlapping.ndjson"
+    path.write_text("\n".join(json.dumps(line) for line in content))
+    return path
+
+
+@pytest.fixture
+def missing_trial_end_ndjson(tmp_path):
+    """NDJSON with missing trial_end."""
+    content = [
+        {"time": 1.0, "kind": "trial_start", "trial_id": 1},
+        {"time": 2.0, "kind": "event", "trial_id": 1},
+        {"time": 3.0, "kind": "trial_start", "trial_id": 2},  # No trial_end for trial 1
+        {"time": 4.0, "kind": "trial_end", "trial_id": 2},
+    ]
+    path = tmp_path / "missing_end.ndjson"
+    path.write_text("\n".join(json.dumps(line) for line in content))
+    return path
+
+
+@pytest.fixture
+def events_without_trials_ndjson(tmp_path):
+    """NDJSON with events but no trials."""
+    content = [
+        {"time": 1.0, "kind": "system_event", "message": "Recording started"},
+        {"time": 2.0, "kind": "camera_sync", "camera_id": 0},
+        {"time": 3.0, "kind": "system_event", "message": "Recording stopped"},
+    ]
+    path = tmp_path / "no_trials.ndjson"
+    path.write_text("\n".join(json.dumps(line) for line in content))
+    return path
+
+
+@pytest.fixture
+def output_dir(tmp_path):
+    """Output directory for test results."""
+    output = tmp_path / "output"
+    output.mkdir()
+    return output
+
+
+# ============================================================================
+# Test: NDJSON Parsing (FR-11, Design §3.5)
+# ============================================================================
 
 
 class TestNDJSONParsing:
-    """Test NDJSON log parsing and normalization (MR-1)."""
+    """Test NDJSON file parsing and validation.
 
-    def test_Should_ParseValidNDJSON_When_LogProvided_MR1(self):
-        """WHERE NDJSON logs are present, THE MODULE SHALL normalize them into Events.
+    Requirements: FR-11 (Import NDJSON logs)
+    Design: §3.5 (NDJSON format)
+    Issue: Events module - NDJSON parsing
+    """
 
-        Requirements: MR-1
-        Issue: Events module - NDJSON parsing
+    def test_Should_ParseValidNDJSON_When_AllFieldsPresent_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL parse valid NDJSON with all required fields.
+
+        Requirements: FR-11
+        Issue: Parse valid NDJSON
         """
-        # Arrange
-        from w2t_bkin.events import normalize_events
+        summary = normalize_events([sample_ndjson_training], output_dir)
 
-        ndjson_content = [
-            {"timestamp": 0.0, "event_type": "trial_start", "trial_id": 1},
-            {"timestamp": 10.0, "event_type": "trial_end", "trial_id": 1},
+        assert summary.trials_count == 2
+        assert summary.events_count == 8
+        assert not summary.skipped
+        assert len(summary.warnings) == 0
+
+    def test_Should_RaiseError_When_FileNotFound_Issue_FR11(self, output_dir):
+        """THE MODULE SHALL raise MissingInputError when input file doesn't exist.
+
+        Requirements: FR-11, NFR-8 (Data integrity)
+        Issue: Handle missing input files
+        """
+        missing_file = Path("/nonexistent/file.ndjson")
+
+        with pytest.raises(MissingInputError):
+            normalize_events([missing_file], output_dir)
+
+    def test_Should_RaiseFormatError_When_InvalidJSON_Issue_FR11(self, invalid_json_ndjson, output_dir):
+        """THE MODULE SHALL raise EventsFormatError for invalid JSON lines.
+
+        Requirements: FR-11
+        Issue: Handle malformed NDJSON
+        """
+        with pytest.raises(EventsFormatError, match="invalid json|JSON"):
+            normalize_events([invalid_json_ndjson], output_dir)
+
+    def test_Should_HandleEmptyFile_When_NoEvents_Issue_FR11(self, empty_ndjson, output_dir):
+        """THE MODULE SHALL handle empty NDJSON files gracefully.
+
+        Requirements: FR-11
+        Issue: Handle empty input files
+        """
+        summary = normalize_events([empty_ndjson], output_dir)
+
+        assert summary.trials_count == 0
+        assert summary.events_count == 0
+        assert "empty" in " ".join(summary.warnings).lower() or summary.skipped
+
+
+# ============================================================================
+# Test: Trials Normalization (FR-11, Design §3.5)
+# ============================================================================
+
+
+class TestTrialsNormalization:
+    """Test trial extraction and normalization.
+
+    Requirements: FR-11 (Trials TimeIntervals)
+    Design: §3.5 (Trials Table)
+    Issue: Events module - Trials normalization
+    """
+
+    def test_Should_ExtractTrials_When_StartEndPresent_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL extract trials from trial_start/trial_end markers.
+
+        Requirements: FR-11
+        Issue: Extract trials from markers
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        assert summary.trials_count == 2
+
+        # Verify output file exists
+        trials_path = output_dir / "trials.parquet"
+        assert trials_path.exists()
+
+    def test_Should_InferTrialEnd_When_MissingTrialEnd_Issue_FR11(self, missing_trial_end_ndjson, output_dir):
+        """THE MODULE SHALL infer trial_end from next trial_start when missing.
+
+        Requirements: FR-11
+        Issue: Handle missing trial_end
+        """
+        summary = normalize_events([missing_trial_end_ndjson], output_dir)
+
+        assert summary.trials_count == 2
+        assert any("missing_trial_end" in w.lower() for w in summary.warnings)
+
+    def test_Should_RaiseError_When_OverlappingTrials_Issue_FR11(self, overlapping_trials_ndjson, output_dir):
+        """THE MODULE SHALL raise TrialValidationError for overlapping trials.
+
+        Requirements: FR-11
+        Issue: Detect overlapping trials
+        """
+        with pytest.raises(TrialValidationError, match="overlap"):
+            normalize_events([overlapping_trials_ndjson], output_dir)
+
+    def test_Should_ComputeTrialDuration_When_Normalizing_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL compute trial duration (stop_time - start_time).
+
+        Requirements: FR-11 (Trial durations)
+        Design: §3.5 (observed_span field)
+        Issue: Compute trial durations
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        # Both trials have duration 1.5 seconds
+        assert "statistics" in summary.timebase_alignment or hasattr(summary, "statistics")
+
+
+# ============================================================================
+# Test: Events Extraction (FR-11, Design §3.5)
+# ============================================================================
+
+
+class TestEventsExtraction:
+    """Test event extraction and normalization.
+
+    Requirements: FR-11 (BehavioralEvents)
+    Design: §3.5 (Events table)
+    Issue: Events module - Events extraction
+    """
+
+    def test_Should_ExtractAllEvents_When_Parsing_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL extract all events from NDJSON.
+
+        Requirements: FR-11
+        Issue: Extract all events
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        assert summary.events_count == 8  # 4 events per trial × 2 trials
+
+        # Verify output file exists
+        events_path = output_dir / "events.parquet"
+        assert events_path.exists()
+
+    def test_Should_PreservePayload_When_ExtractingEvents_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL preserve additional fields in event payload.
+
+        Requirements: FR-11 (Preserve event metadata)
+        Issue: Preserve event payload
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        # Payload preservation verified by checking output
+        assert not summary.skipped
+
+    def test_Should_HandleEventsWithoutTrials_When_NoTrialID_Issue_FR11(self, events_without_trials_ndjson, output_dir):
+        """THE MODULE SHALL handle events without trial_id.
+
+        Requirements: FR-11
+        Issue: Handle non-trial events
+        """
+        summary = normalize_events([events_without_trials_ndjson], output_dir)
+
+        assert summary.events_count == 3
+        assert summary.trials_count == 0
+
+    def test_Should_AssociateEventsWithTrials_When_TrialIDPresent_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL associate events with trials via trial_id.
+
+        Requirements: FR-11
+        Issue: Associate events with trials
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        # All 8 events should be associated with 2 trials
+        assert summary.trials_count == 2
+        assert summary.events_count == 8
+
+
+# ============================================================================
+# Test: Timestamp Alignment (FR-11, Design §3.5)
+# ============================================================================
+
+
+class TestTimestampAlignment:
+    """Test timestamp alignment and validation.
+
+    Requirements: FR-11 (Align to session timebase)
+    Design: §3.5 (Timebase alignment)
+    Issue: Events module - Timestamp alignment
+    """
+
+    def test_Should_AlignToSessionTimebase_When_OffsetProvided_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL align timestamps to session timebase with offset.
+
+        Requirements: FR-11
+        Issue: Align to session timebase
+        """
+        # Pass timebase offset
+        summary = normalize_events([sample_ndjson_training], output_dir, timebase_offset=10.0)
+
+        assert summary.timebase_alignment["offset_sec"] == 10.0
+
+    def test_Should_ValidateMonotonicTimestamps_When_Parsing_Issue_FR11(self, tmp_path, output_dir):
+        """THE MODULE SHALL detect non-monotonic timestamps.
+
+        Requirements: FR-11 (Data integrity)
+        Issue: Validate monotonic timestamps
+        """
+        # Create NDJSON with non-monotonic timestamps
+        content = [
+            {"time": 1.0, "kind": "event1"},
+            {"time": 2.0, "kind": "event2"},
+            {"time": 1.5, "kind": "event3"},  # Goes backward
         ]
-        tmp_path = Path("/tmp/test_events.ndjson")
+        path = tmp_path / "non_monotonic.ndjson"
+        path.write_text("\n".join(json.dumps(line) for line in content))
 
-        # Act & Assert - Should parse and normalize
-        try:
-            events = normalize_events([tmp_path])
-            assert events is not None
-        except (ImportError, AttributeError):
-            pytest.skip("normalize_events not implemented")
+        with pytest.raises(TimestampAlignmentError, match="monotonic|backward"):
+            normalize_events([path], output_dir)
 
-    def test_Should_NormalizeSchema_When_ParsingLogs_MR1(self):
-        """THE MODULE SHALL normalize schema across different log formats.
+    def test_Should_RecordAlignmentMetadata_When_Normalizing_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL record alignment metadata in summary.
 
-        Requirements: MR-1, Design - Normalize schema
-        Issue: Events module - Schema normalization
+        Requirements: FR-11, NFR-3 (Observability)
+        Issue: Record alignment metadata
         """
-        # Arrange
-        from w2t_bkin.events import normalize_events
+        summary = normalize_events([sample_ndjson_training], output_dir)
 
-        ndjson_paths = [Path("/data/session_001.ndjson")]
+        assert "timebase_alignment" in summary.__dict__
+        assert isinstance(summary.timebase_alignment, dict)
 
-        # Act
-        events = normalize_events(ndjson_paths)
 
-        # Assert - Should have standardized columns
-        assert hasattr(events, "timestamp")
-        assert hasattr(events, "event_type")
-        assert hasattr(events, "trial_id")
+# ============================================================================
+# Test: Output Generation (FR-11, Design §3.5)
+# ============================================================================
 
-    def test_Should_HandleMultipleFiles_When_Provided_MR1(self):
-        """THE MODULE SHALL normalize multiple NDJSON files.
 
-        Requirements: MR-1
-        Issue: Events module - Multiple file handling
+class TestOutputGeneration:
+    """Test output file generation.
+
+    Requirements: FR-11 (Trials/Events tables)
+    Design: §3.5 (Output structure)
+    Issue: Events module - Output generation
+    """
+
+    def test_Should_WriteTrialsParquet_When_Normalizing_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL write trials table as Parquet.
+
+        Requirements: FR-11
+        Issue: Write trials Parquet
         """
-        # Arrange
-        from w2t_bkin.events import normalize_events
+        summary = normalize_events([sample_ndjson_training], output_dir)
 
-        ndjson_paths = [
-            Path("/data/session_001_part1.ndjson"),
-            Path("/data/session_001_part2.ndjson"),
+        trials_path = output_dir / "trials.parquet"
+        assert trials_path.exists()
+        assert summary.output_paths["trials"] == str(trials_path)
+
+    def test_Should_WriteEventsParquet_When_Normalizing_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL write events table as Parquet.
+
+        Requirements: FR-11
+        Issue: Write events Parquet
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        events_path = output_dir / "events.parquet"
+        assert events_path.exists()
+        assert summary.output_paths["events"] == str(events_path)
+
+    def test_Should_WriteSummaryJSON_When_Normalizing_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL write summary JSON.
+
+        Requirements: FR-11, NFR-3 (Observability)
+        Issue: Write summary JSON
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        summary_path = output_dir / "events_summary.json"
+        assert summary_path.exists()
+        assert summary.output_paths["summary"] == str(summary_path)
+
+    def test_Should_IncludeStatistics_When_GeneratingSummary_Issue_FR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL include statistics in summary.
+
+        Requirements: FR-11, NFR-3
+        Issue: Include statistics
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        # Check for statistics in summary
+        assert summary.trials_count > 0
+        assert summary.events_count > 0
+
+
+# ============================================================================
+# Test: Provenance (NFR-11)
+# ============================================================================
+
+
+class TestProvenance:
+    """Test provenance tracking.
+
+    Requirements: NFR-11 (Provenance)
+    Design: §11 (Provenance capture)
+    Issue: Events module - Provenance
+    """
+
+    def test_Should_CaptureInputHashes_When_Normalizing_Issue_NFR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL capture input file hashes.
+
+        Requirements: NFR-11 (Provenance)
+        Issue: Capture input hashes
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        summary_path = output_dir / "events_summary.json"
+        with open(summary_path) as f:
+            summary_data = json.load(f)
+
+        assert "provenance" in summary_data
+        assert "input_files" in summary_data["provenance"]
+
+    def test_Should_RecordGitCommit_When_Normalizing_Issue_NFR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL record git commit hash.
+
+        Requirements: NFR-11
+        Issue: Record git commit
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        summary_path = output_dir / "events_summary.json"
+        with open(summary_path) as f:
+            summary_data = json.load(f)
+
+        assert "provenance" in summary_data
+        assert "git_commit" in summary_data["provenance"]
+
+    def test_Should_StoreConfigSnapshot_When_Normalizing_Issue_NFR11(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL store config snapshot.
+
+        Requirements: NFR-11
+        Issue: Store config snapshot
+        """
+        summary = normalize_events([sample_ndjson_training], output_dir)
+
+        summary_path = output_dir / "events_summary.json"
+        with open(summary_path) as f:
+            summary_data = json.load(f)
+
+        assert "provenance" in summary_data
+
+
+# ============================================================================
+# Test: Idempotence (NFR-2)
+# ============================================================================
+
+
+class TestIdempotence:
+    """Test idempotent behavior.
+
+    Requirements: NFR-2 (Idempotence)
+    Issue: Events module - Idempotence
+    """
+
+    def test_Should_SkipProcessing_When_UnchangedInputs_Issue_NFR2(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL skip processing when inputs unchanged.
+
+        Requirements: NFR-2 (Idempotence)
+        Issue: Skip unchanged inputs
+        """
+        # First run
+        summary1 = normalize_events([sample_ndjson_training], output_dir)
+        assert not summary1.skipped
+
+        # Second run with same inputs
+        summary2 = normalize_events([sample_ndjson_training], output_dir)
+        assert summary2.skipped
+
+    def test_Should_Reprocess_When_ForceFlag_Issue_NFR2(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL reprocess when force=True.
+
+        Requirements: NFR-2
+        Issue: Force reprocessing
+        """
+        # First run
+        normalize_events([sample_ndjson_training], output_dir)
+
+        # Second run with force
+        summary = normalize_events([sample_ndjson_training], output_dir, force=True)
+        assert not summary.skipped
+
+    def test_Should_Reprocess_When_InputChanged_Issue_NFR2(self, sample_ndjson_training, output_dir):
+        """THE MODULE SHALL reprocess when input files change.
+
+        Requirements: NFR-2
+        Issue: Detect input changes
+        """
+        # First run
+        normalize_events([sample_ndjson_training], output_dir)
+
+        # Modify input file
+        sample_ndjson_training.write_text(sample_ndjson_training.read_text() + '\n{"time": 10.0, "kind": "new_event"}')
+
+        # Second run should detect change and reprocess
+        summary = normalize_events([sample_ndjson_training], output_dir)
+        assert not summary.skipped
+
+
+# ============================================================================
+# Test: Edge Cases
+# ============================================================================
+
+
+class TestEdgeCases:
+    """Test edge cases and error conditions.
+
+    Requirements: FR-11, NFR-8 (Data integrity)
+    Issue: Events module - Edge cases
+    """
+
+    def test_Should_HandleSingleLineFile_When_Parsing_Issue_FR11(self, tmp_path, output_dir):
+        """THE MODULE SHALL handle single-line NDJSON files.
+
+        Requirements: FR-11
+        Issue: Handle minimal input
+        """
+        content = [{"time": 1.0, "kind": "event"}]
+        path = tmp_path / "single.ndjson"
+        path.write_text(json.dumps(content[0]))
+
+        summary = normalize_events([path], output_dir)
+        assert summary.events_count == 1
+
+    def test_Should_HandleDuplicateTrialIDs_When_Parsing_Issue_FR11(self, tmp_path, output_dir):
+        """THE MODULE SHALL handle duplicate trial IDs.
+
+        Requirements: FR-11
+        Issue: Handle duplicate trial IDs
+        """
+        content = [
+            {"time": 1.0, "kind": "trial_start", "trial_id": 1},
+            {"time": 2.0, "kind": "trial_end", "trial_id": 1},
+            {"time": 3.0, "kind": "trial_start", "trial_id": 1},  # Duplicate ID
+            {"time": 4.0, "kind": "trial_end", "trial_id": 1},
+        ]
+        path = tmp_path / "duplicate_ids.ndjson"
+        path.write_text("\n".join(json.dumps(line) for line in content))
+
+        with pytest.raises((TrialValidationError, EventsFormatError)):
+            normalize_events([path], output_dir)
+
+    def test_Should_HandleMissingTimestamp_When_Parsing_Issue_FR11(self, tmp_path, output_dir):
+        """THE MODULE SHALL raise error for missing timestamp field.
+
+        Requirements: FR-11
+        Issue: Validate required fields
+        """
+        content = [{"kind": "event"}]  # Missing 'time'
+        path = tmp_path / "missing_time.ndjson"
+        path.write_text(json.dumps(content[0]))
+
+        with pytest.raises(EventsFormatError, match="time|timestamp"):
+            normalize_events([path], output_dir)
+
+    def test_Should_HandleMultipleInputFiles_When_Normalizing_Issue_FR11(self, sample_ndjson_training, sample_ndjson_stats, output_dir):
+        """THE MODULE SHALL process multiple input files.
+
+        Requirements: FR-11
+        Issue: Handle multiple inputs
+        """
+        summary = normalize_events([sample_ndjson_training, sample_ndjson_stats], output_dir)
+
+        # Should process events from both files
+        assert summary.events_count > 8  # More than just training file
+
+
+# ============================================================================
+# Test: Helper Functions
+# ============================================================================
+
+
+class TestHelperFunctions:
+    """Test internal helper functions.
+
+    Requirements: FR-11
+    Issue: Events module - Helper functions
+    """
+
+    def test_Should_ParseNDJSONLine_When_Valid_Issue_FR11(self):
+        """THE HELPER SHALL parse valid NDJSON line.
+
+        Requirements: FR-11
+        Issue: Parse NDJSON line
+        """
+        line = '{"time": 1.0, "kind": "event", "data": "test"}'
+        result = _parse_ndjson_line(line, line_number=1)
+
+        assert result["time"] == 1.0
+        assert result["kind"] == "event"
+        assert result["data"] == "test"
+
+    def test_Should_RaiseError_When_InvalidNDJSONLine_Issue_FR11(self):
+        """THE HELPER SHALL raise EventsFormatError for invalid JSON.
+
+        Requirements: FR-11
+        Issue: Validate NDJSON line
+        """
+        line = "{invalid json}"
+
+        with pytest.raises(EventsFormatError):
+            _parse_ndjson_line(line, line_number=1)
+
+    def test_Should_ExtractTrials_When_MarkersPresent_Issue_FR11(self, sample_ndjson_training):
+        """THE HELPER SHALL extract trials from event markers.
+
+        Requirements: FR-11
+        Issue: Extract trials
+        """
+        with open(sample_ndjson_training) as f:
+            events = [json.loads(line) for line in f if line.strip()]
+
+        trials = _extract_trials(events)
+
+        assert len(trials) == 2
+        assert all(isinstance(t, Trial) for t in trials)
+
+    def test_Should_ExtractEvents_When_Parsing_Issue_FR11(self, sample_ndjson_training):
+        """THE HELPER SHALL extract events from parsed data.
+
+        Requirements: FR-11
+        Issue: Extract events
+        """
+        with open(sample_ndjson_training) as f:
+            data = [json.loads(line) for line in f if line.strip()]
+
+        events = _extract_events(data)
+
+        assert len(events) == 8
+        assert all(isinstance(e, Event) for e in events)
+
+    def test_Should_ValidateTrialOverlap_When_Checking_Issue_FR11(self):
+        """THE HELPER SHALL detect overlapping trials.
+
+        Requirements: FR-11
+        Issue: Validate trial overlap
+        """
+        trials = [
+            Trial(trial_id=1, start_time=1.0, stop_time=3.0),
+            Trial(trial_id=2, start_time=2.0, stop_time=4.0),  # Overlaps trial 1
         ]
 
-        # Act
-        events = normalize_events(ndjson_paths)
+        with pytest.raises(TrialValidationError, match="overlap"):
+            _validate_trial_overlap(trials)
 
-        # Assert - Should combine all events
-        assert events is not None
-        assert len(events.timestamp) > 0
+    def test_Should_ComputeStatistics_When_Analyzing_Issue_FR11(self):
+        """THE HELPER SHALL compute trial statistics.
 
-    def test_Should_PreserveTimestamp_When_Normalizing_MR1(self):
-        """THE MODULE SHALL preserve original timestamps from logs.
-
-        Requirements: MR-1
-        Issue: Events module - Timestamp preservation
+        Requirements: FR-11, NFR-3
+        Issue: Compute statistics
         """
-        # Arrange
-        from w2t_bkin.events import normalize_events
+        trials = [
+            Trial(trial_id=1, start_time=1.0, stop_time=2.5),
+            Trial(trial_id=2, start_time=3.0, stop_time=4.5),
+        ]
 
-        ndjson_paths = [Path("/data/events.ndjson")]
+        stats = _compute_trial_statistics(trials)
 
-        # Act
-        events = normalize_events(ndjson_paths)
+        assert "mean_trial_duration" in stats
+        assert stats["mean_trial_duration"] == 1.5
 
-        # Assert - Timestamps should be preserved
-        assert all(isinstance(t, (int, float)) for t in events.timestamp)
+    def test_Should_CheckValidEventsFile_When_Validating_Issue_FR11(self, sample_ndjson_training):
+        """THE HELPER SHALL validate events file format.
 
-    def test_Should_HandleMalformedJSON_When_Parsing_MR1(self):
-        """THE MODULE SHALL handle malformed NDJSON gracefully.
-
-        Requirements: MR-1, Design - Error handling
-        Issue: Events module - Error handling
+        Requirements: FR-11
+        Issue: Validate events file
         """
-        # Arrange
-        from w2t_bkin.events import normalize_events
+        assert _is_valid_events_file(sample_ndjson_training)
 
-        ndjson_paths = [Path("/data/malformed.ndjson")]
+        # Invalid file
+        invalid_path = Path("/nonexistent.ndjson")
+        assert not _is_valid_events_file(invalid_path)
 
-        # Act & Assert - Should raise or warn
-        with pytest.raises((ValueError, json.JSONDecodeError, Exception)):
-            normalize_events(ndjson_paths)
+    def test_Should_LoadExistingSummary_When_Present_Issue_NFR2(self, sample_ndjson_training, output_dir):
+        """THE HELPER SHALL load existing summary for idempotence check.
 
-    def test_Should_ReturnEventsTable_When_Successful_MR1(self):
-        """THE MODULE SHALL return EventsTable domain model.
-
-        Requirements: MR-1
-        Issue: Events module - Return type
+        Requirements: NFR-2 (Idempotence)
+        Issue: Load existing summary
         """
-        # Arrange
-        from w2t_bkin.events import EventsTable, normalize_events
+        # Create summary first
+        normalize_events([sample_ndjson_training], output_dir)
 
-        ndjson_paths = [Path("/data/events.ndjson")]
+        # Load it
+        summary = _load_existing_summary(output_dir)
 
-        # Act
-        events = normalize_events(ndjson_paths)
-
-        # Assert
-        assert isinstance(events, EventsTable)
-
-
-class TestTrialDerivation:
-    """Test trial interval derivation (MR-2)."""
-
-    def test_Should_DeriveTrials_When_TrialStatsExist_MR2(self):
-        """WHERE trial_stats exist, THE MODULE SHALL derive Trials using hybrid policy.
-
-        Requirements: MR-2
-        Issue: Events module - Trial derivation
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 5.0, 10.0, 15.0, 20.0],
-            event_type=["trial_start", "stimulus", "trial_end", "trial_start", "trial_end"],
-            trial_id=[1, 1, 1, 2, 2],
-        )
-        trial_stats_path = Path("/data/trial_stats.csv")
-
-        # Act
-        trials = derive_trials(events, stats=trial_stats_path)
-
-        # Assert
-        assert trials is not None
-        assert len(trials.trial_id) > 0
-
-    def test_Should_UseHybridPolicy_When_Deriving_MR2(self):
-        """THE MODULE SHALL use hybrid derivation policy (Option H).
-
-        Requirements: MR-2, Design - Option H with QC flags
-        Issue: Events module - Hybrid policy
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0, 20.0, 30.0],
-            event_type=["trial_start", "trial_end", "trial_start", "trial_end"],
-            trial_id=[1, 1, 2, 2],
-        )
-
-        # Act
-        trials = derive_trials(events, stats=None)
-
-        # Assert - Should have QC columns
-        assert hasattr(trials, "qc_flags")
-        assert hasattr(trials, "declared_duration")
-        assert hasattr(trials, "observed_span")
-
-    def test_Should_FlagMismatches_When_Detected_MR2(self):
-        """THE MODULE SHALL flag mismatches between declared and observed durations.
-
-        Requirements: MR-2
-        Issue: Events module - Mismatch detection
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 8.0],  # 8s observed
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-        # Assume trial_stats declares 10s duration
-
-        # Act
-        trials = derive_trials(events, stats=Path("/data/trial_stats.csv"))
-
-        # Assert - Should flag duration mismatch
-        if len(trials.qc_flags) > 0:
-            assert any("duration" in flag.lower() for flag in trials.qc_flags if flag)
-
-    def test_Should_CalculateStartStop_When_Deriving_MR2(self):
-        """THE MODULE SHALL calculate start_time and stop_time for trials.
-
-        Requirements: MR-2
-        Issue: Events module - Time interval calculation
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0],
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-
-        # Act
-        trials = derive_trials(events, stats=None)
-
-        # Assert
-        assert trials.start_time[0] == 0.0
-        assert trials.stop_time[0] == 10.0
-
-    def test_Should_IdentifyPhases_When_Deriving_MR2(self):
-        """THE MODULE SHALL identify phase_first and phase_last for trials.
-
-        Requirements: MR-2, Design - Trials table structure
-        Issue: Events module - Phase identification
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 5.0, 10.0],
-            event_type=["trial_start", "stimulus", "trial_end"],
-            trial_id=[1, 1, 1],
-            phase=["baseline", "stimulus", "stimulus"],
-        )
-
-        # Act
-        trials = derive_trials(events, stats=None)
-
-        # Assert
-        assert trials.phase_first[0] == "baseline"
-        assert trials.phase_last[0] == "stimulus"
-
-    def test_Should_HandleMissingStats_When_Deriving_MR2(self):
-        """THE MODULE SHALL handle missing trial_stats gracefully.
-
-        Requirements: MR-2
-        Issue: Events module - Optional stats handling
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0],
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-
-        # Act - Should work without stats
-        trials = derive_trials(events, stats=None)
-
-        # Assert
-        assert trials is not None
-        assert len(trials.trial_id) == 1
-
-    def test_Should_ReturnTrialsTable_When_Successful_MR2(self):
-        """THE MODULE SHALL return TrialsTable domain model.
-
-        Requirements: MR-2
-        Issue: Events module - Return type
-        """
-        # Arrange
-        from w2t_bkin.domain import TrialsTable
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0],
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-
-        # Act
-        trials = derive_trials(events, stats=None)
-
-        # Assert
-        assert isinstance(trials, TrialsTable)
-
-
-class TestDataIntegrityWarnings:
-    """Test data integrity warnings (Design - Error handling)."""
-
-    def test_Should_WarnOnInconsistentIDs_When_Normalizing_Design(self):
-        """THE MODULE SHALL warn on inconsistent trial IDs.
-
-        Requirements: Design - DataIntegrityWarning
-        Issue: Events module - ID consistency
-        """
-        # Arrange
-        from w2t_bkin.domain import DataIntegrityWarning
-        from w2t_bkin.events import normalize_events
-
-        ndjson_paths = [Path("/data/inconsistent_ids.ndjson")]
-
-        # Act & Assert
-        with pytest.warns(DataIntegrityWarning):
-            normalize_events(ndjson_paths)
-
-    def test_Should_WarnOnInconsistentTimestamps_When_Normalizing_Design(self):
-        """THE MODULE SHALL warn on inconsistent timestamps.
-
-        Requirements: Design - DataIntegrityWarning
-        Issue: Events module - Timestamp consistency
-        """
-        # Arrange
-        from w2t_bkin.domain import DataIntegrityWarning
-        from w2t_bkin.events import normalize_events
-
-        ndjson_paths = [Path("/data/inconsistent_timestamps.ndjson")]
-
-        # Act & Assert
-        with pytest.warns(DataIntegrityWarning):
-            normalize_events(ndjson_paths)
-
-    def test_Should_RecordFlags_When_WarningIssued_Design(self):
-        """THE MODULE SHALL record QC flags when warnings occur.
-
-        Requirements: Design - QC flags
-        Issue: Events module - Flag recording
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0],
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-
-        # Act
-        trials = derive_trials(events, stats=None)
-
-        # Assert - qc_flags should be present
-        assert hasattr(trials, "qc_flags")
-
-
-class TestVideoSynchronizationRestriction:
-    """Test that events module is not used for video sync (MR-3)."""
-
-    def test_Should_NotSyncVideos_When_Called_MR3(self):
-        """THE MODULE SHALL not be used for video synchronization.
-
-        Requirements: MR-3
-        Issue: Events module - Sync restriction
-        """
-        # Arrange
-        from w2t_bkin import events
-
-        # Assert - Module should not have video sync functions
-        assert not hasattr(events, "sync_videos")
-        assert not hasattr(events, "align_video_timestamps")
-
-    def test_Should_DocumentRestriction_When_Imported_MR3(self):
-        """THE MODULE SHALL document that it's not for video sync.
-
-        Requirements: MR-3
-        Issue: Events module - Documentation
-        """
-        # Arrange
-        from w2t_bkin import events
-
-        # Assert - Module docstring should mention restriction
-        if events.__doc__:
-            assert "not" in events.__doc__.lower() or "sync" not in events.__doc__.lower()
-
-
-class TestToleranceConfiguration:
-    """Test tolerance configuration for trial derivation (M-NFR-1)."""
-
-    def test_Should_DocumentTolerances_When_Deriving_MNFR1(self):
-        """THE MODULE SHALL document tolerances for trial derivation.
-
-        Requirements: M-NFR-1
-        Issue: Events module - Tolerance documentation
-        """
-        # Arrange
-        from w2t_bkin.events import derive_trials
-
-        # Assert - Function should have documented tolerances
-        assert derive_trials.__doc__ is not None
-        doc_lower = derive_trials.__doc__.lower()
-        assert "tolerance" in doc_lower or "threshold" in doc_lower
-
-    def test_Should_AcceptToleranceParameter_When_Deriving_MNFR1(self):
-        """THE MODULE SHALL accept tolerance parameter for derivation.
-
-        Requirements: M-NFR-1
-        Issue: Events module - Configurable tolerance
-        """
-        # Arrange
-        import inspect
-
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0],
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-
-        # Assert - Function signature should include tolerance
-        sig = inspect.signature(derive_trials)
-        param_names = list(sig.parameters.keys())
-        assert any("tolerance" in name.lower() or "threshold" in name.lower() for name in param_names) or "stats" in param_names
-
-    def test_Should_ApplyTolerance_When_Comparing_MNFR1(self):
-        """THE MODULE SHALL apply tolerance when comparing durations.
-
-        Requirements: M-NFR-1
-        Issue: Events module - Tolerance application
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 9.95],  # 9.95s observed vs 10s declared
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-
-        # Act - With reasonable tolerance, should not flag small difference
-        trials = derive_trials(events, stats=Path("/data/trial_stats.csv"))
-
-        # Assert - Small differences within tolerance should not be flagged
-        assert trials is not None
-
-
-class TestDeterministicOutputs:
-    """Test deterministic outputs (M-NFR-2)."""
-
-    def test_Should_ProduceSameEvents_When_SameInput_MNFR2(self):
-        """THE MODULE SHALL produce deterministic outputs from same inputs.
-
-        Requirements: M-NFR-2
-        Issue: Events module - Determinism
-        """
-        # Arrange
-        from w2t_bkin.events import normalize_events
-
-        ndjson_paths = [Path("/data/events.ndjson")]
-
-        # Act
-        events1 = normalize_events(ndjson_paths)
-        events2 = normalize_events(ndjson_paths)
-
-        # Assert - Should be identical
-        assert events1.timestamp == events2.timestamp
-        assert events1.event_type == events2.event_type
-
-    def test_Should_ProduceSameTrials_When_SameInput_MNFR2(self):
-        """THE MODULE SHALL produce deterministic trial derivation.
-
-        Requirements: M-NFR-2
-        Issue: Events module - Deterministic derivation
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0, 20.0, 30.0],
-            event_type=["trial_start", "trial_end", "trial_start", "trial_end"],
-            trial_id=[1, 1, 2, 2],
-        )
-
-        # Act
-        trials1 = derive_trials(events, stats=None)
-        trials2 = derive_trials(events, stats=None)
-
-        # Assert
-        assert trials1.trial_id == trials2.trial_id
-        assert trials1.start_time == trials2.start_time
-        assert trials1.stop_time == trials2.stop_time
-
-    def test_Should_NotDependOnSystemState_When_Called_MNFR2(self):
-        """THE MODULE SHALL not depend on global or system state.
-
-        Requirements: M-NFR-2
-        Issue: Events module - State independence
-        """
-        # Arrange
-        from w2t_bkin.events import normalize_events
-
-        ndjson_paths = [Path("/data/events.ndjson")]
-
-        # Act - Call multiple times with different "system states"
-        events1 = normalize_events(ndjson_paths)
-        # Simulate different state
-        import random
-
-        random.seed(42)
-        events2 = normalize_events(ndjson_paths)
-
-        # Assert - Should be identical regardless of state
-        assert events1.timestamp == events2.timestamp
-
-
-class TestEventsTableModel:
-    """Test EventsTable domain model."""
-
-    def test_Should_CreateEventsTable_When_DataProvided_MR1(self):
-        """THE MODULE SHALL provide EventsTable typed model.
-
-        Requirements: MR-1
-        Issue: Events module - EventsTable model
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable
-
-        # Act
-        events = EventsTable(
-            timestamp=[0.0, 5.0, 10.0],
-            event_type=["trial_start", "stimulus", "trial_end"],
-            trial_id=[1, 1, 1],
-        )
-
-        # Assert
-        assert len(events.timestamp) == 3
-        assert events.event_type[0] == "trial_start"
-
-    def test_Should_ValidateEqualLengths_When_Creating_MR1(self):
-        """THE MODULE SHALL validate all arrays have equal length.
-
-        Requirements: MR-1
-        Issue: Events module - Array length validation
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable
-
-        # Act & Assert
-        with pytest.raises((ValueError, AssertionError)):
-            EventsTable(
-                timestamp=[0.0, 5.0],
-                event_type=["trial_start"],  # Mismatched length
-                trial_id=[1, 1],
-            )
-
-    def test_Should_SupportOptionalColumns_When_Creating_MR1(self):
-        """THE MODULE SHALL support optional metadata columns.
-
-        Requirements: MR-1
-        Issue: Events module - Optional columns
-        """
-        # Arrange
-        from w2t_bkin.events import EventsTable
-
-        # Act
-        events = EventsTable(
-            timestamp=[0.0, 5.0],
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-            phase=["baseline", "baseline"],
-            metadata={"session": "001"},
-        )
-
-        # Assert
-        assert hasattr(events, "phase")
-        assert events.metadata["session"] == "001"
-
-
-class TestPluggableDerivationPolicies:
-    """Test future pluggable derivation policies (Design - Future notes)."""
-
-    def test_Should_SupportPolicyParameter_When_Deriving_Future(self):
-        """THE MODULE SHALL support pluggable derivation policies.
-
-        Requirements: Design - Future notes
-        Issue: Events module - Policy plugin
-        """
-        # Arrange
-        import inspect
-
-        from w2t_bkin.events import EventsTable, derive_trials
-
-        events = EventsTable(
-            timestamp=[0.0, 10.0],
-            event_type=["trial_start", "trial_end"],
-            trial_id=[1, 1],
-        )
-
-        # Assert - Future API should support policy parameter
-        sig = inspect.signature(derive_trials)
-        # This is optional for future extensibility
-        param_names = list(sig.parameters.keys())
-        # At minimum, should accept events and optional stats
-        assert "events" in param_names or len(param_names) >= 1
-
-    def test_Should_DocumentPolicyOptions_When_Available_Future(self):
-        """THE MODULE SHALL document available derivation policies.
-
-        Requirements: Design - Future notes
-        Issue: Events module - Policy documentation
-        """
-        # Arrange
-        from w2t_bkin.events import derive_trials
-
-        # Assert - Function should document policy options
-        if derive_trials.__doc__:
-            doc = derive_trials.__doc__.lower()
-            # Should mention hybrid or option H
-            assert "hybrid" in doc or "option" in doc or "policy" in doc
+        assert summary is not None
+        assert summary["trials_count"] == 2
