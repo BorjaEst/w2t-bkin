@@ -29,8 +29,6 @@ optional-dependencies = { dev = [
     "black~=25.9.0",
     "isort~=7.0.0",
     "pytest~=9.0.0",
-], sleap = [
-    "sleap~=???", # future: works from py311
 ] }
 requires-python = "~=3.10.0"
 
