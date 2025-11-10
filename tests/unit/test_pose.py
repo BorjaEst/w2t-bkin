@@ -1,7 +1,9 @@
 """Unit tests for the pose module.
 
-Tests DLC/SLEAP pose import and harmonization to canonical skeleton/timebase
-as specified in pose/requirements.md and design.md.
+Tests pose estimation import and harmonization as specified in
+requirements.md FR-5 and design.md.
+
+All tests follow TDD Red Phase principles with clear EARS requirements.
 """
 
 from __future__ import annotations
@@ -13,763 +15,603 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
-class TestPoseImport:
-    """Test DLC/SLEAP pose output import (MR-1)."""
+# ============================================================================
+# Test: Pose File Parsing (FR-5)
+# ============================================================================
 
-    def test_Should_ImportDLC_When_Provided_MR1(self):
-        """THE MODULE SHALL import DLC outputs.
 
-        Requirements: MR-1
-        Issue: Pose module - DLC import
+class TestPoseFileParsing:
+    """Test pose file import from DLC and SLEAP (FR-5)."""
+
+    def test_Should_ParseDLCH5File_When_ValidFormat_Issue_Pose_FR5(self, tmp_path: Path):
+        """THE SYSTEM SHALL parse DeepLabCut H5 files for pose data.
+
+        Requirements: FR-5 (Import DLC outputs)
+        Issue: Pose module - DLC file parsing
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        dlc_file = tmp_path / "pose_dlc.h5"
+        dlc_file.write_text("mock DLC h5 data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
 
-        # Assert
-        assert pose_table is not None
-        assert hasattr(pose_table, "keypoint")
-        assert hasattr(pose_table, "confidence")
+        # Assert - Should successfully parse DLC file
+        assert summary is not None
+        assert hasattr(summary, "source_format")
+        assert summary.source_format == "dlc"
 
-    def test_Should_ImportSLEAP_When_Provided_MR1(self):
-        """THE MODULE SHALL import SLEAP outputs.
+    def test_Should_ParseSLEAPFile_When_ValidFormat_Issue_Pose_FR5(self, tmp_path: Path):
+        """THE SYSTEM SHALL parse SLEAP files for pose data.
 
-        Requirements: MR-1
-        Issue: Pose module - SLEAP import
+        Requirements: FR-5 (Import SLEAP outputs)
+        Issue: Pose module - SLEAP file parsing
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(sleap_h5_path=Path("/data/sleap_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        sleap_file = tmp_path / "pose.slp"
+        sleap_file.write_text("mock SLEAP data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(sleap_file, format="sleap", output_dir=output_dir)
 
-        # Assert
-        assert pose_table is not None
+        # Assert - Should successfully parse SLEAP file
+        assert summary is not None
+        assert hasattr(summary, "source_format")
+        assert summary.source_format == "sleap"
 
-    def test_Should_MapToCanonicalSkeleton_When_Importing_MR1(self):
-        """THE MODULE SHALL map to a canonical skeleton.
+    def test_Should_RaiseMissingInputError_When_FileNotFound_Issue_Pose_NFR8(self, tmp_path: Path):
+        """THE SYSTEM SHALL fail fast when pose file is missing.
 
-        Requirements: MR-1, Design - Canonical skeleton mapping
-        Issue: Pose module - Skeleton mapping
+        Requirements: NFR-8 (Data integrity)
+        Issue: Pose module - Input validation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        missing_file = tmp_path / "nonexistent.h5"
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Act & Assert - Should raise MissingInputError
+        with pytest.raises(Exception):  # MissingInputError
+            harmonize_pose(missing_file, format="dlc", output_dir=output_dir)
+
+    def test_Should_RaisePoseFormatError_When_InvalidFormat_Issue_Pose_Design(self, tmp_path: Path):
+        """THE SYSTEM SHALL reject invalid pose file formats.
+
+        Requirements: Design - Error handling
+        Issue: Pose module - Format validation
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        invalid_file = tmp_path / "invalid.txt"
+        invalid_file.write_text("not a valid pose file")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Act & Assert - Should raise PoseFormatError
+        with pytest.raises(Exception):  # PoseFormatError
+            harmonize_pose(invalid_file, format="dlc", output_dir=output_dir)
+
+
+# ============================================================================
+# Test: Skeleton Harmonization (FR-5)
+# ============================================================================
+
+
+class TestSkeletonHarmonization:
+    """Test keypoint name mapping to canonical schema (FR-5)."""
+
+    def test_Should_MapKeypointNames_When_MappingProvided_Issue_Pose_FR5(self, tmp_path: Path):
+        """THE SYSTEM SHALL map heterogeneous keypoint names to canonical skeleton.
+
+        Requirements: FR-5 (Harmonize to canonical skeleton)
+        Issue: Pose module - Keypoint mapping
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        skeleton_map = {"bodypart1": "snout", "bodypart2": "ear_L", "bodypart3": "ear_R"}
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir, skeleton_map=skeleton_map)
 
-        # Assert - Should use standardized keypoint names
-        assert all(isinstance(kp, str) and len(kp) > 0 for kp in pose_table.keypoint)
+        # Assert - Should apply skeleton mapping
+        assert hasattr(summary, "skeleton")
+        assert summary.skeleton["mapping_applied"] is True
+        assert "snout" in summary.skeleton["canonical_keypoints"]
 
-    def test_Should_StandardizeFields_When_Importing_MR1(self):
-        """THE MODULE SHALL standardize schema to canonical fields.
+    def test_Should_PreserveOriginalNames_When_Harmonizing_Issue_Pose_NFR11(self, tmp_path: Path):
+        """THE SYSTEM SHALL preserve original keypoint names for provenance.
 
-        Requirements: MR-1, Design - Standardize schema
-        Issue: Pose module - Field standardization
+        Requirements: NFR-11 (Provenance)
+        Issue: Pose module - Metadata preservation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
 
-        # Assert - Canonical fields: time, keypoint, x_px, y_px, confidence
-        assert hasattr(pose_table, "time")
-        assert hasattr(pose_table, "keypoint")
-        assert hasattr(pose_table, "x_px")
-        assert hasattr(pose_table, "y_px")
-        assert hasattr(pose_table, "confidence")
+        # Assert - Should preserve original names in metadata
+        assert hasattr(summary, "metadata")
+        assert "original_keypoint_names" in summary.metadata
 
-    def test_Should_HandleMultipleSources_When_Provided_MR1(self):
-        """THE MODULE SHALL handle multiple pose sources.
+    def test_Should_RaiseSkeletonMappingError_When_UnmappedKeypoints_Issue_Pose_Design(self, tmp_path: Path):
+        """THE SYSTEM SHALL detect unmapped keypoints and fail or warn.
 
-        Requirements: MR-1
-        Issue: Pose module - Multiple sources
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            sleap_h5_path=Path("/data/sleap_output.h5"),
-        )
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act & Assert - Should handle or raise appropriate error
-        try:
-            pose_table = harmonize_pose(inputs, timestamps)
-            assert pose_table is not None
-        except ValueError:
-            # Also acceptable to reject multiple sources
-            pass
-
-
-class TestTimebaseAlignment:
-    """Test alignment to session timebase (MR-2)."""
-
-    def test_Should_AlignToSessionTimebase_When_Harmonizing_MR2(self):
-        """THE MODULE SHALL align pose to the session timebase.
-
-        Requirements: MR-2
-        Issue: Pose module - Timebase alignment
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Time should match session timebase
-        assert len(pose_table.time) > 0
-        # Time values should align with provided timestamps
-        expected_times = set(timestamps.timestamps)
-        actual_times = set(pose_table.time)
-        assert actual_times.issubset(expected_times) or len(actual_times) > 0
-
-    def test_Should_UseCameraTimestamps_When_Aligning_MR2(self):
-        """THE MODULE SHALL use camera timestamps for alignment.
-
-        Requirements: MR-2, Design - Camera timestamps
-        Issue: Pose module - Camera timestamp usage
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        camera_timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, camera_timestamps)
-
-        # Assert - Should use provided camera timestamps
-        assert pose_table is not None
-        assert len(pose_table.time) > 0
-
-    def test_Should_HandleFrameIndexMapping_When_Aligning_MR2(self):
-        """THE MODULE SHALL map frame indices to timestamps.
-
-        Requirements: MR-2
-        Issue: Pose module - Frame index mapping
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=[0, 1, 2, 5, 6, 7],  # Non-contiguous
-            timestamps=[0.0, 0.033, 0.066, 0.165, 0.198, 0.231],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert
-        assert pose_table is not None
-
-    def test_Should_InterpolateOrMark_When_MissingFrames_MR2(self):
-        """THE MODULE SHALL handle missing frames appropriately.
-
-        Requirements: MR-2, MR-3 - Mark gaps without fabricating data
-        Issue: Pose module - Missing frame handling
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_with_gaps.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(20)),
-            timestamps=[i * 0.033 for i in range(20)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Should mark gaps, not fabricate data
-        assert pose_table is not None
-
-
-class TestConfidencePreservation:
-    """Test confidence score preservation (MR-3)."""
-
-    def test_Should_PreserveConfidence_When_Harmonizing_MR3(self):
-        """THE MODULE SHALL preserve confidence scores.
-
-        Requirements: MR-3
-        Issue: Pose module - Confidence preservation
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Confidence should be preserved
-        assert all(0.0 <= c <= 1.0 for c in pose_table.confidence)
-
-    def test_Should_MarkGaps_When_DataMissing_MR3(self):
-        """THE MODULE SHALL mark gaps without fabricating data.
-
-        Requirements: MR-3
-        Issue: Pose module - Gap marking
-        """
-        # Arrange
-        import math
-
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_with_gaps.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Gaps should be marked with NaN or confidence=0
-        has_gaps = any(math.isnan(x) or math.isnan(y) or c == 0.0 for x, y, c in zip(pose_table.x_px, pose_table.y_px, pose_table.confidence))
-        assert has_gaps or len(pose_table.time) > 0
-
-    def test_Should_NotFabricateData_When_GapsExist_MR3(self):
-        """THE MODULE SHALL not fabricate data for gaps.
-
-        Requirements: MR-3
-        Issue: Pose module - No data fabrication
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_sparse.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(100)),
-            timestamps=[i * 0.033 for i in range(100)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Should have gaps, not interpolated data
-        assert pose_table is not None
-
-    def test_Should_HandleNaNs_When_Present_MR3_MNFR2(self):
-        """THE MODULE SHALL handle NaNs appropriately.
-
-        Requirements: MR-3, M-NFR-2 - NaN handling documented
-        Issue: Pose module - NaN handling
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_with_nans.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - NaNs should be preserved
-        assert pose_table is not None
-
-    def test_Should_HandleOutOfRangeConfidence_When_Found_MR3_MNFR2(self):
-        """THE MODULE SHALL handle out-of-range confidence values.
-
-        Requirements: MR-3, M-NFR-2 - Out-of-range handling documented
-        Issue: Pose module - Confidence bounds
-        """
-        # Arrange
-        from w2t_bkin.domain import DataIntegrityWarning, TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_bad_confidence.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act & Assert - Should warn or clip
-        with pytest.warns(DataIntegrityWarning):
-            pose_table = harmonize_pose(inputs, timestamps)
-
-
-class TestSkeletonRegistry:
-    """Test skeleton registry for deterministic mapping (M-NFR-1)."""
-
-    def test_Should_UseDeterministicMapping_When_Harmonizing_MNFR1(self):
-        """THE MODULE SHALL use deterministic skeleton mapping.
-
-        Requirements: M-NFR-1
-        Issue: Pose module - Deterministic mapping
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act - Call twice
-        pose_table1 = harmonize_pose(inputs, timestamps)
-        pose_table2 = harmonize_pose(inputs, timestamps)
-
-        # Assert - Should produce identical keypoint names
-        assert pose_table1.keypoint == pose_table2.keypoint
-
-    def test_Should_UseSkeletonRegistry_When_Mapping_MNFR1(self):
-        """THE MODULE SHALL use skeleton registry for mapping.
-
-        Requirements: M-NFR-1, Design - Skeleton registry
-        Issue: Pose module - Registry usage
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            skeleton_name="mouse_v1",
-        )
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Should use specified skeleton
-        assert pose_table is not None
-
-    def test_Should_ValidateSkeletonName_When_Provided_MNFR1(self):
-        """THE MODULE SHALL validate skeleton name against registry.
-
-        Requirements: M-NFR-1
+        Requirements: Design - Error handling
         Issue: Pose module - Skeleton validation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            skeleton_name="invalid_skeleton",
-        )
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data with extra keypoints")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
-        # Act & Assert
-        with pytest.raises((ValueError, KeyError)):
-            harmonize_pose(inputs, timestamps)
+        incomplete_map = {"bodypart1": "snout"}  # Missing mappings
+
+        # Act & Assert - Should raise SkeletonMappingError
+        with pytest.raises(Exception):  # SkeletonMappingError or warning
+            harmonize_pose(dlc_file, format="dlc", output_dir=output_dir, skeleton_map=incomplete_map)
 
 
-class TestMetadataEmission:
-    """Test metadata emission alongside pose data (Design)."""
+# ============================================================================
+# Test: Confidence Score Handling (FR-5)
+# ============================================================================
 
-    def test_Should_EmitMetadata_When_Harmonizing_Design(self):
-        """THE MODULE SHALL emit metadata JSON.
 
-        Requirements: Design - Metadata emission
-        Issue: Pose module - Metadata output
+class TestConfidenceScores:
+    """Test confidence score preservation and validation (FR-5)."""
+
+    def test_Should_PreserveConfidenceScores_When_Importing_Issue_Pose_FR5(self, tmp_path: Path):
+        """THE SYSTEM SHALL preserve confidence scores from pose outputs.
+
+        Requirements: FR-5 (Preserving confidence scores)
+        Issue: Pose module - Confidence preservation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data with confidence")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
 
-        # Assert - Should have metadata
-        assert hasattr(pose_table, "metadata")
+        # Assert - Should include confidence statistics
+        assert hasattr(summary, "statistics")
+        assert "mean_confidence" in summary.statistics
+        assert "median_confidence" in summary.statistics
+        assert 0.0 <= summary.statistics["mean_confidence"] <= 1.0
 
-    def test_Should_IncludeSkeletonInfo_When_Harmonizing_Design(self):
-        """THE MODULE SHALL include skeleton info in metadata.
+    def test_Should_ValidateConfidenceRange_When_Importing_Issue_Pose_NFR8(self, tmp_path: Path):
+        """THE SYSTEM SHALL validate confidence scores are in [0,1] range.
 
-        Requirements: Design - Skeleton metadata
-        Issue: Pose module - Skeleton documentation
+        Requirements: NFR-8 (Data integrity)
+        Issue: Pose module - Confidence validation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import _validate_confidence_range
 
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            skeleton_name="mouse_v1",
-        )
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        valid_scores = [0.0, 0.5, 0.99, 1.0]
+        invalid_scores = [-0.1, 1.5, 2.0]
+
+        # Act & Assert - Should accept valid scores
+        assert _validate_confidence_range(valid_scores) is True
+
+        # Should reject invalid scores
+        with pytest.raises(Exception):  # ConfidenceRangeError
+            _validate_confidence_range(invalid_scores)
+
+    def test_Should_FlagLowConfidence_When_BelowThreshold_Issue_Pose_NFR3(self, tmp_path: Path):
+        """THE SYSTEM SHALL flag frames with low confidence for QC.
+
+        Requirements: NFR-3 (Observability), FR-8 (QC report)
+        Issue: Pose module - Quality flagging
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data with low confidence frames")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
 
-        # Assert - Metadata should include skeleton
-        if hasattr(pose_table, "metadata"):
-            assert "skeleton" in str(pose_table.metadata).lower()
+        # Assert - Should report low confidence frames
+        assert hasattr(summary, "statistics")
+        assert "low_confidence_frames" in summary.statistics
 
-    def test_Should_IncludeModelHash_When_Available_Design(self):
-        """THE MODULE SHALL include model hash in metadata.
 
-        Requirements: Design - Model provenance
+# ============================================================================
+# Test: Timebase Alignment (FR-5)
+# ============================================================================
+
+
+class TestTimebaseAlignment:
+    """Test alignment to session timebase (FR-5)."""
+
+    def test_Should_AlignToSessionTimebase_When_TimestampsProvided_Issue_Pose_FR5(self, tmp_path: Path):
+        """THE SYSTEM SHALL align pose timestamps to session timebase.
+
+        Requirements: FR-5 (Align to session timebase)
+        Issue: Pose module - Timestamp alignment
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        timestamps_dir = tmp_path / "sync"
+        timestamps_dir.mkdir()
+        # Create mock timestamp CSV
+        (timestamps_dir / "timestamps_cam0.csv").write_text("frame_index,timestamp\n0,0.0\n1,0.033\n2,0.066\n")
+
+        # Act
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir, timestamps_dir=timestamps_dir)
+
+        # Assert - Should apply timebase alignment
+        assert hasattr(summary, "timebase_alignment")
+        assert summary.timebase_alignment["sync_applied"] is True
+
+    def test_Should_HandleDroppedFrames_When_Aligning_Issue_Pose_FR3(self, tmp_path: Path):
+        """THE SYSTEM SHALL handle dropped frames during timebase alignment.
+
+        Requirements: FR-3 (Detect dropped frames)
+        Issue: Pose module - Dropped frame handling
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        timestamps_dir = tmp_path / "sync"
+        timestamps_dir.mkdir()
+        # Mock timestamps with gaps
+        (timestamps_dir / "timestamps_cam0.csv").write_text("frame_index,timestamp\n0,0.0\n2,0.066\n3,0.099\n")
+
+        # Act
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir, timestamps_dir=timestamps_dir)
+
+        # Assert - Should report dropped frames handled
+        assert hasattr(summary, "timebase_alignment")
+        assert "dropped_frames_handled" in summary.timebase_alignment
+
+    def test_Should_RaiseTimestampAlignmentError_When_FrameCountMismatch_Issue_Pose_Design(self, tmp_path: Path):
+        """THE SYSTEM SHALL detect frame count mismatches with sync data.
+
+        Requirements: Design - Error handling
+        Issue: Pose module - Alignment validation
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data with 1000 frames")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        timestamps_dir = tmp_path / "sync"
+        timestamps_dir.mkdir()
+        # Timestamps for only 500 frames
+        (timestamps_dir / "timestamps_cam0.csv").write_text("frame_index,timestamp\n0,0.0\n1,0.033\n")
+
+        # Act & Assert - Should raise TimestampAlignmentError
+        with pytest.raises(Exception):  # TimestampAlignmentError
+            harmonize_pose(dlc_file, format="dlc", output_dir=output_dir, timestamps_dir=timestamps_dir)
+
+
+# ============================================================================
+# Test: Output Generation (FR-5, NFR-3)
+# ============================================================================
+
+
+class TestOutputGeneration:
+    """Test harmonized output generation (FR-5, NFR-3)."""
+
+    def test_Should_GenerateParquetOutput_When_Harmonizing_Issue_Pose_FR5(self, tmp_path: Path):
+        """THE SYSTEM SHALL generate harmonized pose table in Parquet format.
+
+        Requirements: FR-5 (Harmonize outputs), Design §3.3 (Parquet format)
+        Issue: Pose module - Output generation
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Act
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
+
+        # Assert - Should create Parquet output
+        parquet_file = output_dir / "pose_harmonized.parquet"
+        assert parquet_file.exists() or hasattr(summary, "output_path")
+
+    def test_Should_GeneratePoseSummary_When_Harmonizing_Issue_Pose_NFR3(self, tmp_path: Path):
+        """THE SYSTEM SHALL generate pose summary JSON with statistics.
+
+        Requirements: NFR-3 (Observability)
+        Issue: Pose module - Summary generation
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Act
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
+
+        # Assert - Should contain required summary fields
+        assert hasattr(summary, "session_id")
+        assert hasattr(summary, "source_format")
+        assert hasattr(summary, "statistics")
+        assert hasattr(summary, "skeleton")
+
+    def test_Should_IncludeStatistics_When_Summarizing_Issue_Pose_FR8(self, tmp_path: Path):
+        """THE SYSTEM SHALL include pose statistics for QC reporting.
+
+        Requirements: FR-8 (QC report with pose confidence distributions)
+        Issue: Pose module - Statistics computation
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Act
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
+
+        # Assert - Should include comprehensive statistics
+        assert "total_frames" in summary.statistics
+        assert "keypoints_per_frame" in summary.statistics
+        assert "mean_confidence" in summary.statistics
+        assert "coverage_by_keypoint" in summary.statistics
+
+
+# ============================================================================
+# Test: Provenance Capture (NFR-11)
+# ============================================================================
+
+
+class TestProvenance:
+    """Test provenance metadata capture (NFR-11)."""
+
+    def test_Should_RecordModelHash_When_Importing_Issue_Pose_NFR11(self, tmp_path: Path):
+        """THE SYSTEM SHALL record model hash for provenance.
+
+        Requirements: NFR-11 (Provenance)
         Issue: Pose module - Model tracking
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            model_hash="abc123",
-        )
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
 
-        # Assert
-        if hasattr(pose_table, "metadata"):
-            assert pose_table.metadata.get("model_hash") == "abc123"
+        # Assert - Should include model hash
+        assert hasattr(summary, "model_hash")
+        assert summary.model_hash is not None
 
+    def test_Should_RecordSourceToolVersion_When_Importing_Issue_Pose_NFR11(self, tmp_path: Path):
+        """THE SYSTEM SHALL record source tool version.
 
-class TestOutputFormat:
-    """Test output format preferences (Design)."""
-
-    def test_Should_SupportParquet_When_Exporting_Design(self):
-        """THE MODULE SHALL prefer Parquet for output.
-
-        Requirements: Design - Prefer Parquet
-        Issue: Pose module - Parquet support
+        Requirements: NFR-11 (Provenance)
+        Issue: Pose module - Tool version tracking
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
 
-        # Assert - Should be serializable to Parquet
-        assert pose_table is not None
-        # In actual implementation, would test .to_parquet()
+        # Assert - Should include source tool info
+        assert hasattr(summary, "metadata")
+        assert "source_tool" in summary.metadata
+        assert "source_version" in summary.metadata
 
-    def test_Should_ReturnPoseTable_When_Harmonizing_Design(self):
-        """THE MODULE SHALL return PoseTable domain model.
 
-        Requirements: Design - Return type
-        Issue: Pose module - Output type
+# ============================================================================
+# Test: Idempotence (NFR-2)
+# ============================================================================
+
+
+class TestIdempotence:
+    """Test idempotent re-runs (NFR-2)."""
+
+    def test_Should_SkipExisting_When_OutputExists_Issue_Pose_NFR2(self, tmp_path: Path):
+        """THE SYSTEM SHALL skip harmonization if output exists and input unchanged.
+
+        Requirements: NFR-2 (Idempotent re-run)
+        Issue: Pose module - Idempotence
         """
         # Arrange
-        from w2t_bkin.domain import PoseTable, TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Act - First run
+        summary1 = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
+
+        # Act - Second run without changes
+        summary2 = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
+
+        # Assert - Should skip re-harmonization
+        assert hasattr(summary2, "skipped") and summary2.skipped is True
+
+    def test_Should_ForceReharmonize_When_FlagSet_Issue_Pose_NFR2(self, tmp_path: Path):
+        """THE SYSTEM SHALL re-harmonize when forced, even if output exists.
+
+        Requirements: NFR-2
+        Issue: Pose module - Force re-run
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        dlc_file = tmp_path / "pose.h5"
+        dlc_file.write_text("mock DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Pre-existing output
+        harmonize_pose(dlc_file, format="dlc", output_dir=output_dir)
+
+        # Act - Force re-harmonize
+        summary = harmonize_pose(dlc_file, format="dlc", output_dir=output_dir, force=True)
+
+        # Assert - Should re-harmonize
+        assert hasattr(summary, "skipped") and summary.skipped is False
+
+
+# ============================================================================
+# Test: Edge Cases and Boundary Conditions
+# ============================================================================
+
+
+class TestEdgeCases:
+    """Test edge cases and boundary conditions."""
+
+    def test_Should_HandleEmptyPoseFile_When_Processing_Issue_Pose_Design(self, tmp_path: Path):
+        """THE SYSTEM SHALL handle pose files with no detections.
+
+        Requirements: Design - Error handling
+        Issue: Pose module - Empty input handling
+        """
+        # Arrange
+        from w2t_bkin.pose import harmonize_pose
+
+        empty_file = tmp_path / "empty_pose.h5"
+        empty_file.write_text("mock empty DLC file")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        summary = harmonize_pose(empty_file, format="dlc", output_dir=output_dir)
 
-        # Assert
-        assert isinstance(pose_table, PoseTable)
+        # Assert - Should complete with warnings
+        assert hasattr(summary, "warnings")
+        assert len(summary.warnings) > 0
 
+    def test_Should_HandleMissingKeypoints_When_Sparse_Issue_Pose_NFR3(self, tmp_path: Path):
+        """THE SYSTEM SHALL handle sparse detections with missing keypoints.
 
-class TestDataIntegrityWarnings:
-    """Test data integrity warnings (Design)."""
-
-    def test_Should_WarnOnLowConfidence_When_Detected_Design(self):
-        """THE MODULE SHALL warn on low confidence values.
-
-        Requirements: Design - DataIntegrityWarning
-        Issue: Pose module - Low confidence warning
+        Requirements: NFR-3 (Observability)
+        Issue: Pose module - Sparse data handling
         """
         # Arrange
-        from w2t_bkin.domain import DataIntegrityWarning, TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import harmonize_pose
 
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_low_confidence.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act & Assert
-        with pytest.warns(DataIntegrityWarning):
-            harmonize_pose(inputs, timestamps)
-
-    def test_Should_WarnOnOutOfRange_When_Detected_Design(self):
-        """THE MODULE SHALL warn on out-of-range coordinates.
-
-        Requirements: Design - DataIntegrityWarning
-        Issue: Pose module - Coordinate bounds
-        """
-        # Arrange
-        from w2t_bkin.domain import DataIntegrityWarning, TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_out_of_bounds.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act & Assert
-        with pytest.warns(DataIntegrityWarning):
-            harmonize_pose(inputs, timestamps)
-
-
-class TestPoseInputs:
-    """Test PoseInputs data structure."""
-
-    def test_Should_CreateInputs_When_Provided_Design(self):
-        """THE MODULE SHALL provide PoseInputs typed model.
-
-        Requirements: Design - Input contract
-        Issue: Pose module - PoseInputs model
-        """
-        # Arrange
-        from w2t_bkin.pose import PoseInputs
+        sparse_file = tmp_path / "sparse_pose.h5"
+        sparse_file.write_text("mock sparse DLC data")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
 
         # Act
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            skeleton_name="mouse_v1",
-        )
+        summary = harmonize_pose(sparse_file, format="dlc", output_dir=output_dir)
 
-        # Assert
-        assert inputs.dlc_h5_path == Path("/data/dlc_output.h5")
-        assert inputs.skeleton_name == "mouse_v1"
+        # Assert - Should report missing keypoints
+        assert "missing_keypoints" in summary.statistics
 
-    def test_Should_AcceptMultipleFormats_When_Creating_Design(self):
-        """THE MODULE SHALL accept DLC and SLEAP formats.
+    def test_Should_HandleMultiAnimal_When_DLCMaMode_Issue_Pose_Future(self, tmp_path: Path):
+        """THE SYSTEM SHALL handle multi-animal tracking data.
 
-        Requirements: Design - Multiple formats
-        Issue: Pose module - Format support
+        Requirements: Future enhancement
+        Issue: Pose module - Multi-animal support
+        """
+        pytest.skip("Multi-animal support not yet implemented - future enhancement")
+
+
+# ============================================================================
+# Test: Helper Functions
+# ============================================================================
+
+
+class TestHelperFunctions:
+    """Test internal helper functions."""
+
+    def test_Should_ExtractKeypointNames_When_ParsingDLC_Issue_Pose_Internal(self):
+        """Internal helper should extract keypoint names from DLC structure.
+
+        Issue: Pose module - DLC parsing helpers
         """
         # Arrange
-        from w2t_bkin.pose import PoseInputs
+        from w2t_bkin.pose import _extract_dlc_keypoints
 
-        # Act - Should accept various formats
-        inputs1 = PoseInputs(dlc_h5_path=Path("/data/dlc.h5"))
-        inputs2 = PoseInputs(sleap_h5_path=Path("/data/sleap.h5"))
-        inputs3 = PoseInputs(dlc_csv_path=Path("/data/dlc.csv"))
-
-        # Assert
-        assert inputs1.dlc_h5_path is not None
-        assert inputs2.sleap_h5_path is not None
-        assert inputs3.dlc_csv_path is not None
-
-
-class TestOptionalSmoothing:
-    """Test optional smoothing with metadata flagging (Design - Future notes)."""
-
-    def test_Should_SupportSmoothing_When_Enabled_Future(self):
-        """THE MODULE SHALL support optional smoothing.
-
-        Requirements: Design - Future notes
-        Issue: Pose module - Smoothing support
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            apply_smoothing=True,
-            smoothing_window=5,
-        )
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        mock_dlc_data = {"bodyparts": ["bodypart1", "bodypart2", "bodypart3"]}
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        keypoints = _extract_dlc_keypoints(mock_dlc_data)
 
-        # Assert - Should apply smoothing
-        assert pose_table is not None
+        # Assert - Should extract keypoint list
+        assert isinstance(keypoints, list)
+        assert len(keypoints) == 3
 
-    def test_Should_FlagSmoothing_When_Applied_Future(self):
-        """THE MODULE SHALL flag smoothing in metadata.
+    def test_Should_ComputeCoverage_When_AnalyzingPose_Issue_Pose_Internal(self):
+        """Internal helper should compute per-keypoint coverage statistics.
 
-        Requirements: Design - Future notes
-        Issue: Pose module - Smoothing metadata
+        Issue: Pose module - Coverage computation
         """
         # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
+        from w2t_bkin.pose import _compute_keypoint_coverage
 
-        inputs = PoseInputs(
-            dlc_h5_path=Path("/data/dlc_output.h5"),
-            apply_smoothing=True,
-        )
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
+        mock_detections = {"snout": [True, True, False, True], "ear_L": [True, False, False, True]}
 
         # Act
-        pose_table = harmonize_pose(inputs, timestamps)
+        coverage = _compute_keypoint_coverage(mock_detections)
 
-        # Assert - Metadata should indicate smoothing applied
-        if hasattr(pose_table, "metadata"):
-            metadata_str = str(pose_table.metadata).lower()
-            assert "smooth" in metadata_str or pose_table.metadata is not None
-
-
-class TestColumnMapping:
-    """Test heterogeneous schema mapping (Design)."""
-
-    def test_Should_MapDLCColumns_When_Importing_Design(self):
-        """THE MODULE SHALL map DLC column names to canonical schema.
-
-        Requirements: Design - Column mapping
-        Issue: Pose module - DLC column mapping
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Should have canonical column names
-        assert hasattr(pose_table, "x_px")
-        assert hasattr(pose_table, "y_px")
-        assert hasattr(pose_table, "confidence")
-
-    def test_Should_MapSLEAPColumns_When_Importing_Design(self):
-        """THE MODULE SHALL map SLEAP column names to canonical schema.
-
-        Requirements: Design - Column mapping
-        Issue: Pose module - SLEAP column mapping
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(sleap_h5_path=Path("/data/sleap_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table = harmonize_pose(inputs, timestamps)
-
-        # Assert - Should have canonical column names
-        assert hasattr(pose_table, "x_px")
-        assert hasattr(pose_table, "y_px")
-
-
-class TestDeterministicOutput:
-    """Test deterministic harmonization (M-NFR-1)."""
-
-    def test_Should_ProduceSameOutput_When_SameInput_MNFR1(self):
-        """THE MODULE SHALL produce deterministic harmonization.
-
-        Requirements: M-NFR-1
-        Issue: Pose module - Determinism
-        """
-        # Arrange
-        from w2t_bkin.domain import TimestampSeries
-        from w2t_bkin.pose import PoseInputs, harmonize_pose
-
-        inputs = PoseInputs(dlc_h5_path=Path("/data/dlc_output.h5"))
-        timestamps = TimestampSeries(
-            frame_indices=list(range(10)),
-            timestamps=[i * 0.033 for i in range(10)],
-        )
-
-        # Act
-        pose_table1 = harmonize_pose(inputs, timestamps)
-        pose_table2 = harmonize_pose(inputs, timestamps)
-
-        # Assert - Should be identical
-        assert pose_table1.keypoint == pose_table2.keypoint
-        assert pose_table1.time == pose_table2.time
-        assert pose_table1.x_px == pose_table2.x_px
+        # Assert - Should compute coverage ratios
+        assert coverage["snout"] == 0.75  # 3/4
+        assert coverage["ear_L"] == 0.5  # 2/4
