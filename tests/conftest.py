@@ -122,3 +122,44 @@ link_external_video = true
 """
     )
     return config
+
+
+@pytest.fixture()
+def mock_transcode_manifest(tmp_path: Path) -> Path:
+    """Create a mock manifest.json with five camera videos for transcode tests."""
+    manifest_data = {
+        "session_id": "session_001",
+        "videos": [
+            {
+                "camera_id": i,
+                "path": str(tmp_path / f"cam{i}.avi"),
+                "codec": "h264",
+                "fps": 30.0,
+                "duration": 600.0,
+                "resolution": [1920, 1080],
+            }
+            for i in range(5)
+        ],
+    }
+
+    # Create manifest file
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data))
+
+    # Create mock video files
+    for i in range(5):
+        video_path = tmp_path / f"cam{i}.avi"
+        video_path.write_text(f"mock video data {i}")
+
+    return manifest_path
+
+
+@pytest.fixture()
+def mock_empty_transcode_manifest(tmp_path: Path) -> Path:
+    """Create a mock empty manifest.json for transcode tests."""
+    manifest_data = {"session_id": "empty_session", "videos": []}
+
+    manifest_path = tmp_path / "empty_manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data))
+
+    return manifest_path
