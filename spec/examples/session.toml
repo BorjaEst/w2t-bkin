@@ -1,0 +1,49 @@
+# Session metadata used for templating and identification
+[session]
+id = "SNA-145518"
+subject_id = "mouse_123"
+date = "2025-01-01"
+experimenter = "Borja Esteban"
+description = "Test session"
+sex = "M"
+age = "P60"
+genotype = "WT"
+
+
+# Behaviour information for the experiment 
+[bpod]
+path = "Bpod/*.mat"
+order = "name_asc"
+
+
+# TTL/edge patterns specific to this session
+[[TTLs]]
+id = "ttl_hitmiss"
+description = "Hit/Miss signal from behavior"
+paths = "TTLs/*nidq.xa_1_0*.txt"
+
+[[TTLs]]
+id = "ttl_camera"
+description = "Camera sync pulses"
+paths = "TTLs/*nidq.xa_7_0*.txt"
+
+[[TTLs]]
+id = "ttl_cue"
+description = "Cue signal from behavior"
+paths = "TTLs/${session.id}/*_cue.txt"
+
+
+# Camera configurations for this session
+[[cameras]]
+id = "cam0"
+description = "Top-down camera view of mouse"
+paths = "Video/top/*.avi"
+order = "name_asc"
+ttl_id = "ttl_camera"
+
+[[cameras]]
+id = "cam1"
+description = "Left eye pupil camera"
+paths = "Video/pupil_left/*.avi"
+order = "name_asc"
+ttl_id = "ttl_camera"
