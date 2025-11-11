@@ -1,0 +1,71 @@
+[project]
+name = "w2t-bkin-pipeline"
+
+[paths]
+raw_root = "data/raw"         # Lab/global raw data root (session directories live here)
+intermediate_root = "data/interim"  # Intermediate processing outputs
+output_root = "data/processed"      # Output data root
+metadata_file = "session.toml"      # Session metadata file name within each session directory
+models_root = "models"              # Directory containing pose estimation models
+
+# Session reference timebase (aligns derived data; ImageSeries remain rate-based)
+[timebase]
+source = "nominal_rate"       # one of: "nominal_rate" | "ttl" | "neuropixels"
+mapping = "nearest"           # one of: "nearest" | "linear"
+jitter_budget_s = 0.010       # non-negative; max allowed alignment jitter in seconds
+offset_s = 0.0                # global offset applied before mapping
+# ttl_id = "cam0_ttl"         # REQUIRED when source = "ttl"; must match a session [[TTLs]].id
+# neuropixels_stream = "AP0"  # REQUIRED when source = "neuropixels"; identifies the reference clock/stream
+
+# Acquisition policies (session-agnostic)
+[acquisition]
+concat_strategy = "ffconcat"        # ffmpeg concat demuxer; alternative: streamlist (future)
+
+# Hardware sync policy: software does not compute per-frame timestamps; it verifies counts
+[verification]
+mismatch_tolerance_frames = 0       # abort if video_frame_count - ttl_pulse_count > tolerance
+warn_on_mismatch = false            # when true, warn instead of abort if within tolerance
+
+[bpod]
+parse = true                        # parse Bpod .mat if present in the session
+
+# Global video defaults (legacy fallback; generally superseded by per-camera probing)
+[video.transcode]
+enabled = true
+codec = "h264"                      # ffmpeg codec name
+crf = 20                            # quality factor (0-51)
+preset = "fast"                     # ffmpeg preset
+keyint = 15                         # GOP length
+
+# NWB export templates (session supplies concrete file_name/session_description or we expand these)
+[nwb]
+link_external_video = true
+lab = "Lab Name"
+institution = "Institution Name"
+file_name_template = "{session.id}.nwb"
+session_description_template = "Session {session.id} on {session.date}"
+
+# QC report output (template expands if session provides no explicit override)
+[qc]
+generate_report = true
+out_template = "qc/{session.id}"    # output path template for QC report
+include_verification = true         # include frame/TTL counts and mismatches in report
+
+# Logging defaults
+[logging]
+level = "INFO"              # DEBUG | INFO | WARNING | ERROR | CRITICAL
+structured = false          # whether to use structured (e.g., JSON) logging
+
+# Pose labels inference defaults
+[labels.dlc]
+run_inference = false       
+model = "model.pb"          # path to DLC model file
+
+[labels.sleap]
+run_inference = false
+model = "sleap.h5"          # path to SLEAP model file
+
+# Facemap defaults
+[facemap]
+run_inference = false
+ROIs = ["face", "left_eye", "right_eye"]    # list of ROIs to process
