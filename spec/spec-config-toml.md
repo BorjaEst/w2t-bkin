@@ -2,7 +2,7 @@
 title: Config TOML Specification (W2T BKin)
 version: 1.0
 date_created: 2025-11-10
-last_updated: 2025-11-10
+last_updated: 2025-11-11
 owner: pipeline-team
 tags: [schema, config, design]
 ---
@@ -39,6 +39,9 @@ Assumptions: Hardware delivers aligned frame timing and TTL pulse counts per cam
 - REQ-008: Pose model configs (`labels.dlc`, `labels.sleap`) MUST include `run_inference` (boolean) and `model` (string).
 - REQ-009: Facemap config MUST include `run_inference` (boolean) and `ROIs` (string list).
 - REQ-010: QC MUST include `generate_report` (boolean), `out_template` (string), and `include_verification` (boolean).
+- REQ-011: Timebase MUST include `source`, `mapping`, `jitter_budget_s` (float ≥ 0), and `offset_s` (float; may be negative or positive to shift reference time).
+- REQ-012: IF `timebase.source = "ttl"` THEN `timebase.ttl_id` MUST be present and match a session `[[TTLs]].id`.
+- REQ-013: IF `timebase.source = "neuropixels"` THEN `timebase.neuropixels_stream` MUST be present to identify the clock/stream.
 - CON-001: No secret or credential keys allowed inside `config.toml`.
 - CON-002: Paths MUST be relative to repository root or absolute paths; no environment interpolation.
 - GUD-001: Prefer keeping mismatch tolerance at 0 when hardware sync is robust.
@@ -51,8 +54,9 @@ Schema outline (strict):
 
 project: { name: str }
 paths: { raw_root: str, intermediate_root: str, output_root: str, metadata_file: str, models_root: str }
+timebase: { source: 'nominal_rate'|'ttl'|'neuropixels', mapping: 'nearest'|'linear', jitter_budget_s: float>=0, offset_s: float, ttl_id?: str (conditional), neuropixels_stream?: str (conditional) }
 acquisition: { concat_strategy: str }
-verification: { mismatch_tolerance_frames: int, warn_on_mismatch: bool }
+verification: { mismatch_tolerance_frames: int>=0, warn_on_mismatch: bool }
 video: { transcode: { enabled: bool, codec: str, crf: int, preset: str, keyint: int } }
 labels: { dlc: { run_inference: bool, model: str }, sleap: { run_inference: bool, model: str } }
 facemap: { run_inference: bool, ROIs: string[] }
@@ -69,6 +73,10 @@ logging: { level: 'DEBUG'|'INFO'|'WARNING'|'ERROR'|'CRITICAL', structured: bool 
 - AC-004: Logging level outside allowed set causes validation failure.
 - AC-005: Unknown sections or keys cause validation failure citing the offending key path.
 - AC-006: When `bpod.parse=true` but a session lacks Bpod files, ingestion emits a warning and continues.
+- AC-007: When `timebase.source='ttl'` and `ttl_id` is absent or not matched in session TTLs, validation fails.
+- AC-008: When `timebase.source='neuropixels'` and `neuropixels_stream` is absent, validation fails.
+- AC-009: Negative `jitter_budget_s` causes validation failure.
+- AC-010: Selecting `linear` mapping is permitted and later synthetic tests show reduced cumulative jitter vs `nearest`.
 
 ## 6. Test Automation Strategy
 
@@ -127,6 +135,12 @@ output_root = "data/processed"
 metadata_file = "session.toml"
 models_root = "models"
 
+[timebase]
+source = "nominal_rate"
+mapping = "nearest"
+jitter_budget_s = 0.010
+offset_s = 0.0
+
 [verification]
 mismatch_tolerance_frames = 0
 warn_on_mismatch = false
@@ -179,6 +193,7 @@ ROIs = ["face", "left_eye", "right_eye"]
 - Types match schema (e.g., integers where required).
 - Templates compile with example session metadata.
 - No disallowed keys (e.g., secrets).
+- Conditional keys enforced based on `timebase.source`.
 
 ## 11. Related Specifications / Further Reading
 
