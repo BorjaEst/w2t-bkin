@@ -1,313 +1,646 @@
 ---
-post_title: "Design — Modular Architecture (W2T BKin)"
+post_title: "Design — W2T Body Kinematics Pipeline"
 author1: "Project Team"
-post_slug: "design-modular-w2t-bkin"
+post_slug: "design-w2t-bkin"
 microsoft_alias: "na"
 featured_image: "/assets/og.png"
-categories: ["pipeline", "docs", "nwb"]
-tags: ["design", "architecture", "modular"]
-ai_note: "Draft produced with AI assistance, reviewed by maintainers."
-summary: "Modular technical design for a multi-stage behavioral data pipeline producing NWB with hardware-based frame sync verification (no software timestamp sync), pose, facial metrics, and QC."
-post_date: "2025-11-08"
+categories: ["docs", "pipeline", "validation", "testing"]
+tags: ["design", "architecture", "mermaid", "timebase", "nwb"]
+ai_note: "Drafted with AI assistance and reviewed by maintainers."
+summary: "Technical architecture, domain model, timebase strategy, interfaces, and quality gates for a modular, CLI-first pipeline that produces NWB with rate-based ImageSeries and strict verification."
+post_date: "2025-11-11"
 ---
 
-<!-- markdownlint-disable MD041 -->
+## Overview
 
-## 1. Architectural Overview
+This document synthesizes the system design derived from the structured requirements in `requirements.md`. It
+covers architecture, core data models, timebase alignment strategy, stage contracts, observability, and quality
+assurance. The design aims for deterministic, idempotent, and modular execution with clear provenance.
 
-The system is a multi-stage, configuration-driven pipeline organized into modular Python packages.
-Each stage operates independently, consuming a manifest and producing deterministic artifacts. No
-camera calibration or 3D fusion is performed. Hardware guarantees frame-timing alignment; software
-only verifies invariants (frame counts vs TTL pulse counts) and does not compute per-frame
-timestamps.
+## Scope and assumptions
 
-## 2. Module Breakdown
+- In scope: ingestion, verification (frame vs TTL counts), optional transcode, optional pose/facemap import,
+  timebase alignment, NWB assembly, validation, and QC reporting.
+- Out of scope: camera calibration, cross-camera optical fusion/triangulation, embedding raw videos into NWB by
+  default. See OOS notes in `requirements.md`.
 
-| Package                    | Responsibility                                                   | Key Inputs                    | Key Outputs                     |
-| -------------------------- | ---------------------------------------------------------------- | ----------------------------- | ------------------------------- |
-| `config`                   | Load/validate TOML, provide typed settings                       | TOML env vars                 | Settings objects                |
-| `ingest`                   | Discover session assets, extract video metadata, build manifest  | Raw files, settings           | `manifest.json`                 |
-| (verification in `ingest`) | Verify frame counts against TTL pulses; record mismatches        | TTL logs, manifest            | `verification_summary.json`     |
-| `transcode`                | Optional mezzanine encoding                                      | Raw videos, settings          | Transcoded videos + metadata    |
-| `pose`                     | Import/harmonize DLC/SLEAP outputs, skeleton mapping             | Pose files/models             | Harmonized pose tables          |
-| `facemap`                  | Import/compute facial metrics and align timestamps               | Face video, models            | Metrics table + metadata        |
-| `bpod`                     | Parse MATLAB Bpod .mat behavioral file into Trials/Events tables | Bpod .mat file                | Normalized events, trials table |
-| `nwb`                      | Assemble NWB file with all available data & provenance           | Manifest, stage outputs       | `session_id.nwb`                |
-| `qc`                       | Render HTML QC report                                            | Stage summaries, NWB metadata | `index.html`                    |
-| `cli`                      | Typer application exposing subcommands                           | Settings                      | User-facing CLI                 |
-| `utils`                    | Shared helpers (I/O, hashing, timing)                            | Internal calls                | Reusable primitives             |
+## Toolset module architecture
 
-## 3. Data Contracts
-
-### 3.00 Config (TOML) — Strict Schema
-
-The pipeline-level configuration file MUST contain exactly the following sections and keys (no additional or missing keys):
-
-- `[project]`: `name`
-- `[paths]`: `raw_root`, `intermediate_root`, `output_root`, `metadata_file`, `models_root`
-- `[acquisition]`: `concat_strategy`
-- `[verification]`: `mismatch_tolerance_frames`, `warn_on_mismatch`
-- `[bpod]`: `parse`
-- `[video.transcode]`: `enabled`, `codec`, `crf`, `preset`, `keyint`
-- `[nwb]`: `link_external_video`, `lab`, `institution`, `file_name_template`, `session_description_template`
-- `[qc]`: `generate_report`, `out_template`, `include_verification`
-- `[logging]`: `level`, `structured`
-- `[labels.dlc]`: `run_inference`, `model`
-- `[labels.sleap]`: `run_inference`, `model`
-- `[facemap]`: `run_inference`, `ROIs`
-
-Notes:
-
-- NWB uses rate-based ImageSeries by design; there is no `image_series_timing` toggle in config.
-- QC toggles include `include_verification`; there is no `include_bpod` flag at config level.
-
-### 3.0 Session Metadata (TOML)
-
-The session file MUST contain exactly the following sections and keys (no additional or missing keys):
-
-- `[session]`: `id`, `subject_id`, `date`, `experimenter`, `description`, `sex`, `age`, `genotype`
-- `[bpod]`: `path`, `order`
-- `[[TTLs]]`: `id`, `description`, `paths`
-- `[[cameras]]`: `id`, `description`, `paths`, `order`, `ttl_id`
-
-Notes:
-
-- `order` specifies file selection/sorting policy (e.g., `name_asc`).
-- All `paths` are glob patterns resolved relative to the session directory under `paths.raw_root`.
-
-### 3.1 Manifest (JSON)
-
-Fields: `session_id`, `videos[{camera_id,path,codec,fps,frame_count,duration,resolution,ttl_id?}]`,
-`ttls[{id,path,role}]`, `bpod{path?}`, `pose[{path,format}]`, `facemap[{path}]`, `config_snapshot`, `provenance`.
-Invariant: All paths absolute; optional resources are omitted rather than null.
-
-### 3.2 Verification Summary JSON
-
-Fields: `per_camera[{camera_id, video_frame_count, ttl_pulse_count, mismatch, ratio}]`,
-`warnings[]`, `notes`, `timing`. Invariant: `mismatch = video_frame_count - ttl_pulse_count`.
-
-### 3.3 Pose Harmonized Table (Parquet preferred)
-
-Columns: `time`, `keypoint`, `x_px`, `y_px`, `confidence`, plus metadata sidecar JSON with skeleton
-and model hashes. Primary key: (`time`,`keypoint`).
-
-### 3.4 Facemap Metrics
-
-Wide table: `time` + metric columns (e.g., `pupil_area`, `motion_energy`). Missing samples preserved
-as NaN.
-
-### 3.5 Trials Table
-
-Columns: `trial_id`, `start_time`, `stop_time`, `phase_first`, `phase_last`, `declared_duration`,
-`observed_span`, `duration_delta`, `qc_flags`.
-
-### 3.6 QC Summary JSON
-
-Sections: `verification`, `pose`, `facemap`, `bpod`, `provenance`, each with minimal stats + file
-references.
-
-## 4. Interfaces & Public APIs
-
-Example (Typer CLI and Python import use):
-
-Inputs conform to domain contracts; outputs are domain objects or file paths. No public API for
-computing timestamps exists; verification is part of ingestion.
-
-Function contract pattern:
-
-- Inputs: Typed dataclasses / pydantic models (avoid raw dicts)
-- Outputs: Tuple of domain objects + summary dataclass
-
-## 5. Processing Flow
-
-1. `config` loads settings → passed to `ingest`.
-2. `ingest` builds `manifest.json`.
-3. `ingest` verifies video frame counts vs TTL pulses → `verification_summary.json`.
-4. `transcode` (optional) produces stable video derivatives (manifest extended with mezzanine refs).
-5. `pose` / `facemap` import or compute features aligning to session timebase (fps-based).
-6. `bpod` derives Trials/Events if present.
-7. `nwb` assembles NWB; uses rate-based ImageSeries (starting_time + rate) with external_file links;
-   stores provenance.
-8. `validate` (subcommand) runs nwbinspector.
-9. `qc` renders HTML from summaries.
-
-## 6. Error Handling Strategy
-
-| Error Class                | Cause                     | Response                                                  |
-| -------------------------- | ------------------------- | --------------------------------------------------------- |
-| MissingInputError          | Required file absent      | Fail fast, log path, suggest config key                   |
-| FrameTtlCountMismatchError | Video frames ≠ TTL pulses | Abort ingestion unless policy allows; include diagnostics |
-| DataIntegrityWarning       | Gaps/NaNs beyond expected | Proceed, mark in QC flags                                 |
-| ConfigValidationError      | Invalid TOML field        | Abort before any stage runs                               |
-
-All exceptions subclass a base `PipelineError` for central logging.
-
-## 7. Logging & Diagnostics
-
-- Structured JSON logs optional via config toggle.
-- Each stage writes `{stage}_summary.json` with machine-readable stats.
-- Include timing (wall + CPU), memory (approx), input counts, anomaly flags.
-
-## 8. Performance Considerations
-
-- Use streaming parsing for large TTL logs (iterators). Avoid loading entire video into memory.
-- Parallelization: per-camera verification and optional transcode; pose/facemap inference on separate threads or processes.
-- Optional caching: hashed raw file + config snapshot to skip recomputation.
-
-## 9. Testing Strategy
-
-- Unit tests: verification math (frame and TTL counters), skeleton mapping.
-- Integration tests: miniature session pipeline end-to-end (synthetic 10-frame videos + mock TTL).
-- CLI tests: invoke subcommands with temp directory; assert artifact presence.
-- Property tests (optional): invariants (monotonic timestamps, confidence in [0,1]).
-
-## 10. Modularity & Extensibility
-
-- New stages added by creating a subpackage and registering a CLI subcommand in `cli/app.py`.
-- Clear separation: no stage imports another stage's internals; only shared contracts from `utils` or `domain`.
-- Domain models shared in `domain` subpackage (to be created) for types like `VideoMetadata`, `TimestampSeries`.
-
-## 11. Provenance Capture
-
-- Config snapshot (TOML serialized) stored in NWB `notes` or a `/processing/provenance` module.
-- Git commit hash via `utils.git.get_commit()`.
-- Dependency versions subset (`pip freeze` filtered) saved alongside QC summary.
-
-## 12. Security & Privacy
-
-- Absolute paths stored only in local artifacts; NWB uses relative paths when feasible.
-- Subject identifiers anonymized; no facial images embedded.
-
-## 13. Quality Gates
-
-- Build: import all subpackages without ImportError.
-- Lint: ruff passes (style + basic issues).
-- Types: mypy passes with strict optional checks for core modules.
-- Validate: nwbinspector no critical errors.
-- QC: per-camera frame/TTL mismatch ≤ configured tolerance; pose/facemap quality within expected ranges.
-
-## 14. Future Enhancements (Backlog)
-
--- Vectorized mismatch visualization improvements.
-
-- Incremental re-run: stage-level dependency graph with minimal recomputation.
-- Plugin system for custom behavioral event derivations.
-- Streaming NWB writing for very large sessions.
-
-## 15. Glossary (Selected)
-
-- Mezzanine: normalized transcoded copy optimized for seeking.
-- Harmonization: mapping heterogeneous pose outputs to canonical schema.
-
-## 16. Decision Records Placeholder
-
-Decision records will be stored under `docs/decisions/` following the project template.
-
-## 17. Sequence Example (Text Diagram)
-
-```text
-config → ingest → manifest.json
-manifest + TTL logs → ingest (verify) → verification_summary
-videos (+ optional transcode) → transcode → mezzanine/*
-pose raw → pose → pose_harmonized.parquet
-facemap raw → facemap → facemap_metrics.parquet
-bpod .mat → bpod → trials.csv + events.csv
-all artifacts → nwb → session.nwb
-session.nwb → validate → nwbinspector.json
-summaries → qc → index.html
+```mermaid
+flowchart TD
+  subgraph Core
+    CFG[w2t_bkin.config]
+    DOM[w2t_bkin.domain]
+  end
+  CLI[w2t_bkin.cli] --> CFG
+  CLI --> ING[w2t_bkin.ingest]
+  ING --> EVT[w2t_bkin.events]
+  ING --> VER[verify counts]
+  VER -->|mismatch > tol| X[[abort + diagnostic]]
+  VER -->|ok or <= tol| TRIG{options}
+  TRIG -->|transcode| TRN[w2t_bkin.transcode]
+  TRIG -->|pose| POS[w2t_bkin.pose]
+  TRIG -->|facemap| FAC[w2t_bkin.facemap]
+  TRN --> TMB[w2t_bkin.sync]
+  POS --> TMB
+  FAC --> TMB
+  ING --> TMB
+  TMB --> NWB[w2t_bkin.nwb]
+  NWB --> VAL[validate]
+  VAL --> REP[w2t_bkin.qc]
+  style X fill:#fdd,stroke:#f66
 ```
 
-## 18. Directory Conventions (Refined)
+Key properties:
 
-| Path                             | Purpose                       |
-| -------------------------------- | ----------------------------- |
-| `data/raw/<session>`             | Original videos and logs      |
-| `data/interim/<session>/verify`  | Verification summary (JSON)   |
-| `data/interim/<session>/pose`    | Harmonized pose tables        |
-| `data/interim/<session>/facemap` | Facial metrics                |
-| `data/interim/<session>/bpod`    | Bpod-derived events/trials    |
-| `data/interim/<session>/video`   | Mezzanine videos              |
-| `data/processed/<session>`       | Final NWB + validation report |
-| `data/qc/<session>`              | QC HTML & assets              |
+- Toolset-first design: each capability lives in its own importable subpackage under `w2t_bkin.*`.
+- The CLI orchestrates module calls in the correct order, but modules are usable directly in notebooks or scripts.
+- Strict, early validation and fail-fast behavior on invalid schemas or integrity violations.
+- Optional stages are pluggable and isolated; composition occurs via files and domain contracts, not cross-imports.
+- All ImageSeries remain rate-based; timebase affects alignment of derived data only.
 
-## 19. Validation Checklist
+### CLI orchestration (sequence)
 
-- Video frame counts equal TTL pulse counts per camera.
-- Pose confidence median within expected range.
-- Trials non-overlapping; flagged mismatches documented.
-- NWB passes inspector.
-
-## 20. Summary Sentence
-
-The modular architecture cleanly partitions ingestion, verification, transformation, packaging,
-validation, and reporting into isolated, testable Python subpackages producing reproducible NWB
-datasets with transparent quality metrics.
-
-## 21. Package Dependency Tree
-
-This section defines the code-level import dependencies and the runtime/dataflow dependencies between
-packages. It enforces a layered architecture with no cyclic dependencies and no cross-stage imports.
-
-### 21.1 Code-level Import Layers (Allowable Imports Only)
-
-- Layer 0 — Foundations (no imports between them):
-  - `utils` (helpers only; does not import any stage)
-  - `domain` (pure types and contracts; does not import any other project package)
-- Layer 1 — Configuration:
-  - `config` → may import: `domain`, `utils`
-- Layer 2 — Processing Stages (parallel, must not import each other):
-  - `ingest` → may import: `config`, `domain`, `utils`
-  - `transcode` → may import: `config`, `domain`, `utils`
-  - `pose` → may import: `config`, `domain`, `utils`
-  - `facemap` → may import: `config`, `domain`, `utils`
-  - `bpod` → may import: `config`, `domain`, `utils`
-- Layer 3 — Assembly & Reporting:
-  - `nwb` → may import: `config`, `domain`, `utils` (must not import stage internals)
-  - `qc` → may import: `config`, `domain`, `utils` (must not import stage internals)
-- Layer 4 — Entry Points:
-  - `cli` → may import: `config`, `utils`, `domain`, and each stage package's public APIs
-
-Import constraints:
-
-- No stage imports another stage's internals (e.g., `pose` ✗→ `sync`, `events` ✗→ `pose`).
-- `domain` and `utils` are import-only roots and must not import project packages.
-- `nwb` and `qc` consume outputs via contracts/IO and must not import stage internals.
-- `cli` is the only package allowed to depend on all stages for orchestration.
-
-For quick reference, an allowable import tree (arrows point to what a package may import):
-
-```text
-utils        domain
-  ↑            ↑
-   \          /
-    -> config
-          ↑
-   ┌──────┼────────────────────────────────────────────┐
-   │      │        │         │       │         │       │
- ingest       transcode   pose   facemap   bpod        │
-   ↑           ↑         ↑       ↑        ↑            │
-    \__________|_________|_______|________|___________/
-                          |
-                        nwb, qc
-                          ↑
-                          |
-                         cli
+```mermaid
+sequenceDiagram
+  participant CLI as w2t_bkin.cli
+  participant CFG as config
+  participant ING as ingest
+  participant EVT as events
+  participant VER as verify
+  participant TRN as transcode
+  participant POS as pose
+  participant FAC as facemap
+  participant TMB as timebase(sync)
+  participant NWB as nwb
+  participant VAL as validate
+  participant REP as qc
+  CLI->>CFG: load_config(session, config)
+  CLI->>ING: build_manifest()
+  ING->>EVT: parse_bpod_if_present()
+  ING->>VER: counts(frame, ttl)
+  VER-->>CLI: mismatch_summary
+  CLI-->>VER: enforce_tolerance()
+  note over VER: abort on mismatch > tol
+  CLI->>TRN: transcode() (if enabled)
+  CLI->>POS: import_harmonize() (if enabled)
+  CLI->>FAC: compute_or_import() (if enabled)
+  POS->>TMB: align(samples)
+  FAC->>TMB: align(samples)
+  ING->>TMB: reference_timebase()
+  TMB-->>POS: aligned_pose
+  TMB-->>FAC: aligned_facemap
+  CLI->>NWB: assemble(manifest, aligned data)
+  NWB->>VAL: run_nwbinspector()
+  VAL-->>CLI: report.json
+  CLI->>REP: generate_qc_html()
 ```
 
-### 21.2 Runtime/Dataflow Dependencies (Artifacts)
+## Design principles and layering
 
-The dataflow/DAG describes which stage outputs are consumed by others at runtime (not imports):
+```mermaid
+flowchart LR
+  D[Domain Models]:::core
+  CFG[Config Validators]:::core
+  S[Services]:::svc
+  A[Adapters]:::adp
+  ORCH[Orchestrators]:::orch
+  CLI[CLI]:::cli
 
-- `config` → provides settings to all stages.
-- `ingest` → produces `manifest.json` and `verification_summary.json` consumed by `nwb`, `qc`, and referenced by other stages for provenance.
-- `transcode` (optional) → produces mezzanine videos referenced by `nwb`.
-- `pose` (optional) → produces harmonized pose tables consumed by `nwb`, summarized by `qc`.
-- `facemap` (optional) → produces metrics consumed by `nwb`, summarized by `qc`.
-- `bpod` (optional) → produces normalized trials/events consumed by `nwb`, summarized by `qc`.
-- `nwb` → produces the NWB file and may embed provenance/snapshots; its inspector report feeds `qc`.
-- `qc` → renders HTML from all stage summaries and NWB metadata.
+  CLI --> ORCH
+  ORCH --> S
+  S --> D
+  S --> CFG
+  S --> A
+
+  classDef core fill:#eef,stroke:#66f
+  classDef svc fill:#efe,stroke:#3a3
+  classDef adp fill:#fee,stroke:#f66
+  classDef orch fill:#ffe,stroke:#aa6
+  classDef cli fill:#eef,stroke:#555
+```
+
+- Dependencies point inward: Services depend on Domain and Config; Adapters are leaf dependencies.
+- Orchestrators coordinate Services; CLI is a thin UX shell over Orchestrators.
+- No cross-imports between sibling services; composition happens via contracts and sidecar artifacts.
+
+## Sidecar artifact schemas (illustrative)
+
+verification_summary.json
+
+```
+{
+  "schema_version": 1,
+  "session_id": "<str>",
+  "cameras": [
+    {
+      "camera_id": "<str>",
+      "ttl_id": "<str|null>",
+      "frame_count": 0,
+      "ttl_pulse_count": 0,
+      "mismatch": 0,
+      "verifiable": true,
+      "status": "ok|warn|unverifiable"
+    }
+  ],
+  "generated_at": "<RFC3339>"
+}
+```
+
+alignment_stats.json
+
+```
+{
+  "schema_version": 1,
+  "timebase_source": "nominal_rate|ttl|neuropixels",
+  "mapping": "nearest|linear",
+  "offset_s": 0.0,
+  "max_jitter_s": 0.0,
+  "p95_jitter_s": 0.0,
+  "aligned_samples": 0
+}
+```
+
+provenance.json
+
+```
+{
+  "schema_version": 1,
+  "config_hash": "<sha256>",
+  "session_hash": "<sha256>",
+  "software": {"python": "3.x", "pynwb": "x.y", "nwbinspector": "x.y"},
+  "git": {"sha": "<commit>", "dirty": false},
+  "timebase": {"source": "ttl", "mapping": "linear", "offset_s": 0.0}
+}
+```
+
+qc_report_context.json
+
+```
+{
+  "schema_version": 1,
+  "session_id": "<str>",
+  "verification": { /* embedded verification_summary */ },
+  "pose": {"confidence_hist": [/* bins */]},
+  "facemap": {"signals_preview": [/* samples */]},
+  "bpod": {"trials_total": 0, "events": ["Start", "Reward", "End"]}
+}
+```
+
+## Error catalog and handling
+
+- CONFIG_MISSING_KEY, CONFIG_EXTRA_KEY, SESSION_MISSING_KEY, SESSION_EXTRA_KEY
+- CAMERA_UNVERIFIABLE
+- MISMATCH_EXCEEDS_TOLERANCE
+- JITTER_EXCEEDS_BUDGET
+- PROVIDER_RESOURCE_MISSING (e.g., missing TTL or Neuropixels stream)
+- EXTERNAL_TOOL_ERROR (ffmpeg/nwbinspector)
+
+Error payload shape:
+
+```
+{
+  "error_code": "MISMATCH_EXCEEDS_TOLERANCE",
+  "message": "Camera cam2 mismatch 42 > tolerance 20",
+  "context": {"camera_id": "cam2", "frame_count": 101242, "ttl_pulse_count": 101200, "mismatch": 42},
+  "hint": "Increase tolerance or inspect dropped frames",
+  "stage": "verify"
+}
+```
+
+## Concurrency and performance model
+
+- I/O-bound tasks (ffprobe, file discovery): thread pool with bounded workers.
+- CPU-bound tasks (pose parsing/aggregation): process pool when needed; prefer vectorized ops.
+- Limit concurrent transcodes to avoid disk thrash; configurable `max_workers`.
+- Complexity targets:
+  - build_manifest: O(n_files)
+  - verify_counts: O(n_cameras)
+  - align (nearest/linear): O(n_samples)
+  - assemble_nwb: O(n_objects)
+
+## Provenance canonicalization algorithm
+
+1. Parse TOML to Python dicts.
+2. Strip comments and normalize whitespace (parser-level).
+3. Recursively sort all mapping keys.
+4. Serialize with compact JSON (`separators=(',', ':')`, `ensure_ascii=False`).
+5. Compute SHA256 over UTF-8 bytes → `config_hash` / `session_hash`.
+
+## Test traceability matrix (summary)
+
+- FR-1/2/3: tests/unit/test_ingest.py::test_discovery_and_verify_abort
+- FR-4: tests/unit/test_transcode.py::test_transcode_idempotent
+- FR-5/6: tests/unit/test_pose_facemap.py::test_alignment_and_confidence
+- FR-7: tests/integration/test_to_nwb.py::test_external_rate_based_imageseries
+- FR-8/9: tests/integration/test_report_validate.py
+- A16/A19: tests/validation/test_session_bpod_order.py, tests/validation/test_derived_counts.py
+- Property/idempotence: tests/property/test_reproducibility.py
+
+## State machine — ingestion & verification
+
+```mermaid
+stateDiagram
+  [*] --> Ingest
+  Ingest --> Verify
+  Verify --> Abort: mismatch > tolerance
+  Verify --> WarnProceed: mismatch <= tolerance and warn_on_mismatch
+  Verify --> Proceed: mismatch == 0 or warn disabled
+  WarnProceed --> Proceed
+  Proceed --> NextStages
+  Abort --> [*]
+```
+
+## Plugin and extension architecture
+
+- Entry points (optional): `w2t_bkin.pose_plugins`, `w2t_bkin.facemap_plugins`.
+- Plugins register harmonizers/computers adhering to public interfaces.
+- Discovery via `importlib.metadata.entry_points()`; failures isolated and logged as warnings.
+
+## Privacy and security considerations
+
+- Subject anonymization: deterministic mapping (salted hash) from raw subject IDs; store mapping in a secure sidecar excluded from NWB.
+- Path sanitization: reject upward traversal, normalize paths, and restrict subprocess args.
+- Checksums (optional): SHA256 per input file recorded in provenance for integrity.
+- External tool pinning: validate minimum versions of ffmpeg/nwbinspector at runtime; record in provenance.
+
+## Module toolset (subpackage responsibilities)
+
+- w2t_bkin.config
+
+  - Parse and validate strict TOML config and session files (Pydantic models).
+  - Canonicalize and hash config/session for provenance.
+  - Public API:
+    - load_config(path: str, env: Mapping) -> Config
+    - load_session(path: str) -> Session
+    - validate_config_session(cfg: Config, ses: Session) -> None
+
+- w2t_bkin.domain
+
+  - Frozen data models: Session, Camera, TTL, TimebaseConfig, Manifest, VerificationSummary, Provenance, AlignmentStats.
+  - Serialization helpers for JSON sidecars.
+
+- w2t_bkin.ingest
+
+  - Discover inputs; verify existence; build `manifest.json`.
+  - Compute video frame counts and TTL pulse counts via metadata readers.
+  - Public API: build_manifest(cfg: Config, ses: Session) -> Manifest
+
+- w2t_bkin.events
+
+  - Optional Bpod `.mat` parsing into Trials/Events; summary for QC.
+  - Public API: parse_bpod(files: list[Path]) -> BpodSummary
+
+- w2t_bkin.transcode
+
+  - Optional mezzanine generation using ffmpeg/ffprobe; idempotent outputs with content-addressed paths.
+  - Public API: transcode(manifest: Manifest, opts: TranscodeOptions) -> Manifest
+
+- w2t_bkin.pose
+
+  - Import and harmonize DLC/SLEAP outputs to a canonical skeleton; preserve confidences.
+  - Public API: import_pose(manifest: Manifest, model: PoseModel) -> PoseBundle
+
+- w2t_bkin.facemap
+
+  - Compute or import facial metrics; ROI support; streaming-friendly.
+  - Public API: compute_facemap(manifest: Manifest, rois: list[ROI]) -> FacemapBundle
+
+- w2t_bkin.sync (timebase)
+
+  - Timebase providers (nominal, ttl, neuropixels) and mapping strategies (nearest, linear).
+  - Enforce jitter budgets; return alignment indices and jitter stats.
+  - Public API:
+    - make_timebase(cfg: TimebaseConfig, manifest: Manifest) -> TimebaseProvider
+    - align(strategy: MappingStrategy, samples: Samples) -> AlignedSamples, AlignmentStats
+
+- w2t_bkin.nwb
+
+  - Assemble NWB with Devices, ImageSeries (external_file, rate-based), ndx-pose, BehavioralTimeSeries.
+  - Inject provenance metadata and configuration hashes.
+  - Public API: assemble_nwb(manifest: Manifest, bundles: Bundles, cfg: Config) -> Path
+
+- w2t_bkin.qc
+  - Run validators (nwbinspector), generate QC HTML report with verification and summaries.
+  - Public API:
+    - run_nwbinspector(nwb_path: Path) -> ValidationReport
+    - render_qc(template: Path, context: dict) -> Path
+
+## Domain model (contracts)
+
+```mermaid
+classDiagram
+  class Session {
+    +str id
+    +str subject_id
+    +date date
+    +str experimenter
+    +str description
+    +str sex
+    +str age
+    +str genotype
+  }
+  class Camera {
+    +str id
+    +str description
+    +list[str] paths
+    +int order
+    +str ttl_id
+  }
+  class TTL {
+    +str id
+    +str description
+    +list[str] paths
+  }
+  class TimebaseConfig {
+    +str source
+    +str mapping
+    +float jitter_budget_s
+    +float offset_s
+    +Optional[str] ttl_id
+    +Optional[str] neuropixels_stream
+  }
+  class Manifest {
+    +str session_id
+    +list[Camera] cameras
+    +list[TTL] ttls
+    +dict extras
+  }
+  class VerificationSummary {
+    +str camera_id
+    +str ttl_id
+    +int frame_count
+    +int ttl_pulse_count
+    +int mismatch
+    +bool verifiable
+  }
+  class Provenance {
+    +str config_hash
+    +str session_hash
+    +str timebase_source
+    +str mapping
+    +float offset_s
+    +float jitter_p95
+    +str software_versions
+    +str git_sha
+  }
+  class AlignmentStats {
+    +float max_jitter
+    +float p95_jitter
+    +int aligned_samples
+  }
+  Session "1" o-- "many" Camera
+  Session "1" o-- "many" TTL
+  Session "1" o-- "1" TimebaseConfig
+  Manifest "1" *-- "many" Camera
+  Manifest "1" *-- "many" TTL
+  Manifest "1" *-- "many" VerificationSummary
+  Provenance ..> TimebaseConfig
+  AlignmentStats ..> TimebaseConfig
+```
 
 Notes:
 
-- Dataflow dependencies do not mandate import dependencies; they are connected via files/contracts.
-- Parallelism: Layer 2 stages can run independently once `config`/`ingest` have produced inputs.
+- Models are implemented as frozen Pydantic models or dataclasses with validation.
+- Optionality is explicit and minimized; defaults and assumptions are recorded in provenance.
+
+## Timebase strategy and alignment
+
+- Providers: `NominalRateProvider`, `TTLProvider`, `NeuropixelsProvider` implement a common interface to map frame
+  indices to reference times.
+- Mapping strategies: `NearestMapping` and `LinearMapping` operate on indices/time and return aligned samples plus
+  jitter statistics. Linear should reduce cumulative jitter on synthetic tests (Acceptance A20).
+- Enforcement: If computed jitter exceeds `timebase.jitter_budget_s`, abort before NWB assembly (A17).
+
+```mermaid
+sequenceDiagram
+  participant C as Consumer
+  participant M as MappingStrategy
+  participant T as TimebaseProvider
+  C->>M: align(samples, indices)
+  M->>T: to_reference(frame_indices)
+  T-->>M: reference_times
+  M-->>C: aligned_samples, jitter_stats
+  Note over M,T: Enforce jitter_budget_s and abort if exceeded before NWB
+```
+
+### Public API contracts (sketch)
+
+```mermaid
+classDiagram
+  class Transcoder {
+    +transcode(manifest, options) Manifest
+  }
+  class TimebaseProvider {
+    <<interface>>
+    +to_reference(frame_indices) float[]
+  }
+  class MappingStrategy {
+    <<interface>>
+    +align(samples) AlignedSamples
+  }
+  class PoseHarmonizer {
+    +import_pose(manifest, model) PoseBundle
+  }
+  class FacemapComputer {
+    +compute_facemap(manifest, rois) FacemapBundle
+  }
+  class NWBAssembler {
+    +assemble_nwb(manifest, bundles, cfg) Path
+  }
+  Transcoder ..> MappingStrategy
+  PoseHarmonizer ..> TimebaseProvider
+  FacemapComputer ..> TimebaseProvider
+  NWBAssembler ..> TimebaseProvider
+```
+
+## Configuration and schema
+
+## NWB assembler inventory and invariants
+
+Objects created per session (minimum viable; optional blocks gated by available data):
+
+- Device (per camera)
+
+  - name: camera id
+  - description: from session TOML
+
+- ImageSeries (per camera)
+
+  - name: camera id (or image_series/camera_id)
+  - external_file: list of absolute paths to video files
+  - starting_time: 0.0 (unless configured offset applied to video-derived data elsewhere)
+  - rate: nominal frame rate used for rate-based timing
+  - format: external
+  - device: link to camera Device
+  - Invariants:
+    - len(external_file) equals number of declared video parts for that camera
+    - ImageSeries uses rate-based timing; no per-frame timestamps
+
+- ndx-pose container (optional; present if pose bundle provided)
+
+  - skeleton definition: canonical joint list and edges
+  - data: positions array [n_samples, n_joints, 2 or 3]
+  - confidence: [n_samples, n_joints]
+  - rate/starting_time derived from session reference timebase mapping (not ImageSeries timestamps)
+
+- BehavioralTimeSeries for Facemap (optional)
+
+  - data_interfaces keyed by signal name (e.g., pupil, face_motion)
+  - each series aligned to session reference timebase (rate/starting_time consistent with mapping)
+
+- Processing/General metadata
+  - provenance JSON embedded (see provenance.json shape) or stored as a ProcessingModule named "provenance"
+
+Assembly constraints:
+
+- Deterministic ordering: sort devices and series by camera_id; stable container names
+- External links remain external; file existence verified on assemble
+- All aligned modalities (pose/facemap) must pass derived consistency validation (below)
+
+## Pose harmonization specification
+
+Canonical skeleton:
+
+- JSON document with fields: `name`, `joints: [str]`, `edges: [[int,int]]`, `reference_frame` (pixel)
+- Coordinate system: image pixel coordinates (x right, y down); origin at top-left of each camera frame
+- Multi-camera fusion: explicitly out-of-scope; per-camera harmonization only
+
+Import rules:
+
+- DLC/SLEAP inputs mapped to canonical joints by name; missing joints filled with NaN and confidence=0
+- Multiple detections: retain highest confidence per joint per frame
+- Confidence preserved; no normalization unless an optional flag is introduced later
+
+Alignment:
+
+- Pose sample indices map to the session reference timebase via mapping strategy (nearest/linear)
+- PoseBundle includes: positions, confidence, alignment_stats, skeleton metadata, mapping strategy, source identifiers
+
+## Facemap ROI and alignment specification
+
+ROI schema:
+
+- `{ id: str, description: str, polygon: [[x,y], ...] }` in pixel coordinates
+
+Signals:
+
+- Named time series (e.g., `pupil_area`, `face_motion`) each with sampling_rate and samples array
+
+Alignment:
+
+- Convert signal frame indices to reference timebase indices
+- nearest: choose closest reference time
+- linear: interpolate between bracketing reference times
+
+QC expectations:
+
+- Provide preview window (first N samples) and summary stats (mean, std, min, max) per signal in qc_report_context
+
+## Bpod data model
+
+Trials TimeIntervals:
+
+- Columns: `id:int`, `start_time:float`, `end_time:float`, `outcome:str`, `metadata:dict?`
+
+BehavioralEvents:
+
+- Columns: `time:float`, `event_type:str`, `trial_id:int`, `metadata:dict?`
+
+Concatenation:
+
+- Order by `[[bpod.files]].order` ascending; duplicates or gaps → error code SESSION_ORDER_INVALID
+- Event times expressed in session reference timebase; not used for video timing decisions
+
+QC aggregation:
+
+- trial_count, event_type_counts (dict), outcome_counts (dict)
+
+## Derived data consistency validation
+
+Algorithm:
+
+1. Derive reference time index sequence from TimebaseProvider
+2. For each aligned series S (pose positions per camera, each facemap signal):
+   - expected_n = length of reference index (or mapped subset if modality has lower rate)
+   - diff = |len(S) - expected_n|
+   - if diff > tolerance_samples → raise DERIVED_COUNT_MISMATCH (context: modality, camera_id, diff, expected_n)
+3. Record per-series diff and jitter stats into alignment_stats.json
+
+## Timebase assumptions and policies
+
+Offset application:
+
+- Apply `timebase.offset_s` inside provider before mapping; jitter computed post-offset
+
+Frame rate selection:
+
+- Use config-specified nominal rate; fallback to metadata only if explicitly allowed (not default)
+
+Missing TTL pulses:
+
+- Accept gaps below a `ttl_gap_threshold`; bigger gaps trigger PROVIDER_RESOURCE_MISSING
+
+TTL deduplication:
+
+- Pulses closer than `ttl_debounce_interval` merged into single logical pulse
+
+Jitter metrics:
+
+- `max_jitter_s = max(|ref_t[i] - aligned_t[i]|)`
+- `p95_jitter_s = percentile(|ref_t[i] - aligned_t[i]|, 95)`
+- Budget enforcement prior to NWB assembly; exceed → JITTER_EXCEEDS_BUDGET
+
+- Single source of truth in Pydantic models; strict TOML schema with enumerations and conditional requirements.
+- Canonicalization for hashing: strip comments, sort keys, re-serialize, then compute deterministic hashes recorded in
+  provenance (A18).
+- Environment overrides layered on file defaults; resolved config is logged and embedded.
+
+## Pipeline stages and contracts
+
+- ingest: Input discovery and manifest creation; validates paths and session references. Output: `manifest.json` and
+  `verification_summary.json` placeholder initialized.
+- verify: Reads counts via metadata (ffprobe, TTL logs), computes mismatches, and writes `verification_summary.json`.
+  Aborts on mismatch > tolerance (A6). Warns conditionally per config (A7). Cameras with missing `ttl_id` are flagged
+  `verifiable=false` (A15).
+- transcode (optional): When enabled, creates mezzanine; otherwise operates on raw videos with clear logs (FR-4).
+- pose/facemap (optional): Import or compute signals; align to reference timebase via strategy; persist alignment stats.
+- to-nwb: Assembles NWB with external_file ImageSeries (rate-based), ndx-pose, and BehavioralTimeSeries.
+- validate: Runs nwbinspector; saves full report; must contain no critical issues (A2).
+- report: Generates QC HTML summarizing verification, pose confidence, facemap previews, and optional Bpod summary.
+
+Each stage writes a JSON summary sidecar and uses structured logging for observability.
+
+## Error handling and observability
+
+- Exception taxonomy: ConfigurationError, ValidationError, IntegrityError, ProcessingError, ExternalToolError. All
+  exceptions carry `.code`, `.context`, and `.hint` for actionable remediation.
+- Logging: JSON logs with `stage`, `session_id`, `run_id`, `duration_ms`, `status`. Summaries: `verification_summary`,
+  `alignment_stats`, `provenance`, `validation_report`.
+
+## Provenance and reproducibility
+
+- Record config/session hashes, timebase selection, mapping, offsets, jitter stats, software and git versions.
+- Deterministic ordering of devices and series in NWB to ensure stable artifacts across runs (NFR-1, NFR-2).
+
+## Extensibility and plugins
+
+- Optional stages (pose, facemap, inference) adhere to simple interfaces and can be registered via entry points.
+- Feature flags allow experimental modules without destabilizing the core.
+
+## Testing strategy (traceability)
+
+- Unit: validators (positive/negative), timebase providers, mapping jitter behavior.
+- Property: reproducibility hashes, idempotent re-runs.
+- Integration: `ingest → to-nwb → validate → report` on synthetic sessions (A1). Golden metadata checks for NWB.
+- Edge cases: missing `ttl_id`, tolerance boundaries, invalid enums, non-contiguous Bpod orders, jitter budget exceeded.
+
+## Quality gates
+
+- Pre-commit: ruff, black, mypy (strict), and schema checks for JSON sidecars.
+- CI: matrix across Python versions; fast unit jobs and slower integration jobs; upload NWB and HTML reports as artifacts.
+
+## Decision records and documentation
+
+- Maintain decision records for key trade-offs (e.g., mapping strategies, provenance fields). Keep `requirements.md`,
+  this `design.md`, and `tasks.md` synchronized as the source of truth per the spec-driven workflow.
