@@ -324,3 +324,40 @@ class AlignmentStats(BaseModel):
     max_jitter_s: float
     p95_jitter_s: float
     aligned_samples: int
+
+
+# Bpod/Events models (Phase 3)
+
+
+class TrialData(BaseModel):
+    """Trial data extracted from Bpod."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    trial_number: int
+    start_time: float
+    stop_time: float
+    outcome: str
+
+
+class BehavioralEvent(BaseModel):
+    """Behavioral event extracted from Bpod."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    event_type: str
+    timestamp: float
+    trial_number: int
+
+
+class BpodSummary(BaseModel):
+    """Bpod summary for QC report."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    session_id: str
+    total_trials: int
+    outcome_counts: dict
+    event_categories: List[str]
+    bpod_files: List[str]
+    generated_at: str

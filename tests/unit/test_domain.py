@@ -534,3 +534,154 @@ class TestAlignmentStatsModel:
         assert stats.max_jitter_s == 0.001
         assert stats.p95_jitter_s == 0.0005
         assert stats.aligned_samples == 1000
+
+
+class TestTrialDataModel:
+    """Test TrialData domain model structure (Phase 3)."""
+
+    def test_Should_CreateTrialData_When_ValidDataProvided(self):
+        """TrialData model should capture trial information from Bpod."""
+        from w2t_bkin.domain import TrialData
+
+        trial = TrialData(trial_number=1, start_time=0.0, stop_time=10.5, outcome="hit")
+        assert trial.trial_number == 1
+        assert trial.start_time == 0.0
+        assert trial.stop_time == 10.5
+        assert trial.outcome == "hit"
+
+    def test_Should_BeImmutable_When_TryingToModifyTrialData(self):
+        """TrialData instances should be immutable."""
+        from w2t_bkin.domain import TrialData
+
+        trial = TrialData(trial_number=1, start_time=0.0, stop_time=10.5, outcome="hit")
+
+        with pytest.raises((ValidationError, AttributeError)):
+            trial.outcome = "miss"
+
+    def test_Should_RejectExtraFields_When_CreatingTrialData(self):
+        """TrialData should reject extra fields not in schema."""
+        from w2t_bkin.domain import TrialData
+
+        with pytest.raises(ValidationError):
+            TrialData(trial_number=1, start_time=0.0, stop_time=10.5, outcome="hit", extra_field="not allowed")
+
+    def test_Should_RequireAllFields_When_CreatingTrialData(self):
+        """TrialData should require all fields."""
+        from w2t_bkin.domain import TrialData
+
+        with pytest.raises(ValidationError):
+            TrialData(trial_number=1, start_time=0.0)
+
+
+class TestBehavioralEventModel:
+    """Test BehavioralEvent domain model structure (Phase 3)."""
+
+    def test_Should_CreateBehavioralEvent_When_ValidDataProvided(self):
+        """BehavioralEvent model should capture event information from Bpod."""
+        from w2t_bkin.domain import BehavioralEvent
+
+        event = BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1)
+        assert event.event_type == "BNC1High"
+        assert event.timestamp == 1.5
+        assert event.trial_number == 1
+
+    def test_Should_BeImmutable_When_TryingToModifyBehavioralEvent(self):
+        """BehavioralEvent instances should be immutable."""
+        from w2t_bkin.domain import BehavioralEvent
+
+        event = BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1)
+
+        with pytest.raises((ValidationError, AttributeError)):
+            event.timestamp = 2.0
+
+    def test_Should_RejectExtraFields_When_CreatingBehavioralEvent(self):
+        """BehavioralEvent should reject extra fields not in schema."""
+        from w2t_bkin.domain import BehavioralEvent
+
+        with pytest.raises(ValidationError):
+            BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1, extra_field="not allowed")
+
+    def test_Should_RequireAllFields_When_CreatingBehavioralEvent(self):
+        """BehavioralEvent should require all fields."""
+        from w2t_bkin.domain import BehavioralEvent
+
+        with pytest.raises(ValidationError):
+            BehavioralEvent(event_type="BNC1High", timestamp=1.5)
+
+
+class TestBpodSummaryModel:
+    """Test BpodSummary domain model structure (Phase 3)."""
+
+    def test_Should_CreateBpodSummary_When_ValidDataProvided(self):
+        """BpodSummary model should capture QC summary for events."""
+        from w2t_bkin.domain import BpodSummary
+
+        summary = BpodSummary(
+            session_id="test-session",
+            total_trials=10,
+            outcome_counts={"hit": 7, "miss": 3},
+            event_categories=["BNC1High", "BNC1Low", "Flex1Trig2"],
+            bpod_files=["/path/to/bpod.mat"],
+            generated_at="2025-01-01T12:00:00",
+        )
+        assert summary.session_id == "test-session"
+        assert summary.total_trials == 10
+        assert summary.outcome_counts == {"hit": 7, "miss": 3}
+        assert len(summary.event_categories) == 3
+        assert "BNC1High" in summary.event_categories
+        assert len(summary.bpod_files) == 1
+        assert summary.generated_at == "2025-01-01T12:00:00"
+
+    def test_Should_BeImmutable_When_TryingToModifyBpodSummary(self):
+        """BpodSummary instances should be immutable."""
+        from w2t_bkin.domain import BpodSummary
+
+        summary = BpodSummary(
+            session_id="test-session",
+            total_trials=10,
+            outcome_counts={"hit": 7, "miss": 3},
+            event_categories=["BNC1High"],
+            bpod_files=["/path/to/bpod.mat"],
+            generated_at="2025-01-01T12:00:00",
+        )
+
+        with pytest.raises((ValidationError, AttributeError)):
+            summary.total_trials = 20
+
+    def test_Should_RejectExtraFields_When_CreatingBpodSummary(self):
+        """BpodSummary should reject extra fields not in schema."""
+        from w2t_bkin.domain import BpodSummary
+
+        with pytest.raises(ValidationError):
+            BpodSummary(
+                session_id="test-session",
+                total_trials=10,
+                outcome_counts={"hit": 7, "miss": 3},
+                event_categories=["BNC1High"],
+                bpod_files=["/path/to/bpod.mat"],
+                generated_at="2025-01-01T12:00:00",
+                extra_field="not allowed",
+            )
+
+    def test_Should_RequireAllFields_When_CreatingBpodSummary(self):
+        """BpodSummary should require all fields."""
+        from w2t_bkin.domain import BpodSummary
+
+        with pytest.raises(ValidationError):
+            BpodSummary(session_id="test-session", total_trials=10)
+
+    def test_Should_HandleEmptyOutcomeCounts_When_NoTrials(self):
+        """BpodSummary should handle empty outcome counts."""
+        from w2t_bkin.domain import BpodSummary
+
+        summary = BpodSummary(
+            session_id="test-session",
+            total_trials=0,
+            outcome_counts={},
+            event_categories=[],
+            bpod_files=[],
+            generated_at="2025-01-01T12:00:00",
+        )
+        assert summary.total_trials == 0
+        assert summary.outcome_counts == {}
+        assert len(summary.event_categories) == 0
