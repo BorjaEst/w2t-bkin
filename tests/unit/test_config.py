@@ -150,10 +150,10 @@ class TestSessionLoading:
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
         session = load_session(session_path)
 
-        assert session.session.id == "SNA-145518"
-        assert session.session.subject_id == "mouse_123"
-        assert len(session.TTLs) == 3
-        assert len(session.cameras) == 2
+        assert session.session.id == "test-session-01"
+        assert session.session.subject_id == "mouse_001"
+        assert len(session.TTLs) == 1
+        assert len(session.cameras) == 1
 
     def test_Should_RejectSession_When_MissingRequiredKey(self):
         """Should reject session missing required key (A14)."""

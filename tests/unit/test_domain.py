@@ -260,16 +260,301 @@ class TestTTLModel:
             ttl.id = "ttl_modified"  # Should raise error
 
 
+class TestManifestCameraModel:
+    """Test ManifestCamera domain model structure (Phase 1)."""
+
+    def test_Should_CreateManifestCamera_When_ValidDataProvided(self):
+        """ManifestCamera should track camera files and counts."""
+        from w2t_bkin.domain import ManifestCamera
+
+        camera = ManifestCamera(
+            camera_id="cam0",
+            ttl_id="ttl_camera",
+            video_files=["video1.avi", "video2.avi"],
+            frame_count=1000,
+            ttl_pulse_count=998
+        )
+        
+        assert camera.camera_id == "cam0"
+        assert camera.ttl_id == "ttl_camera"
+        assert len(camera.video_files) == 2
+        assert camera.frame_count == 1000
+        assert camera.ttl_pulse_count == 998
+
+    def test_Should_DefaultCountsToZero_When_NotProvided(self):
+        """ManifestCamera should default counts to 0."""
+        from w2t_bkin.domain import ManifestCamera
+
+        camera = ManifestCamera(
+            camera_id="cam0",
+            ttl_id="ttl_camera",
+            video_files=["video.avi"]
+        )
+        
+        assert camera.frame_count == 0
+        assert camera.ttl_pulse_count == 0
+
+    def test_Should_BeImmutable_When_TryingToModifyManifestCamera(self):
+        """ManifestCamera instances should be immutable."""
+        from w2t_bkin.domain import ManifestCamera
+
+        camera = ManifestCamera(
+            camera_id="cam0",
+            ttl_id="ttl_camera",
+            video_files=["video.avi"]
+        )
+
+        with pytest.raises((ValidationError, AttributeError)):
+            camera.frame_count = 500
+
+    def test_Should_RejectExtraFields_When_CreatingManifestCamera(self):
+        """ManifestCamera should reject extra fields."""
+        from w2t_bkin.domain import ManifestCamera
+
+        with pytest.raises(ValidationError):
+            ManifestCamera(
+                camera_id="cam0",
+                ttl_id="ttl_camera",
+                video_files=["video.avi"],
+                extra_field="not allowed"
+            )
+
+
+class TestManifestTTLModel:
+    """Test ManifestTTL domain model structure (Phase 1)."""
+
+    def test_Should_CreateManifestTTL_When_ValidDataProvided(self):
+        """ManifestTTL should track TTL files."""
+        from w2t_bkin.domain import ManifestTTL
+
+        ttl = ManifestTTL(
+            ttl_id="ttl_camera",
+            files=["sync1.txt", "sync2.txt"]
+        )
+        
+        assert ttl.ttl_id == "ttl_camera"
+        assert len(ttl.files) == 2
+
+    def test_Should_BeImmutable_When_TryingToModifyManifestTTL(self):
+        """ManifestTTL instances should be immutable."""
+        from w2t_bkin.domain import ManifestTTL
+
+        ttl = ManifestTTL(
+            ttl_id="ttl_camera",
+            files=["sync.txt"]
+        )
+
+        with pytest.raises((ValidationError, AttributeError)):
+            ttl.ttl_id = "modified"
+
+
 class TestManifestModel:
-    """Test Manifest domain model structure."""
+    """Test Manifest domain model structure (Phase 1 enhanced)."""
 
     def test_Should_CreateManifest_When_ValidDataProvided(self):
         """Manifest model should have proper structure for file tracking."""
+        from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
+
+        manifest = Manifest(
+            session_id="test-123",
+            cameras=[ManifestCamera(
+                camera_id="cam0",
+                ttl_id="ttl0",
+                video_files=["file1.avi", "file2.avi"]
+            )],
+            ttls=[ManifestTTL(
+                ttl_id="ttl0",
+                files=["sync.txt"]
+            )],
+            bpod_files=["bpod.mat"]
+        )
+        
+        assert manifest.session_id == "test-123"
+        assert len(manifest.cameras) == 1
+        assert len(manifest.ttls) == 1
+        assert len(manifest.bpod_files) == 1
+        assert manifest.cameras[0].camera_id == "cam0"
+
+    def test_Should_DefaultToEmptyLists_When_NotProvided(self):
+        """Manifest should default cameras and ttls to empty lists."""
         from w2t_bkin.domain import Manifest
 
-        manifest = Manifest(session_id="test-123", files=["file1.txt", "file2.txt"])
+        manifest = Manifest(session_id="test-123")
+        
         assert manifest.session_id == "test-123"
-        assert len(manifest.files) == 2
+        assert manifest.cameras == []
+        assert manifest.ttls == []
+        assert manifest.bpod_files is None
+
+    def test_Should_BeImmutable_When_TryingToModifyManifest(self):
+        """Manifest instances should be immutable."""
+        from w2t_bkin.domain import Manifest
+
+        manifest = Manifest(session_id="test-123")
+
+        with pytest.raises((ValidationError, AttributeError)):
+            manifest.session_id = "modified"
+
+
+class TestCameraVerificationResultModel:
+    """Test CameraVerificationResult domain model (Phase 1)."""
+
+    def test_Should_CreateCameraVerificationResult_When_ValidDataProvided(self):
+        """CameraVerificationResult should capture verification details."""
+        from w2t_bkin.domain import CameraVerificationResult
+
+        result = CameraVerificationResult(
+            camera_id="cam0",
+            ttl_id="ttl_camera",
+            frame_count=1000,
+            ttl_pulse_count=998,
+            mismatch=2,
+            verifiable=True,
+            status="verified"
+        )
+        
+        assert result.camera_id == "cam0"
+        assert result.ttl_id == "ttl_camera"
+        assert result.frame_count == 1000
+        assert result.ttl_pulse_count == 998
+        assert result.mismatch == 2
+        assert result.verifiable is True
+        assert result.status == "verified"
+
+    def test_Should_BeImmutable_When_TryingToModifyCameraVerificationResult(self):
+        """CameraVerificationResult instances should be immutable."""
+        from w2t_bkin.domain import CameraVerificationResult
+
+        result = CameraVerificationResult(
+            camera_id="cam0",
+            ttl_id="ttl_camera",
+            frame_count=1000,
+            ttl_pulse_count=1000,
+            mismatch=0,
+            verifiable=True,
+            status="verified"
+        )
+
+        with pytest.raises((ValidationError, AttributeError)):
+            result.status = "failed"
+
+
+class TestVerificationSummaryModel:
+    """Test VerificationSummary domain model structure (Phase 1 enhanced)."""
+
+    def test_Should_CreateVerificationSummary_When_ValidDataProvided(self):
+        """VerificationSummary model should capture per-camera verification status."""
+        from w2t_bkin.domain import VerificationSummary, CameraVerificationResult
+
+        summary = VerificationSummary(
+            session_id="test-123",
+            cameras=[CameraVerificationResult(
+                camera_id="cam0",
+                ttl_id="ttl0",
+                frame_count=1000,
+                ttl_pulse_count=1000,
+                mismatch=0,
+                verifiable=True,
+                status="verified"
+            )],
+            generated_at="2025-01-01T12:00:00"
+        )
+        
+        assert summary.session_id == "test-123"
+        assert summary.generated_at == "2025-01-01T12:00:00"
+        assert len(summary.cameras) == 1
+        assert summary.cameras[0].status == "verified"
+
+    def test_Should_HandleMultipleCameras_When_CreatingSummary(self):
+        """VerificationSummary should handle multiple camera results."""
+        from w2t_bkin.domain import VerificationSummary, CameraVerificationResult
+
+        summary = VerificationSummary(
+            session_id="test-123",
+            cameras=[
+                CameraVerificationResult(
+                    camera_id="cam0",
+                    ttl_id="ttl0",
+                    frame_count=1000,
+                    ttl_pulse_count=1000,
+                    mismatch=0,
+                    verifiable=True,
+                    status="verified"
+                ),
+                CameraVerificationResult(
+                    camera_id="cam1",
+                    ttl_id="ttl1",
+                    frame_count=500,
+                    ttl_pulse_count=498,
+                    mismatch=2,
+                    verifiable=True,
+                    status="mismatch_within_tolerance"
+                )
+            ],
+            generated_at="2025-01-01T12:00:00"
+        )
+        
+        assert len(summary.cameras) == 2
+        assert summary.cameras[0].camera_id == "cam0"
+        assert summary.cameras[1].camera_id == "cam1"
+        assert summary.cameras[1].mismatch == 2
+
+    def test_Should_BeImmutable_When_TryingToModifyVerificationSummary(self):
+        """VerificationSummary instances should be immutable."""
+        from w2t_bkin.domain import VerificationSummary, CameraVerificationResult
+
+        summary = VerificationSummary(
+            session_id="test-123",
+            cameras=[],
+            generated_at="2025-01-01T12:00:00"
+        )
+
+        with pytest.raises((ValidationError, AttributeError)):
+            summary.session_id = "modified"
+
+
+class TestVerificationResultModel:
+    """Test VerificationResult domain model (Phase 1)."""
+
+    def test_Should_CreateVerificationResult_When_ValidDataProvided(self):
+        """VerificationResult should capture overall verification outcome."""
+        from w2t_bkin.domain import VerificationResult, CameraVerificationResult
+
+        result = VerificationResult(
+            status="verified",
+            camera_results=[
+                CameraVerificationResult(
+                    camera_id="cam0",
+                    ttl_id="ttl_camera",
+                    frame_count=1000,
+                    ttl_pulse_count=1000,
+                    mismatch=0,
+                    verifiable=True,
+                    status="verified"
+                )
+            ]
+        )
+        
+        assert result.status == "verified"
+        assert len(result.camera_results) == 1
+
+    def test_Should_DefaultToEmptyList_When_NoCameraResults(self):
+        """VerificationResult should default camera_results to empty list."""
+        from w2t_bkin.domain import VerificationResult
+
+        result = VerificationResult(status="verified")
+        
+        assert result.status == "verified"
+        assert result.camera_results == []
+
+    def test_Should_BeImmutable_When_TryingToModifyVerificationResult(self):
+        """VerificationResult instances should be immutable."""
+        from w2t_bkin.domain import VerificationResult
+
+        result = VerificationResult(status="verified")
+
+        with pytest.raises((ValidationError, AttributeError)):
+            result.status = "failed"
 
 
 class TestVerificationSummaryModel:
@@ -277,11 +562,20 @@ class TestVerificationSummaryModel:
 
     def test_Should_CreateVerificationSummary_When_ValidDataProvided(self):
         """VerificationSummary model should capture per-camera verification status."""
-        from w2t_bkin.domain import VerificationSummary
+        from w2t_bkin.domain import CameraVerificationResult, VerificationSummary
 
-        summary = VerificationSummary(session_id="test-123", generated_at="2025-01-01T12:00:00")
+        summary = VerificationSummary(
+            session_id="test-123",
+            cameras=[
+                CameraVerificationResult(
+                    camera_id="cam0", ttl_id="ttl0", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="verified"
+                )
+            ],
+            generated_at="2025-01-01T12:00:00",
+        )
         assert summary.session_id == "test-123"
         assert summary.generated_at == "2025-01-01T12:00:00"
+        assert len(summary.cameras) == 1
 
 
 class TestProvenanceModel:

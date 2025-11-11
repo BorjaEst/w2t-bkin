@@ -1,9 +1,9 @@
 [session]
-id = "test-session-01"
-subject_id = "mouse_001"
+id = "test-missing"
+subject_id = "mouse_test"
 date = "2025-01-01"
-experimenter = "Test User"
-description = "Test session for unit tests"
+experimenter = "Test"
+description = "Test session with missing files"
 sex = "M"
 age = "P60"
 genotype = "WT"
@@ -14,12 +14,12 @@ order = "name_asc"
 
 [[TTLs]]
 id = "ttl_camera"
-description = "Camera sync pulses"
-paths = "TTLs/*.txt"
+description = "Camera sync"
+paths = "TTLs/*missing*.txt"
 
 [[cameras]]
 id = "cam0"
 description = "Top camera"
-paths = "Video/top/*.avi"
+paths = "Video/nonexistent/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
