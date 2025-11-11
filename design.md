@@ -43,6 +43,7 @@ flowchart LR
 ```
 
 Principles:
+
 1. No cross-imports between sibling service packages.
 2. Composition through files + domain models only.
 3. Fail fast before heavy processing.
@@ -51,20 +52,20 @@ Principles:
 
 ## Module Responsibilities (minimal contracts)
 
-| Module | Key Input | Output / Contract | FR/NFR Coverage |
-|--------|-----------|-------------------|-----------------|
-| config | config.toml, session.toml | validated Config, Session, hashes | FR-10, FR-15, FR-TB-* NFR-10/11 |
-| domain | none | Pydantic models (immutable) | FR-12 NFR-7 |
-| utils | primitives | hashing, path safety, subprocess wrappers, logging | NFR-1/2/3 |
-| ingest+verify | Config, Session | manifest.json, verification_summary.json (abort/warn logic) | FR-1/2/3/13/15/16 |
-| sync | Config(Timebase), Manifest | alignment indices + alignment_stats.json (budget enforced) | FR-TB-1..6, FR-17, A17 |
-| transcode (opt) | Manifest | updated Manifest (mezzanine paths) | FR-4, NFR-2 |
-| pose (opt) | Manifest, timebase | PoseBundle (aligned) | FR-5 |
-| facemap (opt) | Manifest, timebase | FacemapBundle (aligned) | FR-6 |
-| events (opt) | Bpod .mat files | Trials/Events summary | FR-11/14 |
-| nwb | Manifest + bundles + provenance | NWB file (rate-based ImageSeries) | FR-7 NFR-6 |
-| validate | NWB | nwbinspector report | FR-9 |
-| qc | NWB + sidecars | QC HTML | FR-8/14 NFR-3 |
+| Module          | Key Input                       | Output / Contract                                           | FR/NFR Coverage                  |
+| --------------- | ------------------------------- | ----------------------------------------------------------- | -------------------------------- |
+| config          | config.toml, session.toml       | validated Config, Session, hashes                           | FR-10, FR-15, FR-TB-\* NFR-10/11 |
+| domain          | none                            | Pydantic models (immutable)                                 | FR-12 NFR-7                      |
+| utils           | primitives                      | hashing, path safety, subprocess wrappers, logging          | NFR-1/2/3                        |
+| ingest+verify   | Config, Session                 | manifest.json, verification_summary.json (abort/warn logic) | FR-1/2/3/13/15/16                |
+| sync            | Config(Timebase), Manifest      | alignment indices + alignment_stats.json (budget enforced)  | FR-TB-1..6, FR-17, A17           |
+| transcode (opt) | Manifest                        | updated Manifest (mezzanine paths)                          | FR-4, NFR-2                      |
+| pose (opt)      | Manifest, timebase              | PoseBundle (aligned)                                        | FR-5                             |
+| facemap (opt)   | Manifest, timebase              | FacemapBundle (aligned)                                     | FR-6                             |
+| events (opt)    | Bpod .mat files                 | Trials/Events summary                                       | FR-11/14                         |
+| nwb             | Manifest + bundles + provenance | NWB file (rate-based ImageSeries)                           | FR-7 NFR-6                       |
+| validate        | NWB                             | nwbinspector report                                         | FR-9                             |
+| qc              | NWB + sidecars                  | QC HTML                                                     | FR-8/14 NFR-3                    |
 
 ## Sidecar Schemas (summary)
 
@@ -93,29 +94,29 @@ Provider (nominal|ttl|neuropixels) chosen via config; mapping strategy (nearest|
 
 ## Requirement Coverage (condensed matrix)
 
-| Requirement Group | Implemented By |
-|-------------------|----------------|
-| FR-1/2/3/13/15/16 | ingest+verify |
-| FR-4 | transcode |
-| FR-5 | pose |
-| FR-6 | facemap |
-| FR-7 | nwb (plus sync for derived alignment) |
-| FR-8/9/14 | qc + validate + events |
-| FR-10 | config |
-| FR-11 | events |
-| FR-12 | modular package layout |
-| FR-17 + FR-TB-* | sync + provenance |
-| NFR-1/2 | deterministic ordering + hashing (utils, nwb) |
-| NFR-3 | sidecars + JSON logging |
-| NFR-4 | concurrency model + O(n) verification |
-| NFR-5 | cross-platform Python tooling |
-| NFR-6 | rate-based ImageSeries in nwb |
-| NFR-7 | plugin-compatible optional modules |
-| NFR-8 | ingest existence + optional checksums |
-| NFR-9 | anonymization policy (utils) |
-| NFR-10/11 | config + provenance |
-| NFR-12 | pytest + CI gating |
-| NFR-13 | sync abstraction |
+| Requirement Group | Implemented By                                |
+| ----------------- | --------------------------------------------- |
+| FR-1/2/3/13/15/16 | ingest+verify                                 |
+| FR-4              | transcode                                     |
+| FR-5              | pose                                          |
+| FR-6              | facemap                                       |
+| FR-7              | nwb (plus sync for derived alignment)         |
+| FR-8/9/14         | qc + validate + events                        |
+| FR-10             | config                                        |
+| FR-11             | events                                        |
+| FR-12             | modular package layout                        |
+| FR-17 + FR-TB-\*  | sync + provenance                             |
+| NFR-1/2           | deterministic ordering + hashing (utils, nwb) |
+| NFR-3             | sidecars + JSON logging                       |
+| NFR-4             | concurrency model + O(n) verification         |
+| NFR-5             | cross-platform Python tooling                 |
+| NFR-6             | rate-based ImageSeries in nwb                 |
+| NFR-7             | plugin-compatible optional modules            |
+| NFR-8             | ingest existence + optional checksums         |
+| NFR-9             | anonymization policy (utils)                  |
+| NFR-10/11         | config + provenance                           |
+| NFR-12            | pytest + CI gating                            |
+| NFR-13            | sync abstraction                              |
 
 ## Testing & Quality Gates
 
