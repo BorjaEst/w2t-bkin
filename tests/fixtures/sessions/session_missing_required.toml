@@ -1,0 +1,15 @@
+[bpod]
+path = "Bpod/*.mat"
+order = "name_asc"
+
+[[TTLs]]
+id = "ttl_camera"
+description = "Camera sync pulses"
+paths = "TTLs/*.txt"
+
+[[cameras]]
+id = "cam0"
+description = "Top camera"
+paths = "Video/top/*.avi"
+order = "name_asc"
+ttl_id = "ttl_camera"

@@ -1,0 +1,8 @@
+[project]
+name = "test-project"
+
+[timebase]
+source = "nominal_rate"
+mapping = "nearest"
+jitter_budget_s = 0.010
+offset_s = 0.0

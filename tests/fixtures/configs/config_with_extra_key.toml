@@ -1,0 +1,61 @@
+[project]
+name = "test-project"
+extra_key = "not allowed"
+
+[paths]
+raw_root = "data/raw"
+intermediate_root = "data/interim"
+output_root = "data/processed"
+metadata_file = "session.toml"
+models_root = "models"
+
+[timebase]
+source = "nominal_rate"
+mapping = "nearest"
+jitter_budget_s = 0.010
+offset_s = 0.0
+
+[acquisition]
+concat_strategy = "ffconcat"
+
+[verification]
+mismatch_tolerance_frames = 0
+warn_on_mismatch = false
+
+[bpod]
+parse = true
+
+[video.transcode]
+enabled = true
+codec = "h264"
+crf = 20
+preset = "fast"
+keyint = 15
+
+[nwb]
+link_external_video = true
+lab = "Lab Name"
+institution = "Institution Name"
+file_name_template = "{session.id}.nwb"
+session_description_template = "Session {session.id}"
+
+[qc]
+generate_report = true
+out_template = "qc/{session.id}"
+include_verification = true
+
+[logging]
+level = "INFO"
+structured = false
+
+[labels.dlc]
+run_inference = false
+model = "model.pb"
+
+[labels.sleap]
+run_inference = false
+model = "sleap.h5"
+
+[facemap]
+run_inference = false
+ROIs = ["face", "left_eye"]
