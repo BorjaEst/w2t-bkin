@@ -524,9 +524,13 @@ class TestAlignmentStatsModel:
     """Test AlignmentStats domain model structure."""
 
     def test_Should_CreateAlignmentStats_When_ValidDataProvided(self):
-        """AlignmentStats model should capture timebase alignment metrics."""
+        """AlignmentStats model should capture timebase alignment metrics (Phase 2)."""
         from w2t_bkin.domain import AlignmentStats
 
-        stats = AlignmentStats(timebase_source="nominal_rate", max_jitter_s=0.001)
+        stats = AlignmentStats(timebase_source="nominal_rate", mapping="nearest", offset_s=0.0, max_jitter_s=0.001, p95_jitter_s=0.0005, aligned_samples=1000)
         assert stats.timebase_source == "nominal_rate"
+        assert stats.mapping == "nearest"
+        assert stats.offset_s == 0.0
         assert stats.max_jitter_s == 0.001
+        assert stats.p95_jitter_s == 0.0005
+        assert stats.aligned_samples == 1000

@@ -314,9 +314,13 @@ class Provenance(BaseModel):
 
 
 class AlignmentStats(BaseModel):
-    """Alignment statistics for timebase."""
+    """Alignment statistics for timebase (Phase 2)."""
 
     model_config = {"frozen": True, "extra": "forbid"}
 
     timebase_source: str
+    mapping: str
+    offset_s: float
     max_jitter_s: float
+    p95_jitter_s: float
+    aligned_samples: int
