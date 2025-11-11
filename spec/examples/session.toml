@@ -30,7 +30,7 @@ paths = "TTLs/*nidq.xa_7_0*.txt"
 [[TTLs]]
 id = "ttl_cue"
 description = "Cue signal from behavior"
-paths = "TTLs/${session.id}/*_cue.txt"
+paths = "TTLs/*nidq.xia_3_0*.txt"
 
 
 # Camera configurations for this session
