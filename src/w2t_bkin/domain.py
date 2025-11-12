@@ -241,15 +241,20 @@ class Session(BaseModel):
 
 
 class ManifestCamera(BaseModel):
-    """Camera entry in manifest."""
+    """Camera entry in manifest.
+
+    Note: frame_count and ttl_pulse_count are Optional[int]:
+    - None = not counted yet (fast discovery mode)
+    - int >= 0 = counted value
+    """
 
     model_config = {"frozen": True, "extra": "forbid"}
 
     camera_id: str
     ttl_id: str
     video_files: List[str]
-    frame_count: int = 0
-    ttl_pulse_count: int = 0
+    frame_count: Optional[int] = None  # None = not counted yet
+    ttl_pulse_count: Optional[int] = None  # None = not counted yet
 
 
 class ManifestTTL(BaseModel):

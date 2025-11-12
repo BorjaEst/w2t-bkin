@@ -276,13 +276,14 @@ class TestManifestCameraModel:
         assert camera.ttl_pulse_count == 998
 
     def test_Should_DefaultCountsToZero_When_NotProvided(self):
-        """ManifestCamera should default counts to 0."""
+        """ManifestCamera should default counts to None when not provided."""
         from w2t_bkin.domain import ManifestCamera
 
         camera = ManifestCamera(camera_id="cam0", ttl_id="ttl_camera", video_files=["video.avi"])
 
-        assert camera.frame_count == 0
-        assert camera.ttl_pulse_count == 0
+        # Counts should be None (not counted yet)
+        assert camera.frame_count is None
+        assert camera.ttl_pulse_count is None
 
     def test_Should_BeImmutable_When_TryingToModifyManifestCamera(self):
         """ManifestCamera instances should be immutable."""

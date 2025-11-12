@@ -1,6 +1,61 @@
 """Ingest module for W2T-BKIN pipeline (Phase 1).
 
-Discovers files, counts frames/TTL pulses, and verifies matching.
+This module handles file discovery, frame/TTL counting, and verification for the
+W2T-BKIN data processing pipeline. It bridges session metadata (from session.toml)
+with actual filesystem data to create manifests for downstream processing.
+
+Core Functionality:
+-------------------
+- **File Discovery**: Resolves glob patterns to discover video, TTL, and Bpod files
+- **Frame Counting**: Uses ffprobe to count frames in video files
+- **TTL Counting**: Counts pulses from TTL log files
+- **Verification**: Validates frame/TTL alignment within configured tolerance
+- **Manifest Generation**: Creates structured manifests for downstream processing
+
+Public API:
+-----------
+- build_manifest(config, session, count_frames=True) -> Manifest: Discover files and optionally count frames/TTLs
+- count_video_frames(video_path) -> int: Count frames using ffprobe
+- count_ttl_pulses(ttl_path) -> int: Count TTL pulses from log file
+- verify_manifest(manifest, tolerance, warn_on_mismatch) -> VerificationResult
+- validate_ttl_references(session): Check camera TTL references
+- create_verification_summary(manifest) -> Dict: Create JSON-serializable summary
+- write_verification_summary(summary, output_path): Save summary to JSON
+
+Workflow:
+---------
+1. Load config and session metadata
+2. Build manifest with counting: build_manifest(config, session, count_frames=True)
+   - Discovers files matching glob patterns
+   - Counts frames for all video files
+   - Counts TTL pulses for all TTL files
+   - Returns manifest with populated frame_count and ttl_pulse_count
+3. Verify frame/TTL alignment: verify_manifest(manifest, tolerance)
+4. Generate verification summary: create_verification_summary(manifest)
+
+Fast Discovery Mode (Optional):
+-------------------------------
+For quick file enumeration without counting (e.g., listing sessions):
+- Call build_manifest(config, session, count_frames=False)
+- Returns manifest with frame_count=None, ttl_pulse_count=None
+- Cannot be used for verification (will raise ValueError)
+
+Verification Logic:
+-------------------
+- Computes mismatch = |frame_count - ttl_pulse_count|
+- If mismatch > tolerance: raise VerificationError
+- If mismatch > 0 and within tolerance: warn (if warn_on_mismatch=True)
+- If mismatch == 0: pass verification
+
+Error Handling:
+---------------
+- IngestError: File discovery failures, missing expected files
+- VerificationError: Frame/TTL mismatch exceeds tolerance
+- Missing files log warnings but don't crash (except for required camera videos)
+
+Usage Example:
+--------------
+See __main__ block at end of file for complete workflow demonstration.
 
 Requirements: FR-1, FR-2, FR-3, FR-13, FR-15, FR-16
 Acceptance: A6, A7
@@ -39,23 +94,43 @@ class VerificationError(Exception):
     pass
 
 
-def build_manifest(config: Config, session: Session) -> Manifest:
-    """Build manifest by discovering files from session configuration.
+def build_manifest(config: Config, session: Session, count_frames: bool = True) -> Manifest:
+    """Build manifest by discovering files and optionally counting frames/TTLs.
+
+    This function follows the single-responsibility principle: it discovers files,
+    and optionally counts frames/TTL pulses in one pass. This avoids the need to
+    recreate frozen Pydantic models later.
 
     Args:
         config: Pipeline configuration
         session: Session metadata with file patterns
+        count_frames: If True, count frames and TTL pulses during discovery.
+                     If False, leave frame_count and ttl_pulse_count as None.
 
     Returns:
-        Manifest with discovered files
+        Manifest with discovered files (and counts if count_frames=True)
 
     Raises:
-        IngestError: If expected files are missing
+        IngestError: If expected files are missing or counting fails
     """
     raw_root = Path(config.paths.raw_root)
     session_dir = raw_root / session.session.id
 
-    # Discover cameras
+    # Build TTL pulse count map (if counting enabled)
+    ttl_pulse_counts = {}
+    if count_frames:
+        for ttl_config in session.TTLs:
+            pattern = str(session_dir / ttl_config.paths)
+            ttl_files = sorted(glob.glob(pattern))
+
+            total_pulses = 0
+            for ttl_file in ttl_files:
+                total_pulses += count_ttl_pulses(Path(ttl_file))
+
+            ttl_pulse_counts[ttl_config.id] = total_pulses
+            logger.debug(f"Counted {total_pulses} TTL pulses for '{ttl_config.id}'")
+
+    # Discover cameras and count frames
     cameras = []
     for camera_config in session.cameras:
         # Resolve glob pattern
@@ -68,9 +143,36 @@ def build_manifest(config: Config, session: Session) -> Manifest:
         # Convert to absolute paths
         video_files = [str(Path(f).resolve()) for f in video_files]
 
-        cameras.append(ManifestCamera(camera_id=camera_config.id, ttl_id=camera_config.ttl_id, video_files=video_files))
+        # Count frames if enabled
+        total_frames = None
+        ttl_pulses = None
 
-    # Discover TTLs
+        if count_frames:
+            total_frames = 0
+            for video_file in video_files:
+                try:
+                    frames = count_video_frames(Path(video_file))
+                    total_frames += frames
+                except IngestError as e:
+                    logger.error(f"Failed to count frames in {video_file}: {e}")
+                    raise
+
+            # Get TTL pulse count for this camera
+            ttl_pulses = ttl_pulse_counts.get(camera_config.ttl_id, 0)
+
+            logger.debug(f"Camera {camera_config.id}: {total_frames} frames, " f"{ttl_pulses} TTL pulses (ttl_id={camera_config.ttl_id})")
+
+        cameras.append(
+            ManifestCamera(
+                camera_id=camera_config.id,
+                ttl_id=camera_config.ttl_id,
+                video_files=video_files,
+                frame_count=total_frames,  # None if not counted
+                ttl_pulse_count=ttl_pulses,  # None if not counted
+            )
+        )
+
+    # Discover TTLs (file paths only)
     ttls = []
     for ttl_config in session.TTLs:
         pattern = str(session_dir / ttl_config.paths)
@@ -93,7 +195,12 @@ def build_manifest(config: Config, session: Session) -> Manifest:
         if bpod_files:
             bpod_files = [str(Path(f).resolve()) for f in bpod_files]
 
-    return Manifest(session_id=session.session.id, cameras=cameras, ttls=ttls, bpod_files=bpod_files)
+    return Manifest(
+        session_id=session.session.id,
+        cameras=cameras,
+        ttls=ttls,
+        bpod_files=bpod_files,
+    )
 
 
 def count_video_frames(video_path: Path) -> int:
@@ -176,10 +283,15 @@ def verify_manifest(manifest: Manifest, tolerance: int, warn_on_mismatch: bool =
 
     Raises:
         VerificationError: If any camera exceeds mismatch tolerance
+        ValueError: If manifest cameras have None counts (not counted yet)
     """
     camera_results = []
 
     for camera in manifest.cameras:
+        # Validate that counts exist
+        if camera.frame_count is None or camera.ttl_pulse_count is None:
+            raise ValueError(f"Camera {camera.camera_id} has None counts. " f"Call build_manifest() with count_frames=True first.")
+
         mismatch = compute_mismatch(camera.frame_count, camera.ttl_pulse_count)
 
         if mismatch > tolerance:
@@ -248,9 +360,16 @@ def create_verification_summary(manifest: Manifest) -> Dict:
 
     Returns:
         Dictionary suitable for JSON serialization
+
+    Raises:
+        ValueError: If manifest cameras have None counts
     """
     camera_results = []
     for camera in manifest.cameras:
+        # Validate that counts exist
+        if camera.frame_count is None or camera.ttl_pulse_count is None:
+            raise ValueError(f"Camera {camera.camera_id} has None counts. " f"Cannot create summary for uncounted manifest.")
+
         mismatch = compute_mismatch(camera.frame_count, camera.ttl_pulse_count)
         camera_results.append(
             {
@@ -264,7 +383,11 @@ def create_verification_summary(manifest: Manifest) -> Dict:
             }
         )
 
-    return {"session_id": manifest.session_id, "cameras": camera_results, "generated_at": datetime.utcnow().isoformat()}
+    return {
+        "session_id": manifest.session_id,
+        "cameras": camera_results,
+        "generated_at": datetime.utcnow().isoformat(),
+    }
 
 
 def write_verification_summary(summary: VerificationSummary, output_path: Path) -> None:
@@ -380,3 +503,169 @@ def ingest_session(session_path: Path, config: dict) -> dict:
                     manifest["videos"].append({"camera_id": camera_dir.name, "path": str(video_file)})
 
     return manifest
+
+
+if __name__ == "__main__":
+    """Usage examples demonstrating the complete ingestion workflow.
+
+    This example demonstrates:
+    1. Loading configuration and session metadata
+    2. Building a manifest with automatic frame/TTL counting
+    3. Verifying frame/TTL alignment
+    4. Fast discovery mode (count_frames=False)
+    5. Handling verification errors
+    6. Creating and saving verification summaries
+    """
+    from pathlib import Path
+    import sys
+
+    # Import config loader
+    from .config import load_config, load_session
+
+    print("=" * 70)
+    print("W2T-BKIN Ingestion Module - Usage Examples")
+    print("=" * 70)
+    print()
+
+    # Example 1: Complete ingestion workflow (simplified!)
+    print("=" * 70)
+    print("Example 1: Complete Ingestion Workflow")
+    print("=" * 70)
+
+    try:
+        # Step 1: Load configuration
+        config_path = Path("tests/fixtures/configs/valid_config.toml")
+        print(f"\n1. Loading configuration from: {config_path}")
+        config = load_config(config_path)
+        print(f"   ✓ Config loaded: {config.project.name}")
+        print(f"   - Raw root: {config.paths.raw_root}")
+        print(f"   - Verification tolerance: {config.verification.mismatch_tolerance_frames} frames")
+
+        # Step 2: Load session metadata
+        session_path = Path("tests/fixtures/data/raw/Session-000001/session.toml")
+        print(f"\n2. Loading session metadata from: {session_path}")
+        session = load_session(session_path)
+        print(f"   ✓ Session loaded: {session.session.id}")
+        print(f"   - Subject: {session.session.subject_id}")
+        print(f"   - Cameras: {len(session.cameras)}")
+        print(f"   - TTLs: {len(session.TTLs)}")
+
+        # Step 3: Validate TTL references
+        print(f"\n3. Validating camera TTL references")
+        validate_ttl_references(session)
+        print(f"   ✓ All camera TTL references validated")
+
+        # Step 4: Build manifest WITH counting (single step!)
+        print(f"\n4. Building manifest (discovering files and counting frames/TTLs)")
+        manifest = build_manifest(config, session, count_frames=True)
+        print(f"   ✓ Manifest built with frame/TTL counts")
+        print(f"   - Session ID: {manifest.session_id}")
+        print(f"   - Cameras: {len(manifest.cameras)}")
+
+        print(f"\n   Camera details:")
+        for camera in manifest.cameras:
+            mismatch = compute_mismatch(camera.frame_count, camera.ttl_pulse_count)
+            status = "✓" if mismatch == 0 else "⚠" if mismatch <= config.verification.mismatch_tolerance_frames else "✗"
+
+            print(f"     {status} {camera.camera_id}:")
+            print(f"       Video files: {len(camera.video_files)}")
+            print(f"       Frames: {camera.frame_count}")
+            print(f"       TTL pulses: {camera.ttl_pulse_count} (ttl_id={camera.ttl_id})")
+            print(f"       Mismatch: {mismatch}")
+
+        # Step 5: Verify manifest (counts already populated!)
+        print(f"\n5. Verifying frame/TTL alignment")
+        verification_result = verify_manifest(
+            manifest,
+            tolerance=config.verification.mismatch_tolerance_frames,
+            warn_on_mismatch=config.verification.warn_on_mismatch,
+        )
+        print(f"   ✓ Verification passed: {verification_result.status}")
+        print(f"   - Verified cameras: {len(verification_result.camera_results)}")
+
+        # Step 6: Create verification summary
+        print(f"\n6. Creating verification summary")
+        summary = create_verification_summary(manifest)
+        print(f"   ✓ Summary created")
+        print(f"   - Session: {summary['session_id']}")
+        print(f"   - Generated at: {summary['generated_at']}")
+
+    except FileNotFoundError as e:
+        print(f"\n✗ Error: {e}")
+        print("   Hint: Run from project root with test fixtures available")
+        sys.exit(1)
+    except (IngestError, VerificationError) as e:
+        print(f"\n✗ Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n✗ Unexpected error: {e}")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+
+    print()
+
+    # Example 2: Discovery without counting (fast file enumeration)
+    print("=" * 70)
+    print("Example 2: Fast File Discovery (No Counting)")
+    print("=" * 70)
+    print()
+
+    try:
+        print("Building manifest WITHOUT counting (fast mode):")
+        manifest_nocounts = build_manifest(config, session, count_frames=False)
+
+        print(f"   ✓ Files discovered (counts not computed)")
+        for camera in manifest_nocounts.cameras:
+            print(f"     - {camera.camera_id}: {len(camera.video_files)} file(s)")
+            print(f"       frame_count: {camera.frame_count}")  # Should be None
+            print(f"       ttl_pulse_count: {camera.ttl_pulse_count}")  # Should be None
+
+        print("\n   Attempting to verify uncounted manifest:")
+        try:
+            verify_manifest(manifest_nocounts, tolerance=5)
+            print("   ✗ This should have raised ValueError!")
+        except ValueError as e:
+            print(f"   ✓ Correctly rejected: {e}")
+
+    except Exception as e:
+        print(f"   ✗ Error: {e}")
+
+    print()
+
+    # Example 3: Verification error handling
+    print("=" * 70)
+    print("Example 3: Verification Error Handling")
+    print("=" * 70)
+    print()
+
+    print("Simulating verification failure (mismatch exceeds tolerance):")
+
+    mock_manifest = Manifest(
+        session_id="Mock-Session",
+        cameras=[
+            ManifestCamera(
+                camera_id="mock_cam",
+                ttl_id="mock_ttl",
+                video_files=["mock_video.avi"],
+                frame_count=100,
+                ttl_pulse_count=150,  # 50 frame mismatch
+            )
+        ],
+        ttls=[],
+        bpod_files=None,
+    )
+
+    try:
+        verify_manifest(mock_manifest, tolerance=5)
+        print("  ✗ Should have failed!")
+    except VerificationError as e:
+        print("  ✓ Correctly caught verification error:")
+        for line in str(e).split("\n"):
+            print(f"    {line}")
+
+    print()
+    print("=" * 70)
+    print("Examples completed!")
+    print("=" * 70)
