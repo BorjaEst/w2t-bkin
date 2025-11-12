@@ -361,3 +361,104 @@ class BpodSummary(BaseModel):
     event_categories: List[str]
     bpod_files: List[str]
     generated_at: str
+
+
+# Phase 3: Optional modalities (pose, facemap, transcode)
+
+
+class PoseKeypoint(BaseModel):
+    """Single keypoint in pose estimation."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    name: str
+    x: float
+    y: float
+    confidence: float
+
+
+class PoseFrame(BaseModel):
+    """Pose data for a single frame."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    frame_index: int
+    timestamp: float  # Aligned timestamp
+    keypoints: List[PoseKeypoint]
+    source: str  # "dlc" or "sleap"
+
+
+class PoseBundle(BaseModel):
+    """Harmonized pose data bundle aligned to reference timebase."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    session_id: str
+    camera_id: str
+    model_name: str
+    skeleton: str  # Canonical skeleton name
+    frames: List[PoseFrame]
+    alignment_method: str  # "nearest" or "linear"
+    mean_confidence: float
+    generated_at: str
+
+
+class FacemapROI(BaseModel):
+    """Region of interest for Facemap analysis."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    name: str
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class FacemapSignal(BaseModel):
+    """Time series signal from Facemap ROI."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    roi_name: str
+    timestamps: List[float]  # Aligned timestamps
+    values: List[float]
+    sampling_rate: float
+
+
+class FacemapBundle(BaseModel):
+    """Facemap data bundle aligned to reference timebase."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    session_id: str
+    camera_id: str
+    rois: List[FacemapROI]
+    signals: List[FacemapSignal]
+    alignment_method: str  # "nearest" or "linear"
+    generated_at: str
+
+
+class TranscodeOptions(BaseModel):
+    """Transcoding configuration options."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    codec: str
+    crf: int
+    preset: str
+    keyint: int
+
+
+class TranscodedVideo(BaseModel):
+    """Metadata for a transcoded video file."""
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    camera_id: str
+    original_path: str
+    transcoded_path: str
+    codec: str
+    checksum: str  # Content-addressed hash
+    frame_count: int
+    created_at: str
