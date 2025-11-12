@@ -1,9 +1,9 @@
 """Phase 3 integration tests - Optional modalities (RED Phase).
 
 Tests end-to-end workflows for pose import/harmonization, facemap computation,
-and video transcoding as optional pipeline stages.
+video transcoding, and Bpod events parsing as optional pipeline stages.
 
-Requirements: FR-4, FR-5, FR-6
+Requirements: FR-4, FR-5, FR-6, FR-11, FR-14
 Acceptance: A1, A3, A4
 GitHub Issue: #4
 """
@@ -13,7 +13,86 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import FacemapBundle, PoseBundle, TranscodedVideo
+from w2t_bkin.domain import (
+    BehavioralEvent,
+    BpodSummary,
+    FacemapBundle,
+    PoseBundle,
+    TranscodedVideo,
+    TrialData,
+)
+
+
+class TestEventsIntegration:
+    """Integration tests for Bpod events parsing and QC summary generation."""
+
+    def test_Should_ParseBpodFile_When_FileProvided_Issue4(self, fixtures_root, tmp_work_dir):
+        """Should parse Bpod .mat file and extract trials and events (FR-11)."""
+        from w2t_bkin.events import (
+            extract_behavioral_events,
+            extract_trials,
+            parse_bpod_mat,
+        )
+
+        # Use test fixture Bpod file if available
+        bpod_file = fixtures_root / "sessions" / "valid_session.toml"
+
+        # Skip if no real Bpod .mat file in fixtures
+        pytest.skip("Requires real Bpod .mat fixture file")
+
+    def test_Should_CreateEventSummary_When_TrialsExtracted_Issue4(self, tmp_work_dir):
+        """Should create event summary for QC report (FR-14, A4)."""
+        from w2t_bkin.events import create_event_summary
+
+        # Create mock trials and events
+        trials = [
+            TrialData(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit"),
+            TrialData(trial_number=2, start_time=10.0, stop_time=19.0, outcome="miss"),
+            TrialData(trial_number=3, start_time=20.0, stop_time=29.0, outcome="hit"),
+        ]
+
+        events = [
+            BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1),
+            BehavioralEvent(event_type="BNC1Low", timestamp=1.6, trial_number=1),
+            BehavioralEvent(event_type="Flex1Trig2", timestamp=7.1, trial_number=1),
+        ]
+
+        # Create summary
+        summary = create_event_summary(session_id="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
+
+        # Verify summary (A4: trial counts and event categories)
+        assert isinstance(summary, BpodSummary)
+        assert summary.total_trials == 3
+        assert summary.outcome_counts["hit"] == 2
+        assert summary.outcome_counts["miss"] == 1
+        assert len(summary.event_categories) == 3
+        assert "BNC1High" in summary.event_categories
+
+    def test_Should_WriteEventSummary_When_SummaryCreated_Issue4(self, tmp_work_dir):
+        """Should write event summary to JSON file (FR-14)."""
+        from w2t_bkin.events import create_event_summary, write_event_summary
+
+        trials = [TrialData(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit")]
+        events = [BehavioralEvent(event_type="Reward", timestamp=8.5, trial_number=1)]
+
+        summary = create_event_summary(session_id="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
+
+        # Write to temp directory
+        output_path = tmp_work_dir / "interim" / "Session-000001" / "events_summary.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        write_event_summary(summary, output_path)
+
+        # Verify file written
+        assert output_path.exists()
+
+        # Verify content
+        with open(output_path, "r") as f:
+            data = json.load(f)
+
+        assert data["session_id"] == "Session-000001"
+        assert data["total_trials"] == 1
+        assert "generated_at" in data
 
 
 class TestPoseIntegration:

@@ -298,3 +298,105 @@ class TestEdgeCasesAndErrorHandling:
         # Should create separate BehavioralEvent for each timestamp
         bnc1_high_events = [e for e in events if e.event_type == "BNC1High"]
         assert len(bnc1_high_events) >= 2  # At least 2 BNC1High events across trials
+
+
+class TestSecurityAndValidation:
+    """Test security features and input validation."""
+
+    def test_Should_RaiseError_When_FileTooLarge(self, tmp_path, monkeypatch):
+        """Should reject files exceeding size limit (security)."""
+        from w2t_bkin.events import BpodValidationError, parse_bpod_mat
+
+        # Create a large dummy file
+        large_file = tmp_path / "large_bpod.mat"
+        large_file.write_text("x" * (101 * 1024 * 1024))  # 101 MB
+
+        with pytest.raises(BpodValidationError, match="too large"):
+            parse_bpod_mat(large_file)
+
+    def test_Should_RaiseError_When_InvalidExtension(self, tmp_path):
+        """Should reject files with invalid extensions (security)."""
+        from w2t_bkin.events import BpodValidationError, parse_bpod_mat
+
+        invalid_file = tmp_path / "bpod.txt"
+        invalid_file.write_text("data")
+
+        with pytest.raises(BpodValidationError, match="Invalid file extension"):
+            parse_bpod_mat(invalid_file)
+
+    def test_Should_SanitizeEventTypes_When_Extracting(self, monkeypatch):
+        """Should sanitize event types from external data (security)."""
+        from w2t_bkin.events import extract_behavioral_events
+
+        # Data with potentially malicious event names
+        data_with_bad_events = {
+            "SessionData": {
+                "nTrials": 1,
+                "TrialStartTimestamp": [0.0],
+                "TrialEndTimestamp": [10.0],
+                "RawEvents": {
+                    "Trial": [
+                        {
+                            "States": {"HIT": [8.0, 8.1]},
+                            "Events": {
+                                "Normal\x00Event": [1.0],  # Null byte
+                                "Event\nWith\nNewlines": [2.0],  # Newlines
+                                "A" * 200: [3.0],  # Too long
+                            },
+                        }
+                    ]
+                },
+            }
+        }
+
+        events = extract_behavioral_events(data_with_bad_events)
+
+        # All event types should be sanitized
+        for event in events:
+            assert "\x00" not in event.event_type
+            assert "\n" not in event.event_type
+            assert len(event.event_type) <= 100
+
+    def test_Should_ValidateOutcomes_When_Inferring(self):
+        """Should validate outcomes against whitelist (security)."""
+        from w2t_bkin.events import extract_trials
+
+        # Create data that would infer to a non-whitelisted outcome
+        # The system should default to "unknown" for invalid outcomes
+        data = {
+            "SessionData": {
+                "nTrials": 1,
+                "TrialStartTimestamp": [0.0],
+                "TrialEndTimestamp": [10.0],
+                "RawEvents": {"Trial": [{"States": {"HIT": [8.0, 8.1]}, "Events": {}}]},
+            }
+        }
+
+        trials = extract_trials(data)
+        # Should get a valid outcome from VALID_OUTCOMES
+        assert trials[0].outcome in ["hit", "miss", "correct_rejection", "false_alarm", "unknown"]
+
+    def test_Should_NotLeakPathInError_When_ParseFails(self, tmp_path, monkeypatch):
+        """Should avoid leaking full file paths in error messages (security)."""
+        from w2t_bkin.events import BpodParseError, parse_bpod_mat
+
+        # Create a file that will fail to parse
+        bad_file = tmp_path / "sensitive" / "path" / "to" / "bpod.mat"
+        bad_file.parent.mkdir(parents=True, exist_ok=True)
+        bad_file.write_bytes(b"not a valid mat file")
+
+        # Mock loadmat to fail
+        from w2t_bkin import events
+
+        def mock_loadmat(*args, **kwargs):
+            raise ValueError("Parse error")
+
+        monkeypatch.setattr(events, "loadmat", mock_loadmat)
+
+        with pytest.raises(BpodParseError) as exc_info:
+            parse_bpod_mat(bad_file)
+
+        # Error message should not contain the full sensitive path
+        error_msg = str(exc_info.value)
+        assert "sensitive/path/to" not in error_msg
+        assert "bpod.mat" not in error_msg  # Should only show generic message

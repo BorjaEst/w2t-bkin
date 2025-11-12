@@ -104,8 +104,8 @@ verification = ingest.verify_manifest(manifest, tolerance=5, warn_on_mismatch=Tr
 # 3. Create timebase and align (Phase 2)
 from w2t_bkin.sync import create_timebase_provider, align_samples
 provider = create_timebase_provider(cfg, manifest)
-reference_times = provider.get_timestamps(n_samples=1000)
-alignment = align_samples(sample_times, reference_times, cfg.timebase)
+# reference_times = provider.get_timestamps(n_samples=1000)
+# alignment = align_samples(sample_times, reference_times, cfg.timebase)
 
 # 4. Optional: Parse Bpod behavioral data (Phase 3)
 if session.bpod:
@@ -115,18 +115,18 @@ if session.bpod:
     events_list = extract_behavioral_events(bpod_data)
 
 # 5. Optional: Import pose/facemap (Phase 3)
-from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical
-from w2t_bkin.facemap import define_rois, compute_facemap_signals
-pose_data = import_dlc_pose(pose_csv_path)
-harmonized = harmonize_dlc_to_canonical(pose_data, mapping)
-facemap_signals = compute_facemap_signals(video_path, rois)
+# from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical
+# from w2t_bkin.facemap import define_rois, compute_facemap_signals
+# pose_data = import_dlc_pose(pose_csv_path)
+# harmonized = harmonize_dlc_to_canonical(pose_data, mapping)
+# facemap_signals = compute_facemap_signals(video_path, rois)
 
 # 6. Assemble NWB (Phase 4 - not yet implemented)
-nwb_path = nwb.assemble_nwb(manifest, cfg, bundles=[...])
+# nwb_path = nwb.assemble_nwb(manifest, cfg, bundles=[...])
 
 # 7. Validate and QC (Phase 5 - not yet implemented)
-validate.run_nwbinspector(nwb_path)
-qc.render_qc_report(nwb_path, verification, ...)
+# validate.run_nwbinspector(nwb_path)
+# qc.render_qc_report(nwb_path, verification, ...)
 ```
 
 ## Testing

@@ -94,10 +94,11 @@ Notes:
 
 4. Phase 3 — Optional modalities
 
+   - events (bpod) — parse Bpod .mat files into trials and behavioral events
    - transcode (if enabled) — idempotent mezzanine
    - pose import/harmonize (DLC/SLEAP) — aligned to reference timebase
    - facemap compute/import — aligned to reference timebase
-   - Requirements: FR-4, FR-5, FR-6; contributes to A1, A3.
+   - Requirements: FR-4, FR-5, FR-6, FR-11, FR-14; contributes to A1, A3, A4.
 
 5. Phase 4 — NWB Assembly
 
@@ -133,7 +134,8 @@ Notes:
 - events (optional)
 
   - Inputs: list of Bpod .mat files
-  - Outputs: Trials table + BehavioralEvents + QC summary
+  - Outputs: Trials table + BehavioralEvents + QC summary (BpodSummary)
+  - Requirements: FR-11, FR-14; Acceptance A4
 
 - sync
 
@@ -177,6 +179,7 @@ Notes:
 - FR-7 → nwb (+sync for derived data only)
 - FR-8/9/14 → qc (+nwb, +events)
 - FR-10 → config
+- FR-11/14 → events (bpod)
 - FR-TB-1..6 → sync
 - NFR-1/2 → nwb, utils, deterministic ordering across stages
 - NFR-3 → all stages emit JSON sidecars/logs
@@ -203,6 +206,7 @@ Notes:
 
 - Phase 3 gate:
 
+  - tests/unit/test_events.py — Bpod .mat parsing; trial extraction with outcome inference; behavioral event extraction; NaN handling; summary generation
   - tests/unit/test_pose.py — import/harmonize; confidence preservation; alignment length checks
   - tests/unit/test_facemap.py — ROI handling; alignment; preview stats
   - tests/unit/test_transcode.py — idempotent outputs; content-addressed paths
