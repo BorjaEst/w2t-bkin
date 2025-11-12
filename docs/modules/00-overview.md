@@ -94,8 +94,8 @@ For a typical pipeline execution:
 from w2t_bkin import config, ingest, sync, events, nwb
 
 # 1. Load configuration
-cfg = config.load_config("config.toml")
-session = config.load_session("session.toml")
+cfg = config.load_config("tests/fixtures/configs/valid_config.toml")
+session = config.load_session("tests/fixtures/data/raw/Session-000001/session.toml")
 
 # 2. Ingest and verify
 manifest = ingest.build_manifest(cfg, session)
