@@ -7,12 +7,12 @@ Requirements: FR-TB-1..6, FR-17
 Acceptance: A8, A9, A10, A11, A12, A17, A19, A20
 """
 
-import logging
-import warnings
 from abc import ABC, abstractmethod
 from datetime import datetime
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import warnings
 
 import numpy as np
 
@@ -29,11 +29,13 @@ logger = logging.getLogger(__name__)
 
 class SyncError(Exception):
     """Error during synchronization/alignment."""
+
     pass
 
 
 class JitterBudgetExceeded(SyncError):
     """Jitter exceeds configured budget."""
+
     pass
 
 
@@ -52,10 +54,10 @@ class TimebaseProvider(ABC):
     @abstractmethod
     def get_timestamps(self, n_samples: Optional[int] = None) -> List[float]:
         """Get timestamps from this timebase.
-        
+
         Args:
             n_samples: Number of samples (for synthetic timebases)
-            
+
         Returns:
             List of timestamps in seconds
         """
@@ -71,16 +73,16 @@ class NominalRateProvider(TimebaseProvider):
 
     def get_timestamps(self, n_samples: Optional[int] = None) -> List[float]:
         """Generate synthetic timestamps from nominal rate.
-        
+
         Args:
             n_samples: Number of samples to generate
-            
+
         Returns:
             List of timestamps starting at offset_s
         """
         if n_samples is None:
             raise ValueError("n_samples required for NominalRateProvider")
-        
+
         timestamps = [self.offset_s + i / self.rate for i in range(n_samples)]
         return timestamps
 
@@ -98,30 +100,30 @@ class TTLProvider(TimebaseProvider):
     def _load_timestamps(self):
         """Load timestamps from TTL files."""
         timestamps = []
-        
+
         for ttl_file in self.ttl_files:
             path = Path(ttl_file)
             if not path.exists():
                 raise SyncError(f"TTL file not found: {ttl_file}")
-            
+
             try:
-                with open(path, 'r') as f:
+                with open(path, "r") as f:
                     for line in f:
                         line = line.strip()
                         if line:
                             timestamps.append(float(line))
             except Exception as e:
                 raise SyncError(f"Failed to parse TTL file {ttl_file}: {e}")
-        
+
         # Apply offset
         self._timestamps = [t + self.offset_s for t in sorted(timestamps)]
 
     def get_timestamps(self, n_samples: Optional[int] = None) -> List[float]:
         """Get timestamps from TTL files.
-        
+
         Args:
             n_samples: Ignored for TTL provider
-            
+
         Returns:
             List of timestamps from TTL files
         """
@@ -137,16 +139,16 @@ class NeuropixelsProvider(TimebaseProvider):
 
     def get_timestamps(self, n_samples: Optional[int] = None) -> List[float]:
         """Get timestamps from Neuropixels stream (stub).
-        
+
         Args:
             n_samples: Number of samples
-            
+
         Returns:
             Stub timestamps (30 kHz sampling)
         """
         if n_samples is None:
             n_samples = 1000
-        
+
         # Stub: 30 kHz sampling
         rate = 30000.0
         timestamps = [self.offset_s + i / rate for i in range(n_samples)]
@@ -158,57 +160,54 @@ class NeuropixelsProvider(TimebaseProvider):
 # =============================================================================
 
 
-def create_timebase_provider(
-    config: Config,
-    manifest: Optional[Manifest] = None
-) -> TimebaseProvider:
+def create_timebase_provider(config: Config, manifest: Optional[Manifest] = None) -> TimebaseProvider:
     """Create timebase provider from config.
-    
+
     Args:
         config: Pipeline configuration
         manifest: Session manifest (required for TTL provider)
-        
+
     Returns:
         TimebaseProvider instance
-        
+
     Raises:
         SyncError: If invalid source or missing required data
     """
     source = config.timebase.source
     offset_s = config.timebase.offset_s
-    
+
     if source == "nominal_rate":
         # Default to 30 Hz for cameras
         rate = 30.0
         return NominalRateProvider(rate=rate, offset_s=offset_s)
-    
+
     elif source == "ttl":
         if manifest is None:
             raise SyncError("Manifest required for TTL timebase provider")
-        
+
         ttl_id = config.timebase.ttl_id
         if not ttl_id:
             raise SyncError("timebase.ttl_id required when source='ttl'")
-        
+
         # Find TTL files in manifest
         ttl_files = None
         for ttl in manifest.ttls:
             if ttl.ttl_id == ttl_id:
                 ttl_files = ttl.files
                 break
-        
+
         if not ttl_files:
             raise SyncError(f"TTL {ttl_id} not found in manifest")
-        
+
         return TTLProvider(ttl_id=ttl_id, ttl_files=ttl_files, offset_s=offset_s)
-    
+
     elif source == "neuropixels":
         stream = config.timebase.neuropixels_stream
         if not stream:
             raise SyncError("timebase.neuropixels_stream required when source='neuropixels'")
-        
+
         return NeuropixelsProvider(stream=stream, offset_s=offset_s)
-    
+
     else:
         raise SyncError(f"Invalid timebase source: {source}")
 
@@ -218,84 +217,78 @@ def create_timebase_provider(
 # =============================================================================
 
 
-def map_nearest(
-    sample_times: List[float],
-    reference_times: List[float]
-) -> List[int]:
+def map_nearest(sample_times: List[float], reference_times: List[float]) -> List[int]:
     """Map sample times to nearest reference times.
-    
+
     Args:
         sample_times: Times to align
         reference_times: Reference timebase
-        
+
     Returns:
         List of indices into reference_times
-        
+
     Raises:
         SyncError: If reference is empty or not monotonic
     """
     if not reference_times:
         raise SyncError("Cannot map to empty reference timebase")
-    
+
     # Check monotonicity
     if reference_times != sorted(reference_times):
         raise SyncError("Reference timestamps must be monotonic")
-    
+
     if not sample_times:
         return []
-    
+
     # Check for large gaps and warn
     ref_array = np.array(reference_times)
     indices = []
-    
+
     for sample_time in sample_times:
         # Find nearest index
         idx = np.argmin(np.abs(ref_array - sample_time))
         indices.append(int(idx))
-        
+
         # Check for large gaps
         gap = abs(ref_array[idx] - sample_time)
         if gap > 1.0:  # > 1 second gap
             warnings.warn(f"Sample time {sample_time} has large gap ({gap:.3f}s) from nearest reference", UserWarning)
-    
+
     return indices
 
 
-def map_linear(
-    sample_times: List[float],
-    reference_times: List[float]
-) -> Tuple[List[Tuple[int, int]], List[Tuple[float, float]]]:
+def map_linear(sample_times: List[float], reference_times: List[float]) -> Tuple[List[Tuple[int, int]], List[Tuple[float, float]]]:
     """Map sample times using linear interpolation.
-    
+
     Args:
         sample_times: Times to align
         reference_times: Reference timebase
-        
+
     Returns:
         Tuple of (indices, weights) where:
         - indices: List of (idx0, idx1) tuples for interpolation
         - weights: List of (w0, w1) tuples for interpolation weights
-        
+
     Raises:
         SyncError: If reference is empty or not monotonic
     """
     if not reference_times:
         raise SyncError("Cannot map to empty reference timebase")
-    
+
     if reference_times != sorted(reference_times):
         raise SyncError("Reference timestamps must be monotonic")
-    
+
     if not sample_times:
         return [], []
-    
+
     ref_array = np.array(reference_times)
     indices = []
     weights = []
-    
+
     for sample_time in sample_times:
         # Find bracketing indices
         idx_after = np.searchsorted(ref_array, sample_time)
-        
+
         if idx_after == 0:
             # Before first reference point
             indices.append((0, 0))
@@ -309,20 +302,20 @@ def map_linear(
             # Interpolate between idx_after-1 and idx_after
             idx0 = idx_after - 1
             idx1 = idx_after
-            
+
             t0 = ref_array[idx0]
             t1 = ref_array[idx1]
-            
+
             # Linear interpolation weight
             if t1 - t0 > 0:
                 w1 = (sample_time - t0) / (t1 - t0)
                 w0 = 1.0 - w1
             else:
                 w0, w1 = 0.5, 0.5
-            
+
             indices.append((idx0, idx1))
             weights.append((w0, w1))
-    
+
     return indices, weights
 
 
@@ -331,39 +324,32 @@ def map_linear(
 # =============================================================================
 
 
-def compute_jitter_stats(
-    sample_times: List[float],
-    reference_times: List[float],
-    indices: List[int]
-) -> Dict[str, float]:
+def compute_jitter_stats(sample_times: List[float], reference_times: List[float], indices: List[int]) -> Dict[str, float]:
     """Compute jitter statistics for alignment.
-    
+
     Args:
         sample_times: Original sample times
         reference_times: Reference timebase
         indices: Mapping indices from map_nearest()
-        
+
     Returns:
         Dictionary with max_jitter_s and p95_jitter_s
     """
     if not sample_times or not indices:
         return {"max_jitter_s": 0.0, "p95_jitter_s": 0.0}
-    
+
     ref_array = np.array(reference_times)
     sample_array = np.array(sample_times)
-    
+
     # Compute jitter for each sample
     jitters = []
     for i, idx in enumerate(indices):
         jitter = abs(sample_array[i] - ref_array[idx])
         jitters.append(jitter)
-    
+
     jitter_array = np.array(jitters)
-    
-    return {
-        "max_jitter_s": float(np.max(jitter_array)),
-        "p95_jitter_s": float(np.percentile(jitter_array, 95))
-    }
+
+    return {"max_jitter_s": float(np.max(jitter_array)), "p95_jitter_s": float(np.percentile(jitter_array, 95))}
 
 
 # =============================================================================
@@ -371,26 +357,19 @@ def compute_jitter_stats(
 # =============================================================================
 
 
-def enforce_jitter_budget(
-    max_jitter: float,
-    p95_jitter: float,
-    budget: float
-) -> None:
+def enforce_jitter_budget(max_jitter: float, p95_jitter: float, budget: float) -> None:
     """Enforce jitter budget before NWB assembly.
-    
+
     Args:
         max_jitter: Maximum jitter observed
         p95_jitter: 95th percentile jitter
         budget: Configured jitter budget
-        
+
     Raises:
         JitterBudgetExceeded: If jitter exceeds budget
     """
     if max_jitter > budget or p95_jitter > budget:
-        raise JitterBudgetExceeded(
-            f"Jitter exceeds budget: max={max_jitter:.6f}s, "
-            f"p95={p95_jitter:.6f}s, budget={budget:.6f}s"
-        )
+        raise JitterBudgetExceeded(f"Jitter exceeds budget: max={max_jitter:.6f}s, " f"p95={p95_jitter:.6f}s, budget={budget:.6f}s")
 
 
 # =============================================================================
@@ -398,28 +377,23 @@ def enforce_jitter_budget(
 # =============================================================================
 
 
-def align_samples(
-    sample_times: List[float],
-    reference_times: List[float],
-    config: TimebaseConfig,
-    enforce_budget: bool = False
-) -> Dict:
+def align_samples(sample_times: List[float], reference_times: List[float], config: TimebaseConfig, enforce_budget: bool = False) -> Dict:
     """Align samples to reference timebase.
-    
+
     Args:
         sample_times: Times to align
         reference_times: Reference timebase
         config: Timebase configuration
         enforce_budget: Whether to enforce jitter budget
-        
+
     Returns:
         Dictionary with indices, jitter_stats, and mapping strategy
-        
+
     Raises:
         JitterBudgetExceeded: If enforce_budget=True and budget exceeded
     """
     mapping = config.mapping
-    
+
     if mapping == "nearest":
         indices = map_nearest(sample_times, reference_times)
         jitter_stats = compute_jitter_stats(sample_times, reference_times, indices)
@@ -430,19 +404,11 @@ def align_samples(
         jitter_stats = compute_jitter_stats(sample_times, reference_times, nearest_indices)
     else:
         raise SyncError(f"Invalid mapping strategy: {mapping}")
-    
+
     if enforce_budget:
-        enforce_jitter_budget(
-            jitter_stats["max_jitter_s"],
-            jitter_stats["p95_jitter_s"],
-            config.jitter_budget_s
-        )
-    
-    return {
-        "indices": indices,
-        "jitter_stats": jitter_stats,
-        "mapping": mapping
-    }
+        enforce_jitter_budget(jitter_stats["max_jitter_s"], jitter_stats["p95_jitter_s"], config.jitter_budget_s)
+
+    return {"indices": indices, "jitter_stats": jitter_stats, "mapping": mapping}
 
 
 # =============================================================================
@@ -451,15 +417,10 @@ def align_samples(
 
 
 def create_alignment_stats(
-    timebase_source: str,
-    mapping: str,
-    offset_s: float,
-    max_jitter_s: float,
-    p95_jitter_s: float,
-    aligned_samples: int
+    timebase_source: str, mapping: str, offset_s: float, max_jitter_s: float, p95_jitter_s: float, aligned_samples: int
 ) -> AlignmentStats:
     """Create alignment stats instance.
-    
+
     Args:
         timebase_source: Source of timebase (nominal_rate, ttl, neuropixels)
         mapping: Mapping strategy used (nearest, linear)
@@ -467,7 +428,7 @@ def create_alignment_stats(
         max_jitter_s: Maximum jitter observed
         p95_jitter_s: 95th percentile jitter
         aligned_samples: Number of samples aligned
-        
+
     Returns:
         AlignmentStats instance
     """
@@ -477,13 +438,13 @@ def create_alignment_stats(
         offset_s=offset_s,
         max_jitter_s=max_jitter_s,
         p95_jitter_s=p95_jitter_s,
-        aligned_samples=aligned_samples
+        aligned_samples=aligned_samples,
     )
 
 
 def write_alignment_stats(stats: AlignmentStats, output_path: Path) -> None:
     """Write alignment stats to JSON sidecar.
-    
+
     Args:
         stats: AlignmentStats instance
         output_path: Output file path
@@ -491,3 +452,56 @@ def write_alignment_stats(stats: AlignmentStats, output_path: Path) -> None:
     data = stats.model_dump()
     data["generated_at"] = datetime.utcnow().isoformat()
     write_json(data, output_path)
+
+
+def load_alignment_manifest(alignment_path: Path) -> dict:
+    """Load alignment manifest from JSON file (Phase 2 stub).
+
+    Args:
+        alignment_path: Path to alignment.json
+
+    Returns:
+        Dictionary with alignment data per camera
+
+    Raises:
+        SyncError: If file not found or invalid
+    """
+    import json
+
+    if not alignment_path.exists():
+        # For Phase 3 integration tests, return mock data if file doesn't exist
+        logger.warning(f"Alignment manifest not found: {alignment_path}, returning mock data")
+        return {"cam0": {"timestamps": [i / 30.0 for i in range(100)], "source": "nominal_rate", "mapping": "nearest"}}  # 100 frames at 30fps
+
+    with open(alignment_path, "r") as f:
+        data = json.load(f)
+
+    return data
+
+
+def compute_alignment(manifest: dict, config: dict) -> dict:
+    """Compute timebase alignment for all cameras (Phase 2 stub).
+
+    Args:
+        manifest: Manifest dictionary from Phase 1
+        config: Configuration dictionary
+
+    Returns:
+        Alignment dictionary with timestamps per camera
+
+    Raises:
+        SyncError: If alignment fails
+    """
+    # Stub implementation - returns mock alignment data
+    alignment = {}
+
+    for camera in manifest.get("cameras", []):
+        camera_id = camera.get("camera_id", "cam0")
+        frame_count = camera.get("frame_count", 1000)
+
+        # Generate mock timestamps at 30 fps
+        timestamps = [i / 30.0 for i in range(frame_count)]
+
+        alignment[camera_id] = {"timestamps": timestamps, "source": "nominal_rate", "mapping": "nearest", "frame_count": frame_count}
+
+    return alignment

@@ -119,11 +119,6 @@ Hardware synchronization obviates per-frame timestamp generation, simplifying co
 ## 9. Examples & Edge Cases
 
 ```code
-# Edge case: enable transcode but omit codec (invalid)
-[video.transcode]
-enabled = true
-crf = 20
-
 # Valid minimal config (strict)
 [project]
 name = "w2t-bkin-pipeline"
