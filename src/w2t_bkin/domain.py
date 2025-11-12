@@ -7,9 +7,10 @@ Requirements: FR-12, NFR-7
 Acceptance: A18 (supports deterministic hashing)
 """
 
+from pathlib import Path
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ProjectConfig(BaseModel):
@@ -438,6 +439,15 @@ class FacemapBundle(BaseModel):
     alignment_method: str  # "nearest" or "linear"
     generated_at: str
 
+    @model_validator(mode="after")
+    def validate_signals_match_rois(self) -> "FacemapBundle":
+        """Validate that all signals reference defined ROIs."""
+        roi_names = {roi.name for roi in self.rois}
+        for signal in self.signals:
+            if signal.roi_name not in roi_names:
+                raise ValueError(f"Signal references undefined ROI: {signal.roi_name}. " f"Defined ROIs: {roi_names}")
+        return self
+
 
 class TranscodeOptions(BaseModel):
     """Transcoding configuration options."""
@@ -456,9 +466,8 @@ class TranscodedVideo(BaseModel):
     model_config = {"frozen": True, "extra": "forbid"}
 
     camera_id: str
-    original_path: str
-    transcoded_path: str
+    original_path: Path
+    output_path: Path  # Transcoded file path
     codec: str
     checksum: str  # Content-addressed hash
     frame_count: int
-    created_at: str

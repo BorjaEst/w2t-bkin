@@ -1,0 +1,294 @@
+"""Facemap ROI computation and signal extraction module.
+
+Supports ROI-based motion energy computation and alignment to reference timebase.
+
+Requirements: FR-6
+"""
+
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import cv2
+import numpy as np
+
+from w2t_bkin.domain import FacemapBundle, FacemapROI, FacemapSignal
+
+logger = logging.getLogger(__name__)
+
+
+class FacemapError(Exception):
+    """Base exception for facemap-related errors."""
+    pass
+
+
+def define_rois(roi_specs: List[Dict]) -> List[FacemapROI]:
+    """Create FacemapROI objects from specifications.
+    
+    Args:
+        roi_specs: List of ROI specification dicts
+        
+    Returns:
+        List of FacemapROI objects
+        
+    Raises:
+        FacemapError: If ROI coordinates are invalid
+    """
+    rois = []
+    
+    for spec in roi_specs:
+        # Validate coordinates are non-negative
+        if spec["x"] < 0 or spec["y"] < 0:
+            raise FacemapError(f"ROI coordinates must be non-negative: {spec}")
+        
+        if spec["width"] <= 0 or spec["height"] <= 0:
+            raise FacemapError(f"ROI dimensions must be positive: {spec}")
+        
+        roi = FacemapROI(
+            name=spec["name"],
+            x=spec["x"],
+            y=spec["y"],
+            width=spec["width"],
+            height=spec["height"]
+        )
+        rois.append(roi)
+    
+    # Check for overlaps
+    for i in range(len(rois)):
+        for j in range(i + 1, len(rois)):
+            if _rois_overlap(rois[i], rois[j]):
+                logger.warning(f"ROIs overlap: {rois[i].name} and {rois[j].name}")
+    
+    return rois
+
+
+def _rois_overlap(roi1: FacemapROI, roi2: FacemapROI) -> bool:
+    """Check if two ROIs overlap significantly."""
+    # Simple bounding box overlap check
+    x1_min, x1_max = roi1.x, roi1.x + roi1.width
+    y1_min, y1_max = roi1.y, roi1.y + roi1.height
+    x2_min, x2_max = roi2.x, roi2.x + roi2.width
+    y2_min, y2_max = roi2.y, roi2.y + roi2.height
+    
+    # Check if rectangles overlap
+    overlap_x = max(0, min(x1_max, x2_max) - max(x1_min, x2_min))
+    overlap_y = max(0, min(y1_max, y2_max) - max(y1_min, y2_min))
+    
+    if overlap_x > 0 and overlap_y > 0:
+        overlap_area = overlap_x * overlap_y
+        area1 = roi1.width * roi1.height
+        area2 = roi2.width * roi2.height
+        
+        # Consider significant if overlap > 20% of smaller ROI
+        min_area = min(area1, area2)
+        if overlap_area / min_area > 0.2:
+            return True
+    
+    return False
+
+
+def import_facemap_output(npy_path: Path) -> Dict:
+    """Import precomputed Facemap .npy output.
+    
+    Args:
+        npy_path: Path to Facemap .npy file
+        
+    Returns:
+        Dict containing Facemap data
+        
+    Raises:
+        FacemapError: If file doesn't exist or format is invalid
+    """
+    if not npy_path.exists():
+        raise FacemapError(f"Facemap file not found: {npy_path}")
+    
+    try:
+        data = np.load(npy_path, allow_pickle=True).item()
+        return data
+    except Exception as e:
+        raise FacemapError(f"Failed to load Facemap file: {e}")
+
+
+def compute_facemap_signals(
+    video_path: Path,
+    rois: List[FacemapROI]
+) -> List[FacemapSignal]:
+    """Compute motion energy signals for each ROI.
+    
+    Args:
+        video_path: Path to video file
+        rois: List of ROIs to compute signals for
+        
+    Returns:
+        List of FacemapSignal objects
+        
+    Raises:
+        FacemapError: If video cannot be read
+    """
+    if not video_path.exists():
+        raise FacemapError(f"Video file not found: {video_path}")
+    
+    try:
+        cap = cv2.VideoCapture(str(video_path))
+        
+        if not cap.isOpened():
+            raise FacemapError(f"Cannot open video: {video_path}")
+        
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # Initialize signal storage
+        roi_signals = {roi.name: [] for roi in rois}
+        
+        # Read frames and compute motion energy
+        prev_frame = None
+        frame_idx = 0
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # Convert to grayscale
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            if prev_frame is not None:
+                # Compute motion for each ROI
+                for roi in rois:
+                    # Extract ROI regions
+                    roi_prev = prev_frame[roi.y:roi.y+roi.height, roi.x:roi.x+roi.width]
+                    roi_curr = gray[roi.y:roi.y+roi.height, roi.x:roi.x+roi.width]
+                    
+                    # Compute absolute difference (motion energy)
+                    diff = cv2.absdiff(roi_curr, roi_prev)
+                    motion_energy = float(np.mean(diff))
+                    
+                    roi_signals[roi.name].append(motion_energy)
+            else:
+                # First frame - no motion
+                for roi in rois:
+                    roi_signals[roi.name].append(0.0)
+            
+            prev_frame = gray
+            frame_idx += 1
+        
+        cap.release()
+        
+        # Create FacemapSignal objects
+        signals = []
+        for roi in rois:
+            # Generate timestamps based on frame rate
+            timestamps = [i / fps for i in range(len(roi_signals[roi.name]))]
+            
+            signal = FacemapSignal(
+                roi_name=roi.name,
+                timestamps=timestamps,
+                values=roi_signals[roi.name],
+                sampling_rate=fps
+            )
+            signals.append(signal)
+        
+        return signals
+        
+    except Exception as e:
+        raise FacemapError(f"Failed to compute Facemap signals: {e}")
+
+
+def align_facemap_to_timebase(
+    signals: List[Dict],
+    reference_times: List[float],
+    mapping: str = "nearest"
+) -> List[Dict]:
+    """Align facemap signal timestamps to reference timebase.
+    
+    Args:
+        signals: List of signal dicts with frame_indices and values
+        reference_times: Reference timestamps from sync
+        mapping: Alignment strategy ("nearest" or "linear")
+        
+    Returns:
+        List of aligned signal dicts with timestamps
+        
+    Raises:
+        FacemapError: If alignment fails
+    """
+    aligned_signals = []
+    
+    for signal in signals:
+        frame_indices = signal["frame_indices"]
+        values = signal["values"]
+        
+        # Validate lengths match
+        if len(frame_indices) != len(values):
+            raise FacemapError(
+                f"Frame indices length ({len(frame_indices)}) != values length ({len(values)})"
+            )
+        
+        # Map frame indices to timestamps
+        timestamps = []
+        for frame_idx in frame_indices:
+            if mapping == "nearest":
+                if frame_idx < len(reference_times):
+                    timestamp = reference_times[frame_idx]
+                else:
+                    timestamp = reference_times[-1]
+            elif mapping == "linear":
+                if frame_idx < len(reference_times):
+                    timestamp = reference_times[frame_idx]
+                else:
+                    # Linear extrapolation
+                    if len(reference_times) >= 2:
+                        dt = reference_times[-1] - reference_times[-2]
+                        timestamp = reference_times[-1] + dt * (frame_idx - len(reference_times) + 1)
+                    else:
+                        timestamp = reference_times[-1]
+            else:
+                raise FacemapError(f"Unknown mapping strategy: {mapping}")
+            
+            timestamps.append(timestamp)
+        
+        aligned_signals.append({
+            "roi_name": signal["roi_name"],
+            "timestamps": timestamps,
+            "values": values
+        })
+    
+    return aligned_signals
+
+
+def validate_facemap_sampling_rate(
+    signal: FacemapSignal,
+    expected_rate: float,
+    tolerance: float = 0.1
+) -> bool:
+    """Validate that signal sampling rate matches expected rate.
+    
+    Args:
+        signal: FacemapSignal to validate
+        expected_rate: Expected sampling rate in Hz
+        tolerance: Tolerance for rate mismatch (fraction)
+        
+    Returns:
+        True if sampling rate is within tolerance, False otherwise
+    """
+    if len(signal.timestamps) < 2:
+        return True
+    
+    # Compute actual rate from timestamps
+    total_time = signal.timestamps[-1] - signal.timestamps[0]
+    num_samples = len(signal.timestamps)
+    actual_rate = (num_samples - 1) / total_time if total_time > 0 else 0
+    
+    # Check if within tolerance
+    rate_diff = abs(actual_rate - expected_rate)
+    relative_diff = rate_diff / expected_rate if expected_rate > 0 else 0
+    
+    if relative_diff > tolerance:
+        logger.warning(
+            f"Sampling rate mismatch: actual={actual_rate:.2f} Hz, "
+            f"expected={expected_rate:.2f} Hz (diff={relative_diff:.1%})"
+        )
+        return False
+    
+    return True
