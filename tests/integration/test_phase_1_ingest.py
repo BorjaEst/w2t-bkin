@@ -43,17 +43,24 @@ def test_successful_ingest_and_verification(tmp_path):
     # Patch raw_root to tmp_path
     config = config.model_copy(update={"paths": config.paths.model_copy(update={"raw_root": str(tmp_path)})})
 
-    # Create session files: one video file and one TTL file with matching counts
+    # Create session files: video files and TTL files with matching counts for BOTH cameras
     session_dir = Path(config.paths.raw_root) / session.session.id
-    video_dir = session_dir / "Video" / "top"
-    video_dir.mkdir(parents=True, exist_ok=True)
 
-    video_file = video_dir / "cam0_001.avi"
-    video_file.write_text("")  # empty dummy file — ingest.count_video_frames uses existence/stub
+    # Create video files for cam0 (top)
+    video_dir0 = session_dir / "Video" / "top"
+    video_dir0.mkdir(parents=True, exist_ok=True)
+    video_file0 = video_dir0 / "cam0_001.avi"
+    video_file0.write_text("")  # empty dummy file
 
+    # Create video files for cam1 (pupil_left)
+    video_dir1 = session_dir / "Video" / "pupil_left"
+    video_dir1.mkdir(parents=True, exist_ok=True)
+    video_file1 = video_dir1 / "cam1_001.avi"
+    video_file1.write_text("")  # empty dummy file
+
+    # Create TTL files with 1000 pulses
     ttl_dir = session_dir / "TTLs"
-    ttl_file = ttl_dir / "sync.txt"
-    # count_video_frames stub returns 1000 for non-empty names — create 1000 TTL lines
+    ttl_file = ttl_dir / "sync_xa_7_0.txt"
     _write_lines(ttl_file, 1000)
 
     # Build manifest
@@ -71,7 +78,7 @@ def test_successful_ingest_and_verification(tmp_path):
 
     manifest = Manifest(session_id=manifest0.session_id, cameras=cameras_filled, ttls=manifest0.ttls, bpod_files=manifest0.bpod_files)
 
-    # Verify (tolerance is 0 in fixture config)
+    # Verify (tolerance is 2 in fixture config)
     result = verify_manifest(manifest, tolerance=config.verification.mismatch_tolerance_frames, warn_on_mismatch=config.verification.warn_on_mismatch)
     assert result.status == "verified"
 
@@ -102,15 +109,17 @@ def test_abort_on_mismatch_exceeds_tolerance(tmp_path):
 
     config = config.model_copy(update={"paths": config.paths.model_copy(update={"raw_root": str(tmp_path)})})
 
-    # Create video file (frame count stub -> 1000) and TTL file with fewer pulses
+    # Create video files for both cameras (frame count stub -> 1000) and TTL file with fewer pulses
     session_dir = Path(config.paths.raw_root) / session.session.id
     (session_dir / "Video" / "top").mkdir(parents=True, exist_ok=True)
     (session_dir / "Video" / "top" / "cam0_001.avi").write_text("")
+    (session_dir / "Video" / "pupil_left").mkdir(parents=True, exist_ok=True)
+    (session_dir / "Video" / "pupil_left" / "cam1_001.avi").write_text("")
 
     ttl_dir = session_dir / "TTLs"
     ttl_dir.mkdir(parents=True, exist_ok=True)
     # Create TTL file with 900 pulses
-    ttl_file = ttl_dir / "sync.txt"
+    ttl_file = ttl_dir / "sync_xa_7_0.txt"
     _write_lines(ttl_file, 900)
 
     manifest0 = build_manifest(config, session)
@@ -142,11 +151,13 @@ def test_warn_on_mismatch_within_tolerance(tmp_path, caplog):
     session_dir = Path(config.paths.raw_root) / session.session.id
     (session_dir / "Video" / "top").mkdir(parents=True, exist_ok=True)
     (session_dir / "Video" / "top" / "cam0_001.avi").write_text("")
+    (session_dir / "Video" / "pupil_left").mkdir(parents=True, exist_ok=True)
+    (session_dir / "Video" / "pupil_left" / "cam1_001.avi").write_text("")
 
     ttl_dir = session_dir / "TTLs"
     ttl_dir.mkdir(parents=True, exist_ok=True)
     # Create TTL file with 995 pulses (mismatch = 5)
-    ttl_file = ttl_dir / "sync.txt"
+    ttl_file = ttl_dir / "sync_xa_7_0.txt"
     _write_lines(ttl_file, 995)
 
     manifest0 = build_manifest(config, session)

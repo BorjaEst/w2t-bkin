@@ -58,10 +58,10 @@ class TestConfigDomainIntegration:
 
         # Verify it's a proper Session domain object
         assert isinstance(session, Session)
-        assert session.session.id == "test-session-01"
+        assert session.session.id == "Session-000001"
         assert session.session.subject_id == "mouse_001"
-        assert len(session.cameras) == 1
-        assert len(session.TTLs) == 1
+        assert len(session.cameras) == 2
+        assert len(session.TTLs) == 3
 
         # Test deterministic hashing (A18)
         hash1 = compute_session_hash(session)

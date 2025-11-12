@@ -24,7 +24,7 @@ class TestConfigLoading:
         config = load_config(config_path)
 
         assert config.project.name == "w2t-bkin-pipeline"
-        assert config.paths.raw_root == "data/raw"
+        assert config.paths.raw_root == "tests/fixtures/data/raw"
         assert config.timebase.source == "nominal_rate"
 
     def test_Should_RejectConfig_When_MissingRequiredKey(self):
@@ -150,10 +150,10 @@ class TestSessionLoading:
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
         session = load_session(session_path)
 
-        assert session.session.id == "test-session-01"
+        assert session.session.id == "Session-000001"
         assert session.session.subject_id == "mouse_001"
-        assert len(session.TTLs) == 1
-        assert len(session.cameras) == 1
+        assert len(session.TTLs) == 3
+        assert len(session.cameras) == 2
 
     def test_Should_RejectSession_When_MissingRequiredKey(self):
         """Should reject session missing required key (A14)."""

@@ -2,7 +2,7 @@
 name = "w2t-bkin-pipeline"
 
 [paths]
-raw_root = "data/raw"         # Lab/global raw data root (session directories live here)
+raw_root = "tests/fixtures/data/raw"  # Points to real test data with Session-000001
 intermediate_root = "data/interim"  # Intermediate processing outputs
 output_root = "data/processed"      # Output data root
 metadata_file = "session.toml"      # Session metadata file name within each session directory

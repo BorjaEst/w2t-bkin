@@ -1,5 +1,5 @@
 [session]
-id = "test-session-01"
+id = "Session-000001"
 subject_id = "mouse_001"
 date = "2025-01-01"
 experimenter = "Test User"
@@ -13,13 +13,30 @@ path = "Bpod/*.mat"
 order = "name_asc"
 
 [[TTLs]]
+id = "ttl_hitmiss"
+description = "Hit/Miss signal from behavior"
+paths = "TTLs/*nidq.xa_1_0*.txt"
+
+[[TTLs]]
 id = "ttl_camera"
 description = "Camera sync pulses"
-paths = "TTLs/*.txt"
+paths = "TTLs/*nidq.xa_7_0*.txt"
+
+[[TTLs]]
+id = "ttl_cue"
+description = "Cue signal from behavior"
+paths = "TTLs/*nidq.xia_3_0*.txt"
 
 [[cameras]]
 id = "cam0"
 description = "Top camera"
 paths = "Video/top/*.avi"
+order = "name_asc"
+ttl_id = "ttl_camera"
+
+[[cameras]]
+id = "cam1"
+description = "Pupil left camera"
+paths = "Video/pupil_left/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
