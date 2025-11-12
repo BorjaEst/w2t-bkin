@@ -1,10 +1,81 @@
 """Domain models for W2T-BKIN pipeline (Phase 0).
 
-Pydantic models for configuration, session metadata, and pipeline artifacts.
-All models are immutable (frozen) to ensure data integrity.
+This module provides Pydantic-based domain models for the entire W2T-BKIN data processing
+pipeline. All models are immutable (frozen) to ensure data integrity and support deterministic
+hashing for provenance tracking.
 
-Requirements: FR-12, NFR-7
-Acceptance: A18 (supports deterministic hashing)
+Model Categories:
+-----------------
+1. **Configuration Models** (Phase 0):
+   - Config: Top-level pipeline configuration
+   - ProjectConfig, PathsConfig, TimebaseConfig, etc.: Configuration subsections
+   - Loaded from config.toml files
+
+2. **Session Models** (Phase 0):
+   - Session: Session metadata and file patterns
+   - SessionMetadata, Camera, TTL, BpodSession: Session components
+   - Loaded from session.toml files
+
+3. **Manifest Models** (Phase 1):
+   - Manifest: Discovered files with optional frame/TTL counts
+   - ManifestCamera, ManifestTTL: Manifest components
+   - Built by ingest.build_manifest()
+
+4. **Verification Models** (Phase 1):
+   - VerificationResult, VerificationSummary: Frame/TTL verification results
+   - CameraVerificationResult: Per-camera verification details
+
+5. **Alignment Models** (Phase 2):
+   - AlignmentStats: Timebase alignment statistics and jitter metrics
+   - Provenance: Config/session hashes for reproducibility
+
+6. **Behavioral Models** (Phase 3):
+   - TrialData, BehavioralEvent, BpodSummary: Bpod behavioral data
+
+7. **Optional Modality Models** (Phase 3):
+   - PoseBundle, PoseFrame, PoseKeypoint: Pose estimation (DLC/SLEAP)
+   - FacemapBundle, FacemapROI, FacemapSignal: Facemap motion energy
+   - TranscodedVideo, TranscodeOptions: Video transcoding metadata
+
+Key Features:
+-------------
+- **Immutability**: All models use `frozen=True` to prevent accidental modification
+- **Strict Schemas**: All models use `extra="forbid"` to reject unknown fields
+- **Type Safety**: Full type annotations with runtime validation
+- **Deterministic Hashing**: Frozen models support stable hash computation
+- **Validation**: Custom validators for cross-field validation (e.g., FacemapBundle)
+
+Design Principles:
+------------------
+1. **Single Responsibility**: Each model represents one concept
+2. **Composition over Inheritance**: Models compose other models (no inheritance)
+3. **Explicit over Implicit**: All fields and constraints are explicit
+4. **Fail Fast**: Invalid data raises exceptions at model creation time
+5. **Read-Only by Default**: Immutability prevents bugs and enables caching
+
+Usage Patterns:
+---------------
+1. **Loading from files**: Use config.py and session loaders
+2. **Creating programmatically**: Instantiate with keyword arguments
+3. **Validation**: Pydantic validates on creation, raises ValidationError
+4. **Serialization**: Use .model_dump() for dict, .model_dump_json() for JSON
+5. **Hashing**: Use utils.stable_hash() for deterministic provenance
+
+Common Gotchas:
+---------------
+- Models are frozen - use .model_copy(update={...}) to create modified copies
+- Optional[int] fields in ManifestCamera: None = not counted, int >= 0 = counted
+- All paths in manifest models are absolute (converted during build_manifest)
+- Validation errors provide detailed context - read the full traceback
+
+Requirements: FR-12 (Domain models), NFR-7 (Immutability)
+Acceptance: A18 (Supports deterministic hashing for provenance)
+
+See Also:
+---------
+- config.py: Configuration and session loaders
+- ingest.py: Manifest building and verification
+- utils.py: Hashing and serialization utilities
 """
 
 from pathlib import Path
@@ -476,3 +547,109 @@ class TranscodedVideo(BaseModel):
     codec: str
     checksum: str  # Content-addressed hash
     frame_count: int
+
+
+if __name__ == "__main__":
+    """Simplified usage examples for domain models.
+
+    Run with: python -m w2t_bkin.domain
+    """
+    from datetime import datetime
+
+    print("W2T-BKIN Domain Models - Quick Start Examples")
+    print("=" * 60)
+
+    # Example 1: Session Model
+    print("\n1. Creating a Session with cameras and TTLs:")
+    session = Session(
+        session=SessionMetadata(
+            id="Session-000001",
+            subject_id="Mouse-123",
+            date="2025-01-15",
+            experimenter="Dr. Smith",
+            description="Behavioral training",
+            sex="M",
+            age="P60",
+            genotype="WT",
+        ),
+        bpod=BpodSession(path="Bpod/*.mat", order="name_asc"),
+        TTLs=[TTL(id="ttl_camera", description="Camera sync", paths="TTLs/*.txt")],
+        cameras=[
+            Camera(
+                id="cam0",
+                description="Top view",
+                paths="Video/top/*.avi",
+                order="name_asc",
+                ttl_id="ttl_camera",
+            )
+        ],
+    )
+    print(f"   ✓ Session: {session.session.id}")
+    print(f"   ✓ Cameras: {len(session.cameras)}, TTLs: {len(session.TTLs)}")
+
+    # Example 2: Manifest with Optional Counts
+    print("\n2. Creating a Manifest (with and without counts):")
+    manifest = Manifest(
+        session_id="Session-000001",
+        cameras=[
+            ManifestCamera(
+                camera_id="cam0",
+                ttl_id="ttl_camera",
+                video_files=["video.avi"],
+                frame_count=8580,  # Counted
+                ttl_pulse_count=8580,  # Counted
+            )
+        ],
+    )
+    print(f"   ✓ Manifest: {manifest.session_id}")
+    print(f"   ✓ Camera frames: {manifest.cameras[0].frame_count}")
+    print(f"   ✓ Sync status: {'PERFECT' if manifest.cameras[0].frame_count == manifest.cameras[0].ttl_pulse_count else 'MISMATCH'}")
+
+    # Fast discovery (no counts)
+    manifest_fast = Manifest(
+        session_id="Session-000002",
+        cameras=[
+            ManifestCamera(
+                camera_id="cam0",
+                ttl_id="ttl_camera",
+                video_files=["video.avi"],
+                frame_count=None,  # Not counted yet
+                ttl_pulse_count=None,
+            )
+        ],
+    )
+    print(f"   ✓ Fast manifest: {manifest_fast.cameras[0].frame_count} (None = not counted)")
+
+    # Example 3: Model Features
+    print("\n3. Key Model Features:")
+
+    # Immutability
+    try:
+        session.session.id = "Modified"
+    except Exception:
+        print("   ✓ Immutable: Cannot modify frozen models")
+
+    # Serialization
+    session_dict = session.model_dump()
+    session_json = session.model_dump_json()
+    print(f"   ✓ Serialization: dict keys = {list(session_dict.keys())}")
+
+    # Validation
+    try:
+        invalid = Camera(
+            id="cam0",
+            description="Test",
+            paths="*.avi",
+            order="name_asc",
+            ttl_id="ttl",
+            extra_field="forbidden",
+        )
+    except Exception:
+        print("   ✓ Validation: Extra fields rejected")
+
+    print("\n" + "=" * 60)
+    print("✓ Examples completed!")
+    print("\nProduction usage:")
+    print("  from w2t_bkin.config import load_config, load_session")
+    print("  from w2t_bkin.ingest import build_manifest")
+    print("\nSee module docstring for complete model reference.")
