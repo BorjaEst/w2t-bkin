@@ -18,6 +18,10 @@ post_date: "2025-11-08"
 Modular, reproducible Python pipeline turning multi-camera rodent behavior recordings plus sync and
 optional pose/facial/event logs into a validated NWB dataset with QC and provenance.
 
+**Status**: Phase 4 Complete (NWB Assembly with pynwb) ✅  
+**Test Coverage**: 255 tests passing (13 skipped)  
+**Latest**: Real NWB file assembly with external video links, rate-based timing, and provenance embedding
+
 ## Key Features
 
 - Explicit per-frame timestamps from hardware sync (TTL or counters)
@@ -37,20 +41,21 @@ ingest → sync → (transcode) → pose / facemap / events → nwb → validate
 
 ## Package Modules (Planned)
 
-| Module    | Purpose                               |
-| --------- | ------------------------------------- |
-| config    | Load & validate settings              |
-| ingest    | Discover assets, produce manifest     |
-| sync      | Generate timestamps, drift/drop stats |
-| transcode | Optional stable mezzanine videos      |
-| pose      | Import/harmonize pose outputs         |
-| facemap   | Import/compute facial metrics         |
-| events    | Normalize NDJSON → trials/events      |
-| nwb       | Assemble NWB file & provenance        |
-| qc        | Build HTML report from summaries      |
-| cli       | Typer CLI entry points                |
-| utils     | Shared primitives                     |
-| domain    | Shared typed domain models            |
+| Module    | Purpose                               | Status      |
+| --------- | ------------------------------------- | ----------- |
+| config    | Load & validate settings              | ✅ Complete |
+| ingest    | Discover assets, produce manifest     | ✅ Complete |
+| sync      | Generate timestamps, drift/drop stats | ✅ Complete |
+| transcode | Optional stable mezzanine videos      | ✅ Complete |
+| pose      | Import/harmonize pose outputs         | ✅ Complete |
+| facemap   | Import/compute facial metrics         | ✅ Complete |
+| events    | Normalize NDJSON → trials/events      | ✅ Complete |
+| nwb       | Assemble NWB file & provenance        | ✅ Complete |
+| qc        | Build HTML report from summaries      | 🔲 Planned  |
+| validate  | Run nwbinspector validation           | 🔲 Planned  |
+| cli       | Typer CLI entry points                | 🔲 Planned  |
+| utils     | Shared primitives                     | ✅ Complete |
+| domain    | Shared typed domain models            | ✅ Complete |
 
 ## Configuration Snippet (Example)
 
@@ -127,13 +132,31 @@ pytest -q
 - Pose confidence distributions reasonable
 - Trials table non-overlapping
 
-## Roadmap (Short-Term)
+## Roadmap
 
-- Implement config + ingest skeleton
-- Sync engine (TTL parser, drift & drop detection)
-- NWB assembly MVP (videos + timestamps)
-- Add pose + facemap import paths
-- QC report templating (sync only, then extend)
+### ✅ Completed (Phases 0-4)
+
+- [x] Configuration loading and validation (Phase 0)
+- [x] File discovery and manifest building (Phase 1)
+- [x] Timebase synchronization and alignment (Phase 2)
+- [x] Behavioral events from Bpod .mat files (Phase 3)
+- [x] Video transcoding to mezzanine format (Phase 3)
+- [x] Pose import and harmonization (DLC/SLEAP) (Phase 3)
+- [x] Facemap facial metrics computation (Phase 3)
+- [x] **NWB file assembly with pynwb** (Phase 4)
+  - Real pynwb Device and ImageSeries objects
+  - External video file links
+  - Rate-based timing (no per-frame timestamps)
+  - Provenance metadata embedding
+  - Security validations and deterministic output
+
+### 🔲 Planned (Phase 5+)
+
+- [ ] NWB validation with nwbinspector
+- [ ] QC HTML report generation
+- [ ] CLI interface with Typer
+- [ ] Optional modalities integration in NWB (pose, facemap, Bpod events)
+- [ ] Full end-to-end pipeline orchestration
 
 ## Out of Scope
 

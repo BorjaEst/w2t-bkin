@@ -2,7 +2,11 @@
 
 ## Overview
 
-The W2T Body Kinematics Pipeline is organized into 12 modular Python packages, each with well-defined responsibilities and minimal coupling. This documentation provides detailed information about each module's purpose, interfaces, and usage.
+The W2T Body Kinematics Pipeline i| transcode | 3 | ✅ Complete | transcode_video, compute_video_checksum | FR-4, NFR-2 |
+| pose | 3 | ✅ Complete | import_dlc_pose, import_sleap_pose, harmonize_dlc_to_canonical | FR-5 |
+| facemap | 3 | ✅ Complete | define_rois, compute_facemap_signals | FR-6 |
+| nwb | 4 | ✅ Complete | assemble_nwb, create_device, create_image_series | FR-7, NFR-6 |
+| validate | 5 | ❌ Not implemented | run_nwbinspector (planned) | FR-9 |anized into 12 modular Python packages, each with well-defined responsibilities and minimal coupling. This documentation provides detailed information about each module's purpose, interfaces, and usage.
 
 ## Module Architecture
 
@@ -63,7 +67,7 @@ Orchestration
 - [07-transcode](./07-transcode.md) - Video transcoding (to be documented)
 - [08-pose](./08-pose.md) - Pose estimation (to be documented)
 - [09-facemap](./09-facemap.md) - Facial metrics (to be documented)
-- [10-nwb](./10-nwb.md) - NWB assembly (to be documented)
+- [10-nwb](./10-nwb.md) - NWB assembly ✅
 - [11-validate](./11-validate.md) - NWB validation (not yet implemented)
 - [12-qc](./12-qc.md) - QC reporting (not yet implemented)
 - [13-cli](./13-cli.md) - Command-line interface (not yet implemented)
@@ -121,8 +125,15 @@ if session.bpod:
 # harmonized = harmonize_dlc_to_canonical(pose_data, mapping)
 # facemap_signals = compute_facemap_signals(video_path, rois)
 
-# 6. Assemble NWB (Phase 4 - not yet implemented)
-# nwb_path = nwb.assemble_nwb(manifest, cfg, bundles=[...])
+# 6. Assemble NWB (Phase 4 - implemented with pynwb)
+from w2t_bkin.nwb import assemble_nwb
+provenance = {
+    "config_hash": "abc123",
+    "session_hash": "def456",
+    "software": {"name": "w2t_bkin", "version": "0.1.0"},
+    "timebase": {"source": "nominal_rate"},
+}
+nwb_path = assemble_nwb(manifest, cfg, provenance=provenance, output_dir=Path("data/processed/Session-000001"))
 
 # 7. Validate and QC (Phase 5 - not yet implemented)
 # validate.run_nwbinspector(nwb_path)
@@ -148,6 +159,15 @@ Each module has comprehensive test coverage:
 - ✅ `test_transcode.py` - Video transcoding
 - ✅ `test_pose.py` - Pose import and harmonization
 - ✅ `test_facemap.py` - ROI and motion energy computation
+- ✅ `test_nwb.py` - NWB assembly with pynwb (18 tests)
+
+**Integration tests:**
+
+- ✅ `test_phase_0_foundation.py` - Configuration and utilities (13 tests)
+- ✅ `test_phase_1_ingest.py` - File discovery and manifest (10 tests)
+- ✅ `test_phase_2_sync.py` - Timebase and alignment (9 tests)
+- 🟡 `test_phase_3_optionals.py` - Events, pose, facemap (2/10 passing)
+- 🟡 `test_phase_4_nwb.py` - NWB assembly (5/10 passing)
 
 Run tests with:
 

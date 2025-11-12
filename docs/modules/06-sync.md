@@ -13,6 +13,7 @@ Provides timebase provider abstraction, mapping strategies for aligning derived 
 ### Timebase Provider
 
 An abstract interface for obtaining timestamps from different sources:
+
 - **NominalRateProvider**: Synthetic timestamps from nominal acquisition rate (e.g., 30 Hz)
 - **TTLProvider**: Real timestamps loaded from TTL pulse log files
 - **NeuropixelsProvider**: High-rate timestamps from DAQ/Neuropixels (stub implementation)
@@ -20,6 +21,7 @@ An abstract interface for obtaining timestamps from different sources:
 ### Mapping Strategies
 
 Methods for aligning sample times to reference timebase:
+
 - **nearest**: Maps each sample to the closest reference timestamp (simple, fast)
 - **linear**: Interpolates between bracketing reference timestamps (smoother, more accurate)
 
@@ -82,7 +84,7 @@ def map_nearest(sample_times: List[float], reference_times: List[float]) -> List
     """
 
 def map_linear(
-    sample_times: List[float], 
+    sample_times: List[float],
     reference_times: List[float]
 ) -> Tuple[List[Tuple[int, int]], List[Tuple[float, float]]]:
     """Map sample times using linear interpolation.
@@ -271,6 +273,7 @@ timestamps = provider.get_timestamps()  # n_samples ignored
 **File format:** One timestamp per line (float, in seconds).
 
 **Behavior:**
+
 - Loads all TTL files and concatenates timestamps
 - Sorts timestamps and applies offset
 - Raises SyncError if file not found or parse fails
@@ -314,6 +317,7 @@ except SyncError as e:
 ### Exception Types
 
 **SyncError (base):**
+
 - Invalid timebase source
 - Missing required configuration (ttl_id, neuropixels_stream)
 - TTL file not found or unparseable
@@ -321,6 +325,7 @@ except SyncError as e:
 - Invalid mapping strategy
 
 **JitterBudgetExceeded (extends SyncError):**
+
 - Max jitter exceeds configured budget
 - P95 jitter exceeds configured budget
 
@@ -468,11 +473,12 @@ timestamps = provider.get_timestamps(n_samples=30000)
 
 - **Timebase creation:** O(n) for TTL file loading, O(1) for nominal/neuropixels
 - **map_nearest:** O(n*m) naive, O(n*log(m)) with numpy (n=samples, m=reference)
-- **map_linear:** O(n*log(m)) with binary search (np.searchsorted)
+- **map_linear:** O(n\*log(m)) with binary search (np.searchsorted)
 - **Jitter computation:** O(n) over samples
 - **Memory:** TTLProvider loads all timestamps into memory (consider streaming for very long sessions)
 
 **Typical performance:**
+
 - Align 10,000 pose samples to 100,000 reference: ~50-100ms
 - Load TTL file with 100,000 pulses: ~100-200ms
 
@@ -485,6 +491,7 @@ Allows pipeline to support multiple timing sources without changing downstream c
 ### Why separate mapping strategies?
 
 Different use cases require different trade-offs:
+
 - **nearest**: Fast, simple, good for high-rate data where jitter < inter-sample interval
 - **linear**: More accurate for irregular sampling or when jitter matters
 
@@ -507,6 +514,7 @@ ImageSeries use rate-based timing (starting_time + rate) which is independent of
 ### Phase 0 (Foundation)
 
 Config module validates timebase settings:
+
 - `source` must be "nominal_rate", "ttl", or "neuropixels"
 - `ttl_id` required if source="ttl"
 - `neuropixels_stream` required if source="neuropixels"
@@ -539,6 +547,7 @@ aligned_pose = [pose_frames[i] for i in alignment['indices']]
 ### Phase 4 (NWB)
 
 NWB module:
+
 - Uses alignment indices to store aligned pose/facemap data
 - Writes alignment_stats.json sidecar
 - Records timebase source in provenance
