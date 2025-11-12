@@ -1,0 +1,28 @@
+{
+  "frames": [
+    {
+      "frame_idx": 0,
+      "instances": [
+        {
+          "nodes": [
+            {"name": "nose", "x": 100.5, "y": 200.3, "confidence": 0.96},
+            {"name": "leftear", "x": 80.2, "y": 180.1, "confidence": 0.94},
+            {"name": "rightear", "x": 120.8, "y": 180.5, "confidence": 0.95}
+          ]
+        }
+      ]
+    },
+    {
+      "frame_idx": 1,
+      "instances": [
+        {
+          "nodes": [
+            {"name": "nose", "x": 101.2, "y": 201.1, "confidence": 0.97},
+            {"name": "leftear", "x": 81.0, "y": 180.8, "confidence": 0.95},
+            {"name": "rightear", "x": 121.5, "y": 181.2, "confidence": 0.96}
+          ]
+        }
+      ]
+    }
+  ]
+}
