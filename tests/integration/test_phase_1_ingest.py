@@ -21,6 +21,280 @@ def _write_lines(path: Path, n: int) -> None:
             f.write("1\n")
 
 
+@pytest.mark.integration
+def test_real_session_001_end_to_end_ingest(
+    fixture_session_path,
+    fixture_session_toml,
+    minimal_config_dict,
+    tmp_work_dir,
+):
+    """Test complete ingest workflow with real Session-000001 data.
+
+    This is an end-to-end integration test using actual video files,
+    TTL files, and Bpod data from Session-000001.
+
+    Requirements: FR-1 (discovery), FR-2 (counting), FR-3 (verification)
+    """
+    from w2t_bkin.config import load_config, load_session
+    from w2t_bkin.domain import Config
+    from w2t_bkin.ingest import (
+        build_manifest,
+        count_ttl_pulses,
+        count_video_frames,
+        create_verification_summary,
+        verify_manifest,
+        write_verification_summary,
+    )
+
+    # Load session from real data
+    session = load_session(fixture_session_toml)
+
+    # Create config pointing to real data
+    config_dict = minimal_config_dict.copy()
+    config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)
+    config_dict["paths"]["output_root"] = str(tmp_work_dir / "processed")
+    config_dict["paths"]["intermediate_root"] = str(tmp_work_dir / "interim")
+    config = Config(**config_dict)
+
+    # Phase 1: Build manifest (FR-1 - Discovery)
+    manifest = build_manifest(config, session)
+
+    # Assertions on discovered files
+    assert manifest.session_id == "Session-000001"
+    assert len(manifest.cameras) == 2, "Should discover 2 cameras (cam0 top, cam1 pupil_left)"
+    assert len(manifest.ttls) == 3, "Should discover 3 TTL channels"
+    assert manifest.bpod_files is not None and len(manifest.bpod_files) > 0, "Should discover Bpod file"
+
+    # Verify camera discovery
+    camera_ids = {cam.camera_id for cam in manifest.cameras}
+    assert "cam0" in camera_ids
+    assert "cam1" in camera_ids
+
+    # Verify TTL discovery
+    ttl_ids = {ttl.ttl_id for ttl in manifest.ttls}
+    assert "ttl_hitmiss" in ttl_ids
+    assert "ttl_camera" in ttl_ids
+    assert "ttl_cue" in ttl_ids
+
+    # Verify each camera has video files
+    for cam in manifest.cameras:
+        assert len(cam.video_files) > 0, f"Camera {cam.camera_id} should have video files"
+        # Check files exist
+        for video_file in cam.video_files:
+            assert Path(video_file).exists(), f"Video file should exist: {video_file}"
+
+    # Verify TTL files exist
+    for ttl in manifest.ttls:
+        assert len(ttl.files) > 0, f"TTL {ttl.ttl_id} should have files"
+        for ttl_file in ttl.files:
+            assert Path(ttl_file).exists(), f"TTL file should exist: {ttl_file}"
+
+    # Phase 2: Count frames and pulses (FR-2)
+    for cam in manifest.cameras:
+        frame_count = count_video_frames(Path(cam.video_files[0]))
+        assert frame_count > 0, f"Camera {cam.camera_id} should have frames"
+
+        # Find corresponding TTL file
+        ttl_entry = next((t for t in manifest.ttls if t.ttl_id == cam.ttl_id), None)
+        if ttl_entry and ttl_entry.files:
+            ttl_count = count_ttl_pulses(Path(ttl_entry.files[0]))
+            assert ttl_count > 0, f"TTL {cam.ttl_id} should have pulses"
+
+    # Phase 3: Create verification summary
+    verification = create_verification_summary(manifest)
+    assert verification["session_id"] == manifest.session_id
+    assert len(verification["cameras"]) == len(manifest.cameras)
+
+    # Phase 4: Write verification summary (sidecar)
+    output_path = tmp_work_dir / "interim" / "verification_summary.json"
+    from w2t_bkin.domain import VerificationSummary
+
+    verification_model = VerificationSummary(**verification)
+    write_verification_summary(verification_model, output_path)
+
+    assert output_path.exists(), "Verification summary should be written"
+
+    # Read back and verify structure
+    with open(output_path, "r") as f:
+        data = json.load(f)
+
+    assert "session_id" in data
+    assert "cameras" in data
+    assert "generated_at" in data
+    assert isinstance(data["cameras"], list)
+
+    for cam_result in data["cameras"]:
+        assert "camera_id" in cam_result
+        assert "ttl_id" in cam_result
+        assert "frame_count" in cam_result
+        assert "ttl_pulse_count" in cam_result
+        assert "mismatch" in cam_result
+        assert "verifiable" in cam_result
+        assert "status" in cam_result
+
+
+@pytest.mark.integration
+@pytest.mark.xfail(reason="Bpod parsing needs to handle scipy.io mat_struct objects - implementation pending")
+def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_toml):
+    """Test Bpod file parsing with real Session-000001 data.
+
+    Requirements: FR-11 (Bpod parsing)
+    """
+    from w2t_bkin.config import load_session
+    from w2t_bkin.events import (
+        extract_behavioral_events,
+        extract_trials,
+        parse_bpod_mat,
+    )
+
+    session = load_session(fixture_session_toml)
+
+    # Find Bpod file
+    bpod_pattern = fixture_session_path / session.bpod.path
+    import glob
+
+    bpod_files = glob.glob(str(bpod_pattern))
+
+    assert len(bpod_files) > 0, "Should find at least one Bpod file"
+
+    bpod_file = Path(bpod_files[0])
+    assert bpod_file.exists(), "Bpod file should exist"
+
+    # Parse Bpod file
+    bpod_data = parse_bpod_mat(bpod_file)
+    assert bpod_data is not None, "Should successfully parse Bpod .mat file"
+
+    # Extract trials
+    trials = extract_trials(bpod_data)
+    assert len(trials) > 0, "Should extract trials from Bpod data"
+
+    # Verify trial structure
+    for trial in trials[:5]:  # Check first 5 trials
+        assert "trial_number" in trial
+        assert "start_time" in trial
+        assert "end_time" in trial
+        assert "outcome" in trial
+
+    # Extract behavioral events
+    events = extract_behavioral_events(bpod_data)
+    assert len(events) > 0, "Should extract behavioral events"
+
+    # Verify event structure
+    for event in events[:5]:
+        assert "event_type" in event
+        assert "timestamp" in event
+        assert "trial_number" in event
+
+
+@pytest.mark.integration
+def test_real_session_001_ttl_parsing(fixture_session_path, fixture_session_toml):
+    """Test TTL file parsing with real Session-000001 data.
+
+    Requirements: FR-1 (TTL discovery), FR-2 (TTL counting)
+    """
+    from w2t_bkin.config import load_session
+    from w2t_bkin.ingest import count_ttl_pulses
+
+    session = load_session(fixture_session_toml)
+
+    # Test each TTL channel
+    for ttl_config in session.TTLs:
+        ttl_pattern = fixture_session_path / ttl_config.paths
+        import glob
+
+        ttl_files = glob.glob(str(ttl_pattern))
+
+        assert len(ttl_files) > 0, f"Should find TTL files for {ttl_config.id}"
+
+        for ttl_file in ttl_files:
+            ttl_path = Path(ttl_file)
+            assert ttl_path.exists(), f"TTL file should exist: {ttl_path}"
+
+            # Count pulses
+            pulse_count = count_ttl_pulses(ttl_path)
+            assert pulse_count >= 0, f"Should count pulses in {ttl_path.name}"
+
+            # Verify file is readable
+            with open(ttl_path, "r") as f:
+                lines = f.readlines()
+                assert len(lines) == pulse_count, "Pulse count should match line count"
+
+
+@pytest.mark.integration
+def test_real_session_001_video_discovery(fixture_session_path, fixture_session_toml):
+    """Test video file discovery with real Session-000001 data.
+
+    Requirements: FR-1 (Video discovery)
+    """
+    import glob
+
+    from w2t_bkin.config import load_session
+
+    session = load_session(fixture_session_toml)
+
+    # Test each camera
+    for camera_config in session.cameras:
+        video_pattern = fixture_session_path / camera_config.paths
+        video_files = sorted(glob.glob(str(video_pattern)))
+
+        assert len(video_files) > 0, f"Should find video files for camera {camera_config.id}"
+
+        for video_file in video_files:
+            video_path = Path(video_file)
+            assert video_path.exists(), f"Video file should exist: {video_path}"
+            assert video_path.suffix == ".avi", "Video files should be .avi format"
+            assert video_path.stat().st_size > 0, "Video files should not be empty"
+
+
+@pytest.mark.integration
+def test_real_session_001_complete_manifest(
+    fixture_session_path,
+    fixture_session_toml,
+    minimal_config_dict,
+    expected_camera_count,
+    expected_ttl_count,
+    expected_bpod_file_count,
+):
+    """Test complete manifest building with all real Session-000001 components.
+
+    Requirements: FR-1 (Complete discovery workflow)
+    """
+    from w2t_bkin.config import load_session
+    from w2t_bkin.domain import Config
+    from w2t_bkin.ingest import build_manifest
+
+    session = load_session(fixture_session_toml)
+
+    config_dict = minimal_config_dict.copy()
+    config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)
+    config = Config(**config_dict)
+
+    manifest = build_manifest(config, session)
+
+    # Verify completeness
+    assert manifest.session_id == session.session.id
+    assert len(manifest.cameras) == expected_camera_count
+    assert len(manifest.ttls) == expected_ttl_count
+    assert len(manifest.bpod_files) == expected_bpod_file_count
+
+    # Verify all paths are absolute
+    for camera in manifest.cameras:
+        for video_file in camera.video_files:
+            assert Path(video_file).is_absolute(), "Video paths should be absolute"
+
+    for ttl in manifest.ttls:
+        for ttl_file in ttl.files:
+            assert Path(ttl_file).is_absolute(), "TTL paths should be absolute"
+
+    for bpod_file in manifest.bpod_files:
+        assert Path(bpod_file).is_absolute(), "Bpod paths should be absolute"
+
+
+# ===========================================================================
+# Synthetic data tests (for specific edge cases)
+# ===========================================================================
+
+
 def test_successful_ingest_and_verification(tmp_path):
     """Build a manifest, count frames/TTLs and verify successfully."""
     from w2t_bkin.config import compute_config_hash, load_config
