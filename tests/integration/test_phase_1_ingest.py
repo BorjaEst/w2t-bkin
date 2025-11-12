@@ -34,8 +34,6 @@ def test_real_session_001_end_to_end_ingest(
     from w2t_bkin.domain import Config, VerificationSummary
     from w2t_bkin.ingest import (
         build_manifest,
-        count_ttl_pulses,
-        count_video_frames,
         create_verification_summary,
         write_verification_summary,
     )
@@ -48,8 +46,8 @@ def test_real_session_001_end_to_end_ingest(
     config_dict["paths"]["intermediate_root"] = str(tmp_work_dir / "interim")
     config = Config(**config_dict)
 
-    # Phase 1: Discovery - Build manifest from session configuration
-    manifest = build_manifest(config, session)
+    # Phase 1: Discovery and Counting - Build manifest with frame/TTL counts
+    manifest = build_manifest(config, session, count_frames=True)
 
     assert manifest.session_id == "Session-000001"
     assert len(manifest.cameras) == 2, "Should discover 2 cameras"
@@ -66,21 +64,20 @@ def test_real_session_001_end_to_end_ingest(
     for ttl in manifest.ttls:
         assert all(Path(f).exists() for f in ttl.files), f"TTL {ttl.ttl_id} files missing"
 
-    # Phase 2: Counting - Populate manifest with frame/TTL counts
-    manifest_with_counts = _populate_manifest_with_counts(manifest, count_video_frames, count_ttl_pulses)
-
-    # Verify counts are positive
-    for cam in manifest_with_counts.cameras:
+    # Phase 2: Verify counts are populated and positive
+    for cam in manifest.cameras:
+        assert cam.frame_count is not None, f"Camera {cam.camera_id} should have frame_count"
+        assert cam.ttl_pulse_count is not None, f"Camera {cam.camera_id} should have ttl_pulse_count"
         assert cam.frame_count > 0, f"Camera {cam.camera_id} has no frames"
         assert cam.ttl_pulse_count > 0, f"Camera {cam.camera_id} has no TTL pulses"
 
     # Verify perfect synchronization (Session-000001 specific)
-    _assert_perfect_sync(manifest_with_counts.cameras, expected_frames=8580, expected_ttl_pulses=8580)
+    _assert_perfect_sync(manifest.cameras, expected_frames=8580, expected_ttl_pulses=8580)
 
     # Phase 3: Verification - Create verification summary
-    verification = create_verification_summary(manifest_with_counts)
+    verification = create_verification_summary(manifest)
 
-    assert verification["session_id"] == manifest_with_counts.session_id
+    assert verification["session_id"] == manifest.session_id
     assert len(verification["cameras"]) == 2
 
     for cam_result in verification["cameras"]:
@@ -258,18 +255,24 @@ def test_real_session_001_verification_with_real_mismatch(
     config = Config(**config_dict)
 
     # Build and populate manifest
-    manifest = build_manifest(config, session)
-    manifest_with_counts = _populate_manifest_with_counts(manifest, count_video_frames, count_ttl_pulses)
+    # Note: The old workflow used build_manifest without counting, then manually populated
+    # New approach: build_manifest now includes counting by default
+    manifest = build_manifest(config, session, count_frames=True)
+
+    # Verify counts are already populated (no need for _populate_manifest_with_counts)
+    for cam in manifest.cameras:
+        assert cam.frame_count is not None, f"Camera {cam.camera_id} should have frame_count"
+        assert cam.ttl_pulse_count is not None, f"Camera {cam.camera_id} should have ttl_pulse_count"
 
     # Verify perfect synchronization expectations
-    _assert_perfect_sync(manifest_with_counts.cameras, expected_frames=8580, expected_ttl_pulses=8580)
+    _assert_perfect_sync(manifest.cameras, expected_frames=8580, expected_ttl_pulses=8580)
 
     # Test 1: Strict tolerance (0) should PASS with perfect sync
-    result = verify_manifest(manifest_with_counts, tolerance=0, warn_on_mismatch=False)
+    result = verify_manifest(manifest, tolerance=0, warn_on_mismatch=False)
     assert result.status == "verified", "Perfect sync (mismatch=0) should pass with tolerance=0"
 
     # Test 2: Permissive tolerance should always PASS
-    result = verify_manifest(manifest_with_counts, tolerance=10000, warn_on_mismatch=False)
+    result = verify_manifest(manifest, tolerance=10000, warn_on_mismatch=False)
     assert result.status == "verified"
 
     # Test 3: Verify camera-level results
@@ -303,7 +306,8 @@ def test_real_session_001_complete_manifest(
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)
     config = Config(**config_dict)
 
-    manifest = build_manifest(config, session)
+    # Build manifest with full counting (default behavior)
+    manifest = build_manifest(config, session, count_frames=True)
 
     # Verify completeness
     assert manifest.session_id == session.session.id
@@ -373,26 +377,18 @@ def test_successful_ingest_and_verification(tmp_path):
     video_file1 = video_dir1 / "cam1_001.avi"
     video_file1.write_bytes(b"")  # Empty file - will be handled specially
 
-    # Create TTL files with 1000 pulses
+    # Create TTL files with 1000 pulses (must match glob pattern in valid_session.toml)
     ttl_dir = session_dir / "TTLs"
-    ttl_file = ttl_dir / "sync_xa_7_0.txt"
+    ttl_file = ttl_dir / "test_nidq.xa_7_0_sync.txt"
     _write_lines(ttl_file, 1000)
 
-    # Build manifest
-    manifest0 = build_manifest(config, session)
+    # Build manifest with automatic counting (counts empty videos as 0 frames, TTLs as 1000)
+    manifest = build_manifest(config, session, count_frames=True)
 
-    # Fill counts into new manifest instance
-    cameras_filled = []
-    for cam in manifest0.cameras:
-        # Empty files will return 0 frames (handled by count_video_frames)
-        fc = count_video_frames(Path(cam.video_files[0]))
-        # find ttl file for this ttl_id
-        ttl_entry = next((t for t in manifest0.ttls if t.ttl_id == cam.ttl_id), None)
-        ttl_path = Path(ttl_entry.files[0]) if ttl_entry and ttl_entry.files else ttl_file
-        tc = count_ttl_pulses(ttl_path)
-        cameras_filled.append(ManifestCamera(camera_id=cam.camera_id, ttl_id=cam.ttl_id, video_files=cam.video_files, frame_count=fc, ttl_pulse_count=tc))
-
-    manifest = Manifest(session_id=manifest0.session_id, cameras=cameras_filled, ttls=manifest0.ttls, bpod_files=manifest0.bpod_files)
+    # Verify counts are populated
+    for cam in manifest.cameras:
+        assert cam.frame_count is not None, f"Camera {cam.camera_id} should have frame_count"
+        assert cam.ttl_pulse_count is not None, f"Camera {cam.camera_id} should have ttl_pulse_count"
 
     # Verify (tolerance is 2 in fixture config)
     # Since empty videos return 0 frames and TTL has 1000 pulses, mismatch = 1000
@@ -439,18 +435,17 @@ def test_abort_on_mismatch_exceeds_tolerance(tmp_path):
 
     ttl_dir = session_dir / "TTLs"
     ttl_dir.mkdir(parents=True, exist_ok=True)
-    # Create TTL file with 900 pulses
-    ttl_file = ttl_dir / "sync_xa_7_0.txt"
+    # Create TTL file with 900 pulses (must match glob pattern in valid_session.toml)
+    ttl_file = ttl_dir / "test_nidq.xa_7_0_sync.txt"
     _write_lines(ttl_file, 900)
 
-    manifest0 = build_manifest(config, session)
+    # Build manifest with automatic counting (empty videos = 0 frames, TTL = 900 pulses)
+    manifest = build_manifest(config, session, count_frames=True)
 
-    cameras_filled = []
-    for cam in manifest0.cameras:
-        # Empty files -> 0 frames, TTL has 900 -> mismatch = 900
-        cameras_filled.append(ManifestCamera(camera_id=cam.camera_id, ttl_id=cam.ttl_id, video_files=cam.video_files, frame_count=0, ttl_pulse_count=900))
-
-    manifest = Manifest(session_id=manifest0.session_id, cameras=cameras_filled, ttls=manifest0.ttls, bpod_files=manifest0.bpod_files)
+    # Verify mismatch is large (900) for empty videos vs 900 TTL pulses
+    for cam in manifest.cameras:
+        assert cam.frame_count == 0, "Empty video should have 0 frames"
+        assert cam.ttl_pulse_count == 900, "TTL should have 900 pulses"
 
     # Use tolerance smaller than mismatch (e.g., tolerance 50, mismatch 900)
     with pytest.raises(__import__("w2t_bkin.ingest", fromlist=["VerificationError"]).VerificationError):
@@ -481,18 +476,17 @@ def test_warn_on_mismatch_within_tolerance(tmp_path, caplog):
 
     ttl_dir = session_dir / "TTLs"
     ttl_dir.mkdir(parents=True, exist_ok=True)
-    # Create TTL file with 995 pulses (mismatch = 995 since empty video = 0 frames)
-    ttl_file = ttl_dir / "sync_xa_7_0.txt"
+    # Create TTL file with 995 pulses (must match glob pattern in valid_session.toml)
+    ttl_file = ttl_dir / "test_nidq.xa_7_0_sync.txt"
     _write_lines(ttl_file, 995)
 
-    manifest0 = build_manifest(config, session)
+    # Build manifest with automatic counting (empty videos = 0 frames, TTL = 995 pulses)
+    manifest = build_manifest(config, session, count_frames=True)
 
-    cameras_filled = []
-    for cam in manifest0.cameras:
-        # Empty files -> 0 frames, TTL has 995 -> mismatch = 995
-        cameras_filled.append(ManifestCamera(camera_id=cam.camera_id, ttl_id=cam.ttl_id, video_files=cam.video_files, frame_count=0, ttl_pulse_count=995))
-
-    manifest = Manifest(session_id=manifest0.session_id, cameras=cameras_filled, ttls=manifest0.ttls, bpod_files=manifest0.bpod_files)
+    # Verify mismatch is 995 for each camera
+    for cam in manifest.cameras:
+        assert cam.frame_count == 0, "Empty video should have 0 frames"
+        assert cam.ttl_pulse_count == 995, "TTL should have 995 pulses"
 
     caplog.clear()
     caplog.set_level("WARNING")
@@ -532,45 +526,6 @@ def _write_lines(path: Path, n: int) -> None:
     with open(path, "w") as f:
         for _ in range(n):
             f.write("1\n")
-
-
-def _populate_manifest_with_counts(manifest, count_video_frames, count_ttl_pulses):
-    """Helper: Populate manifest cameras with frame and TTL counts.
-
-    Args:
-        manifest: Manifest with discovered files
-        count_video_frames: Function to count video frames
-        count_ttl_pulses: Function to count TTL pulses
-
-    Returns:
-        New Manifest with populated frame_count and ttl_pulse_count
-    """
-    from w2t_bkin.domain import Manifest, ManifestCamera
-
-    cameras_with_counts = []
-    for cam in manifest.cameras:
-        frame_count = count_video_frames(Path(cam.video_files[0]))
-
-        # Find corresponding TTL file
-        ttl_entry = next((t for t in manifest.ttls if t.ttl_id == cam.ttl_id), None)
-        ttl_count = count_ttl_pulses(Path(ttl_entry.files[0])) if ttl_entry and ttl_entry.files else 0
-
-        cameras_with_counts.append(
-            ManifestCamera(
-                camera_id=cam.camera_id,
-                ttl_id=cam.ttl_id,
-                video_files=cam.video_files,
-                frame_count=frame_count,
-                ttl_pulse_count=ttl_count,
-            )
-        )
-
-    return Manifest(
-        session_id=manifest.session_id,
-        cameras=cameras_with_counts,
-        ttls=manifest.ttls,
-        bpod_files=manifest.bpod_files,
-    )
 
 
 def _assert_perfect_sync(cameras: List, expected_frames: int = 8580, expected_ttl_pulses: int = 8580):
