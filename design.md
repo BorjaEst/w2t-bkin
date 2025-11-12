@@ -71,15 +71,132 @@ Principles:
 
 ## Sidecar Schemas (summary)
 
-verification_summary.json: { session_id, cameras:[{camera_id, ttl_id|null, frame_count, ttl_pulse_count, mismatch, verifiable, status}], generated_at }
-alignment_stats.json: { timebase_source, mapping, offset_s, max_jitter_s, p95_jitter_s, aligned_samples }
-provenance.json: { config_hash, session_hash, software:{...}, git:{...}, timebase:{source,mapping,offset_s}, created_at }
-validation_report.json: nwbinspector structured output (no critical issues required)
+**verification_summary.json:**
+
+```json
+{
+  "session_id": "string",
+  "cameras": [
+    {
+      "camera_id": "string",
+      "ttl_id": "string | null",
+      "frame_count": "int",
+      "ttl_pulse_count": "int",
+      "mismatch": "int",
+      "verifiable": "bool",
+      "status": "string"
+    }
+  ],
+  "generated_at": "ISO8601 timestamp"
+}
+```
+
+**alignment_stats.json:**
+
+```json
+{
+  "timebase_source": "nominal_rate | ttl | neuropixels",
+  "mapping": "nearest | linear",
+  "offset_s": "float",
+  "max_jitter_s": "float",
+  "p95_jitter_s": "float",
+  "aligned_samples": "int"
+}
+```
+
+**provenance.json:**
+
+```json
+{
+  "config_hash": "SHA256 hash",
+  "session_hash": "SHA256 hash",
+  "software": {
+    "name": "w2t_bkin",
+    "version": "string",
+    "python_version": "string",
+    "dependencies": {
+      "pynwb": "version",
+      "opencv": "version",
+      "ffmpeg": "version"
+    }
+  },
+  "git": {
+    "commit": "SHA hash",
+    "branch": "string",
+    "dirty": "bool",
+    "remote": "URL"
+  },
+  "timebase": {
+    "source": "nominal_rate | ttl | neuropixels",
+    "mapping": "nearest | linear",
+    "offset_s": "float",
+    "ttl_id": "string (if source=ttl)",
+    "neuropixels_stream": "string (if source=neuropixels)"
+  },
+  "created_at": "ISO8601 timestamp"
+}
+```
+
+**validation_report.json:**
+
+```json
+{
+  "nwbinspector_version": "string",
+  "nwb_file": "path",
+  "timestamp": "ISO8601",
+  "messages": [
+    {
+      "severity": "critical | error | warning | info",
+      "message": "string",
+      "location": "string"
+    }
+  ],
+  "summary": {
+    "critical": "int",
+    "errors": "int",
+    "warnings": "int"
+  }
+}
+```
 
 ## Error Taxonomy
 
 Codes: CONFIG_MISSING_KEY, CONFIG_EXTRA_KEY, SESSION_MISSING_KEY, SESSION_EXTRA_KEY, CAMERA_UNVERIFIABLE, MISMATCH_EXCEEDS_TOLERANCE, JITTER_EXCEEDS_BUDGET, PROVIDER_RESOURCE_MISSING, DERIVED_COUNT_MISMATCH, EXTERNAL_TOOL_ERROR.
 Shape: { error_code, message, context:{...}, hint, stage }.
+
+### Exception Hierarchy
+
+```python
+W2TError(Exception)
+├── ConfigError
+│   ├── ConfigMissingKeyError
+│   ├── ConfigExtraKeyError
+│   └── ConfigValidationError
+├── SessionError
+│   ├── SessionMissingKeyError
+│   ├── SessionExtraKeyError
+│   └── SessionValidationError
+├── IngestError
+│   ├── FileNotFoundError
+│   └── VerificationError
+│       └── MismatchExceedsToleranceError
+├── SyncError
+│   ├── TimebaseProviderError
+│   ├── JitterExceedsBudgetError
+│   └── AlignmentError
+├── EventsError
+│   └── BpodParseError
+├── TranscodeError
+├── PoseError
+├── FacemapError
+├── NWBError
+│   └── ExternalToolError
+├── ValidationError (nwbinspector)
+└── QCError
+```
+
+Base `W2TError` includes structured fields: `error_code`, `message`, `context` (dict), `hint` (str), `stage` (str).
+Module-specific errors (IngestError, SyncError, etc.) inherit from W2TError and add domain-specific context.
 
 ## Timebase Strategy (Reference Only)
 
@@ -140,28 +257,49 @@ Entry points: `w2t_bkin.pose_plugins`, `w2t_bkin.facemap_plugins`. Failures isol
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Ingest
+  [*] --> LoadConfig
+  LoadConfig --> Ingest: Config + Session validated
   Ingest --> Verify
+
   Verify --> Abort: mismatch > tolerance
-  Verify --> Proceed: mismatch <= tolerance
-  Proceed --> Optionals
-  state Optionals {
-    [*] --> Transcode
-    [*] --> Pose
-    [*] --> Facemap
-    [*] --> Events
-    Transcode --> [*]
-    Pose --> [*]
-    Facemap --> [*]
-    Events --> [*]
+  Verify --> CheckOptionals: mismatch <= tolerance
+
+  state CheckOptionals {
+    [*] --> CheckTranscode
+    CheckTranscode --> Transcode: enabled
+    CheckTranscode --> CheckEvents: disabled
+    Transcode --> CheckEvents
+
+    CheckEvents --> ParseBpod: bpod.parse=true
+    CheckEvents --> Sync: bpod.parse=false
+    ParseBpod --> Sync
   }
-  Optionals --> Sync: video-derived
-  Optionals --> NWB: events direct
-  Sync --> NWB
+
+  CheckOptionals --> Sync: video-derived data ready
+
+  Sync --> CheckPose: alignment complete
+
+  state CheckPose {
+    [*] --> ImportPose: pose files exist
+    [*] --> CheckFacemap: no pose files
+    ImportPose --> CheckFacemap
+  }
+
+  CheckPose --> CheckFacemap: pose aligned
+
+  state CheckFacemap {
+    [*] --> ComputeFacemap: enabled
+    [*] --> AssembleNWB: disabled
+    ComputeFacemap --> AssembleNWB
+  }
+
+  CheckFacemap --> NWB: all optional data processed
+
   NWB --> Validate
   Validate --> QC
-  QC --> [*]
-  Abort --> [*]
+  QC --> [*]: pipeline complete
+
+  Abort --> [*]: validation failed
 ```
 
 ```mermaid
@@ -170,47 +308,73 @@ sequenceDiagram
   participant config
   participant ingest
   participant verify
-  participant sync
   participant events
+  participant sync
   participant pose
   participant facemap
   participant nwb
   participant validate
   participant qc
 
-  CLI->>config: load_config()
-  config-->>CLI: Config + Session
-  CLI->>ingest: build_manifest()
-  ingest-->>CLI: manifest.json
-  CLI->>verify: verify_counts()
-  verify-->>CLI: verification_summary
+  Note over CLI: Pipeline orchestration
+  CLI->>config: load_config(config.toml)
+  config-->>CLI: Config
+  CLI->>config: load_session(session.toml)
+  config-->>CLI: Session
+
+  Note over CLI,ingest: Phase 1: Ingest + Verify
+  CLI->>ingest: build_manifest(Config, Session)
+  ingest-->>CLI: Manifest
+  CLI->>verify: verify_manifest(Manifest, Config)
+  verify-->>CLI: VerificationResult
+
   alt mismatch > tolerance
-    CLI->>CLI: abort
+    verify-->>CLI: VerificationError
+    CLI->>CLI: abort with diagnostic
   else mismatch <= tolerance
-    opt Bpod enabled
-      CLI->>events: parse_bpod()
-      events-->>CLI: Trials/Events
+    verify-->>CLI: VerificationSummary (success)
+
+    Note over CLI,events: Optional: Bpod parsing
+    opt bpod.parse == true
+      CLI->>events: parse_bpod_files(Session)
+      events-->>CLI: BpodSummary
     end
-    opt transcode enabled
-      CLI->>CLI: transcode videos
+
+    Note over CLI,sync: Phase 2: Timebase + Alignment
+    CLI->>sync: make_timebase(Config)
+    sync-->>CLI: TimebaseProvider
+    CLI->>sync: align_manifest(Manifest, Timebase)
+    sync-->>CLI: AlignmentStats
+
+    alt jitter > budget
+      sync-->>CLI: JitterExceedsBudgetError
+      CLI->>CLI: abort
     end
-    CLI->>sync: make_timebase() + align()
-    sync-->>CLI: alignment_stats
-    opt pose available
-      CLI->>pose: import_pose()
+
+    Note over CLI,facemap: Phase 3: Optional Modalities
+    opt pose files available
+      CLI->>pose: import_pose(Manifest, Timebase)
       pose-->>CLI: PoseBundle (aligned)
     end
-    opt facemap available
-      CLI->>facemap: compute_facemap()
+
+    opt facemap enabled
+      CLI->>facemap: compute_facemap(Manifest, Timebase)
       facemap-->>CLI: FacemapBundle (aligned)
     end
-    CLI->>nwb: assemble_nwb()
-    nwb-->>CLI: NWB file
-    CLI->>validate: run_nwbinspector()
-    validate-->>CLI: validation_report
-    CLI->>qc: render_qc()
-    qc-->>CLI: QC HTML
+
+    Note over CLI,nwb: Phase 4: NWB Assembly
+    CLI->>nwb: assemble_nwb(Manifest, Bundles, Provenance)
+    nwb-->>CLI: NWB file path
+
+    Note over CLI,qc: Phase 5: Validation + QC
+    CLI->>validate: run_nwbinspector(NWB)
+    validate-->>CLI: ValidationReport
+
+    CLI->>qc: render_qc(NWB, Summaries)
+    qc-->>CLI: QC HTML path
   end
+
+  Note over CLI: Pipeline complete
 ```
 
 ## Provenance (Determinism)
