@@ -85,17 +85,35 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
 
     session_data = data["SessionData"]
 
+    # Handle scipy.io mat_struct objects
+    if hasattr(session_data, "__dict__"):
+        session_data_dict = {k: v for k, v in session_data.__dict__.items() if not k.startswith("_")}
+    elif isinstance(session_data, dict):
+        session_data_dict = session_data
+    else:
+        return False
+
     # Check for required fields
     required_fields = ["nTrials", "TrialStartTimestamp", "TrialEndTimestamp"]
     for field in required_fields:
-        if field not in session_data:
+        if field not in session_data_dict:
             return False
 
     # Check for RawEvents structure
-    if "RawEvents" not in session_data:
+    if "RawEvents" not in session_data_dict:
         return False
 
-    if "Trial" not in session_data["RawEvents"]:
+    raw_events = session_data_dict["RawEvents"]
+
+    # Handle mat_struct for RawEvents
+    if hasattr(raw_events, "__dict__"):
+        raw_events_dict = {k: v for k, v in raw_events.__dict__.items() if not k.startswith("_")}
+    elif isinstance(raw_events, dict):
+        raw_events_dict = raw_events
+    else:
+        return False
+
+    if "Trial" not in raw_events_dict:
         return False
 
     return True
@@ -135,25 +153,35 @@ def extract_trials(data: Dict[str, Any]) -> List[TrialData]:
         raise BpodParseError("Invalid Bpod structure")
 
     session_data = data["SessionData"]
-    n_trials = session_data["nTrials"]
+
+    # Convert mat_struct to dict if needed
+    if hasattr(session_data, "__dict__"):
+        session_data_dict = {k: v for k, v in session_data.__dict__.items() if not k.startswith("_")}
+    else:
+        session_data_dict = session_data if isinstance(session_data, dict) else {}
+
+    n_trials = int(session_data_dict["nTrials"])
 
     if n_trials == 0:
         return []
 
-    start_timestamps = session_data["TrialStartTimestamp"]
-    end_timestamps = session_data["TrialEndTimestamp"]
-    raw_events = session_data["RawEvents"]
+    start_timestamps = session_data_dict["TrialStartTimestamp"]
+    end_timestamps = session_data_dict["TrialEndTimestamp"]
+    raw_events = session_data_dict["RawEvents"]
 
-    if not isinstance(start_timestamps, (list, tuple)):
-        start_timestamps = [start_timestamps]
-    if not isinstance(end_timestamps, (list, tuple)):
-        end_timestamps = [end_timestamps]
+    # Convert RawEvents mat_struct to dict if needed
+    if hasattr(raw_events, "__dict__"):
+        raw_events_dict = {k: v for k, v in raw_events.__dict__.items() if not k.startswith("_")}
+    else:
+        raw_events_dict = raw_events if isinstance(raw_events, dict) else {}
+
+    # Note: start_timestamps and end_timestamps are already numpy arrays or lists
+    # Don't wrap them - they can be indexed directly
 
     trials = []
-    trial_data_list = raw_events["Trial"]
+    trial_data_list = raw_events_dict["Trial"]
 
-    if not isinstance(trial_data_list, (list, tuple)):
-        trial_data_list = [trial_data_list]
+    # Note: trial_data_list is already a numpy array or list - don't wrap it
 
     for i in range(n_trials):
         try:
@@ -164,10 +192,12 @@ def extract_trials(data: Dict[str, Any]) -> List[TrialData]:
             trial_data = trial_data_list[i]
 
             # Extract states - handle both dict and MATLAB struct
-            if isinstance(trial_data, dict):
+            if hasattr(trial_data, "States"):
+                states = trial_data.States
+            elif isinstance(trial_data, dict):
                 states = trial_data.get("States", {})
             else:
-                states = trial_data.States if hasattr(trial_data, "States") else {}
+                states = {}
 
             # Convert MATLAB struct to dict if needed
             if hasattr(states, "__dict__"):
@@ -193,16 +223,29 @@ def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
         return []
 
     session_data = data["SessionData"]
-    n_trials = session_data["nTrials"]
+
+    # Convert mat_struct to dict if needed
+    if hasattr(session_data, "__dict__"):
+        session_data_dict = {k: v for k, v in session_data.__dict__.items() if not k.startswith("_")}
+    else:
+        session_data_dict = session_data if isinstance(session_data, dict) else {}
+
+    n_trials = int(session_data_dict["nTrials"])
 
     if n_trials == 0:
         return []
 
-    raw_events = session_data["RawEvents"]
-    trial_data_list = raw_events["Trial"]
+    raw_events = session_data_dict["RawEvents"]
 
-    if not isinstance(trial_data_list, (list, tuple)):
-        trial_data_list = [trial_data_list]
+    # Convert RawEvents mat_struct to dict if needed
+    if hasattr(raw_events, "__dict__"):
+        raw_events_dict = {k: v for k, v in raw_events.__dict__.items() if not k.startswith("_")}
+    else:
+        raw_events_dict = raw_events if isinstance(raw_events, dict) else {}
+
+    trial_data_list = raw_events_dict["Trial"]
+
+    # Note: trial_data_list is already a numpy array or list - don't wrap it
 
     events = []
 
@@ -211,10 +254,12 @@ def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
         trial_data = trial_data_list[i]
 
         # Extract events - handle both dict and MATLAB struct
-        if isinstance(trial_data, dict):
+        if hasattr(trial_data, "Events"):
+            trial_events = trial_data.Events
+        elif isinstance(trial_data, dict):
             trial_events = trial_data.get("Events", {})
         else:
-            trial_events = trial_data.Events if hasattr(trial_data, "Events") else {}
+            trial_events = {}
 
         # Convert MATLAB struct to dict if needed
         if hasattr(trial_events, "__dict__"):

@@ -111,7 +111,6 @@ def test_real_session_001_end_to_end_ingest(
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(reason="Bpod parsing needs to handle scipy.io mat_struct objects - implementation pending")
 def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_toml):
     """Test Bpod file parsing with real Session-000001 data.
 
@@ -145,22 +144,28 @@ def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_tom
     trials = extract_trials(bpod_data)
     assert len(trials) > 0, "Should extract trials from Bpod data"
 
-    # Verify trial structure
+    # Verify trial structure (TrialData dataclass instances)
     for trial in trials[:5]:  # Check first 5 trials
-        assert "trial_number" in trial
-        assert "start_time" in trial
-        assert "end_time" in trial
-        assert "outcome" in trial
+        assert hasattr(trial, "trial_number")
+        assert hasattr(trial, "start_time")
+        assert hasattr(trial, "stop_time")  # Note: attribute is stop_time, not end_time
+        assert hasattr(trial, "outcome")
+        assert isinstance(trial.trial_number, int)
+        assert isinstance(trial.start_time, (int, float))
+        assert isinstance(trial.stop_time, (int, float))
 
     # Extract behavioral events
     events = extract_behavioral_events(bpod_data)
     assert len(events) > 0, "Should extract behavioral events"
 
-    # Verify event structure
+    # Verify event structure (BehavioralEvent dataclass instances)
     for event in events[:5]:
-        assert "event_type" in event
-        assert "timestamp" in event
-        assert "trial_number" in event
+        assert hasattr(event, "event_type")
+        assert hasattr(event, "timestamp")
+        assert hasattr(event, "trial_number")
+        assert isinstance(event.event_type, str)
+        assert isinstance(event.timestamp, (int, float))
+        assert isinstance(event.trial_number, int)
 
 
 @pytest.mark.integration
