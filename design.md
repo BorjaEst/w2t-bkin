@@ -35,9 +35,11 @@ flowchart LR
   OPT --> TRN[transcode]
   OPT --> POS[pose]
   OPT --> FAC[facemap]
+  OPT --> EVT[events/bpod]
   TRN --> SYN
   POS --> SYN
   FAC --> SYN
+  EVT --> NWB
   NWB --> VAL[validate]
   VAL --> QC[qc report]
 ```
@@ -137,33 +139,78 @@ Entry points: `w2t_bkin.pose_plugins`, `w2t_bkin.facemap_plugins`. Failures isol
 ## Sequence & State (Minimal)
 
 ```mermaid
-stateDiagram
+stateDiagram-v2
   [*] --> Ingest
   Ingest --> Verify
   Verify --> Abort: mismatch > tolerance
   Verify --> Proceed: mismatch <= tolerance
-  Proceed --> Optional
-  Optional --> Sync
+  Proceed --> Optionals
+  state Optionals {
+    [*] --> Transcode
+    [*] --> Pose
+    [*] --> Facemap
+    [*] --> Events
+    Transcode --> [*]
+    Pose --> [*]
+    Facemap --> [*]
+    Events --> [*]
+  }
+  Optionals --> Sync: video-derived
+  Optionals --> NWB: events direct
   Sync --> NWB
   NWB --> Validate
   Validate --> QC
+  QC --> [*]
   Abort --> [*]
 ```
 
 ```mermaid
 sequenceDiagram
   participant CLI
+  participant config
+  participant ingest
+  participant verify
+  participant sync
+  participant events
+  participant pose
+  participant facemap
+  participant nwb
+  participant validate
+  participant qc
+
   CLI->>config: load_config()
+  config-->>CLI: Config + Session
   CLI->>ingest: build_manifest()
-  ingest->>verify: counts()
-  verify-->>CLI: mismatch_summary
-  CLI->>sync: make_timebase()+align()
-  CLI->>pose: import_pose() (opt)
-  CLI->>facemap: compute_facemap() (opt)
-  CLI->>nwb: assemble_nwb()
-  nwb->>validate: run_nwbinspector()
-  validate-->>CLI: validation_report
-  CLI->>qc: render_qc()
+  ingest-->>CLI: manifest.json
+  CLI->>verify: verify_counts()
+  verify-->>CLI: verification_summary
+  alt mismatch > tolerance
+    CLI->>CLI: abort
+  else mismatch <= tolerance
+    opt Bpod enabled
+      CLI->>events: parse_bpod()
+      events-->>CLI: Trials/Events
+    end
+    opt transcode enabled
+      CLI->>CLI: transcode videos
+    end
+    CLI->>sync: make_timebase() + align()
+    sync-->>CLI: alignment_stats
+    opt pose available
+      CLI->>pose: import_pose()
+      pose-->>CLI: PoseBundle (aligned)
+    end
+    opt facemap available
+      CLI->>facemap: compute_facemap()
+      facemap-->>CLI: FacemapBundle (aligned)
+    end
+    CLI->>nwb: assemble_nwb()
+    nwb-->>CLI: NWB file
+    CLI->>validate: run_nwbinspector()
+    validate-->>CLI: validation_report
+    CLI->>qc: render_qc()
+    qc-->>CLI: QC HTML
+  end
 ```
 
 ## Provenance (Determinism)
