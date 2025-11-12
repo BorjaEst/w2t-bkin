@@ -232,7 +232,7 @@ def _validate_camera_ttl_references(data: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     """Usage examples demonstrating config loading, validation, and hashing.
-    
+
     This example demonstrates:
     1. Loading and validating config.toml
     2. Loading and validating session.toml
@@ -248,22 +248,22 @@ if __name__ == "__main__":
     print("=" * 70)
     print("Example 1: Loading and validating config.toml")
     print("=" * 70)
-    
+
     try:
-        config_path = Path("configs/config.toml")
+        config_path = Path("tests/fixtures/configs/valid_config.toml")
         config = load_config(config_path)
-        
+
         print(f"✓ Config loaded successfully from: {config_path}")
         print(f"  Project name: {config.project.name}")
         print(f"  Timebase source: {config.timebase.source}")
         print(f"  Timebase mapping: {config.timebase.mapping}")
         print(f"  Jitter budget: {config.timebase.jitter_budget_s}s")
         print(f"  Logging level: {config.logging.level}")
-        
+
         # Compute and display config hash for reproducibility
         config_hash = compute_config_hash(config)
         print(f"  Config hash: {config_hash[:16]}... (SHA256)")
-        
+
     except FileNotFoundError as e:
         print(f"✗ Error: {e}")
         print("  Hint: Run from project root or provide correct path")
@@ -273,18 +273,18 @@ if __name__ == "__main__":
             print(f"  - {error['loc']}: {error['msg']}")
     except ValueError as e:
         print(f"✗ Configuration error: {e}")
-    
+
     print()
-    
+
     # Example 2: Load and validate session.toml
     print("=" * 70)
     print("Example 2: Loading and validating session.toml")
     print("=" * 70)
-    
+
     try:
-        session_path = Path("data/raw/Session-000001/session.toml")
+        session_path = Path("tests/fixtures/data/raw/Session-000001/session.toml")
         session = load_session(session_path)
-        
+
         print(f"✓ Session loaded successfully from: {session_path}")
         print(f"  Session ID: {session.session.id}")
         print(f"  Subject ID: {session.session.subject_id}")
@@ -292,23 +292,23 @@ if __name__ == "__main__":
         print(f"  Experimenter: {session.session.experimenter}")
         print(f"  Number of TTLs: {len(session.TTLs)}")
         print(f"  Number of cameras: {len(session.cameras)}")
-        
+
         # Display TTL and camera details
         if session.TTLs:
             print(f"\n  TTLs:")
             for ttl in session.TTLs:
                 print(f"    - {ttl.id}: {ttl.description}")
-        
+
         if session.cameras:
             print(f"\n  Cameras:")
             for camera in session.cameras:
                 ttl_ref = f" (TTL: {camera.ttl_id})" if camera.ttl_id else ""
                 print(f"    - {camera.id}: {camera.description}{ttl_ref}")
-        
+
         # Compute and display session hash for reproducibility
         session_hash = compute_session_hash(session)
         print(f"\n  Session hash: {session_hash[:16]}... (SHA256)")
-        
+
     except FileNotFoundError as e:
         print(f"✗ Error: {e}")
         print("  Hint: Ensure session directory exists with session.toml")
@@ -316,14 +316,14 @@ if __name__ == "__main__":
         print(f"✗ Validation failed:")
         for error in e.errors():
             print(f"  - {error['loc']}: {error['msg']}")
-    
+
     print()
-    
+
     # Example 3: Demonstrate validation errors
     print("=" * 70)
     print("Example 3: Handling validation errors")
     print("=" * 70)
-    
+
     print("\n3a. Invalid timebase.source enum value:")
     try:
         invalid_data = {
@@ -333,20 +333,16 @@ if __name__ == "__main__":
                 "intermediate_root": "data/interim",
                 "output_root": "data/processed",
                 "metadata_file": "session.toml",
-                "models_root": "models"
+                "models_root": "models",
             },
-            "timebase": {
-                "source": "invalid_source",  # Invalid enum
-                "mapping": "nearest",
-                "jitter_budget_s": 0.01
-            }
+            "timebase": {"source": "invalid_source", "mapping": "nearest", "jitter_budget_s": 0.01},  # Invalid enum
         }
         _validate_config_enums(invalid_data)
         print("  ✗ This should have failed validation!")
     except ValueError as e:
         print(f"  ✓ Correctly caught validation error:")
         print(f"    {e}")
-    
+
     print("\n3b. Missing conditional requirement (ttl_id for source='ttl'):")
     try:
         invalid_data = {
@@ -356,38 +352,31 @@ if __name__ == "__main__":
                 "intermediate_root": "data/interim",
                 "output_root": "data/processed",
                 "metadata_file": "session.toml",
-                "models_root": "models"
+                "models_root": "models",
             },
             "timebase": {
                 "source": "ttl",  # Requires ttl_id
                 "mapping": "nearest",
-                "jitter_budget_s": 0.01
+                "jitter_budget_s": 0.01,
                 # Missing: ttl_id
-            }
+            },
         }
         _validate_config_conditionals(invalid_data)
         print("  ✗ This should have failed conditional validation!")
     except ValueError as e:
         print(f"  ✓ Correctly caught conditional validation error:")
         print(f"    {e}")
-    
+
     print("\n3c. Negative jitter_budget_s:")
     try:
-        invalid_data = {
-            "timebase": {
-                "source": "nominal_rate",
-                "mapping": "nearest",
-                "jitter_budget_s": -0.01  # Invalid: must be >= 0
-            }
-        }
+        invalid_data = {"timebase": {"source": "nominal_rate", "mapping": "nearest", "jitter_budget_s": -0.01}}  # Invalid: must be >= 0
         _validate_config_enums(invalid_data)
         print("  ✗ This should have failed validation!")
     except ValueError as e:
         print(f"  ✓ Correctly caught validation error:")
         print(f"    {e}")
-    
+
     print()
     print("=" * 70)
     print("Examples completed. See function docstrings for more details.")
     print("=" * 70)
-
