@@ -22,7 +22,7 @@ from .domain import (
     VerificationResult,
     VerificationSummary,
 )
-from .utils import write_json
+from .utils import run_ffprobe, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -104,16 +104,29 @@ def count_video_frames(video_path: Path) -> int:
 
     Returns:
         Number of frames in video
+
+    Raises:
+        IngestError: If video file cannot be analyzed
     """
-    # Minimal implementation: return stub count for now
-    # In full implementation, would use ffprobe
+    # Validate input
     if not video_path.exists():
+        logger.warning(f"Video file not found: {video_path}")
         return 0
 
-    # Stub: return fixed count for testing
-    if "empty" in str(video_path):
+    # Handle empty files
+    if video_path.stat().st_size == 0:
+        logger.warning(f"Video file is empty: {video_path}")
         return 0
-    return 1000  # Stub value
+
+    # Use ffprobe to count frames
+    try:
+        frame_count = run_ffprobe(video_path)
+        logger.debug(f"Counted {frame_count} frames in {video_path.name}")
+        return frame_count
+    except Exception as e:
+        # Log error but don't crash - return 0 for unreadable videos
+        logger.error(f"Failed to count frames in {video_path}: {e}")
+        raise IngestError(f"Could not count frames in video {video_path}: {e}")
 
 
 def count_ttl_pulses(ttl_path: Path) -> int:

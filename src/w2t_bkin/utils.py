@@ -1,8 +1,8 @@
 """Utility functions for W2T-BKIN pipeline (Phase 0).
 
-Provides hashing, path sanitization, JSON I/O, and logging utilities.
+Provides hashing, path sanitization, JSON I/O, logging utilities, and video analysis.
 
-Requirements: NFR-1, NFR-2, NFR-3
+Requirements: NFR-1, NFR-2, NFR-3, FR-2 (video frame counting)
 Acceptance: A18 (deterministic hashing)
 """
 
@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import subprocess
 from typing import Any, Dict, Optional, Union
 
 
@@ -131,3 +132,104 @@ def configure_logger(name: str, level: str = "INFO", structured: bool = False) -
     logger.addHandler(handler)
 
     return logger
+
+
+class VideoAnalysisError(Exception):
+    """Error during video analysis operations."""
+
+    pass
+
+
+def run_ffprobe(video_path: Path, timeout: int = 30) -> int:
+    """Count frames in a video file using ffprobe.
+
+    Uses ffprobe to accurately count video frames by reading the stream metadata.
+    This is more reliable than using OpenCV for corrupted or unusual video formats.
+
+    Args:
+        video_path: Path to video file
+        timeout: Maximum time in seconds to wait for ffprobe (default: 30)
+
+    Returns:
+        Number of frames in video
+
+    Raises:
+        VideoAnalysisError: If video file is invalid or ffprobe fails
+        FileNotFoundError: If video file does not exist
+        ValueError: If video_path is not a valid path
+
+    Security:
+        - Input path validation to prevent command injection
+        - Subprocess timeout to prevent hanging
+        - stderr capture for diagnostic information
+    """
+    # Input validation
+    if not isinstance(video_path, Path):
+        video_path = Path(video_path)
+
+    if not video_path.exists():
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    if not video_path.is_file():
+        raise ValueError(f"Path is not a file: {video_path}")
+
+    # Sanitize path - resolve to absolute path to prevent injection
+    video_path = video_path.resolve()
+
+    # ffprobe command to count frames accurately
+    # -v error: only show errors
+    # -select_streams v:0: select first video stream
+    # -count_frames: actually count frames (slower but accurate)
+    # -show_entries stream=nb_read_frames: output only frame count
+    # -of csv=p=0: output as CSV without header
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-count_frames",
+        "-show_entries",
+        "stream=nb_read_frames",
+        "-of",
+        "csv=p=0",
+        str(video_path),
+    ]
+
+    try:
+        # Run ffprobe with timeout and capture output
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=True,
+        )
+
+        # Parse output - should be a single integer
+        output = result.stdout.strip()
+
+        if not output:
+            raise VideoAnalysisError(f"ffprobe returned empty output for: {video_path}")
+
+        try:
+            frame_count = int(output)
+        except ValueError:
+            raise VideoAnalysisError(f"ffprobe returned non-integer output: {output}")
+
+        if frame_count < 0:
+            raise VideoAnalysisError(f"ffprobe returned negative frame count: {frame_count}")
+
+        return frame_count
+
+    except subprocess.TimeoutExpired:
+        raise VideoAnalysisError(f"ffprobe timed out after {timeout}s for: {video_path}")
+
+    except subprocess.CalledProcessError as e:
+        # ffprobe failed - provide diagnostic information
+        stderr_msg = e.stderr.strip() if e.stderr else "No error message"
+        raise VideoAnalysisError(f"ffprobe failed for {video_path}: {stderr_msg}")
+
+    except Exception as e:
+        # Unexpected error
+        raise VideoAnalysisError(f"Unexpected error running ffprobe: {e}")
