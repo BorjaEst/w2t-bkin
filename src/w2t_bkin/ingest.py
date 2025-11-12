@@ -10,7 +10,7 @@ from datetime import datetime
 import glob
 import logging
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Union
 
 from .domain import (
     CameraVerificationResult,
@@ -278,11 +278,11 @@ def write_verification_summary(summary: VerificationSummary, output_path: Path) 
     write_json(data, output_path)
 
 
-def load_manifest(manifest_path: Path) -> dict:
+def load_manifest(manifest_path: Union[str, Path]) -> dict:
     """Load manifest from JSON file (Phase 1 stub).
 
     Args:
-        manifest_path: Path to manifest.json
+        manifest_path: Path to manifest.json (str or Path)
 
     Returns:
         Dictionary with manifest data
@@ -291,6 +291,8 @@ def load_manifest(manifest_path: Path) -> dict:
         IngestError: If file not found or invalid
     """
     import json
+
+    manifest_path = Path(manifest_path) if isinstance(manifest_path, str) else manifest_path
 
     if not manifest_path.exists():
         # For Phase 3 integration tests, return mock data if file doesn't exist
@@ -330,11 +332,11 @@ def discover_sessions(raw_root) -> list:
     return sorted(sessions)
 
 
-def load_config(config_path: Path) -> dict:
+def load_config(config_path: Union[str, Path]) -> dict:
     """Load config from TOML file (Phase 0 stub).
 
     Args:
-        config_path: Path to config.toml
+        config_path: Path to config.toml (str or Path)
 
     Returns:
         Dictionary with configuration (spec-compliant structure)
@@ -344,7 +346,7 @@ def load_config(config_path: Path) -> dict:
     """
     from w2t_bkin import config as config_module
 
-    # Use existing config loader
+    # Use existing config loader (handles str/Path conversion internally)
     config_obj = config_module.load_config(config_path)
 
     # Return as dict for compatibility (spec-compliant keys only)

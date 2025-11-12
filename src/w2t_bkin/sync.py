@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 import warnings
 
 import numpy as np
@@ -454,11 +454,11 @@ def write_alignment_stats(stats: AlignmentStats, output_path: Path) -> None:
     write_json(data, output_path)
 
 
-def load_alignment_manifest(alignment_path: Path) -> dict:
+def load_alignment_manifest(alignment_path: Union[str, Path]) -> dict:
     """Load alignment manifest from JSON file (Phase 2 stub).
 
     Args:
-        alignment_path: Path to alignment.json
+        alignment_path: Path to alignment.json (str or Path)
 
     Returns:
         Dictionary with alignment data per camera
@@ -467,6 +467,8 @@ def load_alignment_manifest(alignment_path: Path) -> dict:
         SyncError: If file not found or invalid
     """
     import json
+
+    alignment_path = Path(alignment_path) if isinstance(alignment_path, str) else alignment_path
 
     if not alignment_path.exists():
         # For Phase 3 integration tests, return mock data if file doesn't exist

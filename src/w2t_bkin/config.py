@@ -9,7 +9,7 @@ Acceptance: A9, A10, A11, A13, A14, A18
 
 from pathlib import Path
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 try:
     import tomllib
@@ -27,7 +27,7 @@ VALID_TIMEBASE_MAPPINGS = {"nearest", "linear"}
 VALID_LOGGING_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
-def load_config(path: Path) -> Config:
+def load_config(path: Union[str, Path]) -> Config:
     """Load and validate configuration from TOML file.
 
     Performs strict schema validation including:
@@ -37,7 +37,7 @@ def load_config(path: Path) -> Config:
     - Conditional validation for ttl_id and neuropixels_stream
 
     Args:
-        path: Path to config.toml file
+        path: Path to config.toml file (str or Path)
 
     Returns:
         Validated Config instance
@@ -46,6 +46,8 @@ def load_config(path: Path) -> Config:
         ValidationError: If config violates schema
         FileNotFoundError: If config file doesn't exist
     """
+    path = Path(path) if isinstance(path, str) else path
+
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
 
@@ -61,7 +63,7 @@ def load_config(path: Path) -> Config:
     return Config(**data)
 
 
-def load_session(path: Path) -> Session:
+def load_session(path: Union[str, Path]) -> Session:
     """Load and validate session metadata from TOML file.
 
     Performs strict schema validation including:
@@ -69,7 +71,7 @@ def load_session(path: Path) -> Session:
     - Camera TTL reference validation
 
     Args:
-        path: Path to session.toml file
+        path: Path to session.toml file (str or Path)
 
     Returns:
         Validated Session instance
@@ -78,6 +80,8 @@ def load_session(path: Path) -> Session:
         ValidationError: If session violates schema
         FileNotFoundError: If session file doesn't exist
     """
+    path = Path(path) if isinstance(path, str) else path
+
     if not path.exists():
         raise FileNotFoundError(f"Session file not found: {path}")
 
