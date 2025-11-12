@@ -1,7 +1,43 @@
 """Configuration loading and validation for W2T-BKIN pipeline (Phase 0).
 
-Loads and validates config.toml and session.toml files with strict schema enforcement,
-enum validation, conditional requirements, and deterministic hashing.
+This module provides robust loading, validation, and hashing functionality for the
+W2T-BKIN pipeline configuration system. It handles two primary configuration files:
+- `config.toml`: Global pipeline configuration (paths, timebase, acquisition policies)
+- `session.toml`: Per-session metadata (subject info, cameras, TTLs, Bpod paths)
+
+Features:
+---------
+- **Strict Schema Validation**: Uses Pydantic models with extra="forbid" to prevent typos
+- **Enum Validation**: Validates timebase.source, timebase.mapping, and logging.level
+- **Conditional Requirements**: Enforces required fields based on config values
+  (e.g., ttl_id required when source='ttl')
+- **Deterministic Hashing**: Computes SHA256 hashes for configuration reproducibility
+- **Cross-references**: Validates camera ttl_id references against session TTLs
+
+Public API:
+-----------
+- load_config(path) -> Config: Load and validate config.toml
+- load_session(path) -> Session: Load and validate session.toml
+- compute_config_hash(config) -> str: Compute deterministic config hash
+- compute_session_hash(session) -> str: Compute deterministic session hash
+
+Validation Rules:
+-----------------
+Config validation enforces:
+- timebase.source ∈ {"nominal_rate", "ttl", "neuropixels"}
+- timebase.mapping ∈ {"nearest", "linear"}
+- timebase.jitter_budget_s >= 0
+- logging.level ∈ {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+- Conditional: source='ttl' → ttl_id required
+- Conditional: source='neuropixels' → neuropixels_stream required
+
+Session validation enforces:
+- Camera ttl_id references must exist in session TTLs (warning in Phase 0)
+- All required session fields (id, subject_id, date, experimenter)
+
+Usage Example:
+--------------
+See __main__ block at end of file for complete examples.
 
 Requirements: FR-10, NFR-10, NFR-11
 Acceptance: A9, A10, A11, A13, A14, A18
@@ -192,3 +228,166 @@ def _validate_camera_ttl_references(data: Dict[str, Any]) -> None:
             # In Phase 0, we just validate structure
             # In Phase 1, this would emit a warning
             pass
+
+
+if __name__ == "__main__":
+    """Usage examples demonstrating config loading, validation, and hashing.
+    
+    This example demonstrates:
+    1. Loading and validating config.toml
+    2. Loading and validating session.toml
+    3. Computing deterministic hashes for reproducibility
+    4. Handling validation errors
+    5. Accessing validated configuration data
+    """
+    import sys
+
+    from pydantic import ValidationError
+
+    # Example 1: Load and validate config.toml
+    print("=" * 70)
+    print("Example 1: Loading and validating config.toml")
+    print("=" * 70)
+    
+    try:
+        config_path = Path("configs/config.toml")
+        config = load_config(config_path)
+        
+        print(f"✓ Config loaded successfully from: {config_path}")
+        print(f"  Project name: {config.project.name}")
+        print(f"  Timebase source: {config.timebase.source}")
+        print(f"  Timebase mapping: {config.timebase.mapping}")
+        print(f"  Jitter budget: {config.timebase.jitter_budget_s}s")
+        print(f"  Logging level: {config.logging.level}")
+        
+        # Compute and display config hash for reproducibility
+        config_hash = compute_config_hash(config)
+        print(f"  Config hash: {config_hash[:16]}... (SHA256)")
+        
+    except FileNotFoundError as e:
+        print(f"✗ Error: {e}")
+        print("  Hint: Run from project root or provide correct path")
+    except ValidationError as e:
+        print(f"✗ Validation failed:")
+        for error in e.errors():
+            print(f"  - {error['loc']}: {error['msg']}")
+    except ValueError as e:
+        print(f"✗ Configuration error: {e}")
+    
+    print()
+    
+    # Example 2: Load and validate session.toml
+    print("=" * 70)
+    print("Example 2: Loading and validating session.toml")
+    print("=" * 70)
+    
+    try:
+        session_path = Path("data/raw/Session-000001/session.toml")
+        session = load_session(session_path)
+        
+        print(f"✓ Session loaded successfully from: {session_path}")
+        print(f"  Session ID: {session.session.id}")
+        print(f"  Subject ID: {session.session.subject_id}")
+        print(f"  Date: {session.session.date}")
+        print(f"  Experimenter: {session.session.experimenter}")
+        print(f"  Number of TTLs: {len(session.TTLs)}")
+        print(f"  Number of cameras: {len(session.cameras)}")
+        
+        # Display TTL and camera details
+        if session.TTLs:
+            print(f"\n  TTLs:")
+            for ttl in session.TTLs:
+                print(f"    - {ttl.id}: {ttl.description}")
+        
+        if session.cameras:
+            print(f"\n  Cameras:")
+            for camera in session.cameras:
+                ttl_ref = f" (TTL: {camera.ttl_id})" if camera.ttl_id else ""
+                print(f"    - {camera.id}: {camera.description}{ttl_ref}")
+        
+        # Compute and display session hash for reproducibility
+        session_hash = compute_session_hash(session)
+        print(f"\n  Session hash: {session_hash[:16]}... (SHA256)")
+        
+    except FileNotFoundError as e:
+        print(f"✗ Error: {e}")
+        print("  Hint: Ensure session directory exists with session.toml")
+    except ValidationError as e:
+        print(f"✗ Validation failed:")
+        for error in e.errors():
+            print(f"  - {error['loc']}: {error['msg']}")
+    
+    print()
+    
+    # Example 3: Demonstrate validation errors
+    print("=" * 70)
+    print("Example 3: Handling validation errors")
+    print("=" * 70)
+    
+    print("\n3a. Invalid timebase.source enum value:")
+    try:
+        invalid_data = {
+            "project": {"name": "test"},
+            "paths": {
+                "raw_root": "data/raw",
+                "intermediate_root": "data/interim",
+                "output_root": "data/processed",
+                "metadata_file": "session.toml",
+                "models_root": "models"
+            },
+            "timebase": {
+                "source": "invalid_source",  # Invalid enum
+                "mapping": "nearest",
+                "jitter_budget_s": 0.01
+            }
+        }
+        _validate_config_enums(invalid_data)
+        print("  ✗ This should have failed validation!")
+    except ValueError as e:
+        print(f"  ✓ Correctly caught validation error:")
+        print(f"    {e}")
+    
+    print("\n3b. Missing conditional requirement (ttl_id for source='ttl'):")
+    try:
+        invalid_data = {
+            "project": {"name": "test"},
+            "paths": {
+                "raw_root": "data/raw",
+                "intermediate_root": "data/interim",
+                "output_root": "data/processed",
+                "metadata_file": "session.toml",
+                "models_root": "models"
+            },
+            "timebase": {
+                "source": "ttl",  # Requires ttl_id
+                "mapping": "nearest",
+                "jitter_budget_s": 0.01
+                # Missing: ttl_id
+            }
+        }
+        _validate_config_conditionals(invalid_data)
+        print("  ✗ This should have failed conditional validation!")
+    except ValueError as e:
+        print(f"  ✓ Correctly caught conditional validation error:")
+        print(f"    {e}")
+    
+    print("\n3c. Negative jitter_budget_s:")
+    try:
+        invalid_data = {
+            "timebase": {
+                "source": "nominal_rate",
+                "mapping": "nearest",
+                "jitter_budget_s": -0.01  # Invalid: must be >= 0
+            }
+        }
+        _validate_config_enums(invalid_data)
+        print("  ✗ This should have failed validation!")
+    except ValueError as e:
+        print(f"  ✓ Correctly caught validation error:")
+        print(f"    {e}")
+    
+    print()
+    print("=" * 70)
+    print("Examples completed. See function docstrings for more details.")
+    print("=" * 70)
+
