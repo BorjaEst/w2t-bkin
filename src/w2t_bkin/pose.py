@@ -1,9 +1,70 @@
-"""Pose estimation import, harmonization, and alignment module.
+"""Pose estimation import, harmonization, and alignment module (Phase 3 - Optional).
 
-Supports DeepLabCut (DLC) and SLEAP formats, maps to canonical skeleton,
-and aligns pose frames to reference timebase.
+Ingests pose tracking data from DeepLabCut (DLC) or SLEAP, harmonizes diverse
+skeleton definitions to a canonical W2T model, and aligns pose frames to the
+reference timebase for integration into NWB files.
 
-Requirements: FR-5
+The module handles format-specific quirks (CSV/H5/JSON), confidence thresholding,
+multi-animal tracking, and skeleton remapping to ensure consistent downstream
+processing regardless of the original pose estimation tool.
+
+Key Features:
+-------------
+- **Multi-Format Support**: DeepLabCut CSV/H5, SLEAP H5/JSON
+- **Skeleton Harmonization**: Maps diverse keypoint sets to canonical W2T skeleton
+- **Confidence Filtering**: Excludes low-confidence keypoints
+- **Multi-Animal Handling**: Supports identity tracking (planned)
+- **Temporal Alignment**: Maps pose frames to reference timebase
+- **NWB Integration**: Produces PoseBundle for NWB PoseEstimation module
+
+Main Functions:
+---------------
+- parse_dlc_csv: Import DeepLabCut CSV outputs
+- parse_sleap_h5: Import SLEAP H5 outputs (planned)
+- harmonize_skeleton: Map keypoints to canonical W2T skeleton
+- align_pose_to_timebase: Sync pose frames to reference timestamps
+- create_pose_bundle: Package harmonized pose data
+
+Requirements:
+-------------
+- FR-5: Import pose estimation data
+- FR-POSE-1: Support DLC and SLEAP formats
+- FR-POSE-2: Map to canonical skeleton
+- FR-POSE-3: Filter by confidence threshold
+
+Acceptance Criteria:
+-------------------
+- A-POSE-1: Parse DLC CSV files
+- A-POSE-2: Map keypoints to canonical skeleton
+- A-POSE-3: Align pose frames to reference timebase
+- A-POSE-4: Create PoseBundle for NWB
+
+Data Flow:
+----------
+1. parse_dlc_csv / parse_sleap_h5 → Raw pose data
+2. harmonize_skeleton → Canonical keypoint names
+3. align_pose_to_timebase → Sync to reference
+4. create_pose_bundle → Package for NWB
+
+Example:
+--------
+>>> from w2t_bkin.pose import parse_dlc_csv, harmonize_skeleton
+>>> from w2t_bkin.sync import create_timebase_provider
+>>>
+>>> # Parse DeepLabCut output
+>>> pose_data = parse_dlc_csv("DLC_tracking.csv", scorer="DLC_resnet50")
+>>> print(f"Loaded {len(pose_data)} pose frames")
+>>>
+>>> # Harmonize skeleton
+>>> skeleton_map = {"nose": "snout", "left_ear": "ear_left", ...}
+>>> harmonized = harmonize_skeleton(pose_data, skeleton_map)
+>>>
+>>> # Align to reference timebase
+>>> from w2t_bkin.pose import align_pose_to_timebase
+>>> aligned = align_pose_to_timebase(
+...     harmonized,
+...     reference_times=timebase_provider.get_timestamps(len(harmonized))
+... )
 """
 
 import csv

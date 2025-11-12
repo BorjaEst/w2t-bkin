@@ -1,10 +1,74 @@
-"""Sync module for W2T-BKIN pipeline (Phase 2).
+"""Synchronization module for W2T-BKIN pipeline (Phase 2 - Temporal Alignment).
 
-Timebase provider abstraction, mapping strategies, jitter computation,
-and alignment stats persistence.
+Provides timebase providers and sample alignment strategies for synchronizing
+multi-camera video recordings and behavioral data to a common temporal reference.
 
-Requirements: FR-TB-1..6, FR-17
-Acceptance: A8, A9, A10, A11, A12, A17, A19, A20
+The module implements multiple timebase sources:
+- **Nominal Rate**: Assumes constant frame rate (30 fps typical)
+- **TTL-based**: Uses hardware sync signals (planned)
+- **Counter-based**: Uses frame counters with drift correction (planned)
+
+Key abstractions:
+- TimebaseProvider: Abstract interface for timestamp generation
+- Mapping strategies: nearest-neighbor, linear interpolation
+- Jitter computation: Statistical analysis of timing offsets
+- Alignment statistics: Per-camera drift, drops, and quality metrics
+
+Key Features:
+-------------
+- **Multiple Timebase Sources**: Support for nominal rate, TTL, counters
+- **Flexible Alignment**: Nearest-neighbor or interpolation mapping
+- **Jitter Analysis**: Statistical validation of sync quality
+- **Drift Detection**: Track cumulative timing drift per camera
+- **Drop Detection**: Identify missing frames in sequences
+- **Persistence**: Save alignment stats for QC reporting
+
+Main Functions:
+---------------
+- TimebaseProvider: Abstract base class for timestamp generation
+- NominalRateProvider: Constant frame rate timebase
+- create_timebase_provider: Factory function for provider creation
+- align_samples: Map sample times to reference timebase
+- compute_jitter_stats: Analyze timing offsets
+- compute_drift_stats: Detect cumulative drift
+
+Requirements:
+-------------
+- FR-TB-1..6: Timebase provider implementations
+- FR-17: Sample alignment to reference timebase
+
+Acceptance Criteria:
+-------------------
+- A8: Create timebase provider from config
+- A9: Generate timestamps for n samples
+- A10: Align samples with nearest-neighbor mapping
+- A11: Compute jitter statistics
+- A12: Use rate-based timing (no per-frame timestamps)
+- A17: Persist alignment stats for QC
+- A19: Detect and report frame drops
+- A20: Compute drift statistics
+
+Example:
+--------
+>>> from w2t_bkin.sync import create_timebase_provider
+>>> from w2t_bkin import config
+>>>
+>>> # Create timebase provider
+>>> cfg = config.load_config("config.toml")
+>>> provider = create_timebase_provider(cfg, manifest=None)
+>>>
+>>> # Generate reference timestamps
+>>> timestamps = provider.get_timestamps(n_samples=1000)
+>>> print(f"First timestamp: {timestamps[0]}s")
+>>> print(f"Last timestamp: {timestamps[-1]}s")
+>>>
+>>> # Align camera samples to reference
+>>> from w2t_bkin.sync import align_samples
+>>> aligned_indices = align_samples(
+...     sample_times=camera_times,
+...     reference_times=timestamps,
+...     timebase_config=cfg.timebase
+... )
 """
 
 from abc import ABC, abstractmethod

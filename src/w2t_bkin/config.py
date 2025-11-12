@@ -1,25 +1,54 @@
-"""Configuration loading and validation for W2T-BKIN pipeline (Phase 0).
+"""Configuration loading and validation for W2T-BKIN pipeline (Phase 0 - Foundation).
 
 This module provides robust loading, validation, and hashing functionality for the
 W2T-BKIN pipeline configuration system. It handles two primary configuration files:
 - `config.toml`: Global pipeline configuration (paths, timebase, acquisition policies)
 - `session.toml`: Per-session metadata (subject info, cameras, TTLs, Bpod paths)
 
-Features:
----------
+The module enforces strict validation rules to catch configuration errors early,
+supports deterministic hashing for reproducibility tracking, and provides clear
+error messages for troubleshooting.
+
+Key Features:
+-------------
 - **Strict Schema Validation**: Uses Pydantic models with extra="forbid" to prevent typos
 - **Enum Validation**: Validates timebase.source, timebase.mapping, and logging.level
 - **Conditional Requirements**: Enforces required fields based on config values
   (e.g., ttl_id required when source='ttl')
 - **Deterministic Hashing**: Computes SHA256 hashes for configuration reproducibility
 - **Cross-references**: Validates camera ttl_id references against session TTLs
+- **Clear Error Messages**: Detailed validation failures with paths and values
 
-Public API:
------------
-- load_config(path) -> Config: Load and validate config.toml
-- load_session(path) -> Session: Load and validate session.toml
-- compute_config_hash(config) -> str: Compute deterministic config hash
-- compute_session_hash(session) -> str: Compute deterministic session hash
+Main Functions:
+---------------
+- load_config: Load and validate config.toml
+- load_session: Load and validate session.toml
+- compute_config_hash: Compute deterministic config hash
+- compute_session_hash: Compute deterministic session hash
+- validate_ttl_references: Check camera TTL cross-references
+
+Requirements:
+-------------
+- FR-1: Load and validate configuration files
+- FR-2: Enforce strict schema validation
+- FR-10: Configuration management
+- NFR-1: Deterministic processing (hashing)
+- NFR-3: Clear error reporting
+- NFR-10: Configuration validation
+- NFR-11: Error handling
+
+Acceptance Criteria:
+-------------------
+- A1: Load config.toml and validate all fields
+- A2: Load session.toml and validate all fields
+- A3: Reject extra/unknown fields
+- A4: Validate enum values
+- A5: Enforce conditional requirements
+- A6: Compute deterministic config/session hashes
+- A7: Validate TTL cross-references
+- A9, A10, A11: Configuration loading workflows
+- A13, A14: Schema validation
+- A18: TTL reference validation
 
 Validation Rules:
 -----------------
@@ -35,12 +64,24 @@ Session validation enforces:
 - Camera ttl_id references must exist in session TTLs (warning in Phase 0)
 - All required session fields (id, subject_id, date, experimenter)
 
-Usage Example:
---------------
-See __main__ block at end of file for complete examples.
-
-Requirements: FR-10, NFR-10, NFR-11
-Acceptance: A9, A10, A11, A13, A14, A18
+Example:
+--------
+>>> from w2t_bkin import config
+>>> from pathlib import Path
+>>>
+>>> # Load and validate config.toml
+>>> cfg = config.load_config("config.toml")
+>>> print(f"Timebase source: {cfg.timebase.source}")
+>>>
+>>> # Load and validate session.toml
+>>> session = config.load_session("Session-000001/session.toml")
+>>> print(f"Session: {session.metadata.session_id}")
+>>> print(f"Subject: {session.metadata.subject_id}")
+>>>
+>>> # Compute deterministic hashes
+>>> config_hash = config.compute_config_hash(cfg)
+>>> session_hash = config.compute_session_hash(session)
+>>> print(f"Config hash: {config_hash[:16]}...")
 """
 
 from pathlib import Path

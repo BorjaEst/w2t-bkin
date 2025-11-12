@@ -1,9 +1,64 @@
-"""Events module for W2T-BKIN pipeline (Phase 3).
+"""Events module for W2T-BKIN pipeline (Phase 3 - Behavioral Data).
 
-Parse Bpod .mat files into Trials and BehavioralEvents, generate QC summaries.
+Parses Bpod behavioral task data from .mat files (MATLAB format) and extracts:
+- Trial data: trial numbers, outcomes (hit/miss/correct reject), start/end times
+- Behavioral events: state entries/exits, port interactions, stimulus presentations
+- QC summaries: trial counts, outcome distributions, event categories
 
-Requirements: FR-11, FR-14, NFR-7
-Acceptance: A4 (trial counts and event categories in QC)
+The module uses scipy.io.loadmat for MATLAB file parsing and implements robust
+validation for Bpod data structure variations across different task protocols.
+
+Key Features:
+-------------
+- **Bpod Compatibility**: Handles SessionData structure from Bpod r2.5+
+- **Trial Extraction**: Parses trial outcomes and timing from States/RawEvents
+- **Event Extraction**: Converts Bpod events to standardized BehavioralEvent format
+- **Outcome Inference**: Derives trial outcomes from state visit patterns
+- **QC Summaries**: Generates statistics for quality control
+
+Main Functions:
+---------------
+- parse_bpod_mat: Load and validate Bpod .mat file
+- extract_trials: Extract TrialData objects from SessionData
+- extract_behavioral_events: Convert Bpod events to BehavioralEvent format
+- create_event_summary: Generate BpodSummary for QC reporting
+
+Requirements:
+-------------
+- FR-11: Behavioral event parsing from Bpod
+- FR-14: Trial outcome and timing extraction
+- NFR-7: Flexible handling of varying Bpod protocols
+
+Acceptance Criteria:
+-------------------
+- A4: Trial counts and event categories available for QC
+
+Data Flow:
+----------
+1. Load .mat file → Raw MATLAB structures
+2. Validate SessionData structure
+3. Extract trials → TrialData objects (outcome, times)
+4. Extract events → BehavioralEvent objects (category, timestamp)
+5. Create summary → BpodSummary (counts, categories)
+
+Example:
+--------
+>>> from w2t_bkin.events import parse_bpod_mat, extract_trials, extract_behavioral_events
+>>> from pathlib import Path
+>>>
+>>> # Parse Bpod file
+>>> bpod_path = Path("data/raw/Session-000001/Bpod/session.mat")
+>>> bpod_data = parse_bpod_mat(bpod_path)
+>>>
+>>> # Extract trial outcomes
+>>> trials = extract_trials(bpod_data)
+>>> print(f"Extracted {len(trials)} trials")
+>>> print(f"First trial outcome: {trials[0].outcome}")
+>>>
+>>> # Extract behavioral events
+>>> events = extract_behavioral_events(bpod_data)
+>>> categories = set(e.category for e in events)
+>>> print(f"Event categories: {categories}")
 """
 
 from datetime import datetime

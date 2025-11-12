@@ -1,64 +1,69 @@
-"""Ingest module for W2T-BKIN pipeline (Phase 1).
+"""File discovery and verification module for W2T-BKIN pipeline (Phase 1 - Ingest).
 
 This module handles file discovery, frame/TTL counting, and verification for the
 W2T-BKIN data processing pipeline. It bridges session metadata (from session.toml)
 with actual filesystem data to create manifests for downstream processing.
 
-Core Functionality:
--------------------
+The module ensures data completeness by discovering files via glob patterns, counting
+frames and TTL pulses, and verifying alignment within configured tolerances. It produces
+manifests that guide all subsequent pipeline phases.
+
+Key Features:
+-------------
 - **File Discovery**: Resolves glob patterns to discover video, TTL, and Bpod files
 - **Frame Counting**: Uses ffprobe to count frames in video files
-- **TTL Counting**: Counts pulses from TTL log files
+- **TTL Counting**: Counts pulses from TTL log files (various formats)
 - **Verification**: Validates frame/TTL alignment within configured tolerance
 - **Manifest Generation**: Creates structured manifests for downstream processing
+- **Error Reporting**: Detailed validation failures with paths and counts
+- **Fast Discovery Mode**: Optional file enumeration without counting
 
-Public API:
------------
-- build_manifest(config, session, count_frames=True) -> Manifest: Discover files and optionally count frames/TTLs
-- count_video_frames(video_path) -> int: Count frames using ffprobe
-- count_ttl_pulses(ttl_path) -> int: Count TTL pulses from log file
-- verify_manifest(manifest, tolerance, warn_on_mismatch) -> VerificationResult
-- validate_ttl_references(session): Check camera TTL references
-- create_verification_summary(manifest) -> Dict: Create JSON-serializable summary
-- write_verification_summary(summary, output_path): Save summary to JSON
-
-Workflow:
----------
-1. Load config and session metadata
-2. Build manifest with counting: build_manifest(config, session, count_frames=True)
-   - Discovers files matching glob patterns
-   - Counts frames for all video files
-   - Counts TTL pulses for all TTL files
-   - Returns manifest with populated frame_count and ttl_pulse_count
-3. Verify frame/TTL alignment: verify_manifest(manifest, tolerance)
-4. Generate verification summary: create_verification_summary(manifest)
-
-Fast Discovery Mode (Optional):
--------------------------------
-For quick file enumeration without counting (e.g., listing sessions):
-- Call build_manifest(config, session, count_frames=False)
-- Returns manifest with frame_count=None, ttl_pulse_count=None
-- Cannot be used for verification (will raise ValueError)
-
-Verification Logic:
--------------------
-- Computes mismatch = |frame_count - ttl_pulse_count|
-- If mismatch > tolerance: raise VerificationError
-- If mismatch > 0 and within tolerance: warn (if warn_on_mismatch=True)
-- If mismatch == 0: pass verification
-
-Error Handling:
+Main Functions:
 ---------------
-- IngestError: File discovery failures, missing expected files
-- VerificationError: Frame/TTL mismatch exceeds tolerance
-- Missing files log warnings but don't crash (except for required camera videos)
+- build_manifest: Discover files and optionally count frames/TTLs
+- count_video_frames: Count frames using ffprobe
+- count_ttl_pulses: Count TTL pulses from log file
+- verify_manifest: Validate frame/TTL alignment
+- validate_ttl_references: Check camera TTL cross-references
+- create_verification_summary: Create JSON-serializable summary
+- write_verification_summary: Save summary to JSON
 
-Usage Example:
---------------
-See __main__ block at end of file for complete workflow demonstration.
+Requirements:
+-------------
+- FR-1: Configuration file loading
+- FR-2: Session metadata loading
+- FR-3: File discovery via glob patterns
+- FR-13: Video frame counting
+- FR-15: TTL pulse counting
+- FR-16: Frame/TTL verification
+- NFR-3: Detailed error reporting
 
-Requirements: FR-1, FR-2, FR-3, FR-13, FR-15, FR-16
-Acceptance: A6, A7
+Acceptance Criteria:
+-------------------
+- A6: Build manifest with discovered files
+- A7: Verify frame/TTL alignment within tolerance
+
+Example:
+--------
+>>> from w2t_bkin import config, ingest
+>>> from pathlib import Path
+>>>
+>>> # Load configuration
+>>> cfg = config.load_config("config.toml")
+>>> session = config.load_session("Session-000001/session.toml")
+>>>
+>>> # Build manifest with frame/TTL counting
+>>> manifest = ingest.build_manifest(cfg, session, count_frames=True)
+>>> print(f"Discovered {len(manifest.cameras)} cameras")
+>>>
+>>> # Verify frame/TTL alignment
+>>> from w2t_bkin.ingest import verify_manifest
+>>> result = ingest.verify_manifest(manifest, tolerance=10)
+>>> print(f"Verification: {result.passed}")
+>>>
+>>> # Generate verification summary
+>>> summary = ingest.create_verification_summary(manifest)
+>>> ingest.write_verification_summary(summary, Path("verification.json"))
 """
 
 from datetime import datetime

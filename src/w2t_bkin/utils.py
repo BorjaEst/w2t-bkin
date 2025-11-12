@@ -1,9 +1,44 @@
-"""Utility functions for W2T-BKIN pipeline (Phase 0).
+"""Utility functions for W2T-BKIN pipeline (Phase 0 - Foundation).
 
-Provides hashing, path sanitization, JSON I/O, logging utilities, and video analysis.
+This module provides core utilities used throughout the pipeline:
+- Deterministic SHA256 hashing for files and data structures
+- Path sanitization to prevent directory traversal attacks
+- JSON I/O with consistent formatting
+- Video analysis using FFmpeg/FFprobe
 
-Requirements: NFR-1, NFR-2, NFR-3, FR-2 (video frame counting)
-Acceptance: A18 (deterministic hashing)
+The utilities ensure reproducible outputs (NFR-1), secure file handling (NFR-2),
+and efficient video metadata extraction (FR-2).
+
+Key Functions:
+--------------
+- compute_hash: Deterministic hashing with key canonicalization
+- sanitize_path: Security validation for file paths
+- read_json, write_json: JSON persistence with formatting
+- run_ffprobe: Video frame counting and metadata extraction
+
+Requirements:
+-------------
+- NFR-1: Reproducible outputs (deterministic hashing)
+- NFR-2: Security (path sanitization)
+- NFR-3: Performance (efficient I/O)
+- FR-2: Video frame counting
+
+Acceptance Criteria:
+-------------------
+- A18: Deterministic hashing produces identical results for identical inputs
+
+Example:
+--------
+>>> from w2t_bkin.utils import compute_hash, sanitize_path
+>>>
+>>> # Compute deterministic hash
+>>> data = {"session": "Session-001", "timestamp": "2025-11-12"}
+>>> hash_value = compute_hash(data)
+>>> print(hash_value)  # Consistent across runs
+>>>
+>>> # Sanitize file paths
+>>> safe_path = sanitize_path("data/raw/session.toml")
+>>> # Raises ValueError for dangerous paths like "../../../etc/passwd"
 """
 
 import hashlib

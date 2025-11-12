@@ -1,8 +1,75 @@
-"""Video transcoding module with idempotence and content addressing.
+"""Video transcoding module with idempotence and content addressing (Phase 3 - Optional).
 
-Transcodes videos to mezzanine format using FFmpeg with content-based output paths.
+Transcodes raw video recordings to a mezzanine format (e.g., H.264 in MP4 container)
+using FFmpeg, with content-based output paths for idempotent processing. Ensures
+reproducibility by hashing source content and transcode parameters.
 
-Requirements: FR-4, NFR-2
+The module handles format conversion, codec selection, resolution scaling, and
+frame rate adjustment while preserving original video metadata for provenance tracking.
+
+Key Features:
+-------------
+- **FFmpeg Integration**: Subprocess-based transcoding with configurable codecs
+- **Content Addressing**: SHA-256 hashes for idempotent output paths
+- **Parameter Hashing**: Transcode options included in output path
+- **Metadata Preservation**: Original format, resolution, frame rate tracked
+- **Idempotence**: Re-running with same inputs produces same output path
+- **Validation**: Verify transcoded video properties match expectations
+
+Main Functions:
+---------------
+- transcode_video: Main transcoding function with FFmpeg
+- compute_transcode_hash: Generate content-based output path
+- validate_transcoded_video: Verify output properties
+- get_video_metadata: Extract source video metadata
+- build_ffmpeg_command: Construct FFmpeg command line
+
+Requirements:
+-------------
+- FR-4: Transcode videos to mezzanine format
+- FR-TRANS-1: Use FFmpeg for transcoding
+- FR-TRANS-2: Content-based output paths
+- NFR-2: Idempotent processing
+
+Acceptance Criteria:
+-------------------
+- A-TRANS-1: Transcode video using FFmpeg
+- A-TRANS-2: Generate content-based output path
+- A-TRANS-3: Validate transcoded video properties
+- A-TRANS-4: Preserve original metadata
+
+Data Flow:
+----------
+1. get_video_metadata → Extract source properties
+2. compute_transcode_hash → Generate output path
+3. build_ffmpeg_command → Construct transcode command
+4. transcode_video → Execute FFmpeg subprocess
+5. validate_transcoded_video → Verify output
+
+Example:
+--------
+>>> from w2t_bkin.transcode import transcode_video, TranscodeOptions
+>>> from pathlib import Path
+>>>
+>>> # Define transcode options
+>>> options = TranscodeOptions(
+...     codec="libx264",
+...     preset="medium",
+...     crf=23,
+...     target_fps=30.0
+... )
+>>>
+>>> # Transcode video
+>>> result = transcode_video(
+...     source=Path("raw_video.avi"),
+...     output_dir=Path("data/processed/videos"),
+...     options=options
+... )
+>>>
+>>> print(f"Transcoded: {result.output_path}")
+>>> print(f"Original size: {result.source_size_bytes}")
+>>> print(f"Transcoded size: {result.output_size_bytes}")
+>>> print(f"Compression ratio: {result.compression_ratio:.2f}")
 """
 
 import hashlib

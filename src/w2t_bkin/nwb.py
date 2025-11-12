@@ -1,10 +1,71 @@
-"""NWB module for W2T-BKIN pipeline (Phase 4).
+"""NWB module for W2T-BKIN pipeline (Phase 4 - Output Assembly).
 
-Assemble NWB files with Devices, ImageSeries (external links, rate-based timing),
-optional pose/facemap/bpod data, and provenance metadata.
+Assembles Neurodata Without Borders (NWB) 2.x files from synchronized behavioral data
+using pynwb 3.1.2. Creates HDF5-based NWB files with:
+- Device objects for camera metadata
+- ImageSeries with external video file links (not embedded)
+- Rate-based timing (no per-frame timestamps) for efficiency
+- Embedded provenance metadata (config hashes, software versions)
+- Optional modalities: pose estimation, facial metrics, behavioral events
 
-Requirements: FR-7, NFR-6, NFR-1, NFR-2, NFR-11
-Acceptance: A1, A12
+The module implements security validations (path sanitization, file checks) and
+deterministic output generation for reproducibility.
+
+Key Features:
+-------------
+- **External Video Links**: Videos referenced, not embedded (small NWB files)
+- **Rate-Based Timing**: Constant frame rate (30 fps) without timestamp arrays
+- **pynwb Integration**: Standards-compliant NWB 2.x format
+- **Provenance Tracking**: Embedded metadata for reproducibility
+- **Security**: Path traversal prevention, file validation
+- **Flexible Inputs**: Accepts both dict and Pydantic model inputs
+
+Main Functions:
+---------------
+- assemble_nwb: Main assembly function (manifest + config → NWB file)
+- create_device: Camera metadata → pynwb Device object
+- create_image_series: Video metadata → pynwb ImageSeries object
+
+Requirements:
+-------------
+- FR-7: NWB file assembly with video and metadata
+- NFR-6: Performance (rate-based timing, external links)
+- NFR-1: Reproducibility (deterministic timestamps, provenance)
+- NFR-2: Security (path validation, file checks)
+- NFR-11: Provenance (embedded metadata)
+
+Acceptance Criteria:
+-------------------
+- A1: Create NWB files from manifest
+- A12: Use rate-based timing (no per-frame timestamps)
+
+Example:
+--------
+>>> from w2t_bkin import config, ingest, nwb
+>>> from pathlib import Path
+>>>
+>>> # Load configuration and build manifest
+>>> cfg = config.load_config("config.toml")
+>>> session = config.load_session("Session-000001/session.toml")
+>>> manifest = ingest.build_manifest(cfg, session)
+>>>
+>>> # Create provenance metadata
+>>> provenance = {
+...     "config_hash": "abc123...",
+...     "session_hash": "def456...",
+...     "software": {"name": "w2t_bkin", "version": "0.1.0"},
+...     "timebase": {"source": "nominal_rate"}
+... }
+>>>
+>>> # Assemble NWB file
+>>> output_dir = Path("data/processed/Session-000001")
+>>> nwb_path = nwb.assemble_nwb(
+...     manifest=manifest,
+...     config=cfg,
+...     provenance=provenance,
+...     output_dir=output_dir
+... )
+>>> print(f"Created: {nwb_path}")
 """
 
 from datetime import datetime

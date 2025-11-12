@@ -1,8 +1,72 @@
-"""Facemap ROI computation and signal extraction module.
+"""Facemap ROI computation and facial motion signal extraction (Phase 3 - Optional).
 
-Supports ROI-based motion energy computation and alignment to reference timebase.
+Defines Regions of Interest (ROIs) on facial videos, computes motion energy
+or SVD-based signals within each ROI, and aligns the resulting time series
+to the reference timebase for integration into NWB files.
 
-Requirements: FR-6
+The module supports multiple motion metrics (absolute difference, SVD components),
+handles multi-camera setups, and produces signals compatible with NWB TimeSeries
+for behavioral neuroscience analysis.
+
+Key Features:
+-------------
+- **ROI Definition**: Rectangular or polygonal regions on facial videos
+- **Motion Metrics**: Absolute difference, SVD components, optical flow (planned)
+- **Multi-Camera Support**: Process multiple facial views independently
+- **Temporal Alignment**: Sync signals to reference timebase
+- **NWB Integration**: Produces FacemapBundle for NWB TimeSeries
+
+Main Functions:
+---------------
+- define_rois: Create ROI specifications from config
+- compute_motion_energy: Calculate per-ROI motion signals
+- compute_svd_components: Extract principal motion components (planned)
+- align_signals_to_timebase: Sync signals to reference timestamps
+- create_facemap_bundle: Package signals for NWB
+
+Requirements:
+-------------
+- FR-6: Compute facial motion signals
+- FR-FACE-1: Define ROIs from configuration
+- FR-FACE-2: Compute motion energy per ROI
+- FR-FACE-3: Align signals to reference timebase
+
+Acceptance Criteria:
+-------------------
+- A-FACE-1: Define ROIs from config specs
+- A-FACE-2: Compute motion energy for each ROI
+- A-FACE-3: Align signals to reference timebase
+- A-FACE-4: Create FacemapBundle for NWB
+
+Data Flow:
+----------
+1. define_rois → ROI specifications
+2. compute_motion_energy / compute_svd_components → Raw signals
+3. align_signals_to_timebase → Sync to reference
+4. create_facemap_bundle → Package for NWB
+
+Example:
+--------
+>>> from w2t_bkin.facemap import define_rois, compute_motion_energy
+>>> from w2t_bkin.sync import create_timebase_provider
+>>>
+>>> # Define ROIs
+>>> roi_specs = [
+...     {"name": "left_whisker", "x": 100, "y": 200, "w": 50, "h": 50},
+...     {"name": "right_whisker", "x": 300, "y": 200, "w": 50, "h": 50}
+... ]
+>>> rois = define_rois(roi_specs)
+>>>
+>>> # Compute motion energy
+>>> signals = compute_motion_energy("facial_video.avi", rois)
+>>> print(f"Computed {len(signals)} ROI signals")
+>>>
+>>> # Align to reference timebase
+>>> from w2t_bkin.facemap import align_signals_to_timebase
+>>> aligned = align_signals_to_timebase(
+...     signals,
+...     reference_times=timebase_provider.get_timestamps(len(signals[0].values))
+... )
 """
 
 import logging

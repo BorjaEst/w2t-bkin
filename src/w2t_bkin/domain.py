@@ -1,25 +1,32 @@
-"""Domain models for W2T-BKIN pipeline (Phase 0).
+"""Domain models for W2T-BKIN pipeline (Phase 0 - Foundation).
 
 This module provides Pydantic-based domain models for the entire W2T-BKIN data processing
 pipeline. All models are immutable (frozen) to ensure data integrity and support deterministic
 hashing for provenance tracking.
 
+The models form a strict type system that enforces validation at every stage of the pipeline,
+from configuration loading through manifest building to NWB file assembly. Pydantic v2's
+frozen models prevent accidental mutation, while extra="forbid" catches typos and schema drift.
+
 Model Categories:
 -----------------
 1. **Configuration Models** (Phase 0):
    - Config: Top-level pipeline configuration
-   - ProjectConfig, PathsConfig, TimebaseConfig, etc.: Configuration subsections
+   - ProjectConfig, PathsConfig, TimebaseConfig, LoggingConfig, AcquisitionConfig
    - Loaded from config.toml files
+   - Validates paths, enums, and conditional requirements
 
 2. **Session Models** (Phase 0):
    - Session: Session metadata and file patterns
    - SessionMetadata, Camera, TTL, BpodSession: Session components
    - Loaded from session.toml files
+   - Validates subject info, camera specs, TTL references
 
 3. **Manifest Models** (Phase 1):
    - Manifest: Discovered files with optional frame/TTL counts
    - ManifestCamera, ManifestTTL: Manifest components
    - Built by ingest.build_manifest()
+   - Links session specs to actual files
 
 4. **Verification Models** (Phase 1):
    - VerificationResult, VerificationSummary: Frame/TTL verification results
@@ -68,14 +75,41 @@ Common Gotchas:
 - All paths in manifest models are absolute (converted during build_manifest)
 - Validation errors provide detailed context - read the full traceback
 
-Requirements: FR-12 (Domain models), NFR-7 (Immutability)
-Acceptance: A18 (Supports deterministic hashing for provenance)
+Requirements:
+-------------
+- FR-12: Domain models for type-safe data contracts
+- NFR-7: Immutability for data integrity
 
-See Also:
----------
-- config.py: Configuration and session loaders
-- ingest.py: Manifest building and verification
-- utils.py: Hashing and serialization utilities
+Acceptance Criteria:
+-------------------
+- A18: Supports deterministic hashing for provenance
+
+Example:
+--------
+>>> from w2t_bkin.domain import SessionMetadata, Camera
+>>>
+>>> # Create session metadata
+>>> metadata = SessionMetadata(
+...     session_id="Session-000001",
+...     subject_id="M001",
+...     date="2025-11-12",
+...     experimenter="Borja Esteban"
+... )
+>>>
+>>> # Create camera specification
+>>> camera = Camera(
+...     camera_id="cam1",
+...     video_pattern="videos/cam1_*.avi",
+...     frame_rate=30.0,
+...     ttl_id="ttl1"
+... )
+>>>
+>>> # Models are frozen - create modified copy
+>>> camera_modified = camera.model_copy(update={"frame_rate": 60.0})
+>>>
+>>> # Serialize to dict/JSON
+>>> camera_dict = camera.model_dump()
+>>> camera_json = camera.model_dump_json()
 """
 
 from pathlib import Path
