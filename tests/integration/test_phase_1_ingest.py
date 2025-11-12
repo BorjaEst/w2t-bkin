@@ -10,15 +10,9 @@ Acceptance: A6, A7
 import json
 import os
 from pathlib import Path
+from typing import List
 
 import pytest
-
-
-def _write_lines(path: Path, n: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        for _ in range(n):
-            f.write("1\n")
 
 
 @pytest.mark.integration
@@ -30,158 +24,90 @@ def test_real_session_001_end_to_end_ingest(
 ):
     """Test complete ingest workflow with real Session-000001 data.
 
-    This is an end-to-end integration test using actual video files,
-    TTL files, and Bpod data from Session-000001.
+    End-to-end test covering: discovery, counting, verification, and sidecar writing.
 
-    **Real data characteristics (PERFECT SYNC!):**
-    - Videos: 8580 frames each (verified with ffprobe)
-    - TTL pulses: 8580 (corrected to exactly match video frames)
-    - Expected mismatch: 0 frames (PERFECT hardware synchronization!)
+    Real data: 8580 frames = 8580 TTL pulses (PERFECT hardware sync!)
 
     Requirements: FR-1 (discovery), FR-2 (counting), FR-3 (verification)
     """
-    from w2t_bkin.config import load_config, load_session
-    from w2t_bkin.domain import Config
+    from w2t_bkin.config import load_session
+    from w2t_bkin.domain import Config, VerificationSummary
     from w2t_bkin.ingest import (
         build_manifest,
         count_ttl_pulses,
         count_video_frames,
         create_verification_summary,
-        verify_manifest,
         write_verification_summary,
     )
 
-    # Load session from real data
+    # Setup: Load session and configure paths
     session = load_session(fixture_session_toml)
-
-    # Create config pointing to real data
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)
     config_dict["paths"]["output_root"] = str(tmp_work_dir / "processed")
     config_dict["paths"]["intermediate_root"] = str(tmp_work_dir / "interim")
     config = Config(**config_dict)
 
-    # Phase 1: Build manifest (FR-1 - Discovery)
+    # Phase 1: Discovery - Build manifest from session configuration
     manifest = build_manifest(config, session)
 
-    # Assertions on discovered files
     assert manifest.session_id == "Session-000001"
-    assert len(manifest.cameras) == 2, "Should discover 2 cameras (cam0 top, cam1 pupil_left)"
+    assert len(manifest.cameras) == 2, "Should discover 2 cameras"
     assert len(manifest.ttls) == 3, "Should discover 3 TTL channels"
-    assert manifest.bpod_files is not None and len(manifest.bpod_files) > 0, "Should discover Bpod file"
+    assert len(manifest.bpod_files) > 0, "Should discover Bpod file"
 
-    # Verify camera discovery
-    camera_ids = {cam.camera_id for cam in manifest.cameras}
-    assert "cam0" in camera_ids
-    assert "cam1" in camera_ids
+    # Verify discovered entities
+    assert {"cam0", "cam1"} == {cam.camera_id for cam in manifest.cameras}
+    assert {"ttl_hitmiss", "ttl_camera", "ttl_cue"} == {ttl.ttl_id for ttl in manifest.ttls}
 
-    # Verify TTL discovery
-    ttl_ids = {ttl.ttl_id for ttl in manifest.ttls}
-    assert "ttl_hitmiss" in ttl_ids
-    assert "ttl_camera" in ttl_ids
-    assert "ttl_cue" in ttl_ids
-
-    # Verify each camera has video files
+    # Verify files exist
     for cam in manifest.cameras:
-        assert len(cam.video_files) > 0, f"Camera {cam.camera_id} should have video files"
-        # Check files exist
-        for video_file in cam.video_files:
-            assert Path(video_file).exists(), f"Video file should exist: {video_file}"
-
-    # Verify TTL files exist
+        assert all(Path(f).exists() for f in cam.video_files), f"Camera {cam.camera_id} videos missing"
     for ttl in manifest.ttls:
-        assert len(ttl.files) > 0, f"TTL {ttl.ttl_id} should have files"
-        for ttl_file in ttl.files:
-            assert Path(ttl_file).exists(), f"TTL file should exist: {ttl_file}"
+        assert all(Path(f).exists() for f in ttl.files), f"TTL {ttl.ttl_id} files missing"
 
-    # Phase 2: Count frames and pulses (FR-2)
-    # Build a new manifest with populated counts
-    from w2t_bkin.domain import Manifest, ManifestCamera
+    # Phase 2: Counting - Populate manifest with frame/TTL counts
+    manifest_with_counts = _populate_manifest_with_counts(manifest, count_video_frames, count_ttl_pulses)
 
-    cameras_with_counts = []
-    for cam in manifest.cameras:
-        frame_count = count_video_frames(Path(cam.video_files[0]))
-        assert frame_count > 0, f"Camera {cam.camera_id} should have frames"
+    # Verify counts are positive
+    for cam in manifest_with_counts.cameras:
+        assert cam.frame_count > 0, f"Camera {cam.camera_id} has no frames"
+        assert cam.ttl_pulse_count > 0, f"Camera {cam.camera_id} has no TTL pulses"
 
-        # Find corresponding TTL file
-        ttl_entry = next((t for t in manifest.ttls if t.ttl_id == cam.ttl_id), None)
-        ttl_count = 0
-        if ttl_entry and ttl_entry.files:
-            ttl_count = count_ttl_pulses(Path(ttl_entry.files[0]))
-            assert ttl_count > 0, f"TTL {cam.ttl_id} should have pulses"
+    # Verify perfect synchronization (Session-000001 specific)
+    _assert_perfect_sync(manifest_with_counts.cameras, expected_frames=8580, expected_ttl_pulses=8580)
 
-        # Create camera with counts
-        cameras_with_counts.append(
-            ManifestCamera(
-                camera_id=cam.camera_id,
-                ttl_id=cam.ttl_id,
-                video_files=cam.video_files,
-                frame_count=frame_count,
-                ttl_pulse_count=ttl_count,
-            )
-        )
-
-    # Create manifest with populated counts
-    manifest_with_counts = Manifest(
-        session_id=manifest.session_id,
-        cameras=cameras_with_counts,
-        ttls=manifest.ttls,
-        bpod_files=manifest.bpod_files,
-    )
-
-    # Phase 3: Create verification summary (FR-3)
+    # Phase 3: Verification - Create verification summary
     verification = create_verification_summary(manifest_with_counts)
+
     assert verification["session_id"] == manifest_with_counts.session_id
-    assert len(verification["cameras"]) == len(manifest_with_counts.cameras)
+    assert len(verification["cameras"]) == 2
 
-    # Verify that counts were actually populated (not zero)
     for cam_result in verification["cameras"]:
-        assert cam_result["frame_count"] > 0, f"Camera {cam_result['camera_id']} should have non-zero frame count"
-        assert cam_result["ttl_pulse_count"] > 0, f"Camera {cam_result['camera_id']} should have non-zero TTL pulse count"
+        assert cam_result["frame_count"] == 8580
+        assert cam_result["ttl_pulse_count"] == 8580
+        assert cam_result["mismatch"] == 0, "Perfect sync: 0 frame mismatch"
+        assert cam_result["verifiable"] is True
+        assert cam_result["status"] in ["verified", "mismatch_within_tolerance"]
 
-        # Document the actual data from real Session-000001
-        # Real hardware has PERFECT sync: 8580 video frames, 8580 TTL pulses = 0 frame mismatch!
-        print(
-            f"\nCamera {cam_result['camera_id']}: {cam_result['frame_count']} frames, "
-            f"{cam_result['ttl_pulse_count']} TTL pulses, "
-            f"mismatch: {cam_result['mismatch']}"
-        )
-
-        # Verify actual counts from real data
-        assert cam_result["frame_count"] == 8580, "Real video has 8580 frames (verified with ffprobe)"
-        assert cam_result["ttl_pulse_count"] == 8580, "Real TTL file has 8580 pulses (perfect match!)"
-        assert cam_result["mismatch"] == 0, "Expected 0 frame mismatch (PERFECT hardware sync!)"
-
-        # Verify mismatch is calculated correctly
-        expected_mismatch = abs(cam_result["frame_count"] - cam_result["ttl_pulse_count"])
-        assert cam_result["mismatch"] == expected_mismatch, f"Mismatch calculation error: expected {expected_mismatch}, got {cam_result['mismatch']}"
-
-    # Phase 4: Write verification summary (sidecar)
+    # Phase 4: Persistence - Write verification summary to JSON
     output_path = tmp_work_dir / "interim" / "verification_summary.json"
-    from w2t_bkin.domain import VerificationSummary
-
     verification_model = VerificationSummary(**verification)
     write_verification_summary(verification_model, output_path)
 
-    assert output_path.exists(), "Verification summary should be written"
+    assert output_path.exists(), "Verification summary not written"
 
-    # Read back and verify structure
+    # Verify persisted data structure
     with open(output_path, "r") as f:
         data = json.load(f)
 
-    assert "session_id" in data
-    assert "cameras" in data
-    assert "generated_at" in data
+    required_fields = ["session_id", "cameras", "generated_at"]
+    assert all(field in data for field in required_fields), "Missing required fields"
     assert isinstance(data["cameras"], list)
 
+    camera_required_fields = ["camera_id", "ttl_id", "frame_count", "ttl_pulse_count", "mismatch", "verifiable", "status"]
     for cam_result in data["cameras"]:
-        assert "camera_id" in cam_result
-        assert "ttl_id" in cam_result
-        assert "frame_count" in cam_result
-        assert "ttl_pulse_count" in cam_result
-        assert "mismatch" in cam_result
-        assert "verifiable" in cam_result
-        assert "status" in cam_result
+        assert all(field in cam_result for field in camera_required_fields), f"Camera result missing fields"
 
 
 @pytest.mark.integration
@@ -304,78 +230,49 @@ def test_real_session_001_verification_with_real_mismatch(
     minimal_config_dict,
     tmp_work_dir,
 ):
-    """Test verification behavior with real Session-000001 data.
+    """Test verification logic with perfectly synchronized real data.
 
-    **Real Session-000001 characteristics (PERFECT SYNC!):**
-    - Video frames: 8580 (verified with ffprobe)
-    - TTL pulses: 8580 (corrected to exactly match)
-    - Actual mismatch: 0 frames (PERFECT hardware synchronization!)
+    Validates verification behavior with zero mismatch (perfect sync).
+    Real data: 8580 frames = 8580 TTL pulses = 0 mismatch
 
-    This test validates the verification logic with perfectly synchronized data.
-
-    Requirements: FR-3 (Verification with mismatch detection)
+    Requirements: FR-3 (Verification with tolerance checking)
     """
     from w2t_bkin.config import load_session
-    from w2t_bkin.domain import Config, Manifest, ManifestCamera
+    from w2t_bkin.domain import Config
     from w2t_bkin.ingest import (
-        VerificationError,
         build_manifest,
         count_ttl_pulses,
         count_video_frames,
         verify_manifest,
     )
 
+    # Setup
     session = load_session(fixture_session_toml)
-
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)
     config = Config(**config_dict)
 
+    # Build and populate manifest
     manifest = build_manifest(config, session)
+    manifest_with_counts = _populate_manifest_with_counts(manifest, count_video_frames, count_ttl_pulses)
 
-    # Count frames and build manifest with counts
-    cameras_with_counts = []
-    for cam in manifest.cameras:
-        frame_count = count_video_frames(Path(cam.video_files[0]))
-        ttl_entry = next((t for t in manifest.ttls if t.ttl_id == cam.ttl_id), None)
-        ttl_count = count_ttl_pulses(Path(ttl_entry.files[0])) if ttl_entry else 0
+    # Verify perfect synchronization expectations
+    _assert_perfect_sync(manifest_with_counts.cameras, expected_frames=8580, expected_ttl_pulses=8580)
 
-        cameras_with_counts.append(
-            ManifestCamera(
-                camera_id=cam.camera_id,
-                ttl_id=cam.ttl_id,
-                video_files=cam.video_files,
-                frame_count=frame_count,
-                ttl_pulse_count=ttl_count,
-            )
-        )
-
-    manifest_with_counts = Manifest(
-        session_id=manifest.session_id,
-        cameras=cameras_with_counts,
-        ttls=manifest.ttls,
-        bpod_files=manifest.bpod_files,
-    )
-
-    # Test 1: With perfect sync, tolerance=0 should PASS
+    # Test 1: Strict tolerance (0) should PASS with perfect sync
     result = verify_manifest(manifest_with_counts, tolerance=0, warn_on_mismatch=False)
-    assert result.status == "verified", "Perfect sync (0 mismatch) should verify with tolerance=0"
+    assert result.status == "verified", "Perfect sync (mismatch=0) should pass with tolerance=0"
 
-    # Test 2: With permissive tolerance (should always PASS)
+    # Test 2: Permissive tolerance should always PASS
     result = verify_manifest(manifest_with_counts, tolerance=10000, warn_on_mismatch=False)
     assert result.status == "verified"
 
-    # Test 3: Verify the expected behavior with real data
-    # Real data: 8580 frames, 8580 TTL pulses = 0 frame mismatch (PERFECT sync!)
-    for cam in cameras_with_counts:
-        expected_frame_count = 8580  # Real value from ffprobe
-        expected_ttl_count = 8580  # Real value from TTL file (corrected to perfect match)
-        expected_mismatch = 0  # PERFECT hardware synchronization!
-
-        # These should now pass with real ffprobe implementation
-        assert cam.frame_count == expected_frame_count, f"Should count {expected_frame_count} frames with ffprobe"
-        assert cam.ttl_pulse_count == expected_ttl_count, f"Should count {expected_ttl_count} TTL pulses"
-        assert abs(cam.frame_count - cam.ttl_pulse_count) == expected_mismatch, f"Expected {expected_mismatch} frame mismatch (PERFECT sync!)"
+    # Test 3: Verify camera-level results
+    assert len(result.camera_results) == 2, "Should have results for both cameras"
+    for cam_result in result.camera_results:
+        assert cam_result.mismatch == 0, f"Camera {cam_result.camera_id} should have 0 mismatch"
+        assert cam_result.verifiable is True
+        assert cam_result.status == "verified"
 
 
 @pytest.mark.integration
@@ -617,3 +514,69 @@ def test_unverifiable_camera_warns(caplog):
     caplog.set_level("WARNING")
     validate_ttl_references(session)
     assert any("unverifiable" in rec.message.lower() or "references ttl_id" in rec.message.lower() for rec in caplog.records)
+
+
+# ===========================================================================
+# Helper Functions
+# ===========================================================================
+
+
+def _write_lines(path: Path, n: int) -> None:
+    """Helper: Write n lines to a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        for _ in range(n):
+            f.write("1\n")
+
+
+def _populate_manifest_with_counts(manifest, count_video_frames, count_ttl_pulses):
+    """Helper: Populate manifest cameras with frame and TTL counts.
+
+    Args:
+        manifest: Manifest with discovered files
+        count_video_frames: Function to count video frames
+        count_ttl_pulses: Function to count TTL pulses
+
+    Returns:
+        New Manifest with populated frame_count and ttl_pulse_count
+    """
+    from w2t_bkin.domain import Manifest, ManifestCamera
+
+    cameras_with_counts = []
+    for cam in manifest.cameras:
+        frame_count = count_video_frames(Path(cam.video_files[0]))
+
+        # Find corresponding TTL file
+        ttl_entry = next((t for t in manifest.ttls if t.ttl_id == cam.ttl_id), None)
+        ttl_count = count_ttl_pulses(Path(ttl_entry.files[0])) if ttl_entry and ttl_entry.files else 0
+
+        cameras_with_counts.append(
+            ManifestCamera(
+                camera_id=cam.camera_id,
+                ttl_id=cam.ttl_id,
+                video_files=cam.video_files,
+                frame_count=frame_count,
+                ttl_pulse_count=ttl_count,
+            )
+        )
+
+    return Manifest(
+        session_id=manifest.session_id,
+        cameras=cameras_with_counts,
+        ttls=manifest.ttls,
+        bpod_files=manifest.bpod_files,
+    )
+
+
+def _assert_perfect_sync(cameras: List, expected_frames: int = 8580, expected_ttl_pulses: int = 8580):
+    """Helper: Assert cameras have perfect synchronization.
+
+    Args:
+        cameras: List of ManifestCamera objects with counts
+        expected_frames: Expected frame count (default: 8580)
+        expected_ttl_pulses: Expected TTL pulse count (default: 8580)
+    """
+    for cam in cameras:
+        assert cam.frame_count == expected_frames, f"Camera {cam.camera_id}: expected {expected_frames} frames, got {cam.frame_count}"
+        assert cam.ttl_pulse_count == expected_ttl_pulses, f"Camera {cam.camera_id}: expected {expected_ttl_pulses} TTL pulses, got {cam.ttl_pulse_count}"
+        assert cam.frame_count == cam.ttl_pulse_count, f"Camera {cam.camera_id}: frame/TTL mismatch = {abs(cam.frame_count - cam.ttl_pulse_count)}"
