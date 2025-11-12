@@ -187,9 +187,14 @@ class TestManifestUpdate:
 class TestFFmpegWrapper:
     """Test ffmpeg subprocess handling."""
 
-    def test_Should_CallFFmpeg_When_Transcoding(self, mocker):
+    def test_Should_CallFFmpeg_When_Transcoding(self, monkeypatch):
         """Should invoke ffmpeg with correct parameters."""
-        mock_subprocess = mocker.patch("subprocess.run")
+        import subprocess
+        from unittest.mock import MagicMock, Mock
+
+        mock_subprocess = MagicMock()
+        monkeypatch.setattr(subprocess, "run", mock_subprocess)
+
         video_path = Path("tests/fixtures/videos/test_video.avi")
         options = TranscodeOptions(codec="libx264", crf=18, preset="medium", keyint=15)
 
@@ -202,9 +207,14 @@ class TestFFmpegWrapper:
         assert "-c:v" in call_args
         assert "libx264" in call_args
 
-    def test_Should_HandleFFmpegError_When_TranscodeFails(self, mocker):
+    def test_Should_HandleFFmpegError_When_TranscodeFails(self, monkeypatch):
         """Should raise TranscodeError when ffmpeg fails."""
-        mock_subprocess = mocker.patch("subprocess.run", side_effect=Exception("ffmpeg error"))
+        import subprocess
+        from unittest.mock import MagicMock
+
+        mock_subprocess = MagicMock(side_effect=Exception("ffmpeg error"))
+        monkeypatch.setattr(subprocess, "run", mock_subprocess)
+
         video_path = Path("tests/fixtures/videos/test_video.avi")
         options = TranscodeOptions(codec="libx264", crf=18, preset="medium", keyint=15)
 
