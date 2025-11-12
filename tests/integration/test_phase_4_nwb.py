@@ -99,7 +99,6 @@ class TestBasicNWBAssembly:
 class TestRateBasedTiming:
     """Test rate-based ImageSeries timing (no per-frame timestamps)."""
 
-    @pytest.mark.skip(reason="RED Phase: requires NWB implementation")
     def test_Should_UseRateTiming_When_NominalRateTimebase_Issue5(
         self,
         fixture_session_path,
@@ -117,7 +116,7 @@ class TestRateBasedTiming:
             "cameras": [
                 {
                     "camera_id": "cam0_top",
-                    "video_path": str(fixture_session_path / "Video" / "top" / "cam0.avi"),
+                    "video_path": str(fixture_session_path / "Video" / "top" / "cam0_2025-01-01-00-00-00.avi"),
                     "frame_rate": 30.0,
                     "frame_count": 100,
                 }
@@ -144,7 +143,6 @@ class TestRateBasedTiming:
 class TestExternalFileLinks:
     """Test external video file linking."""
 
-    @pytest.mark.skip(reason="RED Phase: requires NWB implementation")
     def test_Should_LinkExternalFile_When_Enabled_Issue5(
         self,
         fixture_session_path,
@@ -157,7 +155,7 @@ class TestExternalFileLinks:
         from w2t_bkin.nwb import assemble_nwb
 
         # Create manifest with real video file
-        video_path = fixture_session_path / "Video" / "top" / "cam0.avi"
+        video_path = fixture_session_path / "Video" / "top" / "cam0_2025-01-01-00-00-00.avi"
 
         manifest = {
             "session_id": "Session-000001",
@@ -283,7 +281,6 @@ class TestOptionalModalitiesIntegration:
 class TestProvenanceEmbedding:
     """Test provenance metadata embedding in NWB."""
 
-    @pytest.mark.skip(reason="RED Phase: requires NWB implementation")
     def test_Should_EmbedProvenance_When_Assembling_Issue5(
         self,
         fixture_session_path,
