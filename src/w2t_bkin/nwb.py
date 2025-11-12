@@ -10,7 +10,11 @@ Acceptance: A1, A12
 from datetime import datetime
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+from pynwb import NWBHDF5IO, NWBFile
+from pynwb.device import Device
+from pynwb.image import ImageSeries
 
 from .domain import (
     AlignmentStats,
@@ -66,30 +70,30 @@ class NWBError(Exception):
 # =============================================================================
 
 
-def create_device(camera_metadata: Dict[str, Any]) -> Dict[str, Any]:
-    """Create NWB Device from camera metadata.
+def create_device(camera_metadata: Dict[str, Any]) -> Device:
+    """Create pynwb Device from camera metadata.
 
     Args:
         camera_metadata: Camera metadata dictionary
 
     Returns:
-        Device dictionary with camera information
+        pynwb Device object with camera information
     """
-    return {
-        "name": camera_metadata.get("camera_id", DEFAULT_CAMERA_ID),
-        "description": camera_metadata.get("description", ""),
-        "manufacturer": camera_metadata.get("manufacturer", DEFAULT_MANUFACTURER),
-    }
+    return Device(
+        name=camera_metadata.get("camera_id", DEFAULT_CAMERA_ID),
+        description=camera_metadata.get("description", ""),
+        manufacturer=camera_metadata.get("manufacturer", DEFAULT_MANUFACTURER),
+    )
 
 
-def create_devices(cameras: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Create NWB Devices for all cameras.
+def create_devices(cameras: List[Dict[str, Any]]) -> List[Device]:
+    """Create pynwb Devices for all cameras.
 
     Args:
         cameras: List of camera metadata dictionaries
 
     Returns:
-        List of Device dictionaries
+        List of pynwb Device objects
     """
     return [create_device(camera) for camera in cameras]
 
@@ -99,27 +103,38 @@ def create_devices(cameras: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # =============================================================================
 
 
-def create_image_series(video_metadata: Dict[str, Any], device: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def create_image_series(video_metadata: Dict[str, Any], device: Optional[Device] = None) -> ImageSeries:
     """Create ImageSeries with external_file link and rate-based timing.
 
     Uses rate-based timing (no per-frame timestamps) as per FR-7, NFR-6, A12.
 
     Args:
         video_metadata: Video metadata with path, frame_rate, etc.
-        device: Optional device dictionary
+        device: Optional pynwb Device object
 
     Returns:
-        ImageSeries dictionary
+        pynwb ImageSeries object
     """
     camera_id = video_metadata.get("camera_id", "video")
-    return {
-        "name": camera_id,
-        "external_file": [video_metadata.get("video_path", "")],
-        "rate": video_metadata.get("frame_rate", DEFAULT_FRAME_RATE),
-        "starting_time": video_metadata.get("starting_time", DEFAULT_STARTING_TIME),
-        "description": f"Video from {camera_id}",
-        "device": device,
-    }
+    video_path = video_metadata.get("video_path", "")
+
+    # Create ImageSeries with external file reference
+    # Note: external_file requires a list of file paths
+    image_series = ImageSeries(
+        name=camera_id,
+        description=f"Video from {camera_id}",
+        external_file=[video_path],
+        format="external",
+        starting_time=video_metadata.get("starting_time", DEFAULT_STARTING_TIME),
+        rate=video_metadata.get("frame_rate", DEFAULT_FRAME_RATE),
+        unit="n/a",  # Required by NWB schema for ImageSeries
+    )
+
+    # Link device if provided
+    if device is not None:
+        image_series.device = device
+
+    return image_series
 
 
 # =============================================================================
@@ -129,12 +144,12 @@ def create_image_series(video_metadata: Dict[str, Any], device: Optional[Dict[st
 
 def _validate_output_directory(output_dir: Path) -> None:
     """Validate and prepare output directory for writing.
-    
+
     Security: Checks directory writability to prevent permission errors.
-    
+
     Args:
         output_dir: Directory path for NWB output
-        
+
     Raises:
         NWBError: If directory cannot be created or is not writable
     """
@@ -160,12 +175,12 @@ def _validate_output_directory(output_dir: Path) -> None:
 
 def _sanitize_session_id(session_id: str) -> str:
     """Sanitize session ID to prevent path traversal attacks.
-    
+
     Security: Removes path traversal patterns and restricts characters.
-    
+
     Args:
         session_id: Raw session identifier
-        
+
     Returns:
         Sanitized session ID safe for use in filenames
     """
@@ -173,25 +188,25 @@ def _sanitize_session_id(session_id: str) -> str:
     sanitized = session_id.replace("..", "").replace("/", "_").replace("\\", "_")
     # Remove any other potentially dangerous characters
     sanitized = "".join(c for c in sanitized if c.isalnum() or c in "-_")
-    
+
     if not sanitized:
         logger.warning(f"Session ID '{session_id}' sanitized to empty string, using 'unknown'")
         return "unknown"
-    
+
     if sanitized != session_id:
         logger.warning(f"Session ID sanitized from '{session_id}' to '{sanitized}'")
-    
+
     return sanitized
 
 
 def _validate_video_files(cameras: List[Dict[str, Any]]) -> None:
     """Validate video file paths for all cameras.
-    
+
     Security: Ensures video files exist before assembly (except test fixtures).
-    
+
     Args:
         cameras: List of camera metadata dictionaries
-        
+
     Raises:
         NWBError: If video file not found
     """
@@ -205,18 +220,15 @@ def _validate_video_files(cameras: List[Dict[str, Any]]) -> None:
                 raise NWBError(f"Video file not found: {filename}")
 
 
-def _merge_session_metadata(
-    session_metadata: Optional[Dict[str, Any]], 
-    manifest: Dict[str, Any]
-) -> Dict[str, Any]:
+def _merge_session_metadata(session_metadata: Optional[Dict[str, Any]], manifest: Dict[str, Any]) -> Dict[str, Any]:
     """Merge session metadata from parameter and manifest.
-    
+
     Manifest values take precedence over parameter values.
-    
+
     Args:
         session_metadata: Optional session metadata from function parameter
         manifest: Session manifest that may contain metadata
-        
+
     Returns:
         Merged session metadata dictionary
     """
@@ -226,10 +238,10 @@ def _merge_session_metadata(
     return final_metadata
 
 
-def _build_nwb_data_structure(
+def _build_nwb_file(
     session_id: str,
-    devices: List[Dict[str, Any]],
-    image_series_list: List[Dict[str, Any]],
+    devices: List[Device],
+    image_series_list: List[ImageSeries],
     provenance: Dict[str, Any],
     config: Dict[str, Any],
     final_session_metadata: Dict[str, Any],
@@ -237,13 +249,13 @@ def _build_nwb_data_structure(
     facemap_bundles: Optional[List[FacemapBundle]],
     bpod_summary: Optional[BpodSummary],
     manifest: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Build NWB data structure from components.
-    
+) -> NWBFile:
+    """Build NWBFile from components.
+
     Args:
         session_id: Session identifier
-        devices: List of device dictionaries
-        image_series_list: List of ImageSeries dictionaries
+        devices: List of pynwb Device objects
+        image_series_list: List of pynwb ImageSeries objects
         provenance: Provenance metadata
         config: Pipeline configuration
         final_session_metadata: Merged session metadata
@@ -251,51 +263,73 @@ def _build_nwb_data_structure(
         facemap_bundles: Optional facemap data bundles
         bpod_summary: Optional Bpod trial/event summary
         manifest: Session manifest (for optional modalities)
-        
+
     Returns:
-        Complete NWB data structure dictionary
+        Complete NWBFile object
     """
-    nwb_data = {
-        "session_id": session_id,
-        "devices": devices,
-        "image_series": image_series_list,
-        "provenance": provenance,
-        "config": config,
-        "session_metadata": final_session_metadata,
-        "pose_bundles": pose_bundles or [],
-        "facemap_bundles": facemap_bundles or [],
-        "bpod_summary": bpod_summary,
-        "created_at": DETERMINISTIC_TIMESTAMP,  # Fixed timestamp for deterministic output (NFR-1)
-    }
+    # Parse timestamp (use deterministic for testing, or current time)
+    try:
+        session_start_time = datetime.fromisoformat(DETERMINISTIC_TIMESTAMP)
+    except:
+        session_start_time = datetime.now()
+
+    # Get session description from config or use default
+    nwb_config = config.get("nwb", {}) if isinstance(config, dict) else {}
+    session_description = nwb_config.get("session_description", f"Session {session_id}")
+
+    # Create NWBFile
+    nwbfile = NWBFile(
+        session_description=session_description,
+        identifier=session_id,
+        session_start_time=session_start_time,
+        lab=nwb_config.get("lab", ""),
+        institution=nwb_config.get("institution", ""),
+        experimenter=nwb_config.get("experimenter", []),
+        subject=None,  # Will add later if session_metadata has subject info
+    )
+
+    # Add devices
+    for device in devices:
+        nwbfile.add_device(device)
+
+    # Add ImageSeries to acquisition
+    for image_series in image_series_list:
+        nwbfile.add_acquisition(image_series)
+        logger.debug(f"Added ImageSeries: {image_series.name}")
+
+    # Store provenance as custom metadata (using lab_meta_data or notes)
+    if provenance:
+        import json
+
+        provenance_json = json.dumps(provenance, indent=2, default=str)
+        if hasattr(nwbfile, "notes"):
+            nwbfile.notes = f"Provenance:\n{provenance_json}"
+        logger.debug("Embedded provenance metadata")
 
     # Include optional modalities if present in manifest
     if "events" in manifest:
-        nwb_data["events"] = manifest["events"]
         logger.debug("Including events data in NWB")
+        # TODO: Add BehavioralEvents when events module is complete
     if "pose" in manifest:
-        nwb_data["pose"] = manifest["pose"]
         logger.debug("Including pose data in NWB")
+        # TODO: Add PoseEstimation when pose module is complete
     if "facemap" in manifest:
-        nwb_data["facemap"] = manifest["facemap"]
         logger.debug("Including facemap data in NWB")
-    
-    return nwb_data
+        # TODO: Add BehavioralTimeSeries when facemap module is complete
+
+    return nwbfile
 
 
-def _write_nwb_file(nwb_path: Path, nwb_data: Dict[str, Any]) -> None:
-    """Write NWB data structure to file.
-    
-    Stub implementation using JSON. Will be replaced with pynwb in production.
-    
+def _write_nwb_file(nwb_path: Path, nwbfile: NWBFile) -> None:
+    """Write NWBFile to disk using NWBHDF5IO.
+
     Args:
         nwb_path: Output file path
-        nwb_data: NWB data structure to serialize
+        nwbfile: NWBFile object to write
     """
-    import json
-    
-    with open(nwb_path, "w") as f:
-        json.dump(nwb_data, f, indent=2, default=str, sort_keys=True)
-    
+    with NWBHDF5IO(str(nwb_path), "w") as io:
+        io.write(nwbfile)
+
     logger.debug(f"Wrote NWB file: {nwb_path} ({nwb_path.stat().st_size} bytes)")
 
 
@@ -305,8 +339,8 @@ def _write_nwb_file(nwb_path: Path, nwb_data: Dict[str, Any]) -> None:
 
 
 def assemble_nwb(
-    manifest: Dict[str, Any],
-    config: Dict[str, Any],
+    manifest: Union[Dict[str, Any], Manifest],
+    config: Union[Dict[str, Any], Config],
     provenance: Dict[str, Any],
     output_dir: Path,
     pose_bundles: Optional[List[PoseBundle]] = None,
@@ -324,12 +358,12 @@ def assemble_nwb(
 
     Requirements: FR-7, NFR-6, NFR-1, NFR-2, NFR-11
     Acceptance: A1, A12
-    
+
     Security: Validates inputs, sanitizes session IDs, checks file permissions.
 
     Args:
-        manifest: Session manifest with cameras and metadata
-        config: Pipeline configuration
+        manifest: Session manifest with cameras and metadata (dict or Manifest object)
+        config: Pipeline configuration (dict or Config object)
         provenance: Provenance metadata
         output_dir: Output directory for NWB file
         pose_bundles: Optional pose data bundles
@@ -342,7 +376,7 @@ def assemble_nwb(
 
     Raises:
         NWBError: If required fields missing or assembly fails
-        
+
     Example:
         >>> manifest = {"session_id": "Session-001", "cameras": [...]}
         >>> config = {"nwb": {"file_name_template": "{session_id}.nwb"}}
@@ -352,21 +386,32 @@ def assemble_nwb(
     if manifest is None:
         raise NWBError("Manifest is required for NWB assembly")
 
+    # Convert Pydantic models to dicts if needed
+    if isinstance(manifest, Manifest):
+        manifest_dict = manifest.model_dump()
+    else:
+        manifest_dict = manifest
+
+    if isinstance(config, Config):
+        config_dict = config.model_dump()
+    else:
+        config_dict = config if isinstance(config, dict) else {}
+
     if not isinstance(output_dir, Path):
         output_dir = Path(output_dir)
-    
-    logger.info(f"Starting NWB assembly for session: {manifest.get('session_id', 'unknown')}")
+
+    logger.info(f"Starting NWB assembly for session: {manifest_dict.get('session_id', 'unknown')}")
 
     # Validate and prepare output directory
     _validate_output_directory(output_dir)
 
     # Extract and sanitize session info
-    raw_session_id = manifest.get("session_id", "unknown")
+    raw_session_id = manifest_dict.get("session_id", "unknown")
     session_id = _sanitize_session_id(raw_session_id)
     logger.debug(f"Processing session: {session_id}")
 
     # Validate video files
-    cameras = manifest.get("cameras", [])
+    cameras = manifest_dict.get("cameras", [])
     _validate_video_files(cameras)
     logger.debug(f"Validated {len(cameras)} camera(s)")
 
@@ -381,30 +426,30 @@ def assemble_nwb(
     logger.debug(f"Created {len(image_series_list)} ImageSeries")
 
     # Determine output filename
-    nwb_config = config.get("nwb", {}) if isinstance(config, dict) else {}
+    nwb_config = config_dict.get("nwb", {})
     filename_template = nwb_config.get("file_name_template", DEFAULT_NWB_FILENAME_TEMPLATE)
     filename = filename_template.replace("{session_id}", session_id)
     nwb_path = output_dir / filename
 
     # Merge session metadata
-    final_session_metadata = _merge_session_metadata(session_metadata, manifest)
+    final_session_metadata = _merge_session_metadata(session_metadata, manifest_dict)
 
-    # Build NWB data structure
-    nwb_data = _build_nwb_data_structure(
+    # Build NWBFile
+    nwbfile = _build_nwb_file(
         session_id=session_id,
         devices=devices,
         image_series_list=image_series_list,
         provenance=provenance,
-        config=config,
+        config=config_dict,
         final_session_metadata=final_session_metadata,
         pose_bundles=pose_bundles,
         facemap_bundles=facemap_bundles,
         bpod_summary=bpod_summary,
-        manifest=manifest,
+        manifest=manifest_dict,
     )
 
-    # Write NWB file (stub - will use pynwb in full implementation)
-    _write_nwb_file(nwb_path, nwb_data)
+    # Write NWB file using pynwb NWBHDF5IO
+    _write_nwb_file(nwb_path, nwbfile)
 
     logger.info(f"Assembled NWB file: {nwb_path.name}")
 

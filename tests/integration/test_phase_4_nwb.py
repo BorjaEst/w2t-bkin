@@ -20,7 +20,6 @@ from w2t_bkin.domain import Config, Manifest
 class TestBasicNWBAssembly:
     """Test basic NWB assembly from manifest."""
 
-    @pytest.mark.skip(reason="RED Phase: requires Phase 0-2 completion and NWB implementation")
     def test_Should_CreateNWB_When_ManifestProvided_Issue5(
         self,
         fixture_session_path,
@@ -61,7 +60,6 @@ class TestBasicNWBAssembly:
         assert nwb_path.suffix == ".nwb"
         assert "Session-000001" in nwb_path.name
 
-    @pytest.mark.skip(reason="RED Phase: requires NWB implementation and pynwb")
     def test_Should_IncludeAllCameras_When_MultipleInManifest_Issue5(
         self,
         fixture_session_path,
