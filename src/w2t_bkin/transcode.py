@@ -191,3 +191,71 @@ def update_manifest_with_transcode(manifest: Dict, transcoded: TranscodedVideo) 
             break
 
     return updated
+
+
+if __name__ == "__main__":
+    """Usage examples for transcode module."""
+    from pathlib import Path
+
+    print("=" * 70)
+    print("W2T-BKIN Transcode Module - Usage Examples")
+    print("=" * 70)
+    print()
+
+    print("Example 1: Transcode Configuration")
+    print("-" * 50)
+
+    # Example transcode parameters
+    config = {
+        "codec": "h264",
+        "crf": 18,
+        "preset": "medium",
+        "pixel_format": "yuv420p",
+        "max_resolution": (1920, 1080),
+    }
+
+    print(f"Codec: {config['codec']}")
+    print(f"CRF (quality): {config['crf']} (lower = better)")
+    print(f"Preset: {config['preset']}")
+    print(f"Pixel format: {config['pixel_format']}")
+    print(f"Max resolution: {config['max_resolution'][0]}x{config['max_resolution'][1]}")
+    print()
+
+    print("Example 2: Video Checksum")
+    print("-" * 50)
+
+    # Note: This would require an actual video file
+    print("To compute video checksum:")
+    print("  from w2t_bkin.transcode import compute_video_checksum")
+    print("  checksum = compute_video_checksum(video_path)")
+    print("  # Returns SHA256 hash of video frames")
+    print()
+
+    print("Example 3: Transcoding Pipeline")
+    print("-" * 50)
+
+    print("Full transcode workflow:")
+    print("  1. Check if video needs transcoding (codec, resolution)")
+    print("  2. Run FFmpeg with specified parameters")
+    print("  3. Verify output integrity with checksum")
+    print("  4. Update manifest with transcoded path")
+    print()
+    print("Production usage:")
+    print("  from w2t_bkin.transcode import transcode_video")
+    print("  result = transcode_video(")
+    print("      input_path='raw_video.avi',")
+    print("      output_path='transcoded_video.mp4',")
+    print("      config={'codec': 'h264', 'crf': 18}")
+    print("  )")
+    print()
+
+    print("Benefits of transcoding:")
+    print("  ✓ Standardized codec for compatibility")
+    print("  ✓ Reduced file size with quality preservation")
+    print("  ✓ Deterministic output (same input → same output)")
+    print("  ✓ Idempotent (can re-run safely)")
+    print()
+
+    print("=" * 70)
+    print("Examples completed. See module docstring for API details.")
+    print("=" * 70)

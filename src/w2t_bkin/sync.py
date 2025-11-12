@@ -507,3 +507,63 @@ def compute_alignment(manifest: dict, config: dict) -> dict:
         alignment[camera_id] = {"timestamps": timestamps, "source": "nominal_rate", "mapping": "nearest", "frame_count": frame_count}
 
     return alignment
+
+
+if __name__ == "__main__":
+    """Usage examples for sync module."""
+    from pathlib import Path
+
+    import numpy as np
+
+    print("=" * 70)
+    print("W2T-BKIN Sync Module - Usage Examples")
+    print("=" * 70)
+    print()
+
+    # Example 1: Create nominal rate timebase provider
+    print("Example 1: Nominal Rate Timebase Provider")
+    print("-" * 50)
+
+    class MockConfig:
+        class Timebase:
+            source = "nominal_rate"
+            nominal_rate = 30.0
+            offset_s = 0.0
+
+        timebase = Timebase()
+
+    provider = create_timebase_provider(MockConfig(), manifest=None)
+    timestamps = provider.get_timestamps(n_samples=10)
+
+    print(f"Provider type: {type(provider).__name__}")
+    print(f"First 10 timestamps (30 fps): {timestamps[:5]}...")
+    print()
+
+    # Example 2: Simple time synchronization concept
+    print("Example 2: Time Synchronization Concept")
+    print("-" * 50)
+
+    print("The sync module provides:")
+    print("  • Timebase providers (nominal rate, TTL-based, etc.)")
+    print("  • Sample alignment strategies (nearest, linear interpolation)")
+    print("  • Jitter computation and validation")
+    print("  • Drift detection and statistics")
+    print()
+
+    print("Example workflow:")
+    print("  1. Create timebase provider from config")
+    print("  2. Get reference timestamps for each camera")
+    print("  3. Align samples to reference timebase")
+    print("  4. Compute jitter and drift statistics")
+    print("  5. Generate alignment stats for QC")
+    print()
+
+    print("Production usage:")
+    print("  from w2t_bkin.sync import create_timebase_provider")
+    print("  provider = create_timebase_provider(config, manifest)")
+    print("  timestamps = provider.get_timestamps(n_samples=1000)")
+    print()
+
+    print("=" * 70)
+    print("Examples completed. See module docstring for API details.")
+    print("=" * 70)

@@ -443,3 +443,60 @@ def write_event_summary(summary: BpodSummary, output_path: Path) -> None:
     data = summary.model_dump()
     write_json(data, output_path)
     logger.info(f"Wrote event summary to {output_path.name}")
+
+
+if __name__ == "__main__":
+    """Usage examples for events module."""
+    from pathlib import Path
+
+    print("=" * 70)
+    print("W2T-BKIN Events Module - Usage Examples")
+    print("=" * 70)
+    print()
+
+    print("Example: Parse Bpod .mat file and extract behavioral data")
+    print("-" * 50)
+    print()
+
+    # Example with fixture path
+    fixture_path = Path("tests/fixtures/sessions/bpod_example.mat")
+
+    if fixture_path.exists():
+        print(f"Loading Bpod file: {fixture_path}")
+
+        # Parse .mat file
+        bpod_data = parse_bpod_mat(fixture_path)
+        print(f"✓ Parsed Bpod data with {len(bpod_data.get('SessionData', {}).get('nTrials', 0))} trials")
+
+        # Extract trials
+        trials = extract_trials(bpod_data)
+        print(f"✓ Extracted {len(trials)} trial records")
+
+        if trials:
+            print(f"  First trial: {trials[0].trial_number}, outcome: {trials[0].outcome}")
+
+        # Extract behavioral events
+        events = extract_behavioral_events(bpod_data)
+        print(f"✓ Extracted {len(events)} behavioral events")
+
+        if events:
+            categories = set(e.category for e in events)
+            print(f"  Event categories: {', '.join(sorted(categories))}")
+
+        # Create summary
+        summary = create_event_summary(session_id="Session-Example", trials=trials, events=events, bpod_files=[str(fixture_path)])
+        print(f"✓ Created summary: {summary.total_trials} trials, {len(summary.event_categories)} event types")
+
+    else:
+        print("Note: Example requires Bpod fixture file")
+        print("In production, use:")
+        print()
+        print("  from w2t_bkin.events import parse_bpod_mat, extract_trials")
+        print("  bpod_data = parse_bpod_mat('path/to/bpod.mat')")
+        print("  trials = extract_trials(bpod_data)")
+        print("  events = extract_behavioral_events(bpod_data)")
+
+    print()
+    print("=" * 70)
+    print("Examples completed. See module docstring for API details.")
+    print("=" * 70)

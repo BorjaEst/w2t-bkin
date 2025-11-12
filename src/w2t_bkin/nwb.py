@@ -454,3 +454,100 @@ def assemble_nwb(
     logger.info(f"Assembled NWB file: {nwb_path.name}")
 
     return nwb_path
+
+
+if __name__ == "__main__":
+    """Usage examples for nwb module."""
+    from pathlib import Path
+    import tempfile
+
+    from pynwb import NWBHDF5IO
+
+    print("=" * 70)
+    print("W2T-BKIN NWB Module - Usage Examples")
+    print("=" * 70)
+    print()
+
+    # Example 1: Create Device objects
+    print("Example 1: Create Device Objects")
+    print("-" * 50)
+
+    camera_metadata = {"camera_id": "cam0_top", "description": "Top-view camera", "manufacturer": "FLIR"}
+
+    device = create_device(camera_metadata)
+    print(f"Device name: {device.name}")
+    print(f"Description: {device.description}")
+    print(f"Manufacturer: {device.manufacturer}")
+    print()
+
+    # Example 2: Create ImageSeries with external video link
+    print("Example 2: Create ImageSeries with External Video")
+    print("-" * 50)
+
+    video_metadata = {
+        "camera_id": "cam0_top",
+        "video_path": "/path/to/video.avi",
+        "frame_rate": 30.0,
+        "starting_time": 0.0,
+    }
+
+    image_series = create_image_series(video_metadata, device=device)
+    print(f"ImageSeries name: {image_series.name}")
+    print(f"External file: {image_series.external_file[0]}")
+    print(f"Frame rate: {image_series.rate} Hz")
+    print(f"Format: {image_series.format}")
+    print()
+
+    # Example 3: Assemble complete NWB file
+    print("Example 3: Assemble Complete NWB File")
+    print("-" * 50)
+
+    # Create minimal manifest
+    manifest = {
+        "session_id": "Session-Example",
+        "cameras": [
+            {
+                "camera_id": "cam0_top",
+                "video_path": "/fake/video.avi",
+                "frame_rate": 30.0,
+                "frame_count": 1000,
+            }
+        ],
+    }
+
+    # Minimal config
+    config = {"nwb": {"link_external_video": True, "session_description": "Example session"}}
+
+    # Provenance metadata
+    provenance = {
+        "config_hash": "abc123",
+        "session_hash": "def456",
+        "software": {"name": "w2t_bkin", "version": "0.1.0"},
+        "timebase": {"source": "nominal_rate"},
+    }
+
+    # Create temp directory for output
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir)
+
+        try:
+            nwb_path = assemble_nwb(manifest=manifest, config=config, provenance=provenance, output_dir=output_dir)
+
+            print(f"✓ NWB file created: {nwb_path.name}")
+            print(f"  File size: {nwb_path.stat().st_size} bytes")
+
+            # Read back and verify
+            with NWBHDF5IO(str(nwb_path), "r") as io:
+                nwbfile = io.read()
+                print(f"  Session ID: {nwbfile.identifier}")
+                print(f"  Devices: {len(nwbfile.devices)}")
+                print(f"  ImageSeries: {len(nwbfile.acquisition)}")
+
+        except Exception as e:
+            print(f"Note: Example may require real video files")
+            print(f"Error: {e}")
+
+    print()
+    print("=" * 70)
+    print("Examples completed. See module docstring for API details.")
+    print("=" * 70)

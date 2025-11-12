@@ -295,3 +295,70 @@ def validate_pose_confidence(frames: List[PoseFrame], threshold: float = 0.8) ->
         logger.warning(f"Low confidence detected: mean={mean_confidence:.3f}, threshold={threshold}")
 
     return mean_confidence
+
+
+if __name__ == "__main__":
+    """Usage examples for pose module."""
+    from pathlib import Path
+
+    import numpy as np
+
+    print("=" * 70)
+    print("W2T-BKIN Pose Module - Usage Examples")
+    print("=" * 70)
+    print()
+
+    print("Example 1: Pose Data Structures")
+    print("-" * 50)
+    print("PoseKeypoint: name, x, y, confidence")
+    print("PoseFrame: frame_index, timestamp, keypoints, source")
+    print("PoseBundle: session_id, camera_id, skeleton, frames")
+    print()
+
+    # Example 2: Skeleton mapping for harmonization
+    print("Example 2: Skeleton Mapping (DLC to Canonical)")
+    print("-" * 50)
+
+    dlc_skeleton = ["snout", "ear_l", "ear_r", "back"]
+    canonical_skeleton = ["nose", "ear_left", "ear_right", "spine_mid"]
+
+    # User provides mapping
+    mapping = {"snout": "nose", "ear_l": "ear_left", "ear_r": "ear_right", "back": "spine_mid"}
+
+    print(f"DLC skeleton: {dlc_skeleton}")
+    print(f"Canonical skeleton: {canonical_skeleton}")
+    print(f"Mapping: {mapping}")
+    print()
+
+    # Example 3: Import and harmonization workflow
+    print("Example 3: Import and Harmonization Workflow")
+    print("-" * 50)
+
+    print("Step 1: Import pose data from DLC or SLEAP")
+    print("  import_dlc_pose('pose.csv') → List[Dict]")
+    print("  import_sleap_pose('pose.h5') → List[Dict]")
+    print()
+
+    print("Step 2: Harmonize to canonical skeleton")
+    print("  harmonize_dlc_to_canonical(data, mapping) → List[Dict]")
+    print("  harmonize_sleap_to_canonical(data, mapping) → List[Dict]")
+    print()
+
+    print("Step 3: Align to reference timebase")
+    print("  align_pose_to_timebase(data, ref_times, 'nearest') → List")
+    print()
+
+    print("Step 4: Validate confidence")
+    print("  mean_conf = validate_pose_confidence(frames, threshold=0.8)")
+    print()
+
+    print("Production usage:")
+    print("  from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical")
+    print("  pose_data = import_dlc_pose('pose.csv')")
+    print("  mapping = {'snout': 'nose', 'ear_l': 'ear_left', ...}")
+    print("  harmonized = harmonize_dlc_to_canonical(pose_data, mapping)")
+    print()
+
+    print("=" * 70)
+    print("Examples completed. See module docstring for API details.")
+    print("=" * 70)

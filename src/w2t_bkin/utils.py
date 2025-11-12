@@ -233,3 +233,55 @@ def run_ffprobe(video_path: Path, timeout: int = 30) -> int:
     except Exception as e:
         # Unexpected error
         raise VideoAnalysisError(f"Unexpected error running ffprobe: {e}")
+
+
+if __name__ == "__main__":
+    """Usage examples for utils module."""
+    import tempfile
+
+    print("=" * 70)
+    print("W2T-BKIN Utils Module - Usage Examples")
+    print("=" * 70)
+    print()
+
+    # Example 1: Compute hash
+    print("Example 1: Compute Hash")
+    print("-" * 50)
+    test_data = {"session_id": "Session-000001", "timestamp": "2025-11-12"}
+    hash_result = compute_hash(test_data)
+    print(f"Data: {test_data}")
+    print(f"Hash: {hash_result}")
+    print()
+
+    # Example 2: Sanitize path
+    print("Example 2: Sanitize Path")
+    print("-" * 50)
+    safe_path = sanitize_path("data/raw/Session-000001")
+    print(f"Input: data/raw/Session-000001")
+    print(f"Sanitized: {safe_path}")
+
+    try:
+        dangerous = sanitize_path("../../etc/passwd")
+        print(f"Dangerous path: {dangerous}")
+    except ValueError as e:
+        print(f"Blocked directory traversal: {e}")
+    print()
+
+    # Example 3: JSON I/O
+    print("Example 3: JSON I/O")
+    print("-" * 50)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        temp_path = Path(f.name)
+
+    test_obj = {"key": "value", "number": 42}
+    write_json(test_obj, temp_path)
+    print(f"Wrote to: {temp_path.name}")
+
+    loaded = read_json(temp_path)
+    print(f"Read back: {loaded}")
+    temp_path.unlink()
+    print()
+
+    print("=" * 70)
+    print("Examples completed. See module docstring for more details.")
+    print("=" * 70)
