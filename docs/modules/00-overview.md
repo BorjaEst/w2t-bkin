@@ -59,7 +59,7 @@ Orchestration
 - [03-config](./03-config.md) - Configuration management ✅
 - [04-ingest](./04-ingest.md) - File ingestion ✅
 - [05-events](./05-events.md) - Bpod event parsing ✅
-- [06-sync](./06-sync.md) - Timebase synchronization (to be documented)
+- [06-sync](./06-sync.md) - Timebase synchronization ✅
 - [07-transcode](./07-transcode.md) - Video transcoding (to be documented)
 - [08-pose](./08-pose.md) - Pose estimation (to be documented)
 - [09-facemap](./09-facemap.md) - Facial metrics (to be documented)
@@ -70,21 +70,21 @@ Orchestration
 
 ## Quick Reference
 
-| Module    | Phase | Status             | Key Functions                                             | Requirements      |
-| --------- | ----- | ------------------ | --------------------------------------------------------- | ----------------- |
-| utils     | 0     | ✅ Complete        | compute_hash, sanitize_path, run_ffprobe                  | NFR-1/2/3         |
-| domain    | 0     | ✅ Complete        | All Pydantic models                                       | FR-12, NFR-7      |
-| config    | 0     | ✅ Complete        | load_config, load_session                                 | FR-10, NFR-10/11  |
-| ingest    | 1     | ✅ Complete        | build_manifest, verify_manifest                           | FR-1/2/3/13/15/16 |
-| sync      | 2     | ✅ Complete        | make_timebase, align_samples                              | FR-TB-1..6, FR-17 |
-| events    | 3     | ✅ Complete        | parse_bpod_mat, extract_trials, extract_behavioral_events | FR-11/14, NFR-7   |
-| transcode | 3     | ✅ Complete        | transcode_video, compute_video_checksum                   | FR-4, NFR-2       |
-| pose      | 3     | ✅ Complete        | import_dlc_pose, import_sleap_pose, harmonize_keypoints   | FR-5              |
-| facemap   | 3     | ✅ Complete        | define_rois, compute_motion_energy                        | FR-6              |
-| nwb       | 4     | � Stub only        | assemble_nwb (planned)                                    | FR-7, NFR-6       |
-| validate  | 5     | ❌ Not implemented | run_nwbinspector (planned)                                | FR-9              |
-| qc        | 5     | ❌ Not implemented | render_qc_report (planned)                                | FR-8/14, NFR-3    |
-| cli       | -     | ❌ Not implemented | Typer commands (planned)                                  | User interaction  |
+| Module    | Phase | Status             | Key Functions                                                  | Requirements      |
+| --------- | ----- | ------------------ | -------------------------------------------------------------- | ----------------- |
+| utils     | 0     | ✅ Complete        | compute_hash, sanitize_path, run_ffprobe                       | NFR-1/2/3         |
+| domain    | 0     | ✅ Complete        | All Pydantic models                                            | FR-12, NFR-7      |
+| config    | 0     | ✅ Complete        | load_config, load_session                                      | FR-10, NFR-10/11  |
+| ingest    | 1     | ✅ Complete        | build_manifest, verify_manifest                                | FR-1/2/3/13/15/16 |
+| sync      | 2     | ✅ Complete        | create_timebase_provider, align_samples                        | FR-TB-1..6, FR-17 |
+| events    | 3     | ✅ Complete        | parse_bpod_mat, extract_trials, extract_behavioral_events      | FR-11/14, NFR-7   |
+| transcode | 3     | ✅ Complete        | transcode_video, compute_video_checksum                        | FR-4, NFR-2       |
+| pose      | 3     | ✅ Complete        | import_dlc_pose, import_sleap_pose, harmonize_dlc_to_canonical | FR-5              |
+| facemap   | 3     | ✅ Complete        | define_rois, compute_facemap_signals                           | FR-6              |
+| nwb       | 4     | � Stub only        | assemble_nwb (planned)                                         | FR-7, NFR-6       |
+| validate  | 5     | ❌ Not implemented | run_nwbinspector (planned)                                     | FR-9              |
+| qc        | 5     | ❌ Not implemented | render_qc_report (planned)                                     | FR-8/14, NFR-3    |
+| cli       | -     | ❌ Not implemented | Typer commands (planned)                                       | User interaction  |
 
 ## Getting Started
 
@@ -102,9 +102,10 @@ manifest = ingest.build_manifest(cfg, session)
 verification = ingest.verify_manifest(manifest, tolerance=5, warn_on_mismatch=True)
 
 # 3. Create timebase and align (Phase 2)
-from w2t_bkin.sync import make_timebase_provider, align_samples
-timebase = make_timebase_provider(cfg.timebase, manifest)
-# alignment = align_samples(manifest, timebase)
+from w2t_bkin.sync import create_timebase_provider, align_samples
+provider = create_timebase_provider(cfg, manifest)
+reference_times = provider.get_timestamps(n_samples=1000)
+alignment = align_samples(sample_times, reference_times, cfg.timebase)
 
 # 4. Optional: Parse Bpod behavioral data (Phase 3)
 if session.bpod:
@@ -114,17 +115,18 @@ if session.bpod:
     events_list = extract_behavioral_events(bpod_data)
 
 # 5. Optional: Import pose/facemap (Phase 3)
-# from w2t_bkin.pose import import_dlc_pose, harmonize_keypoints
-# from w2t_bkin.facemap import define_rois, compute_motion_energy
-# pose_data = import_dlc_pose(pose_csv_path)
-# facemap_bundle = compute_motion_energy(video_path, rois)
+from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical
+from w2t_bkin.facemap import define_rois, compute_facemap_signals
+pose_data = import_dlc_pose(pose_csv_path)
+harmonized = harmonize_dlc_to_canonical(pose_data, mapping)
+facemap_signals = compute_facemap_signals(video_path, rois)
 
 # 6. Assemble NWB (Phase 4 - not yet implemented)
-# nwb_path = nwb.assemble_nwb(manifest, cfg, bundles=[...])
+nwb_path = nwb.assemble_nwb(manifest, cfg, bundles=[...])
 
 # 7. Validate and QC (Phase 5 - not yet implemented)
-# validate.run_nwbinspector(nwb_path)
-# qc.render_qc_report(nwb_path, verification, ...)
+validate.run_nwbinspector(nwb_path)
+qc.render_qc_report(nwb_path, verification, ...)
 ```
 
 ## Testing
