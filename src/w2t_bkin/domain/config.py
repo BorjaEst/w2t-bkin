@@ -95,8 +95,8 @@ class TimebaseConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    source: str = Field(..., description="Timebase source: 'nominal_rate' | 'ttl' | 'neuropixels'")
-    mapping: str = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
+    source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(..., description="Timebase source: 'nominal_rate' | 'ttl' | 'neuropixels'")
+    mapping: Literal["nearest", "linear"] = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
     jitter_budget_s: float = Field(..., description="Maximum acceptable jitter in seconds before aborting", gt=0)
     offset_s: float = Field(default=0.0, description="Time offset applied to timebase in seconds")
     ttl_id: Optional[str] = Field(default=None, description="TTL channel ID when source='ttl'")
@@ -219,7 +219,7 @@ class LoggingConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    level: str = Field(..., description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(..., description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
     structured: bool = Field(..., description="Enable structured JSON logging")
 
 

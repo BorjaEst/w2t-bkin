@@ -43,7 +43,7 @@ See Also:
 - spec/spec-session-toml.md: Schema specification
 """
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -73,7 +73,7 @@ class SessionMetadata(BaseModel):
     date: str = Field(..., description="Session date (ISO 8601 format recommended)")
     experimenter: str = Field(..., description="Name or ID of experimenter")
     description: str = Field(..., description="Human-readable session description")
-    sex: str = Field(..., description="Subject sex: 'M' (male), 'F' (female), or 'U' (unknown)")
+    sex: Literal["M", "F", "U"] = Field(..., description="Subject sex: 'M' (male), 'F' (female), or 'U' (unknown)")
     age: str = Field(..., description="Subject age (e.g., 'P60', '3mo', '2y')")
     genotype: str = Field(..., description="Subject genotype (e.g., 'WT', 'Cre+', 'KO')")
 
@@ -93,7 +93,7 @@ class BpodSession(BaseModel):
     model_config = {"frozen": True, "extra": "forbid"}
 
     path: str = Field(..., description="Glob pattern for Bpod .mat files (e.g., 'Bpod/*.mat')")
-    order: str = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
+    order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
 
 
 class TTL(BaseModel):
@@ -143,7 +143,7 @@ class Camera(BaseModel):
     id: str = Field(..., description="Unique camera identifier")
     description: str = Field(..., description="Human-readable description of camera view")
     paths: str = Field(..., description="Glob pattern for video files (e.g., 'Video/cam0_*.avi')")
-    order: str = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
+    order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
     ttl_id: str = Field(..., description="Reference to TTL channel ID for frame/pulse verification")
 
 

@@ -55,7 +55,7 @@ See Also:
 - design.md: Sidecar schemas
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -171,7 +171,7 @@ class CameraVerificationResult(BaseModel):
     ttl_pulse_count: int = Field(..., description="Total TTL pulse count", ge=0)
     mismatch: int = Field(..., description="Absolute difference |frame_count - ttl_pulse_count|", ge=0)
     verifiable: bool = Field(..., description="Whether camera has valid TTL reference for verification")
-    status: str = Field(..., description="Verification status: 'pass' | 'warn' | 'fail'")
+    status: Literal["pass", "warn", "fail"] = Field(..., description="Verification status: 'pass' | 'warn' | 'fail'")
 
 
 class VerificationSummary(BaseModel):
@@ -218,5 +218,5 @@ class VerificationResult(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    status: str = Field(..., description="Overall verification status: 'pass' | 'warn' | 'fail'")
+    status: Literal["pass", "warn", "fail"] = Field(..., description="Overall verification status: 'pass' | 'warn' | 'fail'")
     camera_results: List[CameraVerificationResult] = Field(default_factory=list, description="Per-camera verification details")

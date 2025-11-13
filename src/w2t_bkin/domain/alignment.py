@@ -51,6 +51,8 @@ See Also:
 - design.md: Alignment stats schema
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -90,8 +92,8 @@ class AlignmentStats(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    timebase_source: str = Field(..., description="Source of reference timebase: 'nominal_rate' | 'ttl' | 'neuropixels'")
-    mapping: str = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
+    timebase_source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(..., description="Source of reference timebase: 'nominal_rate' | 'ttl' | 'neuropixels'")
+    mapping: Literal["nearest", "linear"] = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
     offset_s: float = Field(..., description="Time offset applied to timebase in seconds")
     max_jitter_s: float = Field(..., description="Maximum jitter observed in seconds", ge=0)
     p95_jitter_s: float = Field(..., description="95th percentile jitter in seconds", ge=0)

@@ -61,7 +61,7 @@ See Also:
 - w2t_bkin.sync: Timebase alignment
 """
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -162,7 +162,7 @@ class FacemapBundle(BaseModel):
     camera_id: str = Field(..., description="Camera identifier")
     rois: List[FacemapROI] = Field(..., description="List of ROI definitions")
     signals: List[FacemapSignal] = Field(..., description="List of motion energy signals (one per ROI)")
-    alignment_method: str = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
+    alignment_method: Literal["nearest", "linear"] = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
     generated_at: str = Field(..., description="ISO 8601 timestamp of facemap bundle generation")
 
     @model_validator(mode="after")

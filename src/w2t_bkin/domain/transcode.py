@@ -53,6 +53,7 @@ See Also:
 """
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -82,9 +83,11 @@ class TranscodeOptions(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    codec: str = Field(..., description="ffmpeg video codec (e.g., 'libx264', 'libx265')")
+    codec: Literal["libx264", "libx265", "libvpx-vp9", "libaom-av1"] = Field(..., description="ffmpeg video codec: 'libx264' | 'libx265' | 'libvpx-vp9' | 'libaom-av1'")
     crf: int = Field(..., description="Constant Rate Factor (0-51, lower=better quality)", ge=0, le=51)
-    preset: str = Field(..., description="ffmpeg encoding preset (e.g., 'ultrafast', 'medium', 'veryslow')")
+    preset: Literal["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"] = Field(
+        ..., description="ffmpeg encoding preset (speed vs. compression trade-off)"
+    )
     keyint: int = Field(..., description="Keyframe interval in frames", gt=0)
 
 
@@ -128,6 +131,6 @@ class TranscodedVideo(BaseModel):
     camera_id: str = Field(..., description="Camera identifier")
     original_path: Path = Field(..., description="Path to original raw video file")
     output_path: Path = Field(..., description="Path to transcoded mezzanine video (content-addressed)")
-    codec: str = Field(..., description="Video codec used for transcoding")
+    codec: Literal["libx264", "libx265", "libvpx-vp9", "libaom-av1"] = Field(..., description="Video codec used for transcoding")
     checksum: str = Field(..., description="Content-addressed hash (e.g., SHA256) for idempotent operations")
     frame_count: int = Field(..., description="Total frame count for verification", ge=0)

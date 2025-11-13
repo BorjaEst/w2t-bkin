@@ -62,7 +62,7 @@ See Also:
 - w2t_bkin.sync: Timebase alignment
 """
 
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -116,7 +116,7 @@ class PoseFrame(BaseModel):
     frame_index: int = Field(..., description="Video frame index (0-indexed)", ge=0)
     timestamp: float = Field(..., description="Aligned timestamp in seconds (reference timebase)")
     keypoints: List[PoseKeypoint] = Field(..., description="List of keypoints for this frame")
-    source: str = Field(..., description="Pose estimation source: 'dlc' (DeepLabCut) | 'sleap' (SLEAP)")
+    source: Literal["dlc", "sleap"] = Field(..., description="Pose estimation source: 'dlc' (DeepLabCut) | 'sleap' (SLEAP)")
 
 
 class PoseBundle(BaseModel):
@@ -161,6 +161,6 @@ class PoseBundle(BaseModel):
     model_name: str = Field(..., description="Pose model identifier (e.g., 'dlc_mouse_v1', 'sleap_rat_16pt')")
     skeleton: str = Field(..., description="Canonical skeleton name (e.g., 'mouse_12pt', 'rat_16pt')")
     frames: List[PoseFrame] = Field(..., description="List of pose frames with aligned timestamps")
-    alignment_method: str = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
+    alignment_method: Literal["nearest", "linear"] = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
     mean_confidence: float = Field(..., description="Mean confidence across all keypoints and frames", ge=0.0, le=1.0)
     generated_at: str = Field(..., description="ISO 8601 timestamp of pose bundle generation")

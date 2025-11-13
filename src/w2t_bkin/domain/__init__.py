@@ -129,14 +129,7 @@ from w2t_bkin.domain.exceptions import (
 from w2t_bkin.domain.facemap import FacemapBundle, FacemapROI, FacemapSignal
 
 # Manifest and verification models (Phase 1)
-from w2t_bkin.domain.manifest import (
-    CameraVerificationResult,
-    Manifest,
-    ManifestCamera,
-    ManifestTTL,
-    VerificationResult,
-    VerificationSummary,
-)
+from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, ManifestCamera, ManifestTTL, VerificationResult, VerificationSummary
 
 # Pose estimation models (Phase 3 - Optional)
 from w2t_bkin.domain.pose import PoseBundle, PoseFrame, PoseKeypoint
