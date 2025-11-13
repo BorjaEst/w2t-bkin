@@ -80,7 +80,7 @@ import warnings
 
 import numpy as np
 
-from .domain import AlignmentStats, Config, Manifest, TimebaseConfig
+from .domain import AlignmentStats, Config, Manifest, Session, TimebaseConfig
 from .utils import write_json
 
 logger = logging.getLogger(__name__)
@@ -274,6 +274,75 @@ def create_timebase_provider(config: Config, manifest: Optional[Manifest] = None
 
     else:
         raise SyncError(f"Invalid timebase source: {source}")
+
+
+def get_ttl_pulses(session: Session, session_dir: Optional[Path] = None) -> Dict[str, List[float]]:
+    """Load TTL pulse timestamps from session configuration.
+
+    Discovers TTL files matching glob patterns in session.TTLs and parses
+    timestamps from each file. Returns a dictionary mapping TTL channel IDs
+    to sorted lists of absolute timestamps.
+
+    Args:
+        session: Session configuration with TTL definitions
+        session_dir: Base directory for resolving TTL glob patterns.
+                    If None, uses session.session_dir.
+
+    Returns:
+        Dictionary mapping TTL ID to list of absolute timestamps (sorted)
+
+    Raises:
+        SyncError: If TTL files cannot be found or parsed
+
+    Example:
+        >>> from w2t_bkin.config import load_session
+        >>> session = load_session("data/raw/Session-001/session.toml")
+        >>> ttl_pulses = get_ttl_pulses(session)
+        >>> print(f"TTL 'ttl_cue' has {len(ttl_pulses['ttl_cue'])} pulses")
+    """
+    import glob
+
+    if session_dir is None:
+        session_dir = Path(session.session_dir)
+    else:
+        session_dir = Path(session_dir)
+
+    ttl_pulses = {}
+
+    for ttl_config in session.TTLs:
+        # Resolve glob pattern
+        pattern = str(session_dir / ttl_config.paths)
+        ttl_files = sorted(glob.glob(pattern))
+
+        if not ttl_files:
+            logger.warning(f"No TTL files found for '{ttl_config.id}' with pattern: {pattern}")
+            ttl_pulses[ttl_config.id] = []
+            continue
+
+        # Load and merge timestamps from all files
+        timestamps = []
+        for ttl_file in ttl_files:
+            path = Path(ttl_file)
+            if not path.exists():
+                raise SyncError(f"TTL file not found: {ttl_file}")
+
+            try:
+                with open(path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                timestamps.append(float(line))
+                            except ValueError:
+                                logger.warning(f"Skipping invalid TTL timestamp in {ttl_file}: {line}")
+            except Exception as e:
+                raise SyncError(f"Failed to parse TTL file {ttl_file}: {e}")
+
+        # Sort timestamps and store
+        ttl_pulses[ttl_config.id] = sorted(timestamps)
+        logger.debug(f"Loaded {len(timestamps)} TTL pulses for '{ttl_config.id}' from {len(ttl_files)} file(s)")
+
+    return ttl_pulses
 
 
 # =============================================================================
@@ -480,9 +549,7 @@ def align_samples(sample_times: List[float], reference_times: List[float], confi
 # =============================================================================
 
 
-def create_alignment_stats(
-    timebase_source: str, mapping: str, offset_s: float, max_jitter_s: float, p95_jitter_s: float, aligned_samples: int
-) -> AlignmentStats:
+def create_alignment_stats(timebase_source: str, mapping: str, offset_s: float, max_jitter_s: float, p95_jitter_s: float, aligned_samples: int) -> AlignmentStats:
     """Create alignment stats instance.
 
     Args:
