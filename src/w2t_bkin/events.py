@@ -18,7 +18,10 @@ Key Features:
 
 Main Functions:
 ---------------
-- parse_bpod_mat: Load and validate Bpod .mat file
+- parse_bpod_mat: Load and validate single Bpod .mat file
+- parse_bpod_session: Discover and merge multiple Bpod files from BpodSession config
+- discover_bpod_files: Find Bpod files matching glob pattern
+- merge_bpod_sessions: Combine multiple Bpod files into unified session
 - extract_trials: Extract Trial objects from SessionData
 - extract_behavioral_events: Convert Bpod events to TrialEvent format
 - create_event_summary: Generate TrialSummary for QC reporting
@@ -43,12 +46,17 @@ Data Flow:
 
 Example:
 --------
->>> from w2t_bkin.events import parse_bpod_mat, extract_trials, extract_behavioral_events
+>>> from w2t_bkin.events import parse_bpod_mat, parse_bpod_session, extract_trials
+>>> from w2t_bkin.domain.session import BpodSession
 >>> from pathlib import Path
 >>>
->>> # Parse Bpod file
+>>> # Option 1: Parse single Bpod file
 >>> bpod_path = Path("data/raw/Session-000001/Bpod/session.mat")
 >>> bpod_data = parse_bpod_mat(bpod_path)
+>>>
+>>> # Option 2: Parse from BpodSession config (discovers and merges multiple files)
+>>> bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
+>>> bpod_data = parse_bpod_session(bpod_cfg, Path("data/raw/Session-000001"))
 >>>
 >>> # Extract trial outcomes
 >>> trials = extract_trials(bpod_data)
@@ -57,15 +65,16 @@ Example:
 >>>
 >>> # Extract behavioral events
 >>> events = extract_behavioral_events(bpod_data)
->>> categories = set(e.category for e in events)
+>>> categories = set(e.event_type for e in events)
 >>> print(f"Event categories: {categories}")
 """
 
 from datetime import datetime
+import glob
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 try:
     from scipy.io import loadmat
@@ -73,6 +82,7 @@ except ImportError:
     loadmat = None
 
 from .domain import Trial, TrialEvent, TrialSummary
+from .domain.session import BpodSession
 from .utils import write_json
 
 logger = logging.getLogger(__name__)
@@ -246,6 +256,170 @@ def parse_bpod_mat(path: Path) -> Dict[str, Any]:
     except Exception as e:
         # Avoid leaking full path in error message
         raise BpodParseError(f"Failed to parse Bpod file: {type(e).__name__}")
+
+
+def discover_bpod_files(bpod_session: BpodSession, session_dir: Path) -> List[Path]:
+    """Discover Bpod .mat files from session configuration.
+
+    Args:
+        bpod_session: BpodSession configuration with path pattern and ordering
+        session_dir: Base directory for resolving glob patterns
+
+    Returns:
+        Sorted list of Bpod file paths
+
+    Raises:
+        BpodValidationError: If no files found or pattern invalid
+    """
+    pattern = bpod_session.path
+    full_pattern = session_dir / pattern
+
+    # Discover files matching pattern
+    file_paths = [Path(p) for p in glob.glob(str(full_pattern))]
+
+    if not file_paths:
+        raise BpodValidationError(f"No Bpod files found matching pattern: {pattern}")
+
+    # Sort according to ordering strategy
+    if bpod_session.order == "name_asc":
+        file_paths.sort(key=lambda p: p.name)
+    elif bpod_session.order == "name_desc":
+        file_paths.sort(key=lambda p: p.name, reverse=True)
+    elif bpod_session.order == "time_asc":
+        file_paths.sort(key=lambda p: p.stat().st_mtime)
+    elif bpod_session.order == "time_desc":
+        file_paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    logger.info(f"Discovered {len(file_paths)} Bpod files with order '{bpod_session.order}'")
+    return file_paths
+
+
+def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
+    """Merge multiple Bpod .mat files into unified session data.
+
+    Combines trials from multiple Bpod files in order, updating trial numbers
+    and timestamps to create a continuous session.
+
+    Args:
+        file_paths: Ordered list of Bpod .mat file paths
+
+    Returns:
+        Merged Bpod data dictionary with combined trials
+
+    Raises:
+        BpodParseError: If files cannot be parsed or merged
+    """
+    if not file_paths:
+        raise BpodParseError("No Bpod files to merge")
+
+    if len(file_paths) == 1:
+        # Single file - just parse and return
+        return parse_bpod_mat(file_paths[0])
+
+    # Parse all files
+    parsed_files = []
+    for path in file_paths:
+        try:
+            data = parse_bpod_mat(path)
+            parsed_files.append((path, data))
+        except Exception as e:
+            logger.error(f"Failed to parse {path.name}: {e}")
+            raise
+
+    # Start with first file as base
+    _, merged_data = parsed_files[0]
+    merged_session = _convert_matlab_struct(merged_data["SessionData"])
+
+    # Extract base data
+    all_trials = []
+    all_start_times = []
+    all_end_times = []
+    all_raw_events = []
+    all_trial_settings = []
+    all_trial_types = []
+
+    # Add first file's data
+    first_raw_events = _convert_matlab_struct(merged_session["RawEvents"])
+    all_trials.extend(first_raw_events["Trial"])
+    all_start_times.extend(merged_session["TrialStartTimestamp"])
+    all_end_times.extend(merged_session["TrialEndTimestamp"])
+    all_trial_settings.extend(merged_session.get("TrialSettings", []))
+    all_trial_types.extend(merged_session.get("TrialTypes", []))
+
+    # Merge subsequent files
+    for path, data in parsed_files[1:]:
+        session_data = _convert_matlab_struct(data["SessionData"])
+        raw_events = _convert_matlab_struct(session_data["RawEvents"])
+
+        # Get trial offset (time of last trial end)
+        time_offset = all_end_times[-1] if all_end_times else 0.0
+
+        # Append trials with time offset
+        all_trials.extend(raw_events["Trial"])
+
+        # Offset timestamps
+        start_times = session_data["TrialStartTimestamp"]
+        end_times = session_data["TrialEndTimestamp"]
+
+        if isinstance(start_times, (list, tuple)):
+            all_start_times.extend([t + time_offset for t in start_times])
+            all_end_times.extend([t + time_offset for t in end_times])
+        else:
+            all_start_times.append(start_times + time_offset)
+            all_end_times.append(end_times + time_offset)
+
+        # Append settings and types
+        all_trial_settings.extend(session_data.get("TrialSettings", []))
+        all_trial_types.extend(session_data.get("TrialTypes", []))
+
+        logger.debug(f"Merged {path.name}: added {session_data['nTrials']} trials")
+
+    # Update merged data
+    merged_session["nTrials"] = len(all_trials)
+    merged_session["TrialStartTimestamp"] = all_start_times
+    merged_session["TrialEndTimestamp"] = all_end_times
+    merged_session["RawEvents"]["Trial"] = all_trials
+    merged_session["TrialSettings"] = all_trial_settings
+    merged_session["TrialTypes"] = all_trial_types
+
+    merged_data["SessionData"] = merged_session
+
+    logger.info(f"Merged {len(file_paths)} Bpod files into {len(all_trials)} total trials")
+    return merged_data
+
+
+def parse_bpod_session(bpod_session: BpodSession, session_dir: Path) -> Dict[str, Any]:
+    """Parse Bpod session from configuration with file discovery and merging.
+
+    High-level function that:
+    1. Discovers files from glob pattern
+    2. Orders files according to strategy
+    3. Merges multiple files if needed
+
+    Args:
+        bpod_session: BpodSession configuration
+        session_dir: Base directory for session
+
+    Returns:
+        Unified Bpod data dictionary (single or merged)
+
+    Raises:
+        BpodValidationError: If no files found
+        BpodParseError: If parsing/merging fails
+
+    Example:
+        >>> from w2t_bkin.domain.session import BpodSession
+        >>> bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
+        >>> data = parse_bpod_session(bpod_cfg, Path("data/Session-001"))
+        >>> trials = extract_trials(data)
+    """
+    # Discover files
+    file_paths = discover_bpod_files(bpod_session, session_dir)
+
+    # Merge if multiple files
+    merged_data = merge_bpod_sessions(file_paths)
+
+    return merged_data
 
 
 def validate_bpod_structure(data: Dict[str, Any]) -> bool:
