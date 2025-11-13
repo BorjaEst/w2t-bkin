@@ -1,21 +1,45 @@
-"""Behavioral trial domain models (Phase 3).
+"""Behavioral trial domain models (Phase 3) - NWB-aligned.
 
-This module defines high-level domain models for behavioral trials,
-providing a clean abstraction over raw Bpod data. These models represent
-the semantic concept of a behavioral trial with structured information about
-cues, responses, outcomes, and events.
+This module defines high-level domain models for behavioral trials that align
+with NWB (Neurodata Without Borders) standards. Models represent behavioral
+trials in a columnar format compatible with NWB's TimeIntervals/DynamicTable
+structure, with behavioral events as separate TimeSeries.
 
 Model Hierarchy:
 ---------------
-- Trial: Complete behavioral trial with all information
-- TrialEvent: Single behavioral event within a trial
-- TrialOutcome: Trial outcome classification
-- TrialSummary: Aggregated statistics for QC reporting
+- Trial: Single trial row for NWB trials table (columnar format)
+- BehavioralEvents: Behavioral events as TimeSeries (NWB BehavioralEvents)
+- TrialOutcome: Trial outcome classification (enum for NWB column)
+- TrialSummary: Aggregated statistics for NWB ProcessingModule
+
+NWB Alignment:
+--------------
+**Trial Model**:
+- Maps to one row in nwbfile.trials (TimeIntervals/DynamicTable)
+- Required: start_time, stop_time (absolute seconds from session_start_time)
+- User-defined columns: trial_type, outcome, cue_time, response times, etc.
+- Accepts extra fields (extra="allow") for protocol-specific columns
+- Extra fields validated to be NWB-compatible (numeric, string, or bool types)
+
+**BehavioralEvents Model**:
+- Represents BehavioralEvents TimeSeries in NWB
+- Events stored separately from trials table
+- Links to trials via TimeSeriesReferenceVectorData or time-based queries
+
+**TrialSummary Model**:
+- Belongs in NWB ProcessingModule (e.g., "behavior/summary")
+- NOT embedded in trials table
+
+**Timebase Requirements**:
+- All times MUST be in absolute seconds relative to session_start_time
+- Conversion from Bpod timebase to NWB timebase happens during parsing
+- See FR-11: Bpod data parsed and aligned to session reference
 
 Key Features:
 -------------
+- **NWB-Compatible**: Columnar format matching NWB TimeIntervals
 - **Immutable**: frozen=True prevents accidental modification
-- **Strict Schema**: extra="forbid" rejects unknown fields
+- **Flexible Schema**: extra="allow" accepts protocol-specific columns
 - **Type Safe**: Full annotations with runtime validation
 - **Protocol-Agnostic**: Can represent different experimental protocols
 
@@ -23,48 +47,58 @@ Requirements:
 -------------
 - FR-11: Parse Bpod .mat files
 - FR-14: Include trial/event summaries in QC
+- FR-7: NWB file assembly
 
 Acceptance Criteria:
 -------------------
 - A4: Bpod data in QC report
+- A1: Create NWB files from manifest
 
 Usage:
 ------
->>> from w2t_bkin.domain.trials import Trial, TrialEvent, TrialOutcome
+>>> from w2t_bkin.domain.trials import Trial, BehavioralEvents, TrialOutcome
 >>>
->>> # Create a trial
+>>> # Create a trial (NWB-compatible columnar format)
 >>> trial = Trial(
 ...     trial_number=1,
 ...     trial_type=1,
-...     start_time=0.0,
-...     end_time=5.5,
+...     start_time=10.0,  # Absolute time from session_start_time
+...     stop_time=15.5,   # Absolute time from session_start_time
 ...     outcome=TrialOutcome.HIT,
-...     cue_time=1.0,
-...     response_window_start=1.5,
-...     response_window_end=3.5,
-...     response_time=2.3,
-...     events=[
-...         TrialEvent(event_type="Port1In", timestamp=2.3),
-...         TrialEvent(event_type="LeftReward", timestamp=2.5)
-...     ]
+...     cue_time=11.0,
+...     response_window_start=11.5,
+...     response_window_end=13.5,
+...     response_time=12.3,
+...     # Protocol-specific columns (automatically validated for NWB compatibility)
+...     stimulus_id=5,
+...     reward_volume=0.01,
+...     correct=True
+... )
+>>>
+>>> # Create behavioral events (separate from trials)
+>>> events = BehavioralEvents(
+...     name="Port1In",
+...     description="Center port entries",
+...     timestamps=[12.3, 25.1, 38.7],  # Absolute times
+...     trial_ids=[1, 2, 3]  # Links to trial_number
 ... )
 >>>
 >>> # Access trial information
 >>> print(f"Trial {trial.trial_number}: {trial.outcome.value}")
->>> print(f"Duration: {trial.duration:.2f}s")
->>> print(f"Response latency: {trial.response_latency:.2f}s")
 
 See Also:
 ---------
 - w2t_bkin.domain.bpod: Low-level Bpod file parsing models
 - w2t_bkin.events: Bpod parsing implementation
+- w2t_bkin.nwb: NWB file assembly
 - design.md: Trial structure and semantics
+- NWB 2.x TimeIntervals: https://pynwb.readthedocs.io/en/stable/tutorials/general/plot_timeintervals.html
 """
 
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TrialOutcome(str, Enum):
@@ -87,127 +121,157 @@ class TrialOutcome(str, Enum):
     TIMEOUT = "timeout"
 
 
-class TrialEvent(BaseModel):
-    """Single behavioral event within a trial.
+class BehavioralEvents(BaseModel):
+    """Behavioral events as NWB-compatible TimeSeries.
 
-    Represents a discrete behavioral event (e.g., nose poke, lick, reward delivery)
-    with its timestamp and optional metadata.
+    Represents a collection of behavioral events of the same type (e.g., all
+    "Port1In" events) across multiple trials. Maps to NWB BehavioralEvents
+    TimeSeries structure.
+
+    In NWB, behavioral events are stored separately from the trials table:
+    - Each event type gets its own TimeSeries (e.g., "Port1In", "LeftReward")
+    - Events are linked to trials via trial_ids or by time-based queries
+    - Stored in nwbfile.processing["behavior"].data_interfaces["BehavioralEvents"]
 
     Attributes:
-        event_type: Event classification (e.g., "Port1In", "LeftReward", "Airpuff")
-        timestamp: Event timestamp in seconds (Bpod timebase)
-        metadata: Optional additional event information
+        name: Event type identifier (e.g., "Port1In", "LeftReward", "Airpuff")
+        description: Human-readable description of event type
+        timestamps: Event timestamps in absolute seconds (session_start_time)
+        trial_ids: Optional trial numbers corresponding to each event
+        data: Optional event data values (for continuous events)
+        unit: Optional unit for data values (e.g., "volts", "degrees")
 
     Requirements:
         - FR-11: Parse event data from Bpod
         - FR-14: Include in QC report
+        - FR-7: NWB file assembly
 
     Note:
-        Event times are in Bpod's internal timebase and are NOT aligned
-        to the video reference timebase.
+        All timestamps MUST be in absolute seconds relative to session_start_time,
+        NOT in Bpod's internal timebase. Conversion happens during parsing.
+
+    Example:
+        >>> events = BehavioralEvents(
+        ...     name="Port1In",
+        ...     description="Center port entry events",
+        ...     timestamps=[12.3, 25.1, 38.7],
+        ...     trial_ids=[1, 2, 3]
+        ... )
+        >>> print(f"{events.name}: {len(events.timestamps)} events")
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    event_type: str = Field(..., description="Event classification (e.g., 'Port1In', 'LeftReward', 'Airpuff')")
-    timestamp: float = Field(..., description="Event timestamp in seconds (Bpod timebase)", ge=0)
-    metadata: Optional[Dict[str, float]] = Field(None, description="Optional additional event information (e.g., {'value': 1.5})")
+    name: str = Field(..., description="Event type identifier (e.g., 'Port1In', 'LeftReward')")
+    description: str = Field(..., description="Human-readable description of event type")
+    timestamps: List[float] = Field(..., description="Event timestamps in absolute seconds (session_start_time)")
+    trial_ids: Optional[List[int]] = Field(None, description="Trial numbers (1-indexed) corresponding to each event")
+    data: Optional[List[float]] = Field(None, description="Optional event data values")
+    unit: Optional[str] = Field(None, description="Optional unit for data values (e.g., 'volts', 'degrees')")
 
 
 class Trial(BaseModel):
-    """Complete behavioral trial with structured information.
+    """Single trial row for NWB trials table (NWB-aligned).
 
-    High-level representation of a single behavioral trial, containing
-    temporal boundaries, task structure (cues, response windows), behavioral
-    events, and outcome classification.
+    Represents one row in the NWB trials table (TimeIntervals/DynamicTable).
+    All temporal fields are in absolute seconds relative to session_start_time,
+    following NWB's unified timebase requirement.
+
+    Accepts protocol-specific extra fields which are automatically validated
+    to ensure NWB compatibility (must be numeric, string, or bool types).
 
     Attributes:
-        trial_number: Sequential trial identifier (1-indexed)
+        trial_number: Sequential trial identifier (1-indexed, maps to NWB trials.id)
         trial_type: Protocol-specific trial type classification
-        start_time: Trial start time in seconds (Bpod timebase)
-        end_time: Trial end time in seconds (Bpod timebase)
+        start_time: Trial start in absolute seconds (session_start_time reference)
+        stop_time: Trial end in absolute seconds (session_start_time reference)
         outcome: Trial outcome (HIT, MISS, FALSE_ALARM, etc.)
-        cue_time: Time of cue presentation (optional)
-        response_window_start: Start of response window (optional)
-        response_window_end: End of response window (optional)
-        response_time: Time of first response (optional)
-        reward_time: Time of reward delivery (optional)
-        events: List of behavioral events during trial
-        settings: Protocol-specific trial settings
+        **extra: Protocol-specific columns (validated for NWB compatibility)
 
     Requirements:
         - FR-11: Parse trial data from Bpod
         - FR-14: Include in QC report
+        - FR-7: NWB file assembly
 
-    Note:
-        All times are in Bpod's internal timebase and are NOT aligned
-        to the video reference timebase (FR-11 explicitly states Bpod is
-        not used for video timing).
+    Timebase Conversion:
+        Bpod timestamps must be converted to absolute seconds during parsing:
+        - absolute_time = session_start_time + bpod_time_offset + bpod_timestamp
+        - See FR-11: Bpod data parsed and aligned to session reference
+
+    NWB Writing Strategy:
+        When writing to NWB:
+        1. Create trials table: nwbfile.add_trial_column() for custom columns
+        2. Add each trial: nwbfile.add_trial(start_time, stop_time, **columns)
+        3. Store events separately: BehavioralEvents TimeSeries in processing module
+        4. Link events to trials via trial_ids or time-based queries
 
     Example:
         >>> trial = Trial(
         ...     trial_number=1,
         ...     trial_type=1,
-        ...     start_time=0.0,
-        ...     end_time=5.5,
+        ...     start_time=10.0,  # Absolute seconds from session_start_time
+        ...     stop_time=15.5,   # Absolute seconds from session_start_time
         ...     outcome=TrialOutcome.HIT,
-        ...     cue_time=1.0,
-        ...     response_window_start=1.5,
-        ...     response_window_end=3.5,
-        ...     response_time=2.3,
-        ...     events=[]
+        ...     cue_time=11.0,
+        ...     response_time=12.3,
+        ...     reward_time=12.5,
+        ...     stimulus_id=5,
+        ...     correct=True
         ... )
-        >>> print(f"Duration: {trial.duration:.2f}s")
-        >>> print(f"Response latency: {trial.response_latency:.2f}s")
+        >>> print(f"Trial {trial.trial_number}: {trial.outcome.value}")
     """
 
-    model_config = {"frozen": True, "extra": "forbid"}
+    model_config = {"frozen": True, "extra": "allow"}
 
-    trial_number: int = Field(..., description="Sequential trial identifier (1-indexed)", ge=1)
+    trial_number: int = Field(..., description="Sequential trial identifier (1-indexed, maps to NWB trials.id)", ge=1)
     trial_type: int = Field(..., description="Protocol-specific trial type classification", ge=1)
-    start_time: float = Field(..., description="Trial start time in seconds (Bpod timebase)", ge=0)
-    end_time: float = Field(..., description="Trial end time in seconds (Bpod timebase)", ge=0)
+    start_time: float = Field(..., description="Trial start in absolute seconds (session_start_time reference)", ge=0)
+    stop_time: float = Field(..., description="Trial end in absolute seconds (session_start_time reference)", ge=0)
     outcome: TrialOutcome = Field(..., description="Trial outcome classification")
 
-    # Task structure (protocol-dependent)
-    cue_time: Optional[float] = Field(None, description="Time of cue presentation (seconds, Bpod timebase)", ge=0)
-    response_window_start: Optional[float] = Field(None, description="Start of response window (seconds, Bpod timebase)", ge=0)
-    response_window_end: Optional[float] = Field(None, description="End of response window (seconds, Bpod timebase)", ge=0)
-    response_time: Optional[float] = Field(None, description="Time of first response (seconds, Bpod timebase)", ge=0)
-    reward_time: Optional[float] = Field(None, description="Time of reward delivery (seconds, Bpod timebase)", ge=0)
+    @model_validator(mode="after")
+    def validate_nwb_compatibility(self) -> "Trial":
+        """Validate that extra fields are NWB-compatible types.
 
-    # Events and settings
-    events: List[TrialEvent] = Field(default_factory=list, description="List of behavioral events during trial")
-    settings: Dict[str, float] = Field(default_factory=dict, description="Protocol-specific trial settings (e.g., {'stimulus_duration': 0.5})")
+        NWB TimeIntervals/DynamicTable columns must be:
+        - Numeric types: int, float
+        - String types: str
+        - Boolean types: bool
+        - Optional (None) versions of the above
 
-    @computed_field
-    @property
-    def duration(self) -> float:
-        """Trial duration in seconds."""
-        return self.end_time - self.start_time
+        Raises:
+            ValueError: If extra field has incompatible type for NWB
+        """
+        # Get all fields that were passed as extras
+        defined_fields = {"trial_number", "trial_type", "start_time", "stop_time", "outcome"}
+        extra_fields = set(self.model_dump().keys()) - defined_fields
 
-    @computed_field
-    @property
-    def response_latency(self) -> Optional[float]:
-        """Response latency from cue in seconds (None if no cue or no response)."""
-        if self.cue_time is not None and self.response_time is not None:
-            return self.response_time - self.cue_time
-        return None
+        for field_name in extra_fields:
+            value = getattr(self, field_name)
+            if value is None:
+                continue  # None is acceptable for optional columns
 
-    @computed_field
-    @property
-    def reward_latency(self) -> Optional[float]:
-        """Reward latency from response in seconds (None if no response or no reward)."""
-        if self.response_time is not None and self.reward_time is not None:
-            return self.reward_time - self.response_time
-        return None
+            # Check if value is NWB-compatible
+            if not isinstance(value, (int, float, str, bool)):
+                raise ValueError(
+                    f"Extra field '{field_name}' has type {type(value).__name__}, "
+                    f"which is not NWB-compatible. NWB trials table columns must be "
+                    f"numeric (int, float), string (str), or boolean (bool) types."
+                )
+
+        return self
 
 
 class TrialSummary(BaseModel):
-    """Trial summary for QC report.
+    """Trial summary for QC report and NWB ProcessingModule.
 
     Aggregates trial and event statistics for quality control reporting.
-    Persisted as trial_summary.json sidecar.
+    In NWB, this belongs in a ProcessingModule (e.g., "behavior/summary")
+    rather than embedded in the trials table.
+
+    Persisted as trial_summary.json sidecar and can be added to NWB as:
+    - A DynamicTable in processing["behavior"]["summary"]
+    - Or as lab_meta_data for session-level statistics
 
     Attributes:
         session_id: Session identifier
@@ -223,6 +287,11 @@ class TrialSummary(BaseModel):
     Requirements:
         - FR-11: Parse Bpod data
         - FR-14: Include trial/event summaries in QC report
+        - FR-7: NWB file assembly (as ProcessingModule)
+
+    NWB Storage:
+        Store in nwbfile.processing["behavior"].add_container() or as
+        lab_meta_data for session-wide behavioral statistics.
 
     Example:
         >>> summary = TrialSummary(
