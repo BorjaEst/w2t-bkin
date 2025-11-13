@@ -12,7 +12,7 @@ Package Structure:
 - manifest: Manifest and verification models (Manifest, VerificationSummary, etc.)
 - alignment: Alignment and provenance models (AlignmentStats, Provenance)
 - bpod: Bpod file parsing models (BpodMatFile, SessionData, RawTrial, etc.)
-- trials: Trial domain models (Trial, TrialEvent, TrialOutcome, TrialSummary)
+- trials: Trial domain models (Trial, BehavioralEvents, TrialOutcome, TrialSummary)
 - pose: Pose estimation models (PoseBundle, PoseFrame, PoseKeypoint)
 - facemap: Facemap models (FacemapBundle, FacemapROI, FacemapSignal)
 - transcode: Transcoding models (TranscodeOptions, TranscodedVideo)
@@ -157,7 +157,7 @@ from w2t_bkin.domain.session import TTL, BpodSession, Camera, Session, SessionMe
 from w2t_bkin.domain.transcode import TranscodedVideo, TranscodeOptions
 
 # Trial domain models (Phase 3 - Optional, High-level)
-from w2t_bkin.domain.trials import Trial, TrialEvent, TrialOutcome, TrialSummary
+from w2t_bkin.domain.trials import BehavioralEvents, Trial, TrialEvent, TrialOutcome, TrialSummary
 
 # Public API (alphabetically ordered within categories)
 __all__ = [
@@ -238,6 +238,7 @@ __all__ = [
     "TrialEvents",
     "RawData",
     # Trial domain models (high-level)
+    "BehavioralEvents",  # NWB-compatible behavioral events
     "Trial",
     "TrialEvent",
     "TrialOutcome",
