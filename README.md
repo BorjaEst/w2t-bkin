@@ -28,6 +28,7 @@ optional pose/facial/event logs into a validated NWB dataset with QC and provena
 - Optional mezzanine transcoding (idempotent)
 - Pose harmonization (DLC/SLEAP) with skeleton mapping and confidence retention
 - Facemap facial metric integration
+- Bpod behavioral data parsing with multi-file session support (glob patterns, ordering, merging)
 - Trials & events import from NDJSON (not used for sync)
 - Single NWB output with external video links (no embedded heavy binaries)
 - QC HTML: drift, drops, pose confidence, facial previews

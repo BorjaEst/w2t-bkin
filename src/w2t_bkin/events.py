@@ -47,16 +47,21 @@ Data Flow:
 Example:
 --------
 >>> from w2t_bkin.events import parse_bpod_mat, parse_bpod_session, extract_trials
->>> from w2t_bkin.domain.session import BpodSession
+>>> from w2t_bkin.config import load_session
 >>> from pathlib import Path
 >>>
->>> # Option 1: Parse single Bpod file
->>> bpod_path = Path("data/raw/Session-000001/Bpod/session.mat")
->>> bpod_data = parse_bpod_mat(bpod_path)
+>>> # Option 1: Parse from full Session object (recommended)
+>>> session = load_session("data/raw/Session-001/session.toml")
+>>> bpod_data = parse_bpod_session(session)  # session_dir auto-detected
 >>>
->>> # Option 2: Parse from BpodSession config (discovers and merges multiple files)
+>>> # Option 2: Parse from BpodSession config with explicit session_dir
+>>> from w2t_bkin.domain.session import BpodSession
 >>> bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
->>> bpod_data = parse_bpod_session(bpod_cfg, Path("data/raw/Session-000001"))
+>>> bpod_data = parse_bpod_session(bpod_cfg, Path("data/raw/Session-001"))
+>>>
+>>> # Option 3: Parse single Bpod file directly
+>>> bpod_path = Path("data/raw/Session-001/Bpod/session.mat")
+>>> bpod_data = parse_bpod_mat(bpod_path)
 >>>
 >>> # Extract trial outcomes
 >>> trials = extract_trials(bpod_data)
@@ -82,7 +87,7 @@ except ImportError:
     loadmat = None
 
 from .domain import Trial, TrialEvent, TrialSummary
-from .domain.session import BpodSession
+from .domain.session import BpodSession, Session
 from .utils import write_json
 
 logger = logging.getLogger(__name__)
@@ -388,7 +393,7 @@ def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
     return merged_data
 
 
-def parse_bpod_session(bpod_session: BpodSession, session_dir: Path) -> Dict[str, Any]:
+def parse_bpod_session(bpod_session_or_session: Union[BpodSession, Session], session_dir: Union[Path, str, None] = None) -> Dict[str, Any]:
     """Parse Bpod session from configuration with file discovery and merging.
 
     High-level function that:
@@ -397,8 +402,9 @@ def parse_bpod_session(bpod_session: BpodSession, session_dir: Path) -> Dict[str
     3. Merges multiple files if needed
 
     Args:
-        bpod_session: BpodSession configuration
-        session_dir: Base directory for session
+        bpod_session_or_session: BpodSession configuration or full Session object
+        session_dir: Base directory for session (required if bpod_session_or_session
+                     is BpodSession, optional if Session)
 
     Returns:
         Unified Bpod data dictionary (single or merged)
@@ -406,13 +412,36 @@ def parse_bpod_session(bpod_session: BpodSession, session_dir: Path) -> Dict[str
     Raises:
         BpodValidationError: If no files found
         BpodParseError: If parsing/merging fails
+        ValueError: If session_dir cannot be determined
 
-    Example:
+    Examples:
+        >>> # Option 1: Use full Session object (recommended)
+        >>> from w2t_bkin.config import load_session
+        >>> session = load_session("data/Session-001/session.toml")
+        >>> data = parse_bpod_session(session)
+        >>> trials = extract_trials(data)
+        >>>
+        >>> # Option 2: Use BpodSession with explicit session_dir
         >>> from w2t_bkin.domain.session import BpodSession
         >>> bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
         >>> data = parse_bpod_session(bpod_cfg, Path("data/Session-001"))
-        >>> trials = extract_trials(data)
     """
+    # Extract BpodSession and session_dir
+    if isinstance(bpod_session_or_session, Session):
+        bpod_session = bpod_session_or_session.bpod
+        if session_dir is None:
+            session_dir = Path(bpod_session_or_session.session_dir)
+    else:
+        bpod_session = bpod_session_or_session
+        if session_dir is None:
+            raise ValueError(
+                "session_dir must be provided when using BpodSession directly. "
+                "Use parse_bpod_session(session) with full Session object, "
+                "or parse_bpod_session(bpod_session, session_dir)."
+            )
+
+    session_dir = Path(session_dir) if isinstance(session_dir, str) else session_dir
+
     # Discover files
     file_paths = discover_bpod_files(bpod_session, session_dir)
 

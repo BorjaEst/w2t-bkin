@@ -64,7 +64,7 @@ Principles:
 | transcode (opt) | Manifest                        | updated Manifest (mezzanine paths)                          | FR-4, NFR-2                      |
 | pose (opt)      | Manifest, timebase              | PoseBundle (aligned)                                        | FR-5                             |
 | facemap (opt)   | Manifest, timebase              | FacemapBundle (aligned)                                     | FR-6                             |
-| events (opt)    | Bpod .mat files                 | Trials/Events summary                                       | FR-11/14                         |
+| events (opt)    | Bpod .mat files, BpodSession    | Trials/Events summary, multi-file merging                   | FR-11/14                         |
 | nwb             | Manifest + bundles + provenance | NWB file (rate-based ImageSeries)                           | FR-7 NFR-6                       |
 | validate        | NWB                             | nwbinspector report                                         | FR-9                             |
 | qc              | NWB + sidecars                  | QC HTML                                                     | FR-8/14 NFR-3                    |

@@ -10,6 +10,92 @@ Parses Bpod .mat files into Trial and TrialEvents, generates QC summaries. Extra
 
 ## Key Functions
 
+### Session-Level Parsing (Recommended)
+
+```python
+def parse_bpod_session(
+    bpod_session_or_session: Union[BpodSession, Session],
+    session_dir: Union[Path, str, None] = None
+) -> Dict[str, Any]:
+    """Parse Bpod session from BpodSession configuration or full Session.
+
+    High-level function that discovers files from glob pattern,
+    orders them, and merges into unified session data.
+
+    Args:
+        bpod_session_or_session: BpodSession config or full Session object
+        session_dir: Base directory (optional if using Session object)
+
+    Returns:
+        Merged session data dictionary (single or multiple files)
+
+    Raises:
+        EventsError: If no files found or discovery fails
+        BpodParseError: If parsing or merging fails
+        ValueError: If session_dir cannot be determined
+
+    Examples:
+        >>> from w2t_bkin.config import load_session
+        >>> from w2t_bkin.events import parse_bpod_session
+        >>>
+        >>> # Option 1: Use full Session object (recommended - no session_dir!)
+        >>> session = load_session("data/Session-001/session.toml")
+        >>> session_data = parse_bpod_session(session)  # session_dir auto-detected
+        >>>
+        >>> # Option 2: Use BpodSession with explicit session_dir
+        >>> from w2t_bkin.domain.session import BpodSession
+        >>> bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
+        >>> session_data = parse_bpod_session(bpod_cfg, Path("data/Session-001"))
+    """def discover_bpod_files(bpod_session: BpodSession, session_dir: Path) -> List[Path]:
+    """Discover Bpod files matching glob pattern with ordering.
+
+    Args:
+        bpod_session: BpodSession configuration with path (glob) and order
+        session_dir: Base directory for resolving relative paths
+
+    Returns:
+        Ordered list of file paths
+
+    Raises:
+        EventsError: If no files found
+
+    Ordering strategies:
+        - name_asc: Alphabetical by filename (A→Z)
+        - name_desc: Reverse alphabetical (Z→A)
+        - time_asc: Oldest to newest (modification time)
+        - time_desc: Newest to oldest (modification time)
+
+    Example:
+        >>> files = discover_bpod_files(bpod_cfg, session_dir)
+        >>> print([f.name for f in files])
+    """
+
+def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
+    """Merge multiple Bpod .mat files into unified session.
+
+    Process:
+    1. Parse each file with parse_bpod_mat()
+    2. Concatenate trials maintaining sequential numbering
+    3. Apply time offset (last trial end time) to subsequent files
+    4. Merge TrialSettings and TrialTypes arrays
+    5. Preserve first file's session metadata
+
+    Args:
+        file_paths: Ordered list of Bpod .mat file paths
+
+    Returns:
+        Merged session data dictionary
+
+    Raises:
+        BpodParseError: If any file cannot be parsed
+
+    Example:
+        >>> files = [Path("block1.mat"), Path("block2.mat")]
+        >>> merged_data = merge_bpod_sessions(files)
+        >>> print(merged_data['SessionData'].nTrials)  # Total across blocks
+    """
+```
+
 ### Bpod File Parsing
 
 ```python
@@ -334,11 +420,12 @@ pytest tests/unit/test_events.py -v
 
 ## Usage Examples
 
-### Complete workflow
+### Complete workflow (with Session)
 
 ```python
+from w2t_bkin.config import load_session
 from w2t_bkin.events import (
-    parse_bpod_mat,
+    parse_bpod_session,
     extract_trials,
     extract_behavioral_events,
     create_event_summary,
@@ -346,9 +433,12 @@ from w2t_bkin.events import (
 )
 from pathlib import Path
 
-# 1. Parse Bpod .mat file
-bpod_path = Path("data/raw/session_001/Bpod_Session_001.mat")
-session_data = parse_bpod_mat(bpod_path)
+# 1. Load session (includes session_dir automatically)
+session = load_session("data/raw/session_001/session.toml")
+print(f"Session directory: {session.session_dir}")
+
+# 2. Parse Bpod session (no session_dir parameter needed!)
+session_data = parse_bpod_session(session)
 
 # 2. Extract trials with outcome inference
 trials = extract_trials(session_data)
@@ -381,13 +471,50 @@ output_path = Path("data/interim/session_001_bpod_summary.json")
 write_event_summary(summary, output_path)
 ```
 
+### Single file workflow (legacy)
+
+```python
+from w2t_bkin.events import parse_bpod_mat
+from pathlib import Path
+
+# Direct single-file parsing (no discovery or merging)
+bpod_path = Path("data/raw/session_001/Bpod_Session_001.mat")
+session_data = parse_bpod_mat(bpod_path)
+```
+
+### Multi-file session workflow
+
+```python
+from w2t_bkin.events import discover_bpod_files, merge_bpod_sessions
+from w2t_bkin.domain.session import BpodSession
+from pathlib import Path
+
+# 1. Discover files matching pattern
+bpod_cfg = BpodSession(path="Bpod/block_*.mat", order="time_asc")
+session_dir = Path("data/raw/session_001")
+files = discover_bpod_files(bpod_cfg, session_dir)
+print(f"Found {len(files)} files: {[f.name for f in files]}")
+
+# 2. Merge files into unified session
+merged_data = merge_bpod_sessions(files)
+print(f"Total trials: {merged_data['SessionData'].nTrials}")
+
+# 3. Extract trials and events as usual
+from w2t_bkin.events import extract_trials, extract_behavioral_events
+trials = extract_trials(merged_data)
+events = extract_behavioral_events(merged_data)
+```
+
 ### Handling NaN and missing states
 
 ```python
-from w2t_bkin.events import parse_bpod_mat, _is_state_visited
+from w2t_bkin.events import parse_bpod_session, _is_state_visited
+from w2t_bkin.domain.session import BpodSession
+from pathlib import Path
 import math
 
-session_data = parse_bpod_mat(bpod_path)
+bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
+session_data = parse_bpod_session(bpod_cfg, Path("data/raw/session_001"))
 
 # Check if state was visited (not NaN)
 trial = session_data.RawEvents.Trial[0]
@@ -418,6 +545,55 @@ for i, trial in enumerate(session_data.RawEvents.Trial):
 - NaN checks are vectorizable but kept simple for clarity
 - Event flattening is O(n\*m) where n=trials, m=avg events/trial
 
+## BpodSession Integration
+
+### Configuration-Driven File Discovery
+
+The `BpodSession` model (from `domain/session.py`) enables declarative file discovery:
+
+```python
+class BpodSession(BaseModel):
+    path: str  # Glob pattern: "Bpod/*.mat", "Bpod/block_*.mat"
+    order: str  # "name_asc", "name_desc", "time_asc", "time_desc"
+```
+
+**Benefits**:
+
+- Declarative: Specify pattern in `session.toml`, not code
+- Flexible: Supports single files ("Bpod/session.mat") or multiple ("Bpod/\*.mat")
+- Ordered: Consistent file ordering across pipeline runs
+- Integrated: Works with config system end-to-end
+
+### Multi-File Session Merging
+
+When multiple files are discovered, `merge_bpod_sessions()` creates a unified session:
+
+**Merge Strategy**:
+
+1. **Sequential trial numbering**: Trials renumbered 1, 2, 3, ..., N across files
+2. **Time offset**: Subsequent files offset by last trial end time from previous file
+3. **Metadata preservation**: First file's session info (version, hardware) preserved
+4. **Array concatenation**: TrialSettings, TrialTypes arrays merged
+
+**Example**: Two files with 50 trials each
+
+- File 1: Trials 1-50, times 0-100s
+- File 2: Trials 51-100, times 100-200s (offset applied)
+- Merged: 100 trials, continuous timeline 0-200s
+
+### Ordering Strategies
+
+**name_asc/name_desc**: Alphabetical ordering
+
+- Use case: Block files with numeric prefixes (block_01.mat, block_02.mat)
+- Deterministic: Same order on all filesystems
+
+**time_asc/time_desc**: Modification time ordering
+
+- Use case: Files without naming convention
+- Chronological: Captures recording order
+- Note: Requires accurate mtime preservation
+
 ## Design Decisions
 
 ### Why scipy.io.loadmat?
@@ -443,6 +619,14 @@ NWB format expects behavioral events as a flat timeseries, not nested by trial. 
 
 Summary generation is QC-specific and shouldn't be coupled to core extraction logic. Separating allows for flexible summary formats and optional summary generation.
 
+### Why merge at parse time instead of trial level?
+
+Merging at the SessionData level (before trial extraction) preserves the original Bpod structure and allows time offset application to raw timestamps. Trial-level merging would require complex timestamp adjustments post-extraction.
+
+### Why use last trial end time as offset?
+
+Using the last trial's end time ensures no temporal overlap between files and creates a continuous timeline. Alternative approaches (session duration, max timestamp) could create gaps or overlaps.
+
 ## Integration with Pipeline
 
 ### Phase 1 (Ingest)
@@ -455,18 +639,22 @@ Summary generation is QC-specific and shouldn't be coupled to core extraction lo
 ### Phase 3 (Events)
 
 ```python
-# Parse Bpod files and extract behavioral data
+# Parse Bpod session and extract behavioral data
+from w2t_bkin.config import load_session
 from w2t_bkin.events import (
-    parse_bpod_mat,
+    parse_bpod_session,
     extract_trials,
     extract_behavioral_events,
     create_event_summary,
     write_event_summary
 )
 
-for bpod_path in session.bpod_files:
-    # Parse and extract
-    session_data = parse_bpod_mat(bpod_path)
+# Load session configuration
+session = load_session("data/raw/session_001/session.toml")
+
+# Parse Bpod session (session_dir auto-detected)
+if session.bpod:
+    session_data = parse_bpod_session(session)
     trials = extract_trials(session_data)
     events = extract_behavioral_events(session_data)
 
@@ -474,11 +662,20 @@ for bpod_path in session.bpod_files:
     summary = create_event_summary(
         trials=trials,
         events=events,
+        session_id=session.session.id,
+        bpod_files=[str(Path(session.session_dir) / session.bpod.path)]
+    )
+
+    output_path = Path("data/interim") / f"{session.session.id}_bpod_summary.json"
+    write_event_summary(summary, output_path)
+```
+
         session_id=session.session_id,
         bpod_files=[str(bpod_path)]
     )
     write_event_summary(summary, output_path)
-```
+
+````
 
 ### Phase 4 (NWB)
 
@@ -489,7 +686,7 @@ from w2t_bkin.nwb import write_trials_to_nwb, write_events_to_nwb
 
 write_trials_to_nwb(nwbfile, trials)
 write_events_to_nwb(nwbfile, events)
-```
+````
 
 **Note:** Timebase synchronization (Phase 2) is not yet implemented. Current implementation extracts Bpod-relative timestamps. Future sync module will provide offset for alignment to video/TTL timebase.
 
@@ -522,12 +719,14 @@ Events module recognizes common Bpod state names for outcome inference:
 ## Related Modules
 
 - **ingest:** Discovers Bpod .mat files and includes them in manifest
-- **domain:** Defines Trial, TrialEvent, TrialSummary models
+- **domain:** Defines Trial, TrialEvent, TrialSummary, BpodSession models
+- **config:** Loads BpodSession from session.toml
 - **nwb:** Writes trials and events to NWB file format
 - **utils:** Provides write_json() for summary output
 
 ## Further Reading
 
+- [BPOD_SESSION_INTEGRATION.md](../../BPOD_SESSION_INTEGRATION.md) - BpodSession integration details
 - [Requirements: FR-11](../../requirements.md#functional-requirements) - Behavioral data extraction
 - [Requirements: FR-14](../../requirements.md#functional-requirements) - Event categorization
 - [Requirements: NFR-7](../../requirements.md#non-functional-requirements) - QC summary generation (A4)

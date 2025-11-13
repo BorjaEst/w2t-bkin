@@ -153,6 +153,13 @@ class Session(BaseModel):
     Top-level model loaded from session.toml containing all session
     metadata, file patterns, and relationships.
 
+    Attributes:
+        session: Session metadata and subject information
+        bpod: Bpod file configuration
+        TTLs: List of TTL channel configurations
+        cameras: List of camera configurations
+        session_dir: Directory containing session.toml (populated by load_session)
+
     Requirements:
         - FR-1: Session-driven discovery
         - FR-15: Camera-TTL validation
@@ -160,9 +167,11 @@ class Session(BaseModel):
 
     Example:
         >>> from w2t_bkin.config import load_session
-        >>> session = load_session("session.toml")
+        >>> session = load_session("data/raw/Session-001/session.toml")
         >>> session.session.subject_id
         'Mouse-123'
+        >>> session.session_dir
+        PosixPath('data/raw/Session-001')
         >>> [cam.id for cam in session.cameras]
         ['cam0', 'cam1']
     """
@@ -173,3 +182,4 @@ class Session(BaseModel):
     bpod: BpodSession = Field(..., description="Bpod file configuration")
     TTLs: List[TTL] = Field(..., description="List of TTL channel configurations")
     cameras: List[Camera] = Field(..., description="List of camera configurations")
+    session_dir: str = Field(default=".", description="Directory containing session.toml (populated by load_session)")

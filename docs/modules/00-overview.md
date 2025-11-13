@@ -23,7 +23,7 @@ Synchronization (Phase 2)
 └── sync        - Timebase providers and alignment
 
 Optional Modalities (Phase 3)
-├── events      - Bpod .mat file parsing and behavioral data extraction
+├── events      - Bpod .mat file parsing, session merging, and behavioral data extraction
 ├── transcode   - Video transcoding to mezzanine format
 ├── pose        - DLC/SLEAP pose import and harmonization
 └── facemap     - Facial metrics computation and alignment
@@ -74,21 +74,21 @@ Orchestration
 
 ## Quick Reference
 
-| Module    | Phase | Status             | Key Functions                                                  | Requirements      |
-| --------- | ----- | ------------------ | -------------------------------------------------------------- | ----------------- |
-| utils     | 0     | ✅ Complete        | compute_hash, sanitize_path, run_ffprobe                       | NFR-1/2/3         |
-| domain    | 0     | ✅ Complete        | All Pydantic models                                            | FR-12, NFR-7      |
-| config    | 0     | ✅ Complete        | load_config, load_session                                      | FR-10, NFR-10/11  |
-| ingest    | 1     | ✅ Complete        | build_manifest, verify_manifest                                | FR-1/2/3/13/15/16 |
-| sync      | 2     | ✅ Complete        | create_timebase_provider, align_samples                        | FR-TB-1..6, FR-17 |
-| events    | 3     | ✅ Complete        | parse_bpod_mat, extract_trials, extract_behavioral_events      | FR-11/14, NFR-7   |
-| transcode | 3     | ✅ Complete        | transcode_video, compute_video_checksum                        | FR-4, NFR-2       |
-| pose      | 3     | ✅ Complete        | import_dlc_pose, import_sleap_pose, harmonize_dlc_to_canonical | FR-5              |
-| facemap   | 3     | ✅ Complete        | define_rois, compute_facemap_signals                           | FR-6              |
-| nwb       | 4     | � Stub only        | assemble_nwb (planned)                                         | FR-7, NFR-6       |
-| validate  | 5     | ❌ Not implemented | run_nwbinspector (planned)                                     | FR-9              |
-| qc        | 5     | ❌ Not implemented | render_qc_report (planned)                                     | FR-8/14, NFR-3    |
-| cli       | -     | ❌ Not implemented | Typer commands (planned)                                       | User interaction  |
+| Module    | Phase | Status             | Key Functions                                                                                                           | Requirements      |
+| --------- | ----- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| utils     | 0     | ✅ Complete        | compute_hash, sanitize_path, run_ffprobe                                                                                | NFR-1/2/3         |
+| domain    | 0     | ✅ Complete        | All Pydantic models                                                                                                     | FR-12, NFR-7      |
+| config    | 0     | ✅ Complete        | load_config, load_session                                                                                               | FR-10, NFR-10/11  |
+| ingest    | 1     | ✅ Complete        | build_manifest, verify_manifest                                                                                         | FR-1/2/3/13/15/16 |
+| sync      | 2     | ✅ Complete        | create_timebase_provider, align_samples                                                                                 | FR-TB-1..6, FR-17 |
+| events    | 3     | ✅ Complete        | parse_bpod_mat, parse_bpod_session, discover_bpod_files, merge_bpod_sessions, extract_trials, extract_behavioral_events | FR-11/14, NFR-7   |
+| transcode | 3     | ✅ Complete        | transcode_video, compute_video_checksum                                                                                 | FR-4, NFR-2       |
+| pose      | 3     | ✅ Complete        | import_dlc_pose, import_sleap_pose, harmonize_dlc_to_canonical                                                          | FR-5              |
+| facemap   | 3     | ✅ Complete        | define_rois, compute_facemap_signals                                                                                    | FR-6              |
+| nwb       | 4     | � Stub only        | assemble_nwb (planned)                                                                                                  | FR-7, NFR-6       |
+| validate  | 5     | ❌ Not implemented | run_nwbinspector (planned)                                                                                              | FR-9              |
+| qc        | 5     | ❌ Not implemented | render_qc_report (planned)                                                                                              | FR-8/14, NFR-3    |
+| cli       | -     | ❌ Not implemented | Typer commands (planned)                                                                                                | User interaction  |
 
 ## Getting Started
 
@@ -113,8 +113,14 @@ provider = create_timebase_provider(cfg, manifest)
 
 # 4. Optional: Parse Bpod behavioral data (Phase 3)
 if session.bpod:
-    from w2t_bkin.events import parse_bpod_mat, extract_trials, extract_behavioral_events
-    bpod_data = parse_bpod_mat(session.bpod.files[0])
+    from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events
+
+    # Option 1: Use BpodSession config (recommended - handles multi-file discovery/merging)
+    bpod_data = parse_bpod_session(session.bpod, session_dir)
+
+    # Option 2: Direct single-file parsing (legacy)
+    # bpod_data = parse_bpod_mat(Path("data/raw/session_001/bpod.mat"))
+
     trials = extract_trials(bpod_data)
     events_list = extract_behavioral_events(bpod_data)
 

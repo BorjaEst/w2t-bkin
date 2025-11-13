@@ -146,16 +146,21 @@ def load_session(path: Union[str, Path]) -> Session:
     Performs strict schema validation including:
     - Required/forbidden keys (extra="forbid")
     - Camera TTL reference validation
+    - Populates session_dir with parent directory of session.toml
 
     Args:
         path: Path to session.toml file (str or Path)
 
     Returns:
-        Validated Session instance
+        Validated Session instance with session_dir populated
 
     Raises:
         ValidationError: If session violates schema
         FileNotFoundError: If session file doesn't exist
+
+    Example:
+        >>> session = load_session("data/raw/Session-001/session.toml")
+        >>> print(session.session_dir)  # "data/raw/Session-001"
     """
     path = Path(path) if isinstance(path, str) else path
 
@@ -167,6 +172,9 @@ def load_session(path: Union[str, Path]) -> Session:
 
     # Validate camera TTL references
     _validate_camera_ttl_references(data)
+
+    # Add session_dir to data (parent directory of session.toml)
+    data["session_dir"] = str(path.parent.resolve())
 
     return Session(**data)
 
