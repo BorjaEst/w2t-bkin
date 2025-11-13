@@ -3,23 +3,55 @@
 This module provides core utilities used throughout the pipeline:
 - Deterministic SHA256 hashing for files and data structures
 - Path sanitization to prevent directory traversal attacks
+- File discovery and sorting with glob patterns
+- Path and file validation with customizable error handling
+- String sanitization for safe identifiers
+- File size validation
+- Directory creation with write permission checking
+- File checksum computation
+- TOML file reading
 - JSON I/O with consistent formatting
 - Video analysis using FFmpeg/FFprobe
+- Logger configuration
 
 The utilities ensure reproducible outputs (NFR-1), secure file handling (NFR-2),
 and efficient video metadata extraction (FR-2).
 
 Key Functions:
 --------------
-- compute_hash: Deterministic hashing with key canonicalization
-- sanitize_path: Security validation for file paths
-- read_json, write_json: JSON persistence with formatting
-- run_ffprobe: Video frame counting and metadata extraction
+Core Hashing:
+- compute_hash: Deterministic hashing with key canonicalization for dicts
+- compute_file_checksum: Compute SHA256/SHA1/MD5 checksum of files
+
+File Discovery & Sorting:
+- discover_files: Find files matching glob patterns, return absolute paths
+- sort_files: Sort files by name or modification time
+
+Path & File Validation:
+- sanitize_path: Security validation for file paths (directory traversal prevention)
+- validate_file_exists: Check file exists and is a file
+- validate_dir_exists: Check directory exists and is a directory
+- validate_file_size: Check file size within limits
+
+String & Directory Operations:
+- sanitize_string: Remove control characters, limit length
+- ensure_directory: Create directory with optional write permission check
+
+File I/O:
+- read_toml: Load TOML files
+- read_json: Load JSON files
+- write_json: Save JSON with Path object support
+
+Video Analysis:
+- run_ffprobe: Count frames using ffprobe
+
+Logging:
+- configure_logger: Set up structured or standard logging
 
 Requirements:
 -------------
 - NFR-1: Reproducible outputs (deterministic hashing)
-- NFR-2: Security (path sanitization)
+- NFR-2: Security (path sanitization, validation)
 - NFR-3: Performance (efficient I/O)
 - FR-2: Video frame counting
 
@@ -29,24 +61,32 @@ Acceptance Criteria:
 
 Example:
 --------
->>> from w2t_bkin.utils import compute_hash, sanitize_path
+>>> from w2t_bkin.utils import compute_hash, sanitize_path, discover_files
 >>>
 >>> # Compute deterministic hash
 >>> data = {"session": "Session-001", "timestamp": "2025-11-12"}
 >>> hash_value = compute_hash(data)
 >>> print(hash_value)  # Consistent across runs
 >>>
+>>> # Discover files with glob
+>>> video_files = discover_files(Path("data/raw/session"), "*.avi")
+>>>
 >>> # Sanitize file paths
 >>> safe_path = sanitize_path("data/raw/session.toml")
 >>> # Raises ValueError for dangerous paths like "../../../etc/passwd"
+>>>
+>>> # Validate files exist
+>>> from w2t_bkin.utils import validate_file_exists
+>>> validate_file_exists(video_path, IngestError, "Video file required")
 """
 
+import glob
 import hashlib
 import json
 import logging
 from pathlib import Path
 import subprocess
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 
 
 def compute_hash(data: Union[str, Dict[str, Any]]) -> str:
@@ -98,6 +138,285 @@ def sanitize_path(path: Union[str, Path], base: Optional[Path] = None) -> Path:
         return resolved
 
     return path_obj
+
+
+def discover_files(base_dir: Path, pattern: str, sort: bool = True) -> List[Path]:
+    """Discover files matching glob pattern and return absolute paths.
+
+    Args:
+        base_dir: Base directory to resolve pattern from
+        pattern: Glob pattern (relative to base_dir)
+        sort: If True, sort files by name (default: True)
+
+    Returns:
+        List of absolute Path objects
+
+    Example:
+        >>> files = discover_files(Path("data/raw"), "*.avi")
+        >>> files = discover_files(session_dir, "Bpod/*.mat", sort=True)
+    """
+    full_pattern = str(base_dir / pattern)
+    file_paths = [Path(p).resolve() for p in glob.glob(full_pattern)]
+
+    if sort:
+        file_paths.sort(key=lambda p: p.name)
+
+    return file_paths
+
+
+def sort_files(files: List[Path], strategy: Literal["name_asc", "name_desc", "time_asc", "time_desc"]) -> List[Path]:
+    """Sort file list by specified strategy.
+
+    Args:
+        files: List of file paths to sort
+        strategy: Sorting strategy:
+            - "name_asc": Sort by filename ascending
+            - "name_desc": Sort by filename descending
+            - "time_asc": Sort by modification time ascending (oldest first)
+            - "time_desc": Sort by modification time descending (newest first)
+
+    Returns:
+        Sorted list of Path objects (new list, does not modify input)
+
+    Example:
+        >>> files = sort_files(discovered_files, "time_desc")
+    """
+    sorted_files = files.copy()
+
+    if strategy == "name_asc":
+        sorted_files.sort(key=lambda p: p.name)
+    elif strategy == "name_desc":
+        sorted_files.sort(key=lambda p: p.name, reverse=True)
+    elif strategy == "time_asc":
+        sorted_files.sort(key=lambda p: p.stat().st_mtime)
+    elif strategy == "time_desc":
+        sorted_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    else:
+        raise ValueError(f"Invalid sort strategy: {strategy}")
+
+    return sorted_files
+
+
+def validate_file_exists(path: Path, error_class: Type[Exception] = FileNotFoundError, message: Optional[str] = None) -> None:
+    """Validate file exists and is a file, not a directory.
+
+    Args:
+        path: Path to validate
+        error_class: Exception class to raise on validation failure
+        message: Optional custom error message
+
+    Raises:
+        error_class: If file doesn't exist or is not a file
+
+    Example:
+        >>> validate_file_exists(video_path, IngestError, "Video file required")
+    """
+    if not path.exists():
+        msg = message or f"File not found: {path}"
+        raise error_class(msg)
+
+    if not path.is_file():
+        msg = message or f"Path is not a file: {path}"
+        raise error_class(msg)
+
+
+def validate_dir_exists(path: Path, error_class: Type[Exception] = FileNotFoundError, message: Optional[str] = None) -> None:
+    """Validate directory exists and is a directory, not a file.
+
+    Args:
+        path: Path to validate
+        error_class: Exception class to raise on validation failure
+        message: Optional custom error message
+
+    Raises:
+        error_class: If directory doesn't exist or is not a directory
+
+    Example:
+        >>> validate_dir_exists(output_dir, NWBError, "Output directory required")
+    """
+    if not path.exists():
+        msg = message or f"Directory not found: {path}"
+        raise error_class(msg)
+
+    if not path.is_dir():
+        msg = message or f"Path is not a directory: {path}"
+        raise error_class(msg)
+
+
+def validate_file_size(path: Path, max_size_mb: float) -> float:
+    """Validate file size within limits, return size in MB.
+
+    Args:
+        path: Path to file
+        max_size_mb: Maximum allowed size in megabytes
+
+    Returns:
+        File size in MB
+
+    Raises:
+        ValueError: If file exceeds size limit
+
+    Example:
+        >>> size_mb = validate_file_size(bpod_path, max_size_mb=100)
+    """
+    file_size_mb = path.stat().st_size / (1024 * 1024)
+
+    if file_size_mb > max_size_mb:
+        raise ValueError(f"File too large: {file_size_mb:.1f}MB exceeds {max_size_mb}MB limit")
+
+    return file_size_mb
+
+
+def sanitize_string(
+    text: str, max_length: int = 100, allowed_pattern: Literal["alphanumeric", "alphanumeric_-", "alphanumeric_-_", "printable"] = "alphanumeric_-_", default: str = "unknown"
+) -> str:
+    """Sanitize string by removing control characters and limiting length.
+
+    Args:
+        text: String to sanitize
+        max_length: Maximum length of output string
+        allowed_pattern: Character allowance pattern:
+            - "alphanumeric": Only letters and numbers
+            - "alphanumeric_-": Letters, numbers, hyphens
+            - "alphanumeric_-_": Letters, numbers, hyphens, underscores
+            - "printable": All printable characters
+        default: Default value if sanitized string is empty
+
+    Returns:
+        Sanitized string
+
+    Example:
+        >>> safe_id = sanitize_string("Session-001", allowed_pattern="alphanumeric_-")
+        >>> safe_event = sanitize_string(raw_event_name, max_length=50)
+    """
+    if not isinstance(text, str):
+        return default
+
+    # Remove control characters based on pattern
+    if allowed_pattern == "alphanumeric":
+        sanitized = "".join(c for c in text if c.isalnum())
+    elif allowed_pattern == "alphanumeric_-":
+        sanitized = "".join(c for c in text if c.isalnum() or c == "-")
+    elif allowed_pattern == "alphanumeric_-_":
+        sanitized = "".join(c for c in text if c.isalnum() or c in "-_")
+    elif allowed_pattern == "printable":
+        sanitized = "".join(c for c in text if c.isprintable())
+    else:
+        raise ValueError(f"Invalid allowed_pattern: {allowed_pattern}")
+
+    # Limit length
+    sanitized = sanitized[:max_length]
+
+    # Return default if empty
+    if not sanitized:
+        return default
+
+    return sanitized
+
+
+def ensure_directory(path: Path, check_writable: bool = False) -> Path:
+    """Ensure directory exists, optionally check write permissions.
+
+    Args:
+        path: Directory path to ensure
+        check_writable: If True, verify directory is writable
+
+    Returns:
+        The path (for chaining)
+
+    Raises:
+        OSError: If directory cannot be created
+        PermissionError: If check_writable=True and directory is not writable
+
+    Example:
+        >>> output_dir = ensure_directory(Path("data/processed"), check_writable=True)
+    """
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
+
+    if not path.is_dir():
+        raise OSError(f"Path exists but is not a directory: {path}")
+
+    if check_writable:
+        # Try to write test file to check permissions
+        test_file = path / ".test_write"
+        try:
+            test_file.touch()
+            test_file.unlink()
+        except Exception as e:
+            raise PermissionError(f"Directory is not writable: {path}. Error: {e}")
+
+    return path
+
+
+def compute_file_checksum(file_path: Path, algorithm: str = "sha256", chunk_size: int = 8192) -> str:
+    """Compute checksum of file using specified algorithm.
+
+    Args:
+        file_path: Path to file
+        algorithm: Hash algorithm (sha256, sha1, md5)
+        chunk_size: Read chunk size in bytes
+
+    Returns:
+        Hex digest of file checksum
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If algorithm is unsupported
+
+    Example:
+        >>> checksum = compute_file_checksum(video_path)
+        >>> checksum = compute_file_checksum(video_path, algorithm="sha1")
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    # Create hash object
+    if algorithm == "sha256":
+        hasher = hashlib.sha256()
+    elif algorithm == "sha1":
+        hasher = hashlib.sha1()
+    elif algorithm == "md5":
+        hasher = hashlib.md5()
+    else:
+        raise ValueError(f"Unsupported hash algorithm: {algorithm}")
+
+    # Read file in chunks and update hash
+    with open(file_path, "rb") as f:
+        while chunk := f.read(chunk_size):
+            hasher.update(chunk)
+
+    return hasher.hexdigest()
+
+
+def read_toml(path: Union[str, Path]) -> Dict[str, Any]:
+    """Read TOML file into dictionary.
+
+    Args:
+        path: Path to TOML file (str or Path)
+
+    Returns:
+        Dictionary with parsed TOML data
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+
+    Example:
+        >>> data = read_toml("config.toml")
+        >>> data = read_toml(Path("session.toml"))
+    """
+    path = Path(path) if isinstance(path, str) else path
+
+    if not path.exists():
+        raise FileNotFoundError(f"TOML file not found: {path}")
+
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    with open(path, "rb") as f:
+        return tomllib.load(f)
 
 
 def write_json(data: Dict[str, Any], path: Union[str, Path], indent: int = 2) -> None:
