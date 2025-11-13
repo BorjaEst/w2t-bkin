@@ -372,9 +372,7 @@ class TestCameraVerificationResultModel:
         """CameraVerificationResult should capture verification details."""
         from w2t_bkin.domain import CameraVerificationResult
 
-        result = CameraVerificationResult(
-            camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=998, mismatch=2, verifiable=True, status="verified"
-        )
+        result = CameraVerificationResult(camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=998, mismatch=2, verifiable=True, status="pass")
 
         assert result.camera_id == "cam0"
         assert result.ttl_id == "ttl_camera"
@@ -382,18 +380,16 @@ class TestCameraVerificationResultModel:
         assert result.ttl_pulse_count == 998
         assert result.mismatch == 2
         assert result.verifiable is True
-        assert result.status == "verified"
+        assert result.status == "pass"
 
     def test_Should_BeImmutable_When_TryingToModifyCameraVerificationResult(self):
         """CameraVerificationResult instances should be immutable."""
         from w2t_bkin.domain import CameraVerificationResult
 
-        result = CameraVerificationResult(
-            camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="verified"
-        )
+        result = CameraVerificationResult(camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="pass")
 
         with pytest.raises((ValidationError, AttributeError)):
-            result.status = "failed"
+            result.status = "fail"
 
 
 class TestVerificationSummaryModel:
@@ -405,18 +401,14 @@ class TestVerificationSummaryModel:
 
         summary = VerificationSummary(
             session_id="test-123",
-            cameras=[
-                CameraVerificationResult(
-                    camera_id="cam0", ttl_id="ttl0", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="verified"
-                )
-            ],
+            cameras=[CameraVerificationResult(camera_id="cam0", ttl_id="ttl0", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="pass")],
             generated_at="2025-01-01T12:00:00",
         )
 
         assert summary.session_id == "test-123"
         assert summary.generated_at == "2025-01-01T12:00:00"
         assert len(summary.cameras) == 1
-        assert summary.cameras[0].status == "verified"
+        assert summary.cameras[0].status == "pass"
 
     def test_Should_HandleMultipleCameras_When_CreatingSummary(self):
         """VerificationSummary should handle multiple camera results."""
@@ -425,12 +417,8 @@ class TestVerificationSummaryModel:
         summary = VerificationSummary(
             session_id="test-123",
             cameras=[
-                CameraVerificationResult(
-                    camera_id="cam0", ttl_id="ttl0", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="verified"
-                ),
-                CameraVerificationResult(
-                    camera_id="cam1", ttl_id="ttl1", frame_count=500, ttl_pulse_count=498, mismatch=2, verifiable=True, status="mismatch_within_tolerance"
-                ),
+                CameraVerificationResult(camera_id="cam0", ttl_id="ttl0", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="pass"),
+                CameraVerificationResult(camera_id="cam1", ttl_id="ttl1", frame_count=500, ttl_pulse_count=498, mismatch=2, verifiable=True, status="warn"),
             ],
             generated_at="2025-01-01T12:00:00",
         )
@@ -458,34 +446,30 @@ class TestVerificationResultModel:
         from w2t_bkin.domain import CameraVerificationResult, VerificationResult
 
         result = VerificationResult(
-            status="verified",
-            camera_results=[
-                CameraVerificationResult(
-                    camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="verified"
-                )
-            ],
+            status="pass",
+            camera_results=[CameraVerificationResult(camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="pass")],
         )
 
-        assert result.status == "verified"
+        assert result.status == "pass"
         assert len(result.camera_results) == 1
 
     def test_Should_DefaultToEmptyList_When_NoCameraResults(self):
         """VerificationResult should default camera_results to empty list."""
         from w2t_bkin.domain import VerificationResult
 
-        result = VerificationResult(status="verified")
+        result = VerificationResult(status="pass")
 
-        assert result.status == "verified"
+        assert result.status == "pass"
         assert result.camera_results == []
 
     def test_Should_BeImmutable_When_TryingToModifyVerificationResult(self):
         """VerificationResult instances should be immutable."""
         from w2t_bkin.domain import VerificationResult
 
-        result = VerificationResult(status="verified")
+        result = VerificationResult(status="pass")
 
         with pytest.raises((ValidationError, AttributeError)):
-            result.status = "failed"
+            result.status = "fail"
 
 
 class TestVerificationSummaryModel:
@@ -497,11 +481,7 @@ class TestVerificationSummaryModel:
 
         summary = VerificationSummary(
             session_id="test-123",
-            cameras=[
-                CameraVerificationResult(
-                    camera_id="cam0", ttl_id="ttl0", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="verified"
-                )
-            ],
+            cameras=[CameraVerificationResult(camera_id="cam0", ttl_id="ttl0", frame_count=1000, ttl_pulse_count=1000, mismatch=0, verifiable=True, status="pass")],
             generated_at="2025-01-01T12:00:00",
         )
         assert summary.session_id == "test-123"
