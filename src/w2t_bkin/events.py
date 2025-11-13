@@ -8,6 +8,9 @@ Parses Bpod behavioral task data from .mat files (MATLAB format) and extracts:
 The module uses scipy.io.loadmat for MATLAB file parsing and implements robust
 validation for Bpod data structure variations across different task protocols.
 
+**Note**: This module handles Bpod data parsing and extraction only. For TTL-based
+temporal alignment, use the sync module (sync.get_ttl_pulses, sync.align_bpod_trials_to_ttl).
+
 Key Features:
 -------------
 - **Bpod Compatibility**: Handles SessionData structure from Bpod r2.5+
@@ -15,21 +18,20 @@ Key Features:
 - **Event Extraction**: Converts Bpod events to standardized TrialEvent format
 - **Outcome Inference**: Derives trial outcomes from state visit patterns
 - **QC Summaries**: Generates statistics for quality control
-- **TTL Alignment**: Automatic absolute time alignment using external TTL pulses
+- **Flexible Timestamps**: Supports both relative and absolute timestamps via offsets
 
 Main Functions:
 ---------------
-High-level API (recommended for users):
-- extract_trials(session): Extract trials with automatic data loading and TTL alignment
-- extract_behavioral_events(session): Extract events with automatic alignment
-- create_event_summary(session, trials, events): Generate QC summary from Session
+High-level API (recommended):
+- extract_trials: Extract trials from Bpod data with optional TTL offsets
+- extract_behavioral_events: Extract events from Bpod data with optional TTL offsets
+- create_event_summary: Generate QC summary from Session and extracted data
 
 Low-level API (for advanced use cases):
 - parse_bpod_mat: Load and validate single Bpod .mat file
 - parse_bpod_session: Discover and merge multiple Bpod files from Session config
 - discover_bpod_files: Find Bpod files matching glob pattern
 - merge_bpod_sessions: Combine multiple Bpod files into unified session
-- align_bpod_trials_to_ttl: Convert relative timestamps to absolute using TTLs
 
 Requirements:
 -------------
@@ -45,32 +47,58 @@ Data Flow:
 ----------
 1. Session → Load .mat files → Raw MATLAB structures
 2. Validate SessionData structure
-3. Extract trials → Trial objects (absolute or relative timestamps)
-4. Extract events → TrialEvent objects (aligned to trials)
+3. Extract trials → Trial objects (relative or absolute timestamps)
+4. Extract events → TrialEvent objects (relative or absolute timestamps)
 5. Create summary → TrialSummary (counts, categories, warnings)
 
-Example (Recommended - Session-based):
---------------------------------------
+Example (Without TTL Alignment - Relative Timestamps):
+-------------------------------------------------------
 >>> from w2t_bkin.config import load_session
->>> from w2t_bkin.events import extract_trials, extract_behavioral_events, create_event_summary
+>>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary
 >>>
 >>> # Load session configuration
 >>> session = load_session("data/raw/Session-001/session.toml")
 >>>
->>> # Extract trials (automatic loading and alignment)
->>> trials, offsets, warnings = extract_trials(session)
->>> print(f"Extracted {len(trials)} trials with absolute timestamps")
+>>> # Parse Bpod data from session
+>>> bpod_data = parse_bpod_session(session)
 >>>
->>> # Extract behavioral events (automatic alignment)
->>> events = extract_behavioral_events(session, trial_offsets=offsets)
+>>> # Extract trials with relative timestamps
+>>> trials = extract_trials(bpod_data)
+>>> print(f"Extracted {len(trials)} trials with relative timestamps")
+>>>
+>>> # Extract behavioral events with relative timestamps
+>>> events = extract_behavioral_events(bpod_data)
 >>> print(f"Extracted {len(events)} events")
 >>>
 >>> # Generate QC summary
->>> summary = create_event_summary(session, trials, events, alignment_warnings=warnings)
+>>> summary = create_event_summary(session, trials, events)
 >>> print(f"Session: {summary.session_id}, Trials: {summary.total_trials}")
 
-Example (Advanced - Dict-based for unit testing):
---------------------------------------------------
+Example (With TTL Alignment - Absolute Timestamps):
+----------------------------------------------------
+>>> from w2t_bkin.config import load_session
+>>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
+>>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary
+>>>
+>>> # Load session and Bpod data
+>>> session = load_session("data/raw/Session-001/session.toml")
+>>> bpod_data = parse_bpod_session(session)
+>>>
+>>> # Compute TTL-based temporal alignment (from sync module)
+>>> ttl_pulses = get_ttl_pulses(session)
+>>> trial_offsets, align_warnings = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
+>>>
+>>> # Extract trials and events with absolute timestamps
+>>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
+>>> events = extract_behavioral_events(bpod_data, trial_offsets=trial_offsets)
+>>>
+>>> # Generate QC summary with alignment info
+>>> summary = create_event_summary(session, trials, events,
+...                               n_total_trials=len(bpod_data['SessionData']['TrialStartTimestamp']),
+...                               alignment_warnings=align_warnings)
+
+Example (Dict-based for unit testing):
+---------------------------------------
 >>> from pathlib import Path
 >>> from w2t_bkin.events import parse_bpod_mat, extract_trials, extract_behavioral_events
 >>>
@@ -79,7 +107,7 @@ Example (Advanced - Dict-based for unit testing):
 >>> bpod_data = parse_bpod_mat(bpod_path)
 >>>
 >>> # Extract trial outcomes (relative timestamps)
->>> trials, _, _ = extract_trials(bpod_data)
+>>> trials = extract_trials(bpod_data)
 >>> print(f"Extracted {len(trials)} trials")
 >>>
 >>> # Extract behavioral events (relative timestamps)
@@ -100,6 +128,7 @@ except ImportError:
     loadmat = None
 
 from .domain import Trial, TrialEvent, TrialSummary
+from .domain.exceptions import BpodParseError, BpodValidationError, EventsError
 from .domain.session import BpodSession, Session
 from .domain.trials import TrialOutcome
 from .utils import (
@@ -132,92 +161,53 @@ MAX_BPOD_FILE_SIZE_MB = 100
 
 
 # =============================================================================
-# Exceptions
+# Helper Functions for Numpy Array Handling
 # =============================================================================
 
 
-class EventsError(Exception):
-    """Error during events processing.
+def _to_scalar(value: Union[Any, np.ndarray], index: int) -> Any:
+    """Safely extract scalar value from numpy array or list.
 
-    Base exception for all events-related errors.
-    Does not include sensitive file paths in messages by default.
-    """
-
-    pass
-
-
-class BpodParseError(EventsError):
-    """Error parsing Bpod .mat file.
-
-    Raised when .mat file structure is invalid or cannot be parsed.
-    """
-
-    pass
-
-
-class BpodValidationError(EventsError):
-    """Error validating Bpod file or data.
-
-    Raised when file size, path, or data content fails validation.
-    """
-
-    pass
-
-
-# =============================================================================
-# Security & Validation Helpers
-# =============================================================================
-
-
-def _validate_bpod_path(path: Path) -> None:
-    """Validate Bpod file path for security.
+    Handles both numpy arrays and regular Python lists/tuples.
 
     Args:
-        path: Path to Bpod .mat file
+        value: Value to extract from (ndarray, list, tuple, or scalar)
+        index: Index to extract
+
+    Returns:
+        Scalar value at index
 
     Raises:
-        BpodValidationError: If path is invalid or file too large
+        IndexError: If index is out of bounds
     """
-    # Validate file exists
-    validate_file_exists(path, BpodValidationError, "Bpod file not found")
-
-    # Check file extension
-    if path.suffix.lower() not in [".mat"]:
-        raise BpodValidationError(f"Invalid file extension: {path.suffix}")
-
-    # Check file size (prevent memory exhaustion)
-    try:
-        file_size_mb = validate_file_size(path, max_size_mb=MAX_BPOD_FILE_SIZE_MB)
-        logger.debug(f"Validated Bpod file: {path.name} ({file_size_mb:.2f}MB)")
-    except ValueError as e:
-        # Re-raise as BpodValidationError for consistent error handling
-        raise BpodValidationError(str(e))
+    if isinstance(value, np.ndarray):
+        # Handle numpy arrays (including 0-d arrays)
+        if value.ndim == 0:
+            return value.item()
+        return value[index].item() if hasattr(value[index], "item") else value[index]
+    elif isinstance(value, (list, tuple)):
+        return value[index]
+    else:
+        # Assume it's already a scalar
+        return value
 
 
-def _sanitize_event_type(event_type: str) -> str:
-    """Sanitize event type string from external data.
-
-    Removes potentially dangerous characters and limits length.
+def _to_list(value: Union[Any, np.ndarray]) -> List[Any]:
+    """Convert numpy array or scalar to Python list.
 
     Args:
-        event_type: Raw event type string from .mat file
+        value: Value to convert (ndarray, list, tuple, or scalar)
 
     Returns:
-        Sanitized event type string
+        Python list
     """
-    return sanitize_string(event_type, max_length=100, allowed_pattern="printable", default="unknown_event")
-
-
-def _validate_outcome(outcome: str) -> str:
-    """Validate trial outcome against whitelist.
-
-    Args:
-        outcome: Inferred outcome string
-
-    Returns:
-        Validated outcome (defaults to 'unknown' if invalid)
-    """
-    return validate_against_whitelist(outcome, VALID_OUTCOMES, default="unknown", warn=True)
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    elif isinstance(value, (list, tuple)):
+        return list(value)
+    else:
+        # Scalar value
+        return [value]
 
 
 # =============================================================================
@@ -446,82 +436,51 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
 
 
 # =============================================================================
-# TTL-to-Trial Alignment
+# Trial Extraction
 # =============================================================================
 
 
-def _get_sync_time_from_trial(trial_data: Dict[str, Any], sync_signal: str) -> Optional[float]:
-    """Extract synchronization signal timing from trial data.
+def extract_trials(bpod_data: Dict[str, Any], trial_offsets: Optional[Dict[int, float]] = None) -> List[Trial]:
+    """Extract trial data from parsed Bpod data dictionary.
+
+    Extracts trials with relative timestamps by default. If trial_offsets are provided
+    (from sync.align_bpod_trials_to_ttl), converts to absolute timestamps.
+
+    Warnings about failed trial extraction are logged automatically.
 
     Args:
-        trial_data: Raw trial data from Bpod containing States
-        sync_signal: State name to use for sync (e.g., "W2L_Audio", "A2L_Audio")
+        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod_session)
+        trial_offsets: Optional dict mapping trial_number → absolute time offset.
+                      If provided, converts relative timestamps to absolute.
+                      Use sync.align_bpod_trials_to_ttl() to compute offsets.
 
     Returns:
-        Start time of sync signal (relative to trial start), or None if not found/visited
-    """
-    # Convert MATLAB struct to dict if needed
-    trial_data = convert_matlab_struct(trial_data)
-
-    states = trial_data.get("States", {})
-    if not states:
-        return None
-
-    # Convert states to dict if it's a MATLAB struct
-    states = convert_matlab_struct(states)
-
-    sync_times = states.get(sync_signal)
-    if sync_times is None:
-        return None
-
-    if not isinstance(sync_times, (list, tuple, np.ndarray)) or len(sync_times) < 2:
-        return None
-
-    start_time = sync_times[0]
-    if is_nan_or_none(start_time):
-        return None
-
-    return float(start_time)
-
-
-def align_bpod_trials_to_ttl(
-    session: Session,
-    bpod_data: Dict[str, Any],
-    ttl_pulses: Dict[str, List[float]],
-) -> Tuple[List[Trial], Dict[int, float], List[str]]:
-    """Align Bpod trials to absolute time using TTL sync signals.
-
-    Converts Bpod relative timestamps to absolute time by matching per-trial
-    sync signals to corresponding TTL pulses. Returns aligned Trial objects
-    with absolute start_time/stop_time, per-trial offsets, and warnings.
-
-    Algorithm:
-    1. For each trial, determine trial_type and lookup sync configuration
-    2. Extract sync_signal start time (relative to trial start)
-    3. Match to next available TTL pulse from corresponding channel
-    4. Compute offset_abs = ttl_pulse_time - bpod_sync_time_rel
-    5. Convert all trial times to absolute: t_abs = offset_abs + t_rel
-
-    Edge Cases:
-    - Missing sync_signal: Skip trial, record warning
-    - Extra TTL pulses: Ignore surplus, log warning
-    - Fewer TTL pulses: Align what's possible, mark remaining as unaligned
-    - Jitter: Allow small timing differences, log debug info
-
-    Args:
-        session: Session config with trial_type sync mappings
-        bpod_data: Parsed Bpod data (SessionData structure)
-        ttl_pulses: Dict mapping TTL channel ID to sorted list of absolute timestamps
-
-    Returns:
-        Tuple of:
-        - List[Trial]: Aligned trials with absolute timestamps
-        - Dict[int, float]: Map trial_number → absolute offset for events alignment
-        - List[str]: Alignment warnings
+        List[Trial]: Trial objects with absolute (if offsets) or relative timestamps
 
     Raises:
-        BpodParseError: If trial_type config missing or data structure invalid
+        BpodParseError: If structure is invalid or extraction fails
+
+    Examples:
+        >>> # Parse and extract (relative timestamps)
+        >>> from pathlib import Path
+        >>> from w2t_bkin.events import parse_bpod_mat, extract_trials
+        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
+        >>> trials = extract_trials(bpod_data)
+        >>>
+        >>> # With Session configuration
+        >>> from w2t_bkin.config import load_session
+        >>> from w2t_bkin.events import parse_bpod_session, extract_trials
+        >>> session = load_session("data/Session-001/session.toml")
+        >>> bpod_data = parse_bpod_session(session)
+        >>> trials = extract_trials(bpod_data)
+        >>>
+        >>> # With TTL alignment (absolute timestamps)
+        >>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
+        >>> ttl_pulses = get_ttl_pulses(session)
+        >>> trial_offsets, _ = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
+        >>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
     """
+    # Validate Bpod data structure
     if not validate_bpod_structure(bpod_data):
         raise BpodParseError("Invalid Bpod structure")
 
@@ -529,25 +488,9 @@ def align_bpod_trials_to_ttl(
     n_trials = int(session_data["nTrials"])
 
     if n_trials == 0:
-        logger.info("No trials to align")
-        return [], {}, []
+        logger.info("No trials found in Bpod file")
+        return []
 
-    # Build trial_type → sync config mapping
-    trial_type_map = {}
-    for tt_config in session.bpod.trial_types:
-        trial_type_map[tt_config.trial_type] = {
-            "sync_signal": tt_config.sync_signal,
-            "sync_ttl": tt_config.sync_ttl,
-            "description": tt_config.description,
-        }
-
-    if not trial_type_map:
-        raise BpodParseError("No trial_type sync configuration found in session.bpod.trial_types")
-
-    # Prepare TTL pulse pointers (track consumption per channel)
-    ttl_pointers = {ttl_id: 0 for ttl_id in ttl_pulses.keys()}
-
-    # Extract raw trial data
     start_timestamps = session_data["TrialStartTimestamp"]
     end_timestamps = session_data["TrialEndTimestamp"]
     raw_events = convert_matlab_struct(session_data["RawEvents"])
@@ -556,116 +499,69 @@ def align_bpod_trials_to_ttl(
     # Extract TrialTypes if available
     trial_types_array = session_data.get("TrialTypes")
     if trial_types_array is None:
-        # Default to trial_type 1 for all trials if not specified
-        trial_types_array = [1] * n_trials
-        logger.warning("TrialTypes not found in Bpod data, defaulting all trials to type 1")
+        trial_types_array = [1] * n_trials  # Default to trial_type 1
 
-    aligned_trials = []
-    trial_offsets = {}
-    warnings_list = []
+    trials = []
 
     for i in range(n_trials):
-        trial_num = i + 1
-        trial_data = convert_matlab_struct(trial_data_list[i])
+        try:
+            trial_num = i + 1
+            start_time_rel = float(_to_scalar(start_timestamps, i))
+            stop_time_rel = float(_to_scalar(end_timestamps, i))
+            trial_type = int(_to_scalar(trial_types_array, i))
 
-        # Get trial type
-        trial_type = int(trial_types_array[i])
-        if trial_type not in trial_type_map:
-            warnings_list.append(f"Trial {trial_num}: trial_type {trial_type} not in session config, skipping")
-            logger.warning(warnings_list[-1])
-            continue
+            # Apply offset if provided (converts to absolute time)
+            if trial_offsets and trial_num in trial_offsets:
+                offset = trial_offsets[trial_num]
+                start_time = offset + start_time_rel
+                stop_time = offset + stop_time_rel
+            else:
+                # Keep relative timestamps
+                start_time = start_time_rel
+                stop_time = stop_time_rel
 
-        sync_config = trial_type_map[trial_type]
-        sync_signal = sync_config["sync_signal"]
-        sync_ttl_id = sync_config["sync_ttl"]
+                # Warn if offsets were expected but not found for this trial
+                if trial_offsets is not None and trial_num not in trial_offsets:
+                    logger.warning(f"Trial {trial_num}: No offset found, using relative timestamps")
 
-        # Extract sync time from trial (relative to trial start)
-        sync_time_rel = _get_sync_time_from_trial(trial_data, sync_signal)
-        if sync_time_rel is None:
-            warnings_list.append(f"Trial {trial_num}: sync_signal '{sync_signal}' not found or not visited, skipping")
-            logger.warning(warnings_list[-1])
-            continue
+            trial_data = trial_data_list[i]
 
-        # Get next TTL pulse
-        if sync_ttl_id not in ttl_pulses:
-            warnings_list.append(f"Trial {trial_num}: TTL channel '{sync_ttl_id}' not found in ttl_pulses, skipping")
-            logger.error(warnings_list[-1])
-            continue
+            # Extract states - handle both dict and MATLAB struct
+            if hasattr(trial_data, "States"):
+                states = trial_data.States
+            elif isinstance(trial_data, dict):
+                states = trial_data.get("States", {})
+            else:
+                states = {}
 
-        ttl_channel = ttl_pulses[sync_ttl_id]
-        ttl_ptr = ttl_pointers[sync_ttl_id]
+            # Convert MATLAB struct to dict if needed
+            states = convert_matlab_struct(states)
+            outcome_str = _infer_outcome(states)
 
-        if ttl_ptr >= len(ttl_channel):
-            warnings_list.append(f"Trial {trial_num}: No more TTL pulses available for '{sync_ttl_id}', skipping")
-            logger.warning(warnings_list[-1])
-            continue
+            # Map string outcome to TrialOutcome enum
+            outcome_map = {
+                "hit": TrialOutcome.HIT,
+                "miss": TrialOutcome.MISS,
+                "correct_rejection": TrialOutcome.CORRECT_REJECTION,
+                "false_alarm": TrialOutcome.FALSE_ALARM,
+                "unknown": TrialOutcome.MISS,  # Default unknown to MISS
+            }
+            outcome = outcome_map.get(outcome_str, TrialOutcome.MISS)
 
-        ttl_pulse_time = ttl_channel[ttl_ptr]
-        ttl_pointers[sync_ttl_id] += 1
-
-        # Compute offset: absolute_time = offset + relative_time
-        offset_abs = ttl_pulse_time - sync_time_rel
-        trial_offsets[trial_num] = offset_abs
-
-        # Convert relative times to absolute
-        start_time_rel = float(start_timestamps[i])
-        stop_time_rel = float(end_timestamps[i])
-
-        start_time_abs = offset_abs + start_time_rel
-        stop_time_abs = offset_abs + stop_time_rel
-
-        # Validate monotonicity
-        if start_time_abs >= stop_time_abs:
-            warnings_list.append(f"Trial {trial_num}: start_time >= stop_time after alignment, skipping")
-            logger.error(warnings_list[-1])
-            continue
-
-        # Extract states for outcome inference
-        states = trial_data.get("States", {})
-        states = convert_matlab_struct(states)
-        outcome_str = _infer_outcome(states)
-
-        # Map outcome string to TrialOutcome enum
-        outcome_map = {
-            "hit": TrialOutcome.HIT,
-            "miss": TrialOutcome.MISS,
-            "correct_rejection": TrialOutcome.CORRECT_REJECTION,
-            "false_alarm": TrialOutcome.FALSE_ALARM,
-            "unknown": TrialOutcome.MISS,
-        }
-        outcome = outcome_map.get(outcome_str, TrialOutcome.MISS)
-
-        # Create Trial with absolute timestamps
-        aligned_trials.append(
-            Trial(
-                trial_number=trial_num,
-                trial_type=trial_type,
-                start_time=start_time_abs,
-                stop_time=stop_time_abs,
-                outcome=outcome,
+            trials.append(
+                Trial(
+                    trial_number=trial_num,
+                    trial_type=trial_type,
+                    start_time=start_time,
+                    stop_time=stop_time,
+                    outcome=outcome,
+                )
             )
-        )
+        except Exception as e:
+            logger.error(f"Failed to extract trial {i + 1}: {type(e).__name__}: {e}")
 
-        logger.debug(
-            f"Trial {trial_num}: type={trial_type}, sync_signal={sync_signal}, "
-            f"sync_rel={sync_time_rel:.4f}s, ttl_abs={ttl_pulse_time:.4f}s, "
-            f"offset={offset_abs:.4f}s, start_abs={start_time_abs:.4f}s"
-        )
-
-    # Warn about unused TTL pulses
-    for ttl_id, ptr in ttl_pointers.items():
-        unused = len(ttl_pulses[ttl_id]) - ptr
-        if unused > 0:
-            warnings_list.append(f"TTL channel '{ttl_id}' has {unused} unused pulses")
-            logger.warning(warnings_list[-1])
-
-    logger.info(f"Aligned {len(aligned_trials)} out of {n_trials} trials using TTL sync")
-    return aligned_trials, trial_offsets, warnings_list
-
-
-# =============================================================================
-# Trial Extraction
-# =============================================================================
+    logger.info(f"Extracted {len(trials)} trials from Bpod file")
+    return trials
 
 
 def _is_state_visited(state_times: Any) -> bool:
@@ -674,11 +570,19 @@ def _is_state_visited(state_times: Any) -> bool:
     A state is considered visited if it has valid (non-NaN) start time.
 
     Args:
-        state_times: State time array/list from Bpod data
+        state_times: State time array/list from Bpod data (can be ndarray, list, or tuple)
 
     Returns:
         True if state was visited, False otherwise
     """
+    # Handle numpy arrays
+    if isinstance(state_times, np.ndarray):
+        if state_times.size < 2:
+            return False
+        start_time = state_times.flat[0]  # Use flat indexer for safety
+        return not is_nan_or_none(start_time)
+
+    # Handle lists and tuples
     if not isinstance(state_times, (list, tuple)):
         return False
     if len(state_times) < 2:
@@ -711,180 +615,52 @@ def _infer_outcome(states: Dict[str, Any]) -> str:
     return _validate_outcome("unknown")
 
 
-def extract_trials(
-    session: Union[Session, Dict[str, Any]],
-) -> Tuple[List[Trial], Optional[Dict[int, float]], Optional[List[str]]]:
-    """Extract trial data from Session or parsed Bpod data with automatic TTL alignment.
-
-    Simplified API that accepts either:
-    - Session: Automatically loads Bpod data and performs TTL alignment if configured
-    - Dict: Parsed Bpod data (backwards compatible, relative timestamps only)
-
-    Args:
-        session: Session configuration OR parsed Bpod data dictionary
-
-    Returns:
-        Tuple of:
-        - List[Trial]: Trial objects with absolute (if Session with trial_types) or relative timestamps
-        - Optional[Dict[int, float]]: Per-trial offsets (only if aligned)
-        - Optional[List[str]]: Alignment warnings (only if aligned)
-
-    Raises:
-        BpodParseError: If structure is invalid or extraction fails
-        TypeError: If session parameter is neither Session nor Dict
-
-    Examples:
-        >>> # Recommended: Session-based (automatic loading and alignment)
-        >>> from w2t_bkin.config import load_session
-        >>> session = load_session("data/Session-001/session.toml")
-        >>> trials, offsets, warnings = extract_trials(session)
-        >>>
-        >>> # Backwards compatible: Dict-based (relative timestamps)
-        >>> data = parse_bpod_mat(Path("data/Bpod/session.mat"))
-        >>> trials, _, _ = extract_trials(data)
-    """
-    # Check if Session object or raw data dict
-    if isinstance(session, Session):
-        # Validate Session object has required attributes
-        if not hasattr(session, "bpod"):
-            raise TypeError("Session object is missing 'bpod' attribute. " "Ensure session was loaded correctly using load_session().")
-        if not hasattr(session, "session_dir"):
-            raise TypeError("Session object is missing 'session_dir' attribute. " "Ensure session was loaded correctly using load_session().")
-
-        # Load Bpod data from session
-        data = parse_bpod_session(session)
-
-        # If session has trial_types, load TTL pulses and use alignment
-        if session.bpod.trial_types:
-            from .sync import get_ttl_pulses
-
-            ttl_pulses = get_ttl_pulses(session)
-            return align_bpod_trials_to_ttl(session, data, ttl_pulses)
-    elif isinstance(session, dict):
-        # Backwards compatible: treat as parsed Bpod data dict
-        data = session
-    else:
-        raise TypeError(f"extract_trials() expects Session or Dict, got {type(session).__name__}. " f"Use load_session() to load a Session object, or pass parsed Bpod data dict.")
-
-    # Extract trials with relative timestamps
-    if not validate_bpod_structure(data):
-        raise BpodParseError("Invalid Bpod structure")
-
-    session_data = convert_matlab_struct(data["SessionData"])
-    n_trials = int(session_data["nTrials"])
-
-    if n_trials == 0:
-        logger.info("No trials found in Bpod file")
-        return [], None, None
-
-    start_timestamps = session_data["TrialStartTimestamp"]
-    end_timestamps = session_data["TrialEndTimestamp"]
-    raw_events = convert_matlab_struct(session_data["RawEvents"])
-    trial_data_list = raw_events["Trial"]
-
-    trials = []
-
-    for i in range(n_trials):
-        try:
-            trial_num = i + 1
-            start_time = float(start_timestamps[i])
-            stop_time = float(end_timestamps[i])
-
-            trial_data = trial_data_list[i]
-
-            # Extract states - handle both dict and MATLAB struct
-            if hasattr(trial_data, "States"):
-                states = trial_data.States
-            elif isinstance(trial_data, dict):
-                states = trial_data.get("States", {})
-            else:
-                states = {}
-
-            # Convert MATLAB struct to dict if needed
-            states = convert_matlab_struct(states)
-            outcome_str = _infer_outcome(states)
-
-            # Map string outcome to TrialOutcome enum
-            outcome_map = {
-                "hit": TrialOutcome.HIT,
-                "miss": TrialOutcome.MISS,
-                "correct_rejection": TrialOutcome.CORRECT_REJECTION,
-                "false_alarm": TrialOutcome.FALSE_ALARM,
-                "unknown": TrialOutcome.MISS,  # Default unknown to MISS
-            }
-            outcome = outcome_map.get(outcome_str, TrialOutcome.MISS)
-
-            trials.append(
-                Trial(
-                    trial_number=trial_num,
-                    trial_type=1,  # Default trial type if not aligned
-                    start_time=start_time,
-                    stop_time=stop_time,
-                    outcome=outcome,
-                )
-            )
-        except Exception as e:
-            raise BpodParseError(f"Failed to extract trial {i + 1}: {type(e).__name__}")
-
-    logger.info(f"Extracted {len(trials)} trials from Bpod file")
-    return trials, None, None
-
-
 # =============================================================================
 # Behavioral Event Extraction
 # =============================================================================
 
 
-def extract_behavioral_events(
-    session: Union[Session, Dict[str, Any]],
-    trials: Optional[List[Trial]] = None,
-    trial_offsets: Optional[Dict[int, float]] = None,
-) -> List[TrialEvent]:
-    """Extract behavioral events from Session or parsed Bpod data with automatic alignment.
+def extract_behavioral_events(bpod_data: Dict[str, Any], trial_offsets: Optional[Dict[int, float]] = None) -> List[TrialEvent]:
+    """Extract behavioral events from parsed Bpod data dictionary.
 
-    Simplified API that accepts either:
-    - Session: Automatically loads Bpod data and computes alignment if configured
-    - Dict: Parsed Bpod data (backwards compatible, uses provided trial_offsets if any)
+    Extracts events with relative timestamps by default. If trial_offsets are provided
+    (from sync.align_bpod_trials_to_ttl), converts to absolute timestamps.
 
     Args:
-        session: Session configuration OR parsed Bpod data dictionary
-        trials: Optional pre-extracted trials (for reusing extract_trials results)
-        trial_offsets: Optional pre-computed trial offsets (for reusing extract_trials results)
+        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod_session)
+        trial_offsets: Optional dict mapping trial_number → absolute time offset.
+                      If provided, converts relative timestamps to absolute.
+                      Use sync.align_bpod_trials_to_ttl() to compute offsets.
 
     Returns:
         List of TrialEvent objects with absolute or relative timestamps
 
     Examples:
-        >>> # Recommended: Session-based (automatic loading and alignment)
+        >>> # Parse and extract (relative timestamps)
+        >>> from pathlib import Path
+        >>> from w2t_bkin.events import parse_bpod_mat, extract_behavioral_events
+        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
+        >>> events = extract_behavioral_events(bpod_data)
+        >>>
+        >>> # With Session configuration
         >>> from w2t_bkin.config import load_session
+        >>> from w2t_bkin.events import parse_bpod_session, extract_behavioral_events
         >>> session = load_session("data/Session-001/session.toml")
-        >>> events = extract_behavioral_events(session)
+        >>> bpod_data = parse_bpod_session(session)
+        >>> events = extract_behavioral_events(bpod_data)
         >>>
-        >>> # Or reuse trials/offsets from extract_trials
-        >>> trials, offsets, _ = extract_trials(session)
-        >>> events = extract_behavioral_events(session, trials=trials, trial_offsets=offsets)
-        >>>
-        >>> # Backwards compatible: Dict-based
-        >>> data = parse_bpod_mat(Path("data/Bpod/session.mat"))
-        >>> events = extract_behavioral_events(data)
+        >>> # With TTL alignment (absolute timestamps)
+        >>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
+        >>> ttl_pulses = get_ttl_pulses(session)
+        >>> trial_offsets, _ = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
+        >>> events = extract_behavioral_events(bpod_data, trial_offsets=trial_offsets)
     """
-    # Check if Session object or raw data dict
-    if isinstance(session, Session):
-        # Load Bpod data from session
-        data = parse_bpod_session(session)
-
-        # If trial_offsets not provided but session has trial_types, compute them
-        if trial_offsets is None and session.bpod.trial_types:
-            _, trial_offsets, _ = extract_trials(session)
-    else:
-        # Backwards compatible: treat as parsed Bpod data dict
-        data = session
-
-    if not validate_bpod_structure(data):
+    # Validate Bpod data structure
+    if not validate_bpod_structure(bpod_data):
         logger.warning("Invalid Bpod structure, returning empty event list")
         return []
 
-    session_data = convert_matlab_struct(data["SessionData"])
+    session_data = convert_matlab_struct(bpod_data["SessionData"])
     n_trials = int(session_data["nTrials"])
 
     if n_trials == 0:
@@ -922,7 +698,10 @@ def extract_behavioral_events(
             # Sanitize event type from external data
             safe_event_type = _sanitize_event_type(event_type)
 
-            if not isinstance(timestamps, (list, tuple)):
+            # Convert to list if numpy array or scalar
+            if isinstance(timestamps, np.ndarray):
+                timestamps = _to_list(timestamps)
+            elif not isinstance(timestamps, (list, tuple)):
                 timestamps = [timestamps]
 
             for timestamp in timestamps:
@@ -981,10 +760,12 @@ def create_event_summary(
     Examples:
         >>> # Recommended: Session-based
         >>> from w2t_bkin.config import load_session
+        >>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events
         >>> session = load_session("data/Session-001/session.toml")
-        >>> trials, offsets, warnings = extract_trials(session)
-        >>> events = extract_behavioral_events(session, trial_offsets=offsets)
-        >>> summary = create_event_summary(session, trials, events, alignment_warnings=warnings)
+        >>> bpod_data = parse_bpod_session(session)
+        >>> trials = extract_trials(bpod_data)
+        >>> events = extract_behavioral_events(bpod_data)
+        >>> summary = create_event_summary(session, trials, events)
         >>>
         >>> # Backwards compatible: session_id string
         >>> summary = create_event_summary("session-001", trials, events, bpod_files=["/path/to/bpod.mat"])
@@ -1071,6 +852,62 @@ def write_event_summary(summary: TrialSummary, output_path: Path) -> None:
     data = summary.model_dump()
     write_json(data, output_path)
     logger.info(f"Wrote event summary to {output_path.name}")
+
+
+# =============================================================================
+# Security & Validation Helpers
+# =============================================================================
+
+
+def _validate_bpod_path(path: Path) -> None:
+    """Validate Bpod file path for security.
+
+    Args:
+        path: Path to Bpod .mat file
+
+    Raises:
+        BpodValidationError: If path is invalid or file too large
+    """
+    # Validate file exists
+    validate_file_exists(path, BpodValidationError, "Bpod file not found")
+
+    # Check file extension
+    if path.suffix.lower() not in [".mat"]:
+        raise BpodValidationError(f"Invalid file extension: {path.suffix}", file_path=str(path))
+
+    # Check file size (prevent memory exhaustion)
+    try:
+        file_size_mb = validate_file_size(path, max_size_mb=MAX_BPOD_FILE_SIZE_MB)
+        logger.debug(f"Validated Bpod file: {path.name} ({file_size_mb:.2f}MB)")
+    except ValueError as e:
+        # Re-raise as BpodValidationError for consistent error handling
+        raise BpodValidationError(str(e), file_path=str(path))
+
+
+def _sanitize_event_type(event_type: str) -> str:
+    """Sanitize event type string from external data.
+
+    Removes potentially dangerous characters and limits length.
+
+    Args:
+        event_type: Raw event type string from .mat file
+
+    Returns:
+        Sanitized event type string
+    """
+    return sanitize_string(event_type, max_length=100, allowed_pattern="printable", default="unknown_event")
+
+
+def _validate_outcome(outcome: str) -> str:
+    """Validate trial outcome against whitelist.
+
+    Args:
+        outcome: Inferred outcome string
+
+    Returns:
+        Validated outcome (defaults to 'unknown' if invalid)
+    """
+    return validate_against_whitelist(outcome, VALID_OUTCOMES, default="unknown", warn=True)
 
 
 if __name__ == "__main__":

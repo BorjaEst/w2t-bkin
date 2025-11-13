@@ -23,7 +23,6 @@ from w2t_bkin.events import (
     BpodParseError,
     BpodValidationError,
     EventsError,
-    align_bpod_trials_to_ttl,
     create_event_summary,
     extract_behavioral_events,
     extract_trials,
@@ -31,7 +30,7 @@ from w2t_bkin.events import (
     validate_bpod_structure,
     write_event_summary,
 )
-from w2t_bkin.sync import get_ttl_pulses
+from w2t_bkin.sync import SyncError, align_bpod_trials_to_ttl, get_ttl_pulses
 
 # =============================================================================
 # Local Fixtures (Test-Specific)
@@ -105,12 +104,12 @@ class TestTrialExtraction:
     """Test trial data extraction - FR-11."""
 
     def test_Should_ExtractTrials_When_BpodParsed(self, parsed_bpod_data):
-        trials, _, _ = extract_trials(parsed_bpod_data)
+        trials, _ = extract_trials(parsed_bpod_data)
         assert len(trials) == 3
         assert all(isinstance(t, Trial) for t in trials)
 
     def test_Should_IncludeTrialTimestamps_When_Extracting(self, parsed_bpod_data):
-        trials, _, _ = extract_trials(parsed_bpod_data)
+        trials, _ = extract_trials(parsed_bpod_data)
         first_trial = trials[0]
         assert hasattr(first_trial, "start_time")
         assert hasattr(first_trial, "stop_time")
@@ -119,7 +118,7 @@ class TestTrialExtraction:
 
     def test_Should_InferOutcomeFromStates_When_Extracting(self, parsed_bpod_data):
         """Outcome must be inferred from States (HIT/Miss), not from TrialSettings."""
-        trials, _, _ = extract_trials(parsed_bpod_data)
+        trials, _ = extract_trials(parsed_bpod_data)
 
         # Trial 0: HIT state is valid (not NaN) → hit
         from w2t_bkin.domain.trials import TrialOutcome
@@ -134,7 +133,7 @@ class TestTrialExtraction:
 
     def test_Should_IncludeTrialNumber_When_Extracting(self, parsed_bpod_data):
         """Trials should include trial_number field (1-indexed)."""
-        trials, _, _ = extract_trials(parsed_bpod_data)
+        trials, _ = extract_trials(parsed_bpod_data)
         assert trials[0].trial_number == 1
         assert trials[1].trial_number == 2
         assert trials[2].trial_number == 3
@@ -205,7 +204,7 @@ class TestEdgeCasesAndErrorHandling:
 
     def test_Should_HandleNaNStates_When_StateNotVisited(self, parsed_bpod_data):
         """States with [NaN, NaN] indicate state was not visited in that trial."""
-        trials, _, _ = extract_trials(parsed_bpod_data)
+        trials, _ = extract_trials(parsed_bpod_data)
 
         # Trial 1 has Miss state as NaN (not visited) → should be "hit"
         from w2t_bkin.domain.trials import TrialOutcome
@@ -223,7 +222,7 @@ class TestEdgeCasesAndErrorHandling:
             }
         }
 
-        trials, _, _ = extract_trials(data_with_nans)
+        trials, _ = extract_trials(data_with_nans)
         from w2t_bkin.domain.trials import TrialOutcome
 
         assert trials[0].outcome == TrialOutcome.MISS
@@ -323,7 +322,7 @@ class TestSecurityAndValidation:
             }
         }
 
-        trials, _, _ = extract_trials(data)
+        trials, _ = extract_trials(data)
         # Should get a valid outcome from Trial TrialOutcome enum
         from w2t_bkin.domain.trials import TrialOutcome
 
@@ -398,11 +397,15 @@ class TestTTLAlignment:
         """Should align all trials when sync signals match TTL pulses."""
         ttl_pulses = get_ttl_pulses(mock_session_with_ttl)
 
-        aligned_trials, trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
+        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
 
-        assert len(aligned_trials) == 3
         assert len(trial_offsets) == 3
         assert len(warnings) == 0
+
+        # Extract trials with absolute timestamps
+        aligned_trials, _ = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
+
+        assert len(aligned_trials) == 3
 
         # Trial 1: W2L_Audio at 6.0 (rel) → TTL at 10.0 (abs) → offset 4.0
         assert trial_offsets[1] == pytest.approx(4.0)
@@ -438,9 +441,12 @@ class TestTTLAlignment:
         }
 
         ttl_pulses = get_ttl_pulses(mock_session_with_ttl)
-        aligned_trials, trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
 
-        assert len(aligned_trials) == 1
+        # Extract trials with offsets (only trial 1 should have offset)
+        aligned_trials, _ = extract_trials(bpod_data, trial_offsets=trial_offsets)
+
+        assert len(aligned_trials) == 2  # Both trials extracted, but only 1 has absolute timestamp
         assert 1 in trial_offsets
         assert 2 not in trial_offsets
         assert any("Trial 2" in w and "sync_signal" in w for w in warnings)
@@ -459,9 +465,13 @@ class TestTTLAlignment:
         }
 
         ttl_pulses = get_ttl_pulses(mock_session_with_ttl)  # Only 3 pulses
-        aligned_trials, trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
 
-        assert len(aligned_trials) == 3
+        # Extract trials - should get all 5 trials, but only 3 will have absolute timestamps
+        aligned_trials, _ = extract_trials(bpod_data, trial_offsets=trial_offsets)
+
+        assert len(aligned_trials) == 5  # All trials extracted
+        assert len(trial_offsets) == 3  # Only 3 have offsets
         assert any("Trial 4" in w for w in warnings)
         assert any("Trial 5" in w for w in warnings)
 
@@ -479,7 +489,10 @@ class TestTTLAlignment:
         }
 
         ttl_pulses = get_ttl_pulses(mock_session_with_ttl)  # 3 pulses
-        aligned_trials, trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+
+        # Extract trial with offset
+        aligned_trials, _ = extract_trials(bpod_data, trial_offsets=trial_offsets)
 
         assert len(aligned_trials) == 1
         assert any("unused pulses" in w for w in warnings)
@@ -503,38 +516,30 @@ class TestTTLAlignment:
             session_dir=str(tmp_path),
         )
 
-        with pytest.raises(BpodParseError, match="No trial_type sync configuration"):
+        with pytest.raises(SyncError, match="No trial_type sync configuration"):
             align_bpod_trials_to_ttl(session, bpod_data_with_sync, {})
 
 
 class TestExtractTrialsWithAlignment:
     """Test extract_trials integration with TTL alignment."""
 
-    def test_Should_UseAlignment_When_SessionProvided(self, mock_session_with_ttl, bpod_data_with_sync, monkeypatch):
-        """Should use TTL alignment when session provided with trial_types."""
+    def test_Should_UseAlignment_When_OffsetsProvided(self, mock_session_with_ttl, bpod_data_with_sync):
+        """Should use TTL alignment when trial_offsets provided."""
+        # Get TTL pulses and compute offsets
+        ttl_pulses = get_ttl_pulses(mock_session_with_ttl)
+        trial_offsets, _ = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
 
-        # Mock parse_bpod_session to return our test data
-        def mock_parse_bpod_session(session):
-            return bpod_data_with_sync
-
-        from w2t_bkin import events
-
-        monkeypatch.setattr(events, "parse_bpod_session", mock_parse_bpod_session)
-
-        trials, trial_offsets, warnings = extract_trials(mock_session_with_ttl)
+        # Extract trials with absolute timestamps
+        trials, _ = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
 
         assert len(trials) == 3
-        assert trial_offsets is not None
-        assert len(trial_offsets) == 3
         assert trials[0].start_time == pytest.approx(4.0)  # Absolute timestamp
 
-    def test_Should_UseRelativeTime_When_NoSession(self, bpod_data_with_sync):
-        """Should use relative timestamps when no session provided."""
-        trials, trial_offsets, warnings = extract_trials(bpod_data_with_sync)
+    def test_Should_UseRelativeTime_When_NoOffsets(self, bpod_data_with_sync):
+        """Should use relative timestamps when no trial_offsets provided."""
+        trials, _ = extract_trials(bpod_data_with_sync)
 
         assert len(trials) == 3
-        assert trial_offsets is None
-        assert warnings is None
         assert trials[0].start_time == 0.0  # Relative timestamp
 
 

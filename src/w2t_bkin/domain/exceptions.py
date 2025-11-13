@@ -313,13 +313,31 @@ class EventsError(W2TError):
 class BpodParseError(EventsError):
     """Bpod MATLAB file parsing failed."""
 
-    def __init__(self, file_path: str, reason: str):
+    def __init__(self, reason: str, file_path: Optional[str] = None):
+        context = {"reason": reason}
+        if file_path:
+            context["file_path"] = file_path
         super().__init__(
-            message=f"Failed to parse Bpod file '{file_path}': {reason}",
-            context={"file_path": file_path, "reason": reason},
+            message=f"Failed to parse Bpod file: {reason}",
+            context=context,
             hint="Check that file is a valid Bpod .mat file and not corrupted",
         )
         self.error_code = "BPOD_PARSE_ERROR"
+
+
+class BpodValidationError(EventsError):
+    """Bpod file or data validation failed."""
+
+    def __init__(self, reason: str, file_path: Optional[str] = None):
+        context = {"reason": reason}
+        if file_path:
+            context["file_path"] = file_path
+        super().__init__(
+            message=f"Bpod validation failed: {reason}",
+            context=context,
+            hint="Check file path, size, extension, and data structure",
+        )
+        self.error_code = "BPOD_VALIDATION_ERROR"
 
 
 # Transcode Errors

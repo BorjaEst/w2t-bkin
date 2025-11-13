@@ -27,9 +27,9 @@ Model Hierarchy:
 Key Features:
 -------------
 - **MATLAB Compatibility**: Direct mapping from scipy.io.loadmat structures
-- **Numpy Conversion**: Automatic conversion of numpy arrays to Python types
+- **Numpy Native**: Uses numpy arrays directly without conversion for efficiency
 - **Flexible Schema**: ConfigDict(extra="allow") for protocol-specific states/events
-- **Type Safe**: Full annotations with runtime validation via field_validators
+- **Type Safe**: Full annotations with numpy type hints
 - **Optional Fields**: Handles missing/NaN values from MATLAB
 - **Immutable**: frozen=True prevents accidental modification (where appropriate)
 
@@ -74,7 +74,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+import numpy.typing as npt
+from pydantic import BaseModel, ConfigDict, Field
 
 # ============================================================================
 # Hardware and Configuration Models
@@ -100,22 +101,14 @@ class AnalogInfo(BaseModel):
 class AnalogData(BaseModel):
     """Analog data from Flex I/O channels during behavioral session."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     info: AnalogInfo
     FileName: str = Field(description="Path to binary analog data file")
     nChannels: int = Field(description="Number of analog input channels")
-    channelNumbers: Union[int, List[int]] = Field(description="Channel indexes")
+    channelNumbers: Union[int, npt.NDArray[np.integer]] = Field(description="Channel indexes (int or numpy array)")
     SamplingRate: int = Field(description="Sampling rate in Hz")
     nSamples: int = Field(description="Total number of samples")
-
-    @field_validator("channelNumbers", mode="before")
-    @classmethod
-    def convert_channel_numbers(cls, v: Any) -> Union[int, List[int]]:
-        """Convert numpy array or int to appropriate type."""
-        if isinstance(v, np.ndarray):
-            return v.tolist() if v.size > 1 else int(v.item())
-        return v
 
 
 class FirmwareInfo(BaseModel):
@@ -138,59 +131,19 @@ class CircuitRevision(BaseModel):
 class ModulesInfo(BaseModel):
     """Information about connected Bpod modules."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     nModules: int = Field(description="Number of modules")
-    RelayActive: List[int] = Field(description="Module relay activation status")
-    Connected: List[int] = Field(description="Module connection status")
-    Name: List[str] = Field(description="Module names (e.g., Serial1, Serial2)")
-    Module2SM_BaudRate: List[int] = Field(description="Module to state machine baud rates")
-    FirmwareVersion: List[int] = Field(description="Firmware versions")
-    nSerialEvents: List[int] = Field(description="Number of serial events per module")
-    EventNames: List[List[Any]] = Field(description="Event names per module")
-    USBport: List[List[Any]] = Field(description="USB port assignments")
-    HWVersion_Major: List[Optional[float]] = Field(description="Hardware major versions")
-    HWVersion_Minor: List[Optional[float]] = Field(description="Hardware minor versions")
-
-    @field_validator("RelayActive", "Connected", "FirmwareVersion", "nSerialEvents", mode="before")
-    @classmethod
-    def convert_numpy_array(cls, v: Any) -> List[int]:
-        """Convert numpy arrays to Python lists."""
-        if isinstance(v, np.ndarray):
-            return v.tolist()
-        return v
-
-    @field_validator("Name", mode="before")
-    @classmethod
-    def convert_name_array(cls, v: Any) -> List[str]:
-        """Convert numpy object array to string list."""
-        if isinstance(v, np.ndarray):
-            return [str(item) for item in v]
-        return v
-
-    @field_validator("Module2SM_BaudRate", mode="before")
-    @classmethod
-    def convert_baudrate_array(cls, v: Any) -> List[int]:
-        """Convert numpy int32 array to Python int list."""
-        if isinstance(v, np.ndarray):
-            return v.tolist()
-        return v
-
-    @field_validator("EventNames", "USBport", mode="before")
-    @classmethod
-    def convert_nested_arrays(cls, v: Any) -> List[List[Any]]:
-        """Convert nested numpy arrays to nested lists."""
-        if isinstance(v, np.ndarray):
-            return [arr.tolist() if isinstance(arr, np.ndarray) else [] for arr in v]
-        return v
-
-    @field_validator("HWVersion_Major", "HWVersion_Minor", mode="before")
-    @classmethod
-    def convert_version_array(cls, v: Any) -> List[Optional[float]]:
-        """Convert numpy array with NaN to list with None."""
-        if isinstance(v, np.ndarray):
-            return [None if np.isnan(x) else float(x) for x in v]
-        return v
+    RelayActive: npt.NDArray[np.integer] = Field(description="Module relay activation status")
+    Connected: npt.NDArray[np.integer] = Field(description="Module connection status")
+    Name: npt.NDArray[np.object_] = Field(description="Module names (e.g., Serial1, Serial2)")
+    Module2SM_BaudRate: npt.NDArray[np.integer] = Field(description="Module to state machine baud rates")
+    FirmwareVersion: npt.NDArray[np.integer] = Field(description="Firmware versions")
+    nSerialEvents: npt.NDArray[np.integer] = Field(description="Number of serial events per module")
+    EventNames: npt.NDArray[np.object_] = Field(description="Event names per module (nested arrays)")
+    USBport: npt.NDArray[np.object_] = Field(description="USB port assignments (nested arrays)")
+    HWVersion_Major: npt.NDArray[np.floating] = Field(description="Hardware major versions (may contain NaN)")
+    HWVersion_Minor: npt.NDArray[np.floating] = Field(description="Hardware minor versions (may contain NaN)")
 
 
 class PCSetup(BaseModel):
@@ -226,71 +179,39 @@ class SessionInfo(BaseModel):
 class StateTimings(BaseModel):
     """State entry and exit times for a trial."""
 
-    model_config = ConfigDict(frozen=True, extra="allow")  # Allow protocol-specific states
+    model_config = ConfigDict(frozen=True, extra="allow", arbitrary_types_allowed=True)  # Allow protocol-specific states
 
-    # Common states across trials
-    ITI: Optional[List[float]] = Field(None, description="Inter-trial interval [start, end]")
-    W2T_Audio: Optional[List[float]] = Field(None, description="Whisker-to-tone audio [start, end]")
-    A2L_Audio: Optional[List[float]] = Field(None, description="Audio-to-lick audio [start, end]")
-    Airpuff: Optional[List[float]] = Field(None, description="Airpuff stimulus [start, end]")
-    Sensorcalm: Optional[List[float]] = Field(None, description="Sensor calm period [start, end]")
-    Response_window: Optional[List[float]] = Field(None, description="Response window [start, end]")
-    Miss: Optional[List[float]] = Field(None, description="Miss trial state [start, end]")
-    HIT: Optional[List[float]] = Field(None, description="Hit trial state [start, end]")
-    Licking_delay: Optional[List[float]] = Field(None, description="Licking delay [start, end]")
-    LeftReward: Optional[List[float]] = Field(None, description="Left reward delivery [start, end]")
-    RightReward: Optional[List[float]] = Field(None, description="Right reward delivery [start, end]")
-    reward_window: Optional[List[float]] = Field(None, description="Reward window [start, end]")
-    Microstim: Optional[List[float]] = Field(None, description="Microstimulation [start, end]")
-
-    model_config = ConfigDict(frozen=True, extra="allow")  # Allow additional states not defined above
-
-    @field_validator("*", mode="before")
-    @classmethod
-    def convert_state_times(cls, v: Any) -> Optional[List[float]]:
-        """Convert numpy arrays to lists, handle NaN as None."""
-        if v is None:
-            return None
-        if isinstance(v, np.ndarray):
-            # Check if array contains NaN values
-            if np.any(np.isnan(v)):
-                return None
-            return v.tolist()
-        return v
+    # Common states across trials (numpy arrays of [start, end] times, may contain NaN)
+    ITI: Optional[npt.NDArray[np.floating]] = Field(None, description="Inter-trial interval [start, end]")
+    W2T_Audio: Optional[npt.NDArray[np.floating]] = Field(None, description="Whisker-to-tone audio [start, end]")
+    A2L_Audio: Optional[npt.NDArray[np.floating]] = Field(None, description="Audio-to-lick audio [start, end]")
+    Airpuff: Optional[npt.NDArray[np.floating]] = Field(None, description="Airpuff stimulus [start, end]")
+    Sensorcalm: Optional[npt.NDArray[np.floating]] = Field(None, description="Sensor calm period [start, end]")
+    Response_window: Optional[npt.NDArray[np.floating]] = Field(None, description="Response window [start, end]")
+    Miss: Optional[npt.NDArray[np.floating]] = Field(None, description="Miss trial state [start, end]")
+    HIT: Optional[npt.NDArray[np.floating]] = Field(None, description="Hit trial state [start, end]")
+    Licking_delay: Optional[npt.NDArray[np.floating]] = Field(None, description="Licking delay [start, end]")
+    LeftReward: Optional[npt.NDArray[np.floating]] = Field(None, description="Left reward delivery [start, end]")
+    RightReward: Optional[npt.NDArray[np.floating]] = Field(None, description="Right reward delivery [start, end]")
+    reward_window: Optional[npt.NDArray[np.floating]] = Field(None, description="Reward window [start, end]")
+    Microstim: Optional[npt.NDArray[np.floating]] = Field(None, description="Microstimulation [start, end]")
 
 
 class TrialEvents(BaseModel):
     """Events that occurred during a trial."""
 
-    model_config = ConfigDict(frozen=True, extra="allow")  # Allow protocol-specific events
+    model_config = ConfigDict(frozen=True, extra="allow", arbitrary_types_allowed=True)  # Allow protocol-specific events
 
-    Flex1Trig1: Optional[List[float]] = Field(None, description="Flex channel 1 trigger 1 times")
-    Flex1Trig2: Optional[List[float]] = Field(None, description="Flex channel 1 trigger 2 times")
-    Tup: Optional[List[float]] = Field(None, description="Timer up events")
-    Port1In: Optional[List[float]] = Field(None, description="Port 1 entry times")
-    Port1Out: Optional[List[float]] = Field(None, description="Port 1 exit times")
-    Port2In: Optional[List[float]] = Field(None, description="Port 2 entry times")
-    Port2Out: Optional[List[float]] = Field(None, description="Port 2 exit times")
-    Port3In: Optional[List[float]] = Field(None, description="Port 3 entry times")
-    Port3Out: Optional[List[float]] = Field(None, description="Port 3 exit times")
-
-    model_config = ConfigDict(frozen=True, extra="allow")  # Allow additional events not defined above
-
-    @field_validator("*", mode="before")
-    @classmethod
-    def convert_event_times(cls, v: Any) -> Optional[List[float]]:
-        """Convert numpy arrays to lists, handle scalars as single-item lists."""
-        if v is None:
-            return None
-        if isinstance(v, np.ndarray):
-            if v.size == 0 or np.all(np.isnan(v)):
-                return None
-            # Filter out NaN values
-            return [float(x) for x in v.ravel() if not np.isnan(x)]
-        # Handle scalar values (convert to single-element list)
-        if isinstance(v, (int, float, np.number)) and not np.isnan(v):
-            return [float(v)]
-        return v
+    # Common events (numpy arrays of timestamps, scalars, or None, may contain NaN)
+    Flex1Trig1: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Flex channel 1 trigger 1 times")
+    Flex1Trig2: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Flex channel 1 trigger 2 times")
+    Tup: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Timer up events")
+    Port1In: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Port 1 entry times")
+    Port1Out: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Port 1 exit times")
+    Port2In: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Port 2 entry times")
+    Port2Out: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Port 2 exit times")
+    Port3In: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Port 3 entry times")
+    Port3Out: Optional[Union[npt.NDArray[np.floating], np.number]] = Field(None, description="Port 3 exit times")
 
 
 class RawTrial(BaseModel):
@@ -313,23 +234,9 @@ class RawEvents(BaseModel):
 class RawData(BaseModel):
     """Raw state machine data."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
-    OriginalStateNamesByNumber: List[List[str]] = Field(description="State names indexed by number for each trial")
-
-    @field_validator("OriginalStateNamesByNumber", mode="before")
-    @classmethod
-    def convert_state_names(cls, v: Any) -> List[List[str]]:
-        """Convert nested numpy object arrays to list of string lists."""
-        if isinstance(v, np.ndarray):
-            result = []
-            for trial_states in v:
-                if isinstance(trial_states, np.ndarray):
-                    result.append([str(state) for state in trial_states])
-                else:
-                    result.append([])
-            return result
-        return v
+    OriginalStateNamesByNumber: npt.NDArray[np.object_] = Field(description="State names indexed by number for each trial (nested object array)")
 
 
 # ============================================================================
@@ -340,7 +247,7 @@ class RawData(BaseModel):
 class SessionData(BaseModel):
     """Complete Bpod session data structure."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
     Analog: AnalogData
     Info: SessionInfo
@@ -348,26 +255,10 @@ class SessionData(BaseModel):
     nTrials: int
     RawEvents: RawEvents
     RawData: RawData
-    TrialStartTimestamp: List[float]
-    TrialEndTimestamp: List[float]
+    TrialStartTimestamp: npt.NDArray[np.floating] = Field(description="Trial start timestamps")
+    TrialEndTimestamp: npt.NDArray[np.floating] = Field(description="Trial end timestamps")
     TrialSettings: List[Dict[str, Any]]
-    TrialTypes: List[int]
-
-    @field_validator("TrialStartTimestamp", "TrialEndTimestamp", mode="before")
-    @classmethod
-    def convert_timestamps(cls, v: Any) -> List[float]:
-        """Convert numpy arrays to Python lists."""
-        if isinstance(v, np.ndarray):
-            return v.tolist()
-        return v
-
-    @field_validator("TrialTypes", mode="before")
-    @classmethod
-    def convert_trial_types(cls, v: Any) -> List[int]:
-        """Convert numpy uint8 array to Python int list."""
-        if isinstance(v, np.ndarray):
-            return v.tolist()
-        return v
+    TrialTypes: npt.NDArray[np.integer] = Field(description="Trial type codes (uint8 array)")
 
 
 class BpodMatFile(BaseModel):

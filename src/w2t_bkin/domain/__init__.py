@@ -114,6 +114,7 @@ from w2t_bkin.domain.config import (
 from w2t_bkin.domain.exceptions import (
     AlignmentError,
     BpodParseError,
+    BpodValidationError,
     CameraUnverifiableError,
     ConfigError,
     ConfigExtraKeyError,
@@ -182,6 +183,7 @@ __all__ = [
     "AlignmentError",
     "EventsError",
     "BpodParseError",
+    "BpodValidationError",
     "TranscodeError",
     "PoseError",
     "FacemapError",

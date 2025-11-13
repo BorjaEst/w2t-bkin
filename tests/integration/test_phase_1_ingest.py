@@ -130,7 +130,7 @@ def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_tom
     assert bpod_data is not None, "Should successfully parse Bpod .mat file"
 
     # Extract trials
-    trials = extract_trials(bpod_data)
+    trials, _ = extract_trials(bpod_data)
     assert len(trials) > 0, "Should extract trials from Bpod data"
 
     # Verify trial structure (Trial dataclass instances)
@@ -151,10 +151,13 @@ def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_tom
     for event in events[:5]:
         assert hasattr(event, "event_type")
         assert hasattr(event, "timestamp")
-        assert hasattr(event, "trial_number")
+        assert hasattr(event, "metadata")
         assert isinstance(event.event_type, str)
         assert isinstance(event.timestamp, (int, float))
-        assert isinstance(event.trial_number, int)
+        assert isinstance(event.metadata, dict)
+        # trial_number is in metadata dict
+        assert "trial_number" in event.metadata
+        assert isinstance(event.metadata["trial_number"], (int, float))
 
 
 @pytest.mark.integration

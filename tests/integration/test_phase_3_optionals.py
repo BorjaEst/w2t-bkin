@@ -35,19 +35,19 @@ class TestEventsIntegration:
 
         # Create mock trials and events
         trials = [
-            Trial(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit"),
-            Trial(trial_number=2, start_time=10.0, stop_time=19.0, outcome="miss"),
-            Trial(trial_number=3, start_time=20.0, stop_time=29.0, outcome="hit"),
+            Trial(trial_number=1, trial_type=1, start_time=0.0, stop_time=9.0, outcome="hit"),
+            Trial(trial_number=2, trial_type=1, start_time=10.0, stop_time=19.0, outcome="miss"),
+            Trial(trial_number=3, trial_type=1, start_time=20.0, stop_time=29.0, outcome="hit"),
         ]
 
         events = [
-            TrialEvent(event_type="BNC1High", timestamp=1.5, trial_number=1),
-            TrialEvent(event_type="BNC1Low", timestamp=1.6, trial_number=1),
-            TrialEvent(event_type="Flex1Trig2", timestamp=7.1, trial_number=1),
+            TrialEvent(event_type="BNC1High", timestamp=1.5, metadata={"trial_number": 1}),
+            TrialEvent(event_type="BNC1Low", timestamp=1.6, metadata={"trial_number": 1}),
+            TrialEvent(event_type="Flex1Trig2", timestamp=7.1, metadata={"trial_number": 1}),
         ]
 
         # Create summary
-        summary = create_event_summary(session_id="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
+        summary = create_event_summary(session="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
 
         # Verify summary (A4: trial counts and event categories)
         assert isinstance(summary, TrialSummary)
@@ -61,10 +61,10 @@ class TestEventsIntegration:
         """Should write event summary to JSON file (FR-14)."""
         from w2t_bkin.events import create_event_summary, write_event_summary
 
-        trials = [Trial(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit")]
-        events = [TrialEvent(event_type="Reward", timestamp=8.5, trial_number=1)]
+        trials = [Trial(trial_number=1, trial_type=1, start_time=0.0, stop_time=9.0, outcome="hit")]
+        events = [TrialEvent(event_type="Reward", timestamp=8.5, metadata={"trial_number": 1})]
 
-        summary = create_event_summary(session_id="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
+        summary = create_event_summary(session="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
 
         # Write to temp directory
         output_path = tmp_work_dir / "interim" / "Session-000001" / "events_summary.json"
