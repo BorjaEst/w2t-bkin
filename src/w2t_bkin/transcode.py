@@ -82,6 +82,7 @@ from typing import Dict, Optional
 import cv2
 
 from w2t_bkin.domain import TranscodedVideo, TranscodeOptions
+from w2t_bkin.utils import compute_file_checksum, ensure_directory
 
 logger = logging.getLogger(__name__)
 
@@ -111,31 +112,6 @@ def create_transcode_options(codec: str = "libx264", crf: int = 18, preset: str 
         raise ValueError(f"CRF must be in range [0, 51], got {crf}")
 
     return TranscodeOptions(codec=codec, crf=crf, preset=preset, keyint=keyint)
-
-
-def compute_video_checksum(video_path: Path, chunk_size: int = 8192) -> str:
-    """Compute SHA256 checksum of video file.
-
-    Args:
-        video_path: Path to video file
-        chunk_size: Read chunk size in bytes
-
-    Returns:
-        SHA256 hex digest
-
-    Raises:
-        TranscodeError: If file doesn't exist
-    """
-    if not video_path.exists():
-        raise TranscodeError(f"Video file not found: {video_path}")
-
-    sha256 = hashlib.sha256()
-
-    with open(video_path, "rb") as f:
-        while chunk := f.read(chunk_size):
-            sha256.update(chunk)
-
-    return sha256.hexdigest()
 
 
 def is_already_transcoded(video_path: Path, options: TranscodeOptions, transcoded_path: Path) -> bool:
@@ -177,7 +153,7 @@ def transcode_video(video_path: Path, options: TranscodeOptions, output_dir: Pat
 
     try:
         # Compute checksum for content addressing
-        checksum = compute_video_checksum(video_path)
+        checksum = compute_file_checksum(video_path, algorithm="sha256")
         checksum_prefix = checksum[:12]  # Use first 12 chars
 
         # Extract camera ID from filename (e.g., "cam0_...")
@@ -188,7 +164,7 @@ def transcode_video(video_path: Path, options: TranscodeOptions, output_dir: Pat
                 camera_id = parts[0]
 
         # Create output path with checksum
-        output_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory(output_dir)
         output_filename = f"{camera_id}_transcoded_{checksum_prefix}.mp4"
         output_path = output_dir / output_filename
 
@@ -225,9 +201,7 @@ def transcode_video(video_path: Path, options: TranscodeOptions, output_dir: Pat
             raise TranscodeError("Transcode completed but output file not found")
 
         # Create metadata
-        transcoded = TranscodedVideo(
-            camera_id=camera_id, original_path=video_path, output_path=output_path, codec=options.codec, checksum=checksum, frame_count=frame_count
-        )
+        transcoded = TranscodedVideo(camera_id=camera_id, original_path=video_path, output_path=output_path, codec=options.codec, checksum=checksum, frame_count=frame_count)
 
         return transcoded
 
@@ -293,9 +267,9 @@ if __name__ == "__main__":
 
     # Note: This would require an actual video file
     print("To compute video checksum:")
-    print("  from w2t_bkin.transcode import compute_video_checksum")
-    print("  checksum = compute_video_checksum(video_path)")
-    print("  # Returns SHA256 hash of video frames")
+    print("  from w2t_bkin.utils import compute_file_checksum")
+    print("  checksum = compute_file_checksum(video_path, algorithm='sha256')")
+    print("  # Returns SHA256 hash of video file")
     print()
 
     print("Example 3: Transcoding Pipeline")

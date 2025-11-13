@@ -6,6 +6,10 @@ rate-based timing, provenance embedding, and external file links.
 Requirements: FR-7, NFR-6, NFR-1, NFR-2
 Acceptance: A1, A12
 GitHub Issue: #5
+
+Fixtures:
+- Shared fixtures are in tests/conftest.py (Config, Manifest, etc.)
+- Local fixtures below are NWB-specific mock dictionaries for unit testing
 """
 
 from datetime import datetime
@@ -345,78 +349,3 @@ class TestDeterminism:
                 assert nwbfile1.session_description == nwbfile2.session_description
                 assert nwbfile1.session_start_time == nwbfile2.session_start_time
                 assert len(nwbfile1.acquisition) == len(nwbfile2.acquisition)
-
-
-# =============================================================================
-# Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def mock_manifest():
-    """Mock manifest with basic camera data."""
-    return {
-        "session_id": "Session-000001",
-        "cameras": [
-            {
-                "camera_id": "cam0_top",
-                "description": "Top view camera",
-                "video_path": "/path/to/video.avi",
-                "frame_rate": 30.0,
-                "frame_count": 1000,
-            }
-        ],
-        "ttls": [],
-    }
-
-
-@pytest.fixture
-def mock_config():
-    """Mock config with NWB settings."""
-    return {
-        "nwb": {
-            "link_external_video": True,
-            "lab": "Test Lab",
-            "institution": "Test Institution",
-            "file_name_template": "{session_id}.nwb",
-            "session_description_template": "Session {session_id}",
-        }
-    }
-
-
-@pytest.fixture
-def mock_provenance():
-    """Mock provenance metadata."""
-    return {
-        "config_hash": "abc123def456",
-        "session_hash": "789ghi012jkl",
-        "software": {
-            "name": "w2t_bkin",
-            "version": "0.1.0",
-            "python_version": "3.10.0",
-        },
-        "timebase": {
-            "source": "nominal_rate",
-            "mapping": "nearest",
-            "offset_s": 0.0,
-        },
-        "created_at": datetime.utcnow().isoformat(),
-    }
-
-
-@pytest.fixture
-def mock_pose_bundle():
-    """Mock pose bundle for testing."""
-    return None  # Will be implemented with pose domain model
-
-
-@pytest.fixture
-def mock_facemap_bundle():
-    """Mock facemap bundle for testing."""
-    return None  # Will be implemented with facemap domain model
-
-
-@pytest.fixture
-def mock_bpod_summary():
-    """Mock Bpod summary for testing."""
-    return None  # Will be implemented with events domain model

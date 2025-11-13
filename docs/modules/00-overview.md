@@ -111,18 +111,23 @@ provider = create_timebase_provider(cfg, manifest)
 # reference_times = provider.get_timestamps(n_samples=1000)
 # alignment = align_samples(sample_times, reference_times, cfg.timebase)
 
-# 4. Optional: Parse Bpod behavioral data (Phase 3)
-if session.bpod:
-    from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events
+# 4. Optional: Parse Bpod behavioral data (Phase 3) - Simplified API
+from w2t_bkin.events import extract_trials, extract_behavioral_events, create_event_summary
 
-    # Option 1: Use BpodSession config (recommended - handles multi-file discovery/merging)
-    bpod_data = parse_bpod_session(session.bpod, session_dir)
+# Extract trials with automatic loading and TTL alignment
+trials, offsets, warnings = extract_trials(session)
 
-    # Option 2: Direct single-file parsing (legacy)
-    # bpod_data = parse_bpod_mat(Path("data/raw/session_001/bpod.mat"))
+# Extract behavioral events with automatic alignment
+events_list = extract_behavioral_events(session, trial_offsets=offsets)
 
-    trials = extract_trials(bpod_data)
-    events_list = extract_behavioral_events(bpod_data)
+# Generate QC summary
+summary = create_event_summary(session, trials, events_list, alignment_warnings=warnings)
+
+# Advanced: Low-level dict-based API for unit testing
+# from w2t_bkin.events import parse_bpod_session, parse_bpod_mat
+# bpod_data = parse_bpod_session(session)  # Or parse_bpod_mat(Path("bpod.mat"))
+# trials, _, _ = extract_trials(bpod_data)
+# events_list = extract_behavioral_events(bpod_data)
 
 # 5. Optional: Import pose/facemap (Phase 3)
 # from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical

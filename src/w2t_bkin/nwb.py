@@ -78,6 +78,7 @@ from pynwb.device import Device
 from pynwb.image import ImageSeries
 
 from .domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Provenance, TrialSummary
+from .utils import ensure_directory, sanitize_string
 
 logger = logging.getLogger(__name__)
 
@@ -206,24 +207,11 @@ def _validate_output_directory(output_dir: Path) -> None:
     Raises:
         NWBError: If directory cannot be created or is not writable
     """
-    if not output_dir.exists():
-        try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Created output directory: {output_dir}")
-        except Exception as e:
-            raise NWBError(f"Cannot create output directory: {e}")
-
-    if not output_dir.is_dir():
-        raise NWBError("Output path must be a directory")
-
-    # Security: Try to write test file to check permissions
     try:
-        test_file = output_dir / ".test_write"
-        test_file.touch()
-        test_file.unlink()
-        logger.debug(f"Verified write permissions for: {output_dir}")
-    except Exception:
-        raise NWBError("Output directory is not writable or permission denied")
+        ensure_directory(output_dir, check_writable=True)
+        logger.debug(f"Verified output directory: {output_dir}")
+    except (OSError, PermissionError) as e:
+        raise NWBError(f"Output directory error: {e}")
 
 
 def _sanitize_session_id(session_id: str) -> str:
@@ -237,19 +225,7 @@ def _sanitize_session_id(session_id: str) -> str:
     Returns:
         Sanitized session ID safe for use in filenames
     """
-    # Remove path traversal attempts
-    sanitized = session_id.replace("..", "").replace("/", "_").replace("\\", "_")
-    # Remove any other potentially dangerous characters
-    sanitized = "".join(c for c in sanitized if c.isalnum() or c in "-_")
-
-    if not sanitized:
-        logger.warning(f"Session ID '{session_id}' sanitized to empty string, using 'unknown'")
-        return "unknown"
-
-    if sanitized != session_id:
-        logger.warning(f"Session ID sanitized from '{session_id}' to '{sanitized}'")
-
-    return sanitized
+    return sanitize_string(session_id, max_length=200, allowed_pattern="alphanumeric_-_", default="unknown")
 
 
 def _validate_video_files(cameras: List[Dict[str, Any]]) -> None:

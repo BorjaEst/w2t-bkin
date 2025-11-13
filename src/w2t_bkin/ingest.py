@@ -67,13 +67,12 @@ Example:
 """
 
 from datetime import datetime
-import glob
 import logging
 from pathlib import Path
 from typing import Dict, List, Set, Union
 
 from .domain import CameraVerificationResult, Config, Manifest, ManifestCamera, ManifestTTL, Session, VerificationResult, VerificationSummary
-from .utils import run_ffprobe, write_json
+from .utils import discover_files, run_ffprobe, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -116,12 +115,11 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
     ttl_pulse_counts = {}
     if count_frames:
         for ttl_config in session.TTLs:
-            pattern = str(session_dir / ttl_config.paths)
-            ttl_files = sorted(glob.glob(pattern))
+            ttl_files = discover_files(session_dir, ttl_config.paths, sort=True)
 
             total_pulses = 0
             for ttl_file in ttl_files:
-                total_pulses += count_ttl_pulses(Path(ttl_file))
+                total_pulses += count_ttl_pulses(ttl_file)
 
             ttl_pulse_counts[ttl_config.id] = total_pulses
             logger.debug(f"Counted {total_pulses} TTL pulses for '{ttl_config.id}'")
@@ -129,15 +127,15 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
     # Discover cameras and count frames
     cameras = []
     for camera_config in session.cameras:
-        # Resolve glob pattern
-        pattern = str(session_dir / camera_config.paths)
-        video_files = sorted(glob.glob(pattern))
+        # Discover video files
+        video_files = discover_files(session_dir, camera_config.paths, sort=True)
 
         if not video_files:
+            pattern = str(session_dir / camera_config.paths)
             raise IngestError(f"No video files found for camera {camera_config.id} with pattern: {pattern}")
 
-        # Convert to absolute paths
-        video_files = [str(Path(f).resolve()) for f in video_files]
+        # Convert to strings (discover_files returns Path objects)
+        video_files = [str(f) for f in video_files]
 
         # Count frames if enabled
         total_frames = None
@@ -171,25 +169,23 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
     # Discover TTLs (file paths only)
     ttls = []
     for ttl_config in session.TTLs:
-        pattern = str(session_dir / ttl_config.paths)
-        ttl_files = sorted(glob.glob(pattern))
+        ttl_files = discover_files(session_dir, ttl_config.paths, sort=True)
 
         if not ttl_files:
+            pattern = str(session_dir / ttl_config.paths)
             logger.warning(f"No TTL files found for {ttl_config.id} with pattern: {pattern}")
-            ttl_files = []
 
-        # Convert to absolute paths
-        ttl_files = [str(Path(f).resolve()) for f in ttl_files]
+        # Convert to strings (discover_files returns Path objects)
+        ttl_files = [str(f) for f in ttl_files]
 
         ttls.append(ManifestTTL(ttl_id=ttl_config.id, files=ttl_files))
 
     # Discover Bpod files
     bpod_files = None
     if session.bpod.path:
-        pattern = str(session_dir / session.bpod.path)
-        bpod_files = sorted(glob.glob(pattern))
-        if bpod_files:
-            bpod_files = [str(Path(f).resolve()) for f in bpod_files]
+        discovered = discover_files(session_dir, session.bpod.path, sort=True)
+        if discovered:
+            bpod_files = [str(f) for f in discovered]
 
     return Manifest(
         session_id=session.session.id,

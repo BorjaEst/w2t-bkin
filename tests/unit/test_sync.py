@@ -436,121 +436,13 @@ class TestEdgeCases:
         assert len(indices) == 1
 
 
-@pytest.fixture
-def valid_config(tmp_path):
-    """Valid config with nominal_rate timebase."""
-    from w2t_bkin.domain import (
-        AcquisitionConfig,
-        BpodConfig,
-        Config,
-        DLCConfig,
-        FacemapConfig,
-        LabelsConfig,
-        LoggingConfig,
-        NWBConfig,
-        PathsConfig,
-        ProjectConfig,
-        QCConfig,
-        SLEAPConfig,
-        TimebaseConfig,
-        TranscodeConfig,
-        VerificationConfig,
-        VideoConfig,
-    )
-
-    return Config(
-        project=ProjectConfig(name="test-project"),
-        paths=PathsConfig(
-            raw_root=str(tmp_path / "raw"),
-            intermediate_root=str(tmp_path / "interim"),
-            output_root=str(tmp_path / "output"),
-            metadata_file="session.toml",
-            models_root=str(tmp_path / "models"),
-        ),
-        timebase=TimebaseConfig(
-            source="nominal_rate",
-            mapping="nearest",
-            jitter_budget_s=0.010,
-            offset_s=0.0,
-        ),
-        acquisition=AcquisitionConfig(concat_strategy="ffconcat"),
-        verification=VerificationConfig(mismatch_tolerance_frames=0, warn_on_mismatch=False),
-        bpod=BpodConfig(parse=True),
-        video=VideoConfig(transcode=TranscodeConfig(enabled=False, codec="h264", crf=20, preset="fast", keyint=15)),
-        nwb=NWBConfig(
-            link_external_video=True,
-            lab="Test Lab",
-            institution="Test Institution",
-            file_name_template="{session.id}.nwb",
-            session_description_template="Test session {session.id}",
-        ),
-        qc=QCConfig(generate_report=True, out_template="qc/{session.id}", include_verification=True),
-        logging=LoggingConfig(level="INFO", structured=False),
-        labels=LabelsConfig(
-            dlc=DLCConfig(run_inference=False, model="dlc.pb"),
-            sleap=SLEAPConfig(run_inference=False, model="sleap.h5"),
-        ),
-        facemap=FacemapConfig(run_inference=False, ROIs=["face"]),
-    )
-
-
-@pytest.fixture
-def ttl_config(valid_config):
-    """Config with TTL timebase."""
-    config_dict = valid_config.model_dump()
-    config_dict["timebase"]["source"] = "ttl"
-    config_dict["timebase"]["ttl_id"] = "ttl_camera"
-
-    from w2t_bkin.domain import Config
-
-    return Config(**config_dict)
-
-
-@pytest.fixture
-def neuropixels_config(valid_config):
-    """Config with Neuropixels timebase."""
-    config_dict = valid_config.model_dump()
-    config_dict["timebase"]["source"] = "neuropixels"
-    config_dict["timebase"]["neuropixels_stream"] = "AP0"
-
-    from w2t_bkin.domain import Config
-
-    return Config(**config_dict)
-
-
-@pytest.fixture
-def ttl_files(tmp_path):
-    """Create test TTL files with timestamps."""
-    ttl_dir = tmp_path / "ttls"
-    ttl_dir.mkdir()
-
-    ttl_file = ttl_dir / "test_ttl.txt"
-    timestamps = [f"{i * 0.033:.6f}\n" for i in range(100)]
-    ttl_file.write_text("".join(timestamps))
-
-    return [str(ttl_file)]
-
-
-@pytest.fixture
-def valid_manifest():
-    """Create a minimal valid manifest for testing."""
-    from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
-
-    return Manifest(
-        session_id="test-session",
-        cameras=[
-            ManifestCamera(
-                camera_id="cam0",
-                ttl_id="ttl_camera",
-                video_files=["/path/to/video.avi"],
-                frame_count=1000,
-                ttl_pulse_count=1000,
-            )
-        ],
-        ttls=[
-            ManifestTTL(
-                ttl_id="ttl_camera",
-                files=["/path/to/ttl.txt"],
-            )
-        ],
-    )
+# =============================================================================
+# Note: Fixtures for test_sync.py are now in tests/conftest.py
+# =============================================================================
+# The following shared fixtures are available from conftest.py:
+# - valid_config: Config object with nominal_rate timebase
+# - ttl_config: Config object with TTL timebase
+# - neuropixels_config: Config object with Neuropixels timebase
+# - valid_manifest: Manifest object with one camera and TTL
+# - ttl_files: Test TTL files with timestamps
+# =============================================================================

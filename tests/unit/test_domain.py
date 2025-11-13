@@ -518,25 +518,60 @@ class TestAlignmentStatsModel:
 
 
 class TestTrialModel:
-    """Test Trial domain model structure (Phase 3)."""
+    """Test Trial domain model structure (Phase 3) - NWB-aligned."""
 
     def test_Should_CreateTrial_When_ValidDataProvided(self):
-        """Trial model should capture trial information from Bpod."""
+        """Trial model should capture trial information from Bpod in NWB-compatible format."""
         from w2t_bkin.domain import Trial, TrialOutcome
 
         trial = Trial(
             trial_number=1,
             trial_type=1,
             start_time=0.0,
-            end_time=10.5,
+            stop_time=10.5,
             outcome=TrialOutcome.HIT,
         )
         assert trial.trial_number == 1
         assert trial.trial_type == 1
         assert trial.start_time == 0.0
-        assert trial.end_time == 10.5
+        assert trial.stop_time == 10.5
         assert trial.outcome == TrialOutcome.HIT
-        assert trial.duration == 10.5
+
+    def test_Should_AcceptExtraFields_When_NWBCompatible(self):
+        """Trial should accept protocol-specific extra fields if NWB-compatible."""
+        from w2t_bkin.domain import Trial, TrialOutcome
+
+        trial = Trial(
+            trial_number=1,
+            trial_type=1,
+            start_time=0.0,
+            stop_time=10.5,
+            outcome=TrialOutcome.HIT,
+            cue_time=1.0,
+            response_time=2.3,
+            stimulus_id=5,
+            reward_volume=0.01,
+            correct=True,
+        )
+        assert trial.cue_time == 1.0
+        assert trial.response_time == 2.3
+        assert trial.stimulus_id == 5
+        assert trial.reward_volume == 0.01
+        assert trial.correct is True
+
+    def test_Should_RejectExtraFields_When_NotNWBCompatible(self):
+        """Trial should reject extra fields that are not NWB-compatible types."""
+        from w2t_bkin.domain import Trial, TrialOutcome
+
+        with pytest.raises(ValidationError, match="not NWB-compatible"):
+            Trial(
+                trial_number=1,
+                trial_type=1,
+                start_time=0.0,
+                stop_time=10.5,
+                outcome=TrialOutcome.HIT,
+                invalid_field={"nested": "dict"},  # Dicts are not NWB-compatible
+            )
 
     def test_Should_BeImmutable_When_TryingToModifyTrial(self):
         """Trial instances should be immutable."""
@@ -546,26 +581,12 @@ class TestTrialModel:
             trial_number=1,
             trial_type=1,
             start_time=0.0,
-            end_time=10.5,
+            stop_time=10.5,
             outcome=TrialOutcome.HIT,
         )
 
         with pytest.raises((ValidationError, AttributeError)):
             trial.outcome = TrialOutcome.MISS
-
-    def test_Should_RejectExtraFields_When_CreatingTrial(self):
-        """Trial should reject extra fields not in schema."""
-        from w2t_bkin.domain import Trial, TrialOutcome
-
-        with pytest.raises(ValidationError):
-            Trial(
-                trial_number=1,
-                trial_type=1,
-                start_time=0.0,
-                end_time=10.5,
-                outcome=TrialOutcome.HIT,
-                extra_field="not allowed",
-            )
 
     def test_Should_RequireAllFields_When_CreatingTrial(self):
         """Trial should require all mandatory fields."""
@@ -575,40 +596,58 @@ class TestTrialModel:
             Trial(trial_number=1, start_time=0.0)
 
 
-class TestTrialEventModel:
-    """Test TrialEvent domain model structure (Phase 3)."""
+class TestBehavioralEventsModel:
+    """Test BehavioralEvents domain model structure (Phase 3) - NWB-aligned."""
 
-    def test_Should_CreateTrialEvent_When_ValidDataProvided(self):
-        """TrialEvent model should capture event information from Bpod."""
-        from w2t_bkin.domain import TrialEvent
+    def test_Should_CreateBehavioralEvents_When_ValidDataProvided(self):
+        """BehavioralEvents model should capture NWB-compatible event TimeSeries."""
+        from w2t_bkin.domain import BehavioralEvents
 
-        event = TrialEvent(event_type="BNC1High", timestamp=1.5)
-        assert event.event_type == "BNC1High"
-        assert event.timestamp == 1.5
-        assert event.metadata is None
+        events = BehavioralEvents(
+            name="Port1In",
+            description="Center port entry events",
+            timestamps=[1.5, 3.2, 5.8],
+            trial_ids=[1, 2, 3],
+        )
+        assert events.name == "Port1In"
+        assert events.description == "Center port entry events"
+        assert len(events.timestamps) == 3
+        assert events.timestamps == [1.5, 3.2, 5.8]
+        assert events.trial_ids == [1, 2, 3]
+        assert events.data is None
+        assert events.unit is None
 
-    def test_Should_BeImmutable_When_TryingToModifyTrialEvent(self):
-        """TrialEvent instances should be immutable."""
-        from w2t_bkin.domain import TrialEvent
+    def test_Should_BeImmutable_When_TryingToModifyBehavioralEvents(self):
+        """BehavioralEvents instances should be immutable."""
+        from w2t_bkin.domain import BehavioralEvents
 
-        event = TrialEvent(event_type="BNC1High", timestamp=1.5)
+        events = BehavioralEvents(
+            name="Port1In",
+            description="Center port entry events",
+            timestamps=[1.5, 3.2, 5.8],
+        )
 
         with pytest.raises((ValidationError, AttributeError)):
-            event.timestamp = 2.0
+            events.name = "Port2In"
 
-    def test_Should_RejectExtraFields_When_CreatingTrialEvent(self):
-        """TrialEvent should reject extra fields not in schema."""
-        from w2t_bkin.domain import TrialEvent
-
-        with pytest.raises(ValidationError):
-            TrialEvent(event_type="BNC1High", timestamp=1.5, extra_field="not allowed")
-
-    def test_Should_RequireAllFields_When_CreatingTrialEvent(self):
-        """TrialEvent should require mandatory fields."""
-        from w2t_bkin.domain import TrialEvent
+    def test_Should_RejectExtraFields_When_CreatingBehavioralEvents(self):
+        """BehavioralEvents should reject extra fields not in schema."""
+        from w2t_bkin.domain import BehavioralEvents
 
         with pytest.raises(ValidationError):
-            TrialEvent(event_type="BNC1High")
+            BehavioralEvents(
+                name="Port1In",
+                description="Center port entry events",
+                timestamps=[1.5, 3.2, 5.8],
+                extra_field="not allowed",
+            )
+
+    def test_Should_RequireAllFields_When_CreatingBehavioralEvents(self):
+        """BehavioralEvents should require mandatory fields."""
+        from w2t_bkin.domain import BehavioralEvents
+
+        with pytest.raises(ValidationError):
+            BehavioralEvents(name="Port1In")
 
 
 class TestTrialSummaryModel:

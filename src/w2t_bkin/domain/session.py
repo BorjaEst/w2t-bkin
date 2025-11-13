@@ -78,22 +78,58 @@ class SessionMetadata(BaseModel):
     genotype: str = Field(..., description="Subject genotype (e.g., 'WT', 'Cre+', 'KO')")
 
 
+class BpodTrialType(BaseModel):
+    """Bpod trial type synchronization configuration.
+
+    Maps a trial type to its synchronization signal and TTL channel for
+    absolute time alignment. Used to convert Bpod relative timestamps to
+    absolute timestamps using external TTL recordings.
+
+    Attributes:
+        trial_type: Trial type identifier (matches Bpod trial classification)
+        description: Human-readable description of trial type
+        sync_signal: Bpod state/event name used for alignment (e.g., "W2L_Audio", "A2L_Audio")
+        sync_ttl: TTL channel ID whose pulses correspond to sync_signal (references TTL.id)
+
+    Requirements:
+        - FR-11: Parse Bpod trials/events with absolute timestamps
+        - FR-6: TTL-based temporal alignment
+
+    Example:
+        >>> trial_type = BpodTrialType(
+        ...     trial_type=1,
+        ...     description="Active whisker touch trials",
+        ...     sync_signal="W2L_Audio",
+        ...     sync_ttl="ttl_cue"
+        ... )
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    trial_type: int = Field(..., description="Trial type identifier (matches Bpod trial classification)", ge=0)
+    description: str = Field(..., description="Human-readable description of trial type")
+    sync_signal: str = Field(..., description="Bpod state/event name used for alignment (e.g., 'W2L_Audio', 'A2L_Audio')")
+    sync_ttl: str = Field(..., description="TTL channel ID whose pulses correspond to sync_signal (references TTL.id)")
+
+
 class BpodSession(BaseModel):
     """Bpod file configuration for session.
 
     Attributes:
         path: Glob pattern for Bpod .mat files
         order: File ordering strategy (e.g., "name_asc", "time_asc")
+        trial_type: List of trial type synchronization configurations
 
     Requirements:
         - FR-1: Discover Bpod files via patterns
-        - FR-11: Parse Bpod trials/events
+        - FR-11: Parse Bpod trials/events with absolute time alignment
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
 
     path: str = Field(..., description="Glob pattern for Bpod .mat files (e.g., 'Bpod/*.mat')")
     order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
+    trial_types: List[BpodTrialType] = Field(default_factory=list, description="List of trial type synchronization configurations")
 
 
 class TTL(BaseModel):

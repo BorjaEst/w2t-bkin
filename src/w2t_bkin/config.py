@@ -96,7 +96,7 @@ except ImportError:
 from pydantic import ValidationError, field_validator, model_validator
 
 from .domain import Config, Session
-from .utils import compute_hash
+from .utils import compute_hash, read_toml
 
 # Enum constants for validation
 VALID_TIMEBASE_SOURCES = {"nominal_rate", "ttl", "neuropixels"}
@@ -123,13 +123,7 @@ def load_config(path: Union[str, Path]) -> Config:
         ValidationError: If config violates schema
         FileNotFoundError: If config file doesn't exist
     """
-    path = Path(path) if isinstance(path, str) else path
-
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    data = read_toml(path)
 
     # Validate enums before Pydantic validation
     _validate_config_enums(data)
@@ -146,6 +140,8 @@ def load_session(path: Union[str, Path]) -> Session:
     Performs strict schema validation including:
     - Required/forbidden keys (extra="forbid")
     - Camera TTL reference validation
+    - Bpod trial_type sync_ttl reference validation
+    - Backwards-compatible trial_type_id → trial_type mapping
     - Populates session_dir with parent directory of session.toml
 
     Args:
@@ -163,15 +159,16 @@ def load_session(path: Union[str, Path]) -> Session:
         >>> print(session.session_dir)  # "data/raw/Session-001"
     """
     path = Path(path) if isinstance(path, str) else path
+    data = read_toml(path)
 
-    if not path.exists():
-        raise FileNotFoundError(f"Session file not found: {path}")
-
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    # Handle backwards compatibility: trial_type_id → trial_type
+    _normalize_trial_type_ids(data)
 
     # Validate camera TTL references
     _validate_camera_ttl_references(data)
+
+    # Validate bpod trial_type sync_ttl references
+    _validate_bpod_trial_type_references(data)
 
     # Add session_dir to data (parent directory of session.toml)
     data["session_dir"] = str(path.parent.resolve())
@@ -277,6 +274,50 @@ def _validate_camera_ttl_references(data: Dict[str, Any]) -> None:
             # In Phase 0, we just validate structure
             # In Phase 1, this would emit a warning
             pass
+
+
+def _normalize_trial_type_ids(data: Dict[str, Any]) -> None:
+    """Normalize trial_type_id to trial_type for backwards compatibility.
+
+    If bpod.trial_types entries contain trial_type_id instead of trial_type,
+    rename the field and emit a warning.
+
+    Args:
+        data: Raw session data dict from TOML
+    """
+    import warnings
+
+    bpod = data.get("bpod", {})
+    trial_types = bpod.get("trial_types", [])
+
+    for trial_type_entry in trial_types:
+        if "trial_type_id" in trial_type_entry and "trial_type" not in trial_type_entry:
+            trial_type_entry["trial_type"] = trial_type_entry.pop("trial_type_id")
+            warnings.warn(
+                f"Deprecated field 'trial_type_id' found in bpod.trial_types. " f"Use 'trial_type' instead. Automatically mapped for backwards compatibility.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+
+
+def _validate_bpod_trial_type_references(data: Dict[str, Any]) -> None:
+    """Validate that bpod.trial_types sync_ttl references exist in session TTLs.
+
+    Raises:
+        ValueError: If sync_ttl references a non-existent TTL channel
+    """
+    ttls = data.get("TTLs", [])
+    ttl_ids = {ttl["id"] for ttl in ttls}
+
+    bpod = data.get("bpod", {})
+    trial_types = bpod.get("trial_types", [])
+
+    for trial_type_entry in trial_types:
+        sync_ttl = trial_type_entry.get("sync_ttl")
+        trial_type_id = trial_type_entry.get("trial_type", "unknown")
+
+        if sync_ttl and sync_ttl not in ttl_ids:
+            raise ValueError(f"Bpod trial_type {trial_type_id} references unknown TTL channel '{sync_ttl}'. " f"Available TTL channels: {sorted(ttl_ids)}")
 
 
 if __name__ == "__main__":

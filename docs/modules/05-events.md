@@ -2,29 +2,130 @@
 
 **Phase:** 3 (Optional Modalities)  
 **Status:** ✅ Complete  
-**Requirements:** FR-11, FR-14, NFR-7
+**Requirements:** FR-11, FR-14, FR-6 (TTL Alignment), NFR-7
 
 ## Purpose
 
-Parses Bpod .mat files into Trial and TrialEvents, generates QC summaries. Extracts trial timing, states, and events from Bpod SessionData structure. Infers trial outcomes from visited states (handling NaN for unvisited states).
+Parses Bpod .mat files into Trial and TrialEvents with automatic TTL alignment, generates QC summaries. Extracts trial timing, states, and events from Bpod SessionData structure. Infers trial outcomes from visited states (handling NaN for unvisited states). Provides simplified Session-based API for automatic data loading and alignment.
 
-## Key Functions
+## Simplified API (Recommended)
 
-### Session-Level Parsing (Recommended)
+### extract_trials(session)
 
 ```python
-def parse_bpod_session(
-    bpod_session_or_session: Union[BpodSession, Session],
-    session_dir: Union[Path, str, None] = None
-) -> Dict[str, Any]:
-    """Parse Bpod session from BpodSession configuration or full Session.
+def extract_trials(
+    session: Union[Session, Dict[str, Any]]
+) -> Tuple[List[Trial], Optional[Dict[int, float]], Optional[List[str]]]:
+    """Extract trial data from Session with automatic TTL alignment.
+
+    Simplified API that accepts either:
+    - Session: Automatically loads Bpod data and performs TTL alignment if configured
+    - Dict: Parsed Bpod data (backwards compatible, relative timestamps only)
+
+    Args:
+        session: Session configuration OR parsed Bpod data dictionary
+
+    Returns:
+        Tuple of (trials, trial_offsets, warnings):
+        - trials: List of Trial objects with absolute (if Session with trial_types) or relative timestamps
+        - trial_offsets: Per-trial offsets (only if aligned)
+        - warnings: Alignment warnings (only if aligned)
+
+    Examples:
+        >>> from w2t_bkin.config import load_session
+        >>> from w2t_bkin.events import extract_trials
+        >>>
+        >>> session = load_session("data/Session-001/session.toml")
+        >>> trials, offsets, warnings = extract_trials(session)
+        >>> print(f"Extracted {len(trials)} trials with absolute timestamps")
+    """
+```
+
+### extract_behavioral_events(session)
+
+```python
+def extract_behavioral_events(
+    session: Union[Session, Dict[str, Any]],
+    trials: Optional[List[Trial]] = None,
+    trial_offsets: Optional[Dict[int, float]] = None,
+) -> List[TrialEvent]:
+    """Extract behavioral events from Session with automatic alignment.
+
+    Simplified API that accepts either:
+    - Session: Automatically loads Bpod data and computes alignment if configured
+    - Dict: Parsed Bpod data (backwards compatible, uses provided trial_offsets if any)
+
+    Args:
+        session: Session configuration OR parsed Bpod data dictionary
+        trials: Optional pre-extracted trials (for reusing extract_trials results)
+        trial_offsets: Optional pre-computed trial offsets (for reusing extract_trials results)
+
+    Returns:
+        List of TrialEvent objects with absolute or relative timestamps
+
+    Examples:
+        >>> from w2t_bkin.config import load_session
+        >>> from w2t_bkin.events import extract_trials, extract_behavioral_events
+        >>>
+        >>> session = load_session("data/Session-001/session.toml")
+        >>> trials, offsets, _ = extract_trials(session)
+        >>> events = extract_behavioral_events(session, trial_offsets=offsets)
+        >>> print(f"Extracted {len(events)} events")
+    """
+```
+
+### create_event_summary(session, trials, events)
+
+```python
+def create_event_summary(
+    session: Union[Session, str],
+    trials: List[Trial],
+    events: List[TrialEvent],
+    bpod_files: Optional[List[str]] = None,
+    n_total_trials: Optional[int] = None,
+    alignment_warnings: Optional[List[str]] = None,
+) -> TrialSummary:
+    """Create event summary for QC report from Session and extracted data.
+
+    Simplified API that accepts either:
+    - Session: Automatically extracts session_id and bpod_files from Session object
+    - str: Session ID (backwards compatible, requires bpod_files parameter)
+
+    Args:
+        session: Session configuration OR session ID string
+        trials: List of extracted trials
+        events: List of extracted behavioral events
+        bpod_files: List of Bpod file paths (required if session is str, ignored if Session)
+        n_total_trials: Total trials before alignment (for computing n_dropped)
+        alignment_warnings: List of alignment warnings (if alignment was performed)
+
+    Returns:
+        TrialSummary object for QC reporting
+
+    Examples:
+        >>> from w2t_bkin.config import load_session
+        >>> from w2t_bkin.events import extract_trials, extract_behavioral_events, create_event_summary
+        >>>
+        >>> session = load_session("data/Session-001/session.toml")
+        >>> trials, offsets, warnings = extract_trials(session)
+        >>> events = extract_behavioral_events(session, trial_offsets=offsets)
+        >>> summary = create_event_summary(session, trials, events, alignment_warnings=warnings)
+    """
+```
+
+## Low-Level API (Advanced Use Cases)
+
+### Session-Level Parsing
+
+```python
+def parse_bpod_session(session: Session) -> Dict[str, Any]:
+    """Parse Bpod session from full Session configuration.
 
     High-level function that discovers files from glob pattern,
     orders them, and merges into unified session data.
 
     Args:
-        bpod_session_or_session: BpodSession config or full Session object
-        session_dir: Base directory (optional if using Session object)
+        session: Full Session object containing Bpod configuration and session_dir
 
     Returns:
         Merged session data dictionary (single or multiple files)
@@ -32,22 +133,18 @@ def parse_bpod_session(
     Raises:
         EventsError: If no files found or discovery fails
         BpodParseError: If parsing or merging fails
-        ValueError: If session_dir cannot be determined
 
     Examples:
         >>> from w2t_bkin.config import load_session
         >>> from w2t_bkin.events import parse_bpod_session
         >>>
-        >>> # Option 1: Use full Session object (recommended - no session_dir!)
         >>> session = load_session("data/Session-001/session.toml")
-        >>> session_data = parse_bpod_session(session)  # session_dir auto-detected
-        >>>
-        >>> # Option 2: Use BpodSession with explicit session_dir
-        >>> from w2t_bkin.domain.session import BpodSession
-        >>> bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
-        >>> session_data = parse_bpod_session(bpod_cfg, Path("data/Session-001"))
-    """def discover_bpod_files(bpod_session: BpodSession, session_dir: Path) -> List[Path]:
-    """Discover Bpod files matching glob pattern with ordering.
+        >>> session_data = parse_bpod_session(session)
+    """
+```
+
+def discover_bpod_files(bpod_session: BpodSession, session_dir: Path) -> List[Path]:
+"""Discover Bpod files matching glob pattern with ordering.
 
     Args:
         bpod_session: BpodSession configuration with path (glob) and order
@@ -71,7 +168,7 @@ def parse_bpod_session(
     """
 
 def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
-    """Merge multiple Bpod .mat files into unified session.
+"""Merge multiple Bpod .mat files into unified session.
 
     Process:
     1. Parse each file with parse_bpod_mat()
@@ -94,7 +191,8 @@ def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
         >>> merged_data = merge_bpod_sessions(files)
         >>> print(merged_data['SessionData'].nTrials)  # Total across blocks
     """
-```
+
+````
 
 ### Bpod File Parsing
 
@@ -139,13 +237,16 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
     Note:
         Handles both dict and scipy mat_struct objects
     """
-```
+````
 
 ### Trial Extraction
 
 ```python
-def extract_trials(data: Dict[str, Any]) -> List[Trial]:
-    """Extract trial data from parsed Bpod data.
+def extract_trials(
+    data: Dict[str, Any],
+    session: Optional[Session] = None,
+) -> Tuple[List[Trial], Optional[List[TrialOffset]], Optional[List[str]]]:
+    """Extract trial data from parsed Bpod data, with optional TTL alignment.
 
     Process:
     1. Validate Bpod structure
@@ -155,21 +256,29 @@ def extract_trials(data: Dict[str, Any]) -> List[Trial]:
     5. Extract States from each trial
     6. Infer outcome from visited states (non-NaN)
     7. Build Trial objects
+    8. [Optional] Align to absolute time using TTL pulses (when session provided)
 
     Args:
         data: Parsed Bpod .mat data
+        session: Session configuration (enables TTL alignment when provided with trial_types)
 
     Returns:
-        List of Trial objects (1-indexed trial numbers)
+        Tuple of (trials, trial_offsets, warnings):
+        - trials: List of Trial objects (1-indexed trial numbers)
+        - trial_offsets: List of TrialOffset objects (None if no alignment)
+        - warnings: List of warning messages (None if no alignment)
 
     Raises:
         BpodParseError: If structure invalid or extraction fails
 
-    Example:
-        >>> trials = extract_trials(session_data)
+    Examples:
+        >>> # Basic extraction (relative timestamps)
+        >>> trials, _, _ = extract_trials(session_data)
         >>> print(f"Found {len(trials)} trials")
-        >>> print(f"First trial start: {trials[0].start_time}")
-        >>> print(f"First trial outcome: {trials[0].outcome}")
+
+        >>> # With TTL alignment (absolute timestamps)
+        >>> trials, offsets, warnings = extract_trials(data, session=session)
+        >>> print(f"First trial start: {trials[0].start_time:.3f}s (absolute)")
     """
 
 def _is_state_visited(state_times: Any) -> bool:
@@ -509,12 +618,12 @@ events = extract_behavioral_events(merged_data)
 
 ```python
 from w2t_bkin.events import parse_bpod_session, _is_state_visited
-from w2t_bkin.domain.session import BpodSession
+from w2t_bkin.config import load_session
 from pathlib import Path
 import math
 
-bpod_cfg = BpodSession(path="Bpod/*.mat", order="name_asc")
-session_data = parse_bpod_session(bpod_cfg, Path("data/raw/session_001"))
+session = load_session("data/raw/session_001/session.toml")
+session_data = parse_bpod_session(session)
 
 # Check if state was visited (not NaN)
 trial = session_data.RawEvents.Trial[0]

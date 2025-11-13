@@ -35,6 +35,9 @@ Path & File Validation:
 
 String & Directory Operations:
 - sanitize_string: Remove control characters, limit length
+- is_nan_or_none: Check if value is None or NaN
+- convert_matlab_struct: Convert MATLAB struct objects to dictionaries
+- validate_against_whitelist: Validate value against allowed set
 - ensure_directory: Create directory with optional write permission check
 
 File I/O:
@@ -84,9 +87,10 @@ import glob
 import hashlib
 import json
 import logging
+import math
 from pathlib import Path
 import subprocess
-from typing import Any, Dict, List, Literal, Optional, Type, Union
+from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Type, Union
 
 
 def compute_hash(data: Union[str, Dict[str, Any]]) -> str:
@@ -312,6 +316,87 @@ def sanitize_string(
         return default
 
     return sanitized
+
+
+def is_nan_or_none(value: Any) -> bool:
+    """Check if value is None or NaN (for float values).
+
+    Args:
+        value: Value to check
+
+    Returns:
+        True if value is None or NaN, False otherwise
+
+    Example:
+        >>> is_nan_or_none(None)  # True
+        >>> is_nan_or_none(float('nan'))  # True
+        >>> is_nan_or_none(0.0)  # False
+        >>> is_nan_or_none([1.0, 2.0])  # False
+    """
+    if value is None:
+        return True
+    if isinstance(value, float) and math.isnan(value):
+        return True
+    return False
+
+
+def convert_matlab_struct(obj: Any) -> Dict[str, Any]:
+    """Convert MATLAB struct object to dictionary.
+
+    Handles scipy.io mat_struct objects by extracting non-private attributes.
+    If already a dict, returns as-is. For other types, returns empty dict.
+
+    Args:
+        obj: MATLAB struct object, dictionary, or other type
+
+    Returns:
+        Dictionary representation
+
+    Example:
+        >>> # With scipy mat_struct
+        >>> from scipy.io import loadmat
+        >>> data = loadmat("file.mat")
+        >>> session_data = convert_matlab_struct(data["SessionData"])
+        >>>
+        >>> # With plain dict
+        >>> convert_matlab_struct({"key": "value"})  # Returns as-is
+    """
+    if hasattr(obj, "__dict__"):
+        # scipy mat_struct or similar object with __dict__
+        return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+    elif isinstance(obj, dict):
+        # Already a dictionary
+        return obj
+    else:
+        # Unsupported type - return empty dict
+        return {}
+
+
+def validate_against_whitelist(value: str, whitelist: Union[Set[str], FrozenSet[str]], default: str, warn: bool = True) -> str:
+    """Validate string value against whitelist, return default if invalid.
+
+    Args:
+        value: Value to validate
+        whitelist: Set or frozenset of allowed values
+        default: Default value to return if validation fails
+        warn: If True, log warning when value not in whitelist
+
+    Returns:
+        Value if in whitelist, otherwise default
+
+    Example:
+        >>> outcomes = frozenset(["hit", "miss", "correct"])
+        >>> validate_against_whitelist("hit", outcomes, "unknown")  # "hit"
+        >>> validate_against_whitelist("invalid", outcomes, "unknown")  # "unknown"
+    """
+    if value in whitelist:
+        return value
+
+    if warn:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Invalid value '{value}', defaulting to '{default}'")
+
+    return default
 
 
 def ensure_directory(path: Path, check_writable: bool = False) -> Path:

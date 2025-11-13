@@ -151,7 +151,7 @@ from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, Manifes
 from w2t_bkin.domain.pose import PoseBundle, PoseFrame, PoseKeypoint
 
 # Session models (Phase 0)
-from w2t_bkin.domain.session import TTL, BpodSession, Camera, Session, SessionMetadata
+from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera, Session, SessionMetadata
 
 # Transcoding models (Phase 3 - Optional)
 from w2t_bkin.domain.transcode import TranscodedVideo, TranscodeOptions
@@ -210,6 +210,7 @@ __all__ = [
     "Session",
     "SessionMetadata",
     "BpodSession",
+    "BpodTrialType",
     "TTL",
     "Camera",
     # Manifest models

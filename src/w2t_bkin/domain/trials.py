@@ -6,6 +6,7 @@ BehavioralEvents structures.
 
 Classes:
     Trial: Single trial row for NWB trials table with flexible protocol-specific columns
+    TrialEvent: Single behavioral event occurrence (e.g., port entry, TTL pulse)
     BehavioralEvents: Event TimeSeries collection (e.g., all "Port1In" events)
     TrialOutcome: Enumeration of trial outcome classifications
     TrialSummary: Aggregated trial statistics for QC reporting
@@ -21,6 +22,9 @@ Example:
     >>> trial = Trial(
     ...     trial_number=1, trial_type=1, start_time=10.0, stop_time=15.5,
     ...     outcome=TrialOutcome.HIT, stimulus_id=5, correct=True
+    ... )
+    >>> event = TrialEvent(
+    ...     event_type="Port1In", timestamp=12.3, metadata={"trial_number": 1}
     ... )
     >>> events = BehavioralEvents(
     ...     name="Port1In", description="Center port entries",
@@ -47,6 +51,37 @@ class TrialOutcome(str, Enum):
     CORRECT_REJECTION = "correct_rejection"
     EARLY = "early"
     TIMEOUT = "timeout"
+
+
+class TrialEvent(BaseModel):
+    """Single behavioral event extracted from Bpod.
+
+    Represents a single event occurrence (e.g., port entry, TTL pulse, reward delivery)
+    within a trial. Events have relative timestamps (Bpod timebase) that must be
+    converted to absolute time for NWB storage.
+
+    Attributes:
+        event_type: Event type identifier (e.g., "Port1In", "BNC1High", "Flex1Trig2")
+        timestamp: Event timestamp (relative to trial start or absolute after alignment)
+        metadata: Optional metadata dict for additional event information
+
+    Requirements:
+        - FR-11: Parse event data from Bpod
+        - FR-14: Include in QC report
+
+    Example:
+        >>> event = TrialEvent(
+        ...     event_type="Port1In",
+        ...     timestamp=12.3,
+        ...     metadata={"trial_number": 1.0}
+        ... )
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    event_type: str = Field(..., description="Event type identifier (e.g., 'Port1In', 'BNC1High')")
+    timestamp: float = Field(..., description="Event timestamp (relative or absolute seconds)")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Optional metadata dict")
 
 
 class BehavioralEvents(BaseModel):
@@ -129,7 +164,7 @@ class Trial(BaseModel):
     model_config = {"frozen": True, "extra": "allow"}
 
     trial_number: int = Field(..., description="Sequential trial identifier (1-indexed, maps to NWB trials.id)", ge=1)
-    trial_type: int = Field(..., description="Protocol-specific trial type classification", ge=1)
+    trial_type: int = Field(..., description="Protocol-specific trial type classification", ge=0)
     start_time: float = Field(..., description="Trial start in absolute seconds (session_start_time reference)", ge=0)
     stop_time: float = Field(..., description="Trial end in absolute seconds (session_start_time reference)", ge=0)
     outcome: TrialOutcome = Field(..., description="Trial outcome classification")

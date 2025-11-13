@@ -13,14 +13,8 @@ from typing import Dict
 import pytest
 
 from w2t_bkin.domain import TranscodedVideo, TranscodeOptions
-from w2t_bkin.transcode import (
-    TranscodeError,
-    compute_video_checksum,
-    create_transcode_options,
-    is_already_transcoded,
-    transcode_video,
-    update_manifest_with_transcode,
-)
+from w2t_bkin.transcode import TranscodeError, create_transcode_options, is_already_transcoded, transcode_video, update_manifest_with_transcode
+from w2t_bkin.utils import compute_file_checksum
 
 
 class TestTranscodeOptions:
@@ -85,7 +79,7 @@ class TestContentAddressing:
         """Should compute video file checksum."""
         video_path = Path("tests/fixtures/videos/test_video.avi")
 
-        checksum = compute_video_checksum(video_path)
+        checksum = compute_file_checksum(video_path, algorithm="sha256")
 
         assert checksum is not None
         assert len(checksum) == 64  # SHA256 hex digest
@@ -94,8 +88,8 @@ class TestContentAddressing:
         """Checksum should be deterministic for same content."""
         video_path = Path("tests/fixtures/videos/test_video.avi")
 
-        checksum1 = compute_video_checksum(video_path)
-        checksum2 = compute_video_checksum(video_path)
+        checksum1 = compute_file_checksum(video_path, algorithm="sha256")
+        checksum2 = compute_file_checksum(video_path, algorithm="sha256")
 
         assert checksum1 == checksum2
 
