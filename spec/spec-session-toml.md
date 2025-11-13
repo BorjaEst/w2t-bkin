@@ -30,11 +30,13 @@ verification. Scope: Single session metadata and file discovery patterns.
 - REQ-001: The session file MUST contain exactly the following sections and keys:
   - `[session]`: `id`, `subject_id`, `date`, `experimenter`, `description`, `sex`, `age`, `genotype`
   - `[bpod]`: `path`, `order`
+  - `[[bpod.trial_types]]`: `description`, `trial_type`, `sync_signal`, `sync_ttl`
   - `[[TTLs]]`: `id`, `description`, `paths`
   - `[[cameras]]`: `id`, `description`, `paths`, `order`, `ttl_id`
 - REQ-002: No additional or missing keys are allowed in any section.
 - REQ-003: All path patterns MUST be relative to the session root under `paths.raw_root`.
 - REQ-004: Each camera MUST reference a `ttl_id` that exists in `[[TTLs]]`.
+- REQ-005: bpod MUST identify trial types with `[[bpod.trial_types]]` and the sync TTL.
 - CON-001: No absolute subject PII allowed; `session.subject_id` SHOULD be anonymized.
 - GUD-001: `order` SHOULD be one of `name_asc`, `name_desc`, `mtime_asc`, `mtime_desc`.
 - PAT-001: Name TTL ids clearly (e.g., `ttl_camera`, `ttl_hitmiss`).
@@ -103,21 +105,38 @@ id = "SNA-145518"
 subject_id = "mouse_123"
 date = "2025-01-01"
 
+[bpod]
+path = "Bpod/*.mat"
+order = "name_asc"
+
+[[bpod.trial_types]]
+description = "Active wisker touch trials"
+trial_type = 1
+sync_signal = "W2L_Audio"
+sync_ttl = "ttl_cue"
+
+[[bpod.trial_types]]
+description = "Passive wisker touch trials"
+trial_type = 2
+sync_signal = "A2L_Audio"
+sync_ttl = "ttl_cue"
+
+
 [[TTLs]]
 id = "cam0_sync"
 role = "camera_sync"
-paths = "TTLs/${session.id}/cam0_*_sync.txt"
+paths = "TTLs/cam0_*_sync.txt"
 
 [[cameras]]
 id = "cam0"
-paths = "Video/top/${session.id}/*.avi"
+paths = "Video/top/*.avi"
 expected_fps = 25.0
 ttl_id = "cam0_sync"
 
 # Edge case: camera without ttl_id (verification warns)
 [[cameras]]
 id = "cam2"
-paths = "Video/side/${session.id}/*.avi"
+paths = "Video/side/*.avi"
 expected_fps = 30.0
 ```
 

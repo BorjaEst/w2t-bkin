@@ -1,7 +1,7 @@
 # Session metadata used for templating and identification
 [session]
-id = "SNA-145518"
-subject_id = "mouse_123"
+id = "Session-000001"
+subject_id = "mouse_001"
 date = "2025-01-01"
 experimenter = "Borja Esteban"
 description = "Test session"
@@ -14,6 +14,24 @@ genotype = "WT"
 [bpod]
 path = "Bpod/*.mat"
 order = "name_asc"
+
+[[bpod.trial_types]]
+description = "Active wisker touch trials"
+trial_type = 1
+sync_signal = "W2L_Audio"
+sync_ttl = "ttl_cue"
+
+[[bpod.trial_types]]
+description = "Passive wisker touch trials"
+trial_type = 2
+sync_signal = "A2L_Audio"
+sync_ttl = "ttl_cue"
+
+[[bpod.trial_types]]
+description = "Microstim trials"
+trial_type_id = 3
+sync_signal = "Microstim"
+sync_ttl = "ttl_cue"
 
 
 # TTL/edge patterns specific to this session
