@@ -39,7 +39,8 @@ flowchart LR
   TRN --> SYN
   POS --> SYN
   FAC --> SYN
-  EVT --> NWB
+  EVT --> SYN
+  SYN --> NWB
   NWB --> VAL[validate]
   VAL --> QC[qc report]
 ```
@@ -54,20 +55,20 @@ Principles:
 
 ## Module Responsibilities (minimal contracts)
 
-| Module          | Key Input                       | Output / Contract                                           | FR/NFR Coverage                  |
-| --------------- | ------------------------------- | ----------------------------------------------------------- | -------------------------------- |
-| config          | config.toml, session.toml       | validated Config, Session, hashes                           | FR-10, FR-15, FR-TB-\* NFR-10/11 |
-| domain          | none                            | Pydantic models (immutable)                                 | FR-12 NFR-7                      |
-| utils           | primitives                      | hashing, path safety, subprocess wrappers, logging          | NFR-1/2/3                        |
-| ingest+verify   | Config, Session                 | manifest.json, verification_summary.json (abort/warn logic) | FR-1/2/3/13/15/16                |
-| sync            | Config(Timebase), Manifest      | alignment indices + alignment_stats.json (budget enforced)  | FR-TB-1..6, FR-17, A17           |
-| transcode (opt) | Manifest                        | updated Manifest (mezzanine paths)                          | FR-4, NFR-2                      |
-| pose (opt)      | Manifest, timebase              | PoseBundle (aligned)                                        | FR-5                             |
-| facemap (opt)   | Manifest, timebase              | FacemapBundle (aligned)                                     | FR-6                             |
-| events (opt)    | Bpod .mat files, BpodSession    | Trials/Events summary, multi-file merging                   | FR-11/14                         |
-| nwb             | Manifest + bundles + provenance | NWB file (rate-based ImageSeries)                           | FR-7 NFR-6                       |
-| validate        | NWB                             | nwbinspector report                                         | FR-9                             |
-| qc              | NWB + sidecars                  | QC HTML                                                     | FR-8/14 NFR-3                    |
+| Module          | Key Input                              | Output / Contract                                           | FR/NFR Coverage                  |
+| --------------- | -------------------------------------- | ----------------------------------------------------------- | -------------------------------- |
+| config          | config.toml, session.toml              | validated Config, Session, hashes                           | FR-10, FR-15, FR-TB-\* NFR-10/11 |
+| domain          | none                                   | Pydantic models (immutable)                                 | FR-12 NFR-7                      |
+| utils           | primitives                             | hashing, path safety, subprocess wrappers, logging          | NFR-1/2/3                        |
+| ingest+verify   | Config, Session                        | manifest.json, verification_summary.json (abort/warn logic) | FR-1/2/3/13/15/16                |
+| sync            | Config(Timebase), Manifest             | alignment indices + alignment_stats.json (budget enforced)  | FR-TB-1..6, FR-17, A17           |
+| transcode (opt) | Manifest                               | updated Manifest (mezzanine paths)                          | FR-4, NFR-2                      |
+| pose (opt)      | Manifest, timebase                     | PoseBundle (aligned)                                        | FR-5                             |
+| facemap (opt)   | Manifest, timebase                     | FacemapBundle (aligned)                                     | FR-6                             |
+| events (opt)    | Bpod .mat files, BpodSession, timebase | Trials/Events (aligned), TrialSummary, multi-file merging   | FR-11/14                         |
+| nwb             | Manifest + bundles + provenance        | NWB file (rate-based ImageSeries)                           | FR-7 NFR-6                       |
+| validate        | NWB                                    | nwbinspector report                                         | FR-9                             |
+| qc              | NWB + sidecars                         | QC HTML                                                     | FR-8/14 NFR-3                    |
 
 ## Sidecar Schemas (summary)
 
@@ -275,9 +276,18 @@ stateDiagram-v2
     ParseBpod --> Sync
   }
 
-  CheckOptionals --> Sync: video-derived data ready
+  state CheckOptionals {
+    [*] --> CheckTranscode
+    CheckTranscode --> Transcode: enabled
+    CheckTranscode --> CheckEvents: disabled
+    Transcode --> CheckEvents
 
-  Sync --> CheckPose: alignment complete
+    CheckEvents --> ParseBpod: bpod.parse=true
+    CheckEvents --> CheckPose: bpod.parse=false
+    ParseBpod --> CheckPose
+  }
+
+  CheckOptionals --> CheckPose: video transcoded (if enabled)
 
   state CheckPose {
     [*] --> ImportPose: pose files exist
@@ -285,15 +295,17 @@ stateDiagram-v2
     ImportPose --> CheckFacemap
   }
 
-  CheckPose --> CheckFacemap: pose aligned
+  CheckPose --> CheckFacemap: pose imported (if available)
 
   state CheckFacemap {
     [*] --> ComputeFacemap: enabled
-    [*] --> AssembleNWB: disabled
-    ComputeFacemap --> AssembleNWB
+    [*] --> Sync: disabled
+    ComputeFacemap --> Sync
   }
 
-  CheckFacemap --> NWB: all optional data processed
+  CheckFacemap --> Sync: optional data ready for alignment
+
+  Sync --> NWB: all data aligned to timebase
 
   NWB --> Validate
   Validate --> QC
@@ -334,13 +346,23 @@ sequenceDiagram
   else mismatch <= tolerance
     verify-->>CLI: VerificationSummary (success)
 
-    Note over CLI,events: Optional: Bpod parsing
+    Note over CLI,events: Phase 2a: Optional Modalities (Pre-Sync)
     opt bpod.parse == true
       CLI->>events: parse_bpod_files(Session)
-      events-->>CLI: TrialSummary
+      events-->>CLI: Trials/Events (raw)
     end
 
-    Note over CLI,sync: Phase 2: Timebase + Alignment
+    opt pose files available
+      CLI->>pose: import_pose(Manifest)
+      pose-->>CLI: PoseData (raw)
+    end
+
+    opt facemap enabled
+      CLI->>facemap: compute_facemap(Manifest)
+      facemap-->>CLI: FacemapData (raw)
+    end
+
+    Note over CLI,sync: Phase 2b: Timebase + Alignment
     CLI->>sync: make_timebase(Config)
     sync-->>CLI: TimebaseProvider
     CLI->>sync: align_manifest(Manifest, Timebase)
@@ -351,22 +373,26 @@ sequenceDiagram
       CLI->>CLI: abort
     end
 
-    Note over CLI,facemap: Phase 3: Optional Modalities
-    opt pose files available
-      CLI->>pose: import_pose(Manifest, Timebase)
-      pose-->>CLI: PoseBundle (aligned)
+    opt events data available
+      CLI->>sync: align_trials_events(Trials, Events, Timebase)
+      sync-->>CLI: Trials/Events (aligned)
     end
 
-    opt facemap enabled
-      CLI->>facemap: compute_facemap(Manifest, Timebase)
-      facemap-->>CLI: FacemapBundle (aligned)
+    opt pose data available
+      CLI->>sync: align_pose(PoseData, Timebase)
+      sync-->>CLI: PoseBundle (aligned)
     end
 
-    Note over CLI,nwb: Phase 4: NWB Assembly
+    opt facemap data available
+      CLI->>sync: align_facemap(FacemapData, Timebase)
+      sync-->>CLI: FacemapBundle (aligned)
+    end
+
+    Note over CLI,nwb: Phase 3: NWB Assembly
     CLI->>nwb: assemble_nwb(Manifest, Bundles, Provenance)
     nwb-->>CLI: NWB file path
 
-    Note over CLI,qc: Phase 5: Validation + QC
+    Note over CLI,qc: Phase 4: Validation + QC
     CLI->>validate: run_nwbinspector(NWB)
     validate-->>CLI: ValidationReport
 
