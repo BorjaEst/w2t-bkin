@@ -174,24 +174,30 @@ class TrialSummary(BaseModel):
     Attributes:
         session_id: Session identifier
         total_trials: Total number of trials
+        n_aligned: Number of trials successfully aligned to TTL (None if no alignment)
+        n_dropped: Number of trials dropped during alignment (None if no alignment)
         outcome_counts: Dictionary of outcome counts (e.g., {"hit": 45, "miss": 5})
         trial_type_counts: Dictionary of trial type counts
         mean_trial_duration: Mean trial duration in seconds
         mean_response_latency: Mean response latency in seconds (for trials with responses)
         event_categories: List of unique event types observed
         bpod_files: List of Bpod .mat file paths processed
+        alignment_warnings: List of alignment warnings (empty if no alignment)
         generated_at: ISO 8601 timestamp
 
     Example:
         >>> summary = TrialSummary(
         ...     session_id="Session-001",
         ...     total_trials=50,
+        ...     n_aligned=48,
+        ...     n_dropped=2,
         ...     outcome_counts={"hit": 45, "miss": 5},
         ...     trial_type_counts={1: 30, 2: 20},
         ...     mean_trial_duration=5.2,
         ...     mean_response_latency=1.3,
         ...     event_categories=["Port1In", "Port1Out", "LeftReward"],
         ...     bpod_files=["Bpod/session.mat"],
+        ...     alignment_warnings=["Trial 3: missing sync_signal"],
         ...     generated_at="2025-11-13T10:30:00Z"
         ... )
     """
@@ -200,10 +206,13 @@ class TrialSummary(BaseModel):
 
     session_id: str = Field(..., description="Session identifier")
     total_trials: int = Field(..., description="Total number of trials in session", ge=0)
+    n_aligned: Optional[int] = Field(None, description="Number of trials successfully aligned to TTL (None if no alignment)", ge=0)
+    n_dropped: Optional[int] = Field(None, description="Number of trials dropped during alignment (None if no alignment)", ge=0)
     outcome_counts: Dict[str, int] = Field(..., description="Dictionary of outcome counts (e.g., {'hit': 45, 'miss': 5})")
     trial_type_counts: Dict[int, int] = Field(..., description="Dictionary of trial type counts (e.g., {1: 30, 2: 20})")
     mean_trial_duration: float = Field(..., description="Mean trial duration in seconds", ge=0)
     mean_response_latency: Optional[float] = Field(None, description="Mean response latency in seconds (for trials with responses)", ge=0)
     event_categories: List[str] = Field(..., description="List of unique event types observed in session")
     bpod_files: List[str] = Field(..., description="List of Bpod .mat file paths processed")
+    alignment_warnings: List[str] = Field(default_factory=list, description="List of alignment warnings (empty if no alignment)")
     generated_at: str = Field(..., description="ISO 8601 timestamp of summary generation")
