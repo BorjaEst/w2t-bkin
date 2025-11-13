@@ -212,9 +212,7 @@ class TestOptionalModalitiesIntegration:
         output_dir = tmp_work_dir / "processed" / "Session-000001"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        nwb_path = assemble_nwb(
-            manifest={"session_id": "Session-000001"}, config=minimal_config_dict, provenance={}, pose_bundles=[pose_bundle], output_dir=output_dir
-        )
+        nwb_path = assemble_nwb(manifest={"session_id": "Session-000001"}, config=minimal_config_dict, provenance={}, pose_bundles=[pose_bundle], output_dir=output_dir)
 
         # Verify pose included in NWB
         assert nwb_path.exists()
@@ -239,9 +237,7 @@ class TestOptionalModalitiesIntegration:
         output_dir = tmp_work_dir / "processed" / "Session-000001"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        nwb_path = assemble_nwb(
-            manifest={"session_id": "Session-000001"}, config=minimal_config_dict, provenance={}, facemap_bundles=[facemap_bundle], output_dir=output_dir
-        )
+        nwb_path = assemble_nwb(manifest={"session_id": "Session-000001"}, config=minimal_config_dict, provenance={}, facemap_bundles=[facemap_bundle], output_dir=output_dir)
 
         # Verify facemap included in NWB
         assert nwb_path.exists()
@@ -254,11 +250,11 @@ class TestOptionalModalitiesIntegration:
         tmp_work_dir,
     ):
         """Should include Trials TimeIntervals when Bpod summary provided (FR-11)."""
-        from w2t_bkin.events import BpodSummary
+        from w2t_bkin.events import TrialSummary
         from w2t_bkin.nwb import assemble_nwb
 
         # Create Bpod summary
-        bpod_summary = BpodSummary(
+        bpod_summary = TrialSummary(
             session_id="Session-000001",
             total_trials=100,
             outcome_counts={"hit": 60, "miss": 40},
@@ -270,9 +266,7 @@ class TestOptionalModalitiesIntegration:
         output_dir = tmp_work_dir / "processed" / "Session-000001"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        nwb_path = assemble_nwb(
-            manifest={"session_id": "Session-000001"}, config=minimal_config_dict, provenance={}, bpod_summary=bpod_summary, output_dir=output_dir
-        )
+        nwb_path = assemble_nwb(manifest={"session_id": "Session-000001"}, config=minimal_config_dict, provenance={}, bpod_summary=bpod_summary, output_dir=output_dir)
 
         # Verify Bpod trials/events included
         assert nwb_path.exists()

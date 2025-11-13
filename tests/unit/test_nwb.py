@@ -15,15 +15,7 @@ from typing import Dict, List, Optional
 from pynwb import NWBHDF5IO
 import pytest
 
-from w2t_bkin.domain import (
-    AlignmentStats,
-    BpodSummary,
-    Config,
-    FacemapBundle,
-    Manifest,
-    PoseBundle,
-    Provenance,
-)
+from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Provenance, TrialSummary
 
 
 class TestDeviceCreation:

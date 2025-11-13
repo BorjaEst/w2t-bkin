@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import BehavioralEvent, BpodSummary, TrialData
+from w2t_bkin.domain import Trial, TrialEvent, TrialSummary
 from w2t_bkin.events import (
     BpodParseError,
     EventsError,
@@ -58,15 +58,15 @@ class TestTrialExtraction:
     def test_Should_ExtractTrials_When_BpodParsed(self, parsed_bpod_data):
         trials = extract_trials(parsed_bpod_data)
         assert len(trials) == 3
-        assert all(isinstance(t, TrialData) for t in trials)
+        assert all(isinstance(t, Trial) for t in trials)
 
     def test_Should_IncludeTrialTimestamps_When_Extracting(self, parsed_bpod_data):
         trials = extract_trials(parsed_bpod_data)
         first_trial = trials[0]
         assert hasattr(first_trial, "start_time")
-        assert hasattr(first_trial, "stop_time")
+        assert hasattr(first_trial, "end_time")
         assert first_trial.start_time == 0.0
-        assert first_trial.stop_time == 9.0
+        assert first_trial.end_time == 9.0
 
     def test_Should_InferOutcomeFromStates_When_Extracting(self, parsed_bpod_data):
         """Outcome must be inferred from States (HIT/Miss), not from TrialSettings."""
@@ -89,13 +89,13 @@ class TestTrialExtraction:
         assert trials[2].trial_number == 3
 
 
-class TestBehavioralEventExtraction:
+class TestTrialEventExtraction:
     """Test behavioral event extraction - FR-11."""
 
     def test_Should_ExtractEvents_When_BpodParsed(self, parsed_bpod_data):
         events = extract_behavioral_events(parsed_bpod_data)
         assert len(events) > 0
-        assert all(isinstance(e, BehavioralEvent) for e in events)
+        assert all(isinstance(e, TrialEvent) for e in events)
 
     def test_Should_FlattenAllEventTypes_When_Extracting(self, parsed_bpod_data):
         """Events are keyed by name (Flex1Trig2, BNC1High, etc), must flatten all."""
@@ -114,12 +114,13 @@ class TestBehavioralEventExtraction:
         assert isinstance(first_event.timestamp, float)
 
     def test_Should_LinkEventsToTrials_When_Extracting(self, parsed_bpod_data):
-        """Events should know which trial they belong to."""
+        """Events should know which trial they belong to (stored in metadata)."""
         events = extract_behavioral_events(parsed_bpod_data)
 
-        # Check trial numbers are assigned
-        trial_numbers = {e.trial_number for e in events}
-        assert trial_numbers == {1, 2, 3}
+        # Check trial numbers are assigned in metadata
+        trial_numbers = {e.metadata.get("trial_number") if e.metadata else None for e in events}
+        trial_numbers.discard(None)  # Remove None if present
+        assert trial_numbers == {1.0, 2.0, 3.0}
 
 
 class TestEventSummaryCreation:
@@ -127,7 +128,7 @@ class TestEventSummaryCreation:
 
     def test_Should_CreateSummary_When_TrialsExtracted(self, trial_list, event_list):
         summary = create_event_summary(session_id="test", trials=trial_list, events=event_list, bpod_files=["/path/bpod.mat"])
-        assert isinstance(summary, BpodSummary)
+        assert isinstance(summary, TrialSummary)
         assert summary.total_trials == len(trial_list)
 
     def test_Should_CountTrialOutcomes_When_CreatingSummary(self, trial_list, event_list):
@@ -230,10 +231,12 @@ def parsed_bpod_data():
 
 @pytest.fixture
 def trial_list():
+    from w2t_bkin.domain import TrialOutcome
+
     return [
-        TrialData(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit"),
-        TrialData(trial_number=2, start_time=10.0, stop_time=19.0, outcome="miss"),
-        TrialData(trial_number=3, start_time=20.0, stop_time=29.0, outcome="hit"),
+        Trial(trial_number=1, trial_type=1, start_time=0.0, end_time=9.0, outcome=TrialOutcome.HIT),
+        Trial(trial_number=2, trial_type=1, start_time=10.0, end_time=19.0, outcome=TrialOutcome.MISS),
+        Trial(trial_number=3, trial_type=1, start_time=20.0, end_time=29.0, outcome=TrialOutcome.HIT),
     ]
 
 
@@ -241,15 +244,15 @@ def trial_list():
 def event_list():
     """Realistic Bpod events based on actual data."""
     return [
-        BehavioralEvent(event_type="Flex1Trig2", timestamp=0.0001, trial_number=1),
-        BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1),
-        BehavioralEvent(event_type="BNC1Low", timestamp=1.6, trial_number=1),
-        BehavioralEvent(event_type="Flex1Trig2", timestamp=7.1, trial_number=1),
-        BehavioralEvent(event_type="BNC1High", timestamp=8.5, trial_number=1),
-        BehavioralEvent(event_type="Flex1Trig2", timestamp=0.0001, trial_number=2),
-        BehavioralEvent(event_type="Flex1Trig2", timestamp=0.0001, trial_number=3),
-        BehavioralEvent(event_type="BNC1High", timestamp=2.0, trial_number=3),
-        BehavioralEvent(event_type="BNC1Low", timestamp=2.1, trial_number=3),
+        TrialEvent(event_type="Flex1Trig2", timestamp=0.0001, metadata={"trial_number": 1.0}),
+        TrialEvent(event_type="BNC1High", timestamp=1.5, metadata={"trial_number": 1.0}),
+        TrialEvent(event_type="BNC1Low", timestamp=1.6, metadata={"trial_number": 1.0}),
+        TrialEvent(event_type="Flex1Trig2", timestamp=7.1, metadata={"trial_number": 1.0}),
+        TrialEvent(event_type="BNC1High", timestamp=8.5, metadata={"trial_number": 1.0}),
+        TrialEvent(event_type="Flex1Trig2", timestamp=0.0001, metadata={"trial_number": 2.0}),
+        TrialEvent(event_type="Flex1Trig2", timestamp=0.0001, metadata={"trial_number": 3.0}),
+        TrialEvent(event_type="BNC1High", timestamp=2.0, metadata={"trial_number": 3.0}),
+        TrialEvent(event_type="BNC1Low", timestamp=2.1, metadata={"trial_number": 3.0}),
     ]
 
 
@@ -295,7 +298,7 @@ class TestEdgeCasesAndErrorHandling:
         """Events like BNC1High can have multiple timestamps within a trial."""
         events = extract_behavioral_events(parsed_bpod_data)
 
-        # Should create separate BehavioralEvent for each timestamp
+        # Should create separate TrialEvent for each timestamp
         bnc1_high_events = [e for e in events if e.event_type == "BNC1High"]
         assert len(bnc1_high_events) >= 2  # At least 2 BNC1High events across trials
 

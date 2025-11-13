@@ -134,7 +134,7 @@ Notes:
 - events (optional)
 
   - Inputs: list of Bpod .mat files
-  - Outputs: Trials table + BehavioralEvents + QC summary (BpodSummary)
+  - Outputs: Trials table + TrialEvents + QC summary (TrialSummary)
   - Requirements: FR-11, FR-14; Acceptance A4
 
 - sync

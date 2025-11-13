@@ -72,16 +72,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Set, Union
 
-from .domain import (
-    CameraVerificationResult,
-    Config,
-    Manifest,
-    ManifestCamera,
-    ManifestTTL,
-    Session,
-    VerificationResult,
-    VerificationSummary,
-)
+from .domain import CameraVerificationResult, Config, Manifest, ManifestCamera, ManifestTTL, Session, VerificationResult, VerificationSummary
 from .utils import run_ffprobe, write_json
 
 logger = logging.getLogger(__name__)
@@ -322,11 +313,11 @@ def verify_manifest(manifest: Manifest, tolerance: int, warn_on_mismatch: bool =
                 ttl_pulse_count=camera.ttl_pulse_count,
                 mismatch=mismatch,
                 verifiable=True,
-                status="verified",
+                status="pass",
             )
         )
 
-    return VerificationResult(status="verified", camera_results=camera_results)
+    return VerificationResult(status="pass", camera_results=camera_results)
 
 
 def validate_ttl_references(session: Session) -> None:
@@ -384,7 +375,7 @@ def create_verification_summary(manifest: Manifest) -> Dict:
                 "ttl_pulse_count": camera.ttl_pulse_count,
                 "mismatch": mismatch,
                 "verifiable": True,
-                "status": "verified" if mismatch == 0 else "mismatch_within_tolerance",
+                "status": "pass" if mismatch == 0 else "mismatch_within_tolerance",
             }
         )
 

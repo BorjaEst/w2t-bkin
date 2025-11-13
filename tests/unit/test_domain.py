@@ -517,111 +517,140 @@ class TestAlignmentStatsModel:
         assert stats.aligned_samples == 1000
 
 
-class TestTrialDataModel:
-    """Test TrialData domain model structure (Phase 3)."""
+class TestTrialModel:
+    """Test Trial domain model structure (Phase 3)."""
 
-    def test_Should_CreateTrialData_When_ValidDataProvided(self):
-        """TrialData model should capture trial information from Bpod."""
-        from w2t_bkin.domain import TrialData
+    def test_Should_CreateTrial_When_ValidDataProvided(self):
+        """Trial model should capture trial information from Bpod."""
+        from w2t_bkin.domain import Trial, TrialOutcome
 
-        trial = TrialData(trial_number=1, start_time=0.0, stop_time=10.5, outcome="hit")
+        trial = Trial(
+            trial_number=1,
+            trial_type=1,
+            start_time=0.0,
+            end_time=10.5,
+            outcome=TrialOutcome.HIT,
+        )
         assert trial.trial_number == 1
+        assert trial.trial_type == 1
         assert trial.start_time == 0.0
-        assert trial.stop_time == 10.5
-        assert trial.outcome == "hit"
+        assert trial.end_time == 10.5
+        assert trial.outcome == TrialOutcome.HIT
+        assert trial.duration == 10.5
 
-    def test_Should_BeImmutable_When_TryingToModifyTrialData(self):
-        """TrialData instances should be immutable."""
-        from w2t_bkin.domain import TrialData
+    def test_Should_BeImmutable_When_TryingToModifyTrial(self):
+        """Trial instances should be immutable."""
+        from w2t_bkin.domain import Trial, TrialOutcome
 
-        trial = TrialData(trial_number=1, start_time=0.0, stop_time=10.5, outcome="hit")
+        trial = Trial(
+            trial_number=1,
+            trial_type=1,
+            start_time=0.0,
+            end_time=10.5,
+            outcome=TrialOutcome.HIT,
+        )
 
         with pytest.raises((ValidationError, AttributeError)):
-            trial.outcome = "miss"
+            trial.outcome = TrialOutcome.MISS
 
-    def test_Should_RejectExtraFields_When_CreatingTrialData(self):
-        """TrialData should reject extra fields not in schema."""
-        from w2t_bkin.domain import TrialData
-
-        with pytest.raises(ValidationError):
-            TrialData(trial_number=1, start_time=0.0, stop_time=10.5, outcome="hit", extra_field="not allowed")
-
-    def test_Should_RequireAllFields_When_CreatingTrialData(self):
-        """TrialData should require all fields."""
-        from w2t_bkin.domain import TrialData
+    def test_Should_RejectExtraFields_When_CreatingTrial(self):
+        """Trial should reject extra fields not in schema."""
+        from w2t_bkin.domain import Trial, TrialOutcome
 
         with pytest.raises(ValidationError):
-            TrialData(trial_number=1, start_time=0.0)
+            Trial(
+                trial_number=1,
+                trial_type=1,
+                start_time=0.0,
+                end_time=10.5,
+                outcome=TrialOutcome.HIT,
+                extra_field="not allowed",
+            )
+
+    def test_Should_RequireAllFields_When_CreatingTrial(self):
+        """Trial should require all mandatory fields."""
+        from w2t_bkin.domain import Trial
+
+        with pytest.raises(ValidationError):
+            Trial(trial_number=1, start_time=0.0)
 
 
-class TestBehavioralEventModel:
-    """Test BehavioralEvent domain model structure (Phase 3)."""
+class TestTrialEventModel:
+    """Test TrialEvent domain model structure (Phase 3)."""
 
-    def test_Should_CreateBehavioralEvent_When_ValidDataProvided(self):
-        """BehavioralEvent model should capture event information from Bpod."""
-        from w2t_bkin.domain import BehavioralEvent
+    def test_Should_CreateTrialEvent_When_ValidDataProvided(self):
+        """TrialEvent model should capture event information from Bpod."""
+        from w2t_bkin.domain import TrialEvent
 
-        event = BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1)
+        event = TrialEvent(event_type="BNC1High", timestamp=1.5)
         assert event.event_type == "BNC1High"
         assert event.timestamp == 1.5
-        assert event.trial_number == 1
+        assert event.metadata is None
 
-    def test_Should_BeImmutable_When_TryingToModifyBehavioralEvent(self):
-        """BehavioralEvent instances should be immutable."""
-        from w2t_bkin.domain import BehavioralEvent
+    def test_Should_BeImmutable_When_TryingToModifyTrialEvent(self):
+        """TrialEvent instances should be immutable."""
+        from w2t_bkin.domain import TrialEvent
 
-        event = BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1)
+        event = TrialEvent(event_type="BNC1High", timestamp=1.5)
 
         with pytest.raises((ValidationError, AttributeError)):
             event.timestamp = 2.0
 
-    def test_Should_RejectExtraFields_When_CreatingBehavioralEvent(self):
-        """BehavioralEvent should reject extra fields not in schema."""
-        from w2t_bkin.domain import BehavioralEvent
+    def test_Should_RejectExtraFields_When_CreatingTrialEvent(self):
+        """TrialEvent should reject extra fields not in schema."""
+        from w2t_bkin.domain import TrialEvent
 
         with pytest.raises(ValidationError):
-            BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1, extra_field="not allowed")
+            TrialEvent(event_type="BNC1High", timestamp=1.5, extra_field="not allowed")
 
-    def test_Should_RequireAllFields_When_CreatingBehavioralEvent(self):
-        """BehavioralEvent should require all fields."""
-        from w2t_bkin.domain import BehavioralEvent
+    def test_Should_RequireAllFields_When_CreatingTrialEvent(self):
+        """TrialEvent should require mandatory fields."""
+        from w2t_bkin.domain import TrialEvent
 
         with pytest.raises(ValidationError):
-            BehavioralEvent(event_type="BNC1High", timestamp=1.5)
+            TrialEvent(event_type="BNC1High")
 
 
-class TestBpodSummaryModel:
-    """Test BpodSummary domain model structure (Phase 3)."""
+class TestTrialSummaryModel:
+    """Test TrialSummary domain model structure (Phase 3)."""
 
-    def test_Should_CreateBpodSummary_When_ValidDataProvided(self):
-        """BpodSummary model should capture QC summary for events."""
-        from w2t_bkin.domain import BpodSummary
+    def test_Should_CreateTrialSummary_When_ValidDataProvided(self):
+        """TrialSummary model should capture QC summary for trials."""
+        from w2t_bkin.domain import TrialSummary
 
-        summary = BpodSummary(
+        summary = TrialSummary(
             session_id="test-session",
             total_trials=10,
             outcome_counts={"hit": 7, "miss": 3},
-            event_categories=["BNC1High", "BNC1Low", "Flex1Trig2"],
+            trial_type_counts={1: 6, 2: 4},
+            mean_trial_duration=5.2,
+            mean_response_latency=1.3,
+            event_categories=["Port1In", "Port1Out", "LeftReward"],
             bpod_files=["/path/to/bpod.mat"],
             generated_at="2025-01-01T12:00:00",
         )
         assert summary.session_id == "test-session"
         assert summary.total_trials == 10
         assert summary.outcome_counts == {"hit": 7, "miss": 3}
+        assert summary.trial_type_counts == {1: 6, 2: 4}
+        assert summary.mean_trial_duration == 5.2
+        assert summary.mean_response_latency == 1.3
         assert len(summary.event_categories) == 3
-        assert "BNC1High" in summary.event_categories
+        assert "Port1In" in summary.event_categories
         assert len(summary.bpod_files) == 1
         assert summary.generated_at == "2025-01-01T12:00:00"
 
-    def test_Should_BeImmutable_When_TryingToModifyBpodSummary(self):
-        """BpodSummary instances should be immutable."""
-        from w2t_bkin.domain import BpodSummary
+    def test_Should_BeImmutable_When_TryingToModifyTrialSummary(self):
+        """TrialSummary instances should be immutable."""
+        from w2t_bkin.domain import TrialSummary
 
-        summary = BpodSummary(
+        summary = TrialSummary(
             session_id="test-session",
             total_trials=10,
             outcome_counts={"hit": 7, "miss": 3},
-            event_categories=["BNC1High"],
+            trial_type_counts={1: 10},
+            mean_trial_duration=5.2,
+            event_categories=["Port1In"],
             bpod_files=["/path/to/bpod.mat"],
             generated_at="2025-01-01T12:00:00",
         )
@@ -629,36 +658,41 @@ class TestBpodSummaryModel:
         with pytest.raises((ValidationError, AttributeError)):
             summary.total_trials = 20
 
-    def test_Should_RejectExtraFields_When_CreatingBpodSummary(self):
-        """BpodSummary should reject extra fields not in schema."""
-        from w2t_bkin.domain import BpodSummary
+    def test_Should_RejectExtraFields_When_CreatingTrialSummary(self):
+        """TrialSummary should reject extra fields not in schema."""
+        from w2t_bkin.domain import TrialSummary
 
         with pytest.raises(ValidationError):
-            BpodSummary(
+            TrialSummary(
                 session_id="test-session",
                 total_trials=10,
                 outcome_counts={"hit": 7, "miss": 3},
-                event_categories=["BNC1High"],
+                trial_type_counts={1: 10},
+                mean_trial_duration=5.2,
+                event_categories=["Port1In"],
                 bpod_files=["/path/to/bpod.mat"],
                 generated_at="2025-01-01T12:00:00",
                 extra_field="not allowed",
             )
 
-    def test_Should_RequireAllFields_When_CreatingBpodSummary(self):
-        """BpodSummary should require all fields."""
-        from w2t_bkin.domain import BpodSummary
+    def test_Should_RequireAllFields_When_CreatingTrialSummary(self):
+        """TrialSummary should require all required fields."""
+        from w2t_bkin.domain import TrialSummary
 
         with pytest.raises(ValidationError):
-            BpodSummary(session_id="test-session", total_trials=10)
+            TrialSummary(session_id="test-session", total_trials=10)
 
     def test_Should_HandleEmptyOutcomeCounts_When_NoTrials(self):
-        """BpodSummary should handle empty outcome counts."""
-        from w2t_bkin.domain import BpodSummary
+        """TrialSummary should handle empty outcome counts."""
+        from w2t_bkin.domain import TrialSummary
 
-        summary = BpodSummary(
+        summary = TrialSummary(
             session_id="test-session",
             total_trials=0,
             outcome_counts={},
+            trial_type_counts={},
+            mean_trial_duration=0.0,
+            mean_response_latency=None,
             event_categories=[],
             bpod_files=[],
             generated_at="2025-01-01T12:00:00",

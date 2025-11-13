@@ -13,14 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import (
-    BehavioralEvent,
-    BpodSummary,
-    FacemapBundle,
-    PoseBundle,
-    TranscodedVideo,
-    TrialData,
-)
+from w2t_bkin.domain import FacemapBundle, PoseBundle, TranscodedVideo, Trial, TrialEvent, TrialSummary
 
 
 class TestEventsIntegration:
@@ -28,11 +21,7 @@ class TestEventsIntegration:
 
     def test_Should_ParseBpodFile_When_FileProvided_Issue4(self, fixtures_root, tmp_work_dir):
         """Should parse Bpod .mat file and extract trials and events (FR-11)."""
-        from w2t_bkin.events import (
-            extract_behavioral_events,
-            extract_trials,
-            parse_bpod_mat,
-        )
+        from w2t_bkin.events import extract_behavioral_events, extract_trials, parse_bpod_mat
 
         # Use test fixture Bpod file if available
         bpod_file = fixtures_root / "sessions" / "valid_session.toml"
@@ -46,22 +35,22 @@ class TestEventsIntegration:
 
         # Create mock trials and events
         trials = [
-            TrialData(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit"),
-            TrialData(trial_number=2, start_time=10.0, stop_time=19.0, outcome="miss"),
-            TrialData(trial_number=3, start_time=20.0, stop_time=29.0, outcome="hit"),
+            Trial(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit"),
+            Trial(trial_number=2, start_time=10.0, stop_time=19.0, outcome="miss"),
+            Trial(trial_number=3, start_time=20.0, stop_time=29.0, outcome="hit"),
         ]
 
         events = [
-            BehavioralEvent(event_type="BNC1High", timestamp=1.5, trial_number=1),
-            BehavioralEvent(event_type="BNC1Low", timestamp=1.6, trial_number=1),
-            BehavioralEvent(event_type="Flex1Trig2", timestamp=7.1, trial_number=1),
+            TrialEvent(event_type="BNC1High", timestamp=1.5, trial_number=1),
+            TrialEvent(event_type="BNC1Low", timestamp=1.6, trial_number=1),
+            TrialEvent(event_type="Flex1Trig2", timestamp=7.1, trial_number=1),
         ]
 
         # Create summary
         summary = create_event_summary(session_id="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
 
         # Verify summary (A4: trial counts and event categories)
-        assert isinstance(summary, BpodSummary)
+        assert isinstance(summary, TrialSummary)
         assert summary.total_trials == 3
         assert summary.outcome_counts["hit"] == 2
         assert summary.outcome_counts["miss"] == 1
@@ -72,8 +61,8 @@ class TestEventsIntegration:
         """Should write event summary to JSON file (FR-14)."""
         from w2t_bkin.events import create_event_summary, write_event_summary
 
-        trials = [TrialData(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit")]
-        events = [BehavioralEvent(event_type="Reward", timestamp=8.5, trial_number=1)]
+        trials = [Trial(trial_number=1, start_time=0.0, stop_time=9.0, outcome="hit")]
+        events = [TrialEvent(event_type="Reward", timestamp=8.5, trial_number=1)]
 
         summary = create_event_summary(session_id="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
 
@@ -101,11 +90,7 @@ class TestPoseIntegration:
     @pytest.mark.skip(reason="Blocked: requires Phase 2 alignment implementation and test uses non-spec config keys")
     def test_Should_ImportDLCPose_When_FilesProvided_Issue4(self, minimal_config_dict):
         """Should import DLC pose and align to timebase (FR-5)."""
-        from w2t_bkin.pose import (
-            align_pose_to_timebase,
-            harmonize_dlc_to_canonical,
-            import_dlc_pose,
-        )
+        from w2t_bkin.pose import align_pose_to_timebase, harmonize_dlc_to_canonical, import_dlc_pose
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -141,11 +126,7 @@ class TestPoseIntegration:
     @pytest.mark.skip(reason="Blocked: requires Phase 2 alignment implementation, test uses non-spec config keys, and missing pose_sample.json fixture")
     def test_Should_ImportSLEAPPose_When_FilesProvided_Issue4(self, minimal_config_dict):
         """Should import SLEAP pose and align to timebase (FR-5)."""
-        from w2t_bkin.pose import (
-            align_pose_to_timebase,
-            harmonize_sleap_to_canonical,
-            import_sleap_pose,
-        )
+        from w2t_bkin.pose import align_pose_to_timebase, harmonize_sleap_to_canonical, import_sleap_pose
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -184,11 +165,7 @@ class TestFacemapIntegration:
     @pytest.mark.skip(reason="Blocked: requires Phase 2 alignment implementation, test uses non-spec config keys, and FacemapSignal subscriptability issue")
     def test_Should_ComputeFacemap_When_Enabled_Issue4(self, minimal_config_dict):
         """Should compute Facemap signals and align to timebase (FR-6)."""
-        from w2t_bkin.facemap import (
-            align_facemap_to_timebase,
-            compute_facemap_signals,
-            define_rois,
-        )
+        from w2t_bkin.facemap import align_facemap_to_timebase, compute_facemap_signals, define_rois
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -230,11 +207,7 @@ class TestTranscodeIntegration:
     def test_Should_TranscodeVideos_When_Enabled_Issue4(self, minimal_config_dict):
         """Should transcode videos to mezzanine format (FR-4)."""
         from w2t_bkin.ingest import load_manifest
-        from w2t_bkin.transcode import (
-            create_transcode_options,
-            transcode_video,
-            update_manifest_with_transcode,
-        )
+        from w2t_bkin.transcode import create_transcode_options, transcode_video, update_manifest_with_transcode
 
         # Load manifest from Phase 1
         manifest = load_manifest(minimal_config_dict["paths"]["interim"] / "Session-000001" / "manifest.json")
@@ -258,11 +231,7 @@ class TestTranscodeIntegration:
     @pytest.mark.skip(reason="Blocked: test uses non-spec config keys (paths.raw, paths.processed)")
     def test_Should_SkipTranscode_When_AlreadyExists_Issue4(self, minimal_config_dict):
         """Should be idempotent - skip if already transcoded (FR-4, NFR-2)."""
-        from w2t_bkin.transcode import (
-            create_transcode_options,
-            is_already_transcoded,
-            transcode_video,
-        )
+        from w2t_bkin.transcode import create_transcode_options, is_already_transcoded, transcode_video
 
         video_path = minimal_config_dict["paths"]["raw"] / "Session-000001" / "Video" / "top" / "cam0_2025-01-01-00-00-00.avi"
         options = create_transcode_options(codec="libx264", crf=18, preset="medium")
@@ -309,11 +278,7 @@ class TestRealSessionIntegration:
     @pytest.mark.skip(reason="Blocked: test uses non-spec config keys and requires complete Phase 1/2 implementations")
     def test_Should_AlignAllModalities_When_UsingRealSession_Issue4(self, minimal_config_dict):
         """Should align pose + facemap + videos using real Session-000001 (FR-5, FR-6)."""
-        from w2t_bkin.facemap import (
-            align_facemap_to_timebase,
-            compute_facemap_signals,
-            define_rois,
-        )
+        from w2t_bkin.facemap import align_facemap_to_timebase, compute_facemap_signals, define_rois
         from w2t_bkin.ingest import discover_sessions, ingest_session, load_config
         from w2t_bkin.pose import align_pose_to_timebase, import_dlc_pose
         from w2t_bkin.sync import compute_alignment

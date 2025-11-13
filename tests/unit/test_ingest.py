@@ -93,9 +93,7 @@ class TestManifestBuilding:
 
         # Verify error message contains relevant information
         error_message = str(exc_info.value).lower()
-        assert any(
-            keyword in error_message for keyword in ["missing", "not found", "no video files"]
-        ), f"Expected descriptive error about missing files, got: {exc_info.value}"
+        assert any(keyword in error_message for keyword in ["missing", "not found", "no video files"]), f"Expected descriptive error about missing files, got: {exc_info.value}"
 
     def test_Should_IncludeAbsolutePaths_When_ManifestBuilt(self):
         """Should store absolute paths in manifest (FR-1)."""
@@ -234,7 +232,7 @@ class TestFrameCountVerification:
         # Should not raise - mismatch within tolerance
         result = verify_manifest(manifest, tolerance=config_tolerance)
 
-        assert result.status == "verified", "Expected verification to pass"
+        assert result.status == "pass", "Expected verification to pass"
         assert len(result.camera_results) == 1, "Expected one camera result"
         assert result.camera_results[0].mismatch == 2, "Expected mismatch of 2"
 
@@ -360,7 +358,7 @@ class TestVerificationSummary:
                     "ttl_pulse_count": 1000,
                     "mismatch": 0,
                     "verifiable": True,
-                    "status": "verified",
+                    "status": "pass",
                 }
             ],
             generated_at=datetime.utcnow().isoformat(),
@@ -386,9 +384,7 @@ class TestVerificationSummary:
         from w2t_bkin.domain import Manifest, ManifestCamera
         from w2t_bkin.ingest import create_verification_summary
 
-        manifest = Manifest(
-            session_id="test", cameras=[ManifestCamera(camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=998, video_files=["test.avi"])]
-        )
+        manifest = Manifest(session_id="test", cameras=[ManifestCamera(camera_id="cam0", ttl_id="ttl_camera", frame_count=1000, ttl_pulse_count=998, video_files=["test.avi"])])
 
         summary = create_verification_summary(manifest)
 
@@ -478,7 +474,7 @@ class TestEdgeCases:
         # Should pass when mismatch == tolerance (boundary case)
         result = verify_manifest(manifest, tolerance=10)
 
-        assert result.status == "verified", "Verification should pass when mismatch equals tolerance"
+        assert result.status == "pass", "Verification should pass when mismatch equals tolerance"
         assert result.camera_results[0].mismatch == 10, "Mismatch should be 10"
 
     def test_Should_HandleMultipleCameras_When_Verifying(self):
@@ -496,7 +492,7 @@ class TestEdgeCases:
 
         result = verify_manifest(manifest, tolerance=0)
 
-        assert result.status == "verified", "All cameras should pass verification"
+        assert result.status == "pass", "All cameras should pass verification"
         assert len(result.camera_results) == 2, "Should have results for both cameras"
         assert result.camera_results[0].camera_id == "cam0", "First result should be cam0"
         assert result.camera_results[1].camera_id == "cam1", "Second result should be cam1"

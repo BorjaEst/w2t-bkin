@@ -32,11 +32,7 @@ def test_real_session_001_end_to_end_ingest(
     """
     from w2t_bkin.config import load_session
     from w2t_bkin.domain import Config, VerificationSummary
-    from w2t_bkin.ingest import (
-        build_manifest,
-        create_verification_summary,
-        write_verification_summary,
-    )
+    from w2t_bkin.ingest import build_manifest, create_verification_summary, write_verification_summary
 
     # Setup: Load session and configure paths
     session = load_session(fixture_session_toml)
@@ -85,7 +81,7 @@ def test_real_session_001_end_to_end_ingest(
         assert cam_result["ttl_pulse_count"] == 8580
         assert cam_result["mismatch"] == 0, "Perfect sync: 0 frame mismatch"
         assert cam_result["verifiable"] is True
-        assert cam_result["status"] in ["verified", "mismatch_within_tolerance"]
+        assert cam_result["status"] in ["pass", "mismatch_within_tolerance"]
 
     # Phase 4: Persistence - Write verification summary to JSON
     output_path = tmp_work_dir / "interim" / "verification_summary.json"
@@ -114,11 +110,7 @@ def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_tom
     Requirements: FR-11 (Bpod parsing)
     """
     from w2t_bkin.config import load_session
-    from w2t_bkin.events import (
-        extract_behavioral_events,
-        extract_trials,
-        parse_bpod_mat,
-    )
+    from w2t_bkin.events import extract_behavioral_events, extract_trials, parse_bpod_mat
 
     session = load_session(fixture_session_toml)
 
@@ -141,7 +133,7 @@ def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_tom
     trials = extract_trials(bpod_data)
     assert len(trials) > 0, "Should extract trials from Bpod data"
 
-    # Verify trial structure (TrialData dataclass instances)
+    # Verify trial structure (Trial dataclass instances)
     for trial in trials[:5]:  # Check first 5 trials
         assert hasattr(trial, "trial_number")
         assert hasattr(trial, "start_time")
@@ -155,7 +147,7 @@ def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_tom
     events = extract_behavioral_events(bpod_data)
     assert len(events) > 0, "Should extract behavioral events"
 
-    # Verify event structure (BehavioralEvent dataclass instances)
+    # Verify event structure (TrialEvent dataclass instances)
     for event in events[:5]:
         assert hasattr(event, "event_type")
         assert hasattr(event, "timestamp")
@@ -241,12 +233,7 @@ def test_real_session_001_verification_with_real_mismatch(
     """
     from w2t_bkin.config import load_session
     from w2t_bkin.domain import Config
-    from w2t_bkin.ingest import (
-        build_manifest,
-        count_ttl_pulses,
-        count_video_frames,
-        verify_manifest,
-    )
+    from w2t_bkin.ingest import build_manifest, count_ttl_pulses, count_video_frames, verify_manifest
 
     # Setup
     session = load_session(fixture_session_toml)
@@ -269,18 +256,18 @@ def test_real_session_001_verification_with_real_mismatch(
 
     # Test 1: Strict tolerance (0) should PASS with perfect sync
     result = verify_manifest(manifest, tolerance=0, warn_on_mismatch=False)
-    assert result.status == "verified", "Perfect sync (mismatch=0) should pass with tolerance=0"
+    assert result.status == "pass", "Perfect sync (mismatch=0) should pass with tolerance=0"
 
     # Test 2: Permissive tolerance should always PASS
     result = verify_manifest(manifest, tolerance=10000, warn_on_mismatch=False)
-    assert result.status == "verified"
+    assert result.status == "pass"
 
     # Test 3: Verify camera-level results
     assert len(result.camera_results) == 2, "Should have results for both cameras"
     for cam_result in result.camera_results:
         assert cam_result.mismatch == 0, f"Camera {cam_result.camera_id} should have 0 mismatch"
         assert cam_result.verifiable is True
-        assert cam_result.status == "verified"
+        assert cam_result.status == "pass"
 
 
 @pytest.mark.integration
@@ -341,20 +328,11 @@ def test_successful_ingest_and_verification(tmp_path):
     """
     from w2t_bkin.config import compute_config_hash, load_config
     from w2t_bkin.domain import Manifest, ManifestCamera
-    from w2t_bkin.ingest import (
-        build_manifest,
-        count_ttl_pulses,
-        count_video_frames,
-        create_verification_summary,
-        verify_manifest,
-        write_verification_summary,
-    )
+    from w2t_bkin.ingest import build_manifest, count_ttl_pulses, count_video_frames, create_verification_summary, verify_manifest, write_verification_summary
 
     # Load canonical config & session fixtures
     config = load_config(Path(__file__).parent.parent / "fixtures" / "configs" / "valid_config.toml")
-    session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(
-        Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml"
-    )
+    session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml")
 
     # Patch raw_root to tmp_path
     config = config.model_copy(update={"paths": config.paths.model_copy(update={"raw_root": str(tmp_path)})})
@@ -394,7 +372,7 @@ def test_successful_ingest_and_verification(tmp_path):
     # Since empty videos return 0 frames and TTL has 1000 pulses, mismatch = 1000
     # We need tolerance >= 1000 for this test to pass
     result = verify_manifest(manifest, tolerance=1000, warn_on_mismatch=config.verification.warn_on_mismatch)
-    assert result.status == "verified"
+    assert result.status == "pass"
 
     # Create and write verification summary
     vs = create_verification_summary(manifest)
@@ -420,9 +398,7 @@ def test_abort_on_mismatch_exceeds_tolerance(tmp_path):
     from w2t_bkin.ingest import build_manifest, verify_manifest
 
     config = load_config(Path(__file__).parent.parent / "fixtures" / "configs" / "valid_config.toml")
-    session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(
-        Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml"
-    )
+    session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml")
 
     config = config.model_copy(update={"paths": config.paths.model_copy(update={"raw_root": str(tmp_path)})})
 
@@ -462,9 +438,7 @@ def test_warn_on_mismatch_within_tolerance(tmp_path, caplog):
     from w2t_bkin.ingest import build_manifest, verify_manifest
 
     config = load_config(Path(__file__).parent.parent / "fixtures" / "configs" / "valid_config.toml")
-    session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(
-        Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml"
-    )
+    session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml")
 
     config = config.model_copy(update={"paths": config.paths.model_copy(update={"raw_root": str(tmp_path)})})
 
@@ -494,7 +468,7 @@ def test_warn_on_mismatch_within_tolerance(tmp_path, caplog):
     # Should not raise, but should emit a warning when warn_on_mismatch=True
     # Tolerance 1000 >= mismatch 995
     result = verify_manifest(manifest, tolerance=1000, warn_on_mismatch=True)
-    assert result.status == "verified"
+    assert result.status == "pass"
     assert any("has mismatch of" in rec.message for rec in caplog.records)
 
 

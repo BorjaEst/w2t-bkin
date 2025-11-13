@@ -276,7 +276,7 @@ class PoseKeypoint(BaseModel):
 ### Event Models
 
 ```python
-class TrialData(BaseModel):
+class Trial(BaseModel):
     """Trial data extracted from Bpod."""
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -285,7 +285,7 @@ class TrialData(BaseModel):
     stop_time: float
     outcome: str
 
-class BehavioralEvent(BaseModel):
+class TrialEvent(BaseModel):
     """Behavioral event extracted from Bpod."""
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -293,7 +293,7 @@ class BehavioralEvent(BaseModel):
     timestamp: float
     trial_number: int
 
-class BpodSummary(BaseModel):
+class TrialSummary(BaseModel):
     """Bpod summary for QC report."""
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -318,7 +318,7 @@ class CameraVerificationResult(BaseModel):
     ttl_pulse_count: int
     mismatch: int
     verifiable: bool
-    status: str  # "verified", "failed", "unverifiable"
+    status: str  # "pass", "failed", "unverifiable"
 
 class VerificationSummary(BaseModel):
     """Verification summary for frame/TTL counts."""

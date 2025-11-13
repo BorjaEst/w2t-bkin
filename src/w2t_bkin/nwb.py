@@ -77,15 +77,7 @@ from pynwb import NWBHDF5IO, NWBFile
 from pynwb.device import Device
 from pynwb.image import ImageSeries
 
-from .domain import (
-    AlignmentStats,
-    BpodSummary,
-    Config,
-    FacemapBundle,
-    Manifest,
-    PoseBundle,
-    Provenance,
-)
+from .domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Provenance, TrialSummary
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +300,7 @@ def _build_nwb_file(
     final_session_metadata: Dict[str, Any],
     pose_bundles: Optional[List[PoseBundle]],
     facemap_bundles: Optional[List[FacemapBundle]],
-    bpod_summary: Optional[BpodSummary],
+    bpod_summary: Optional[TrialSummary],
     manifest: Dict[str, Any],
 ) -> NWBFile:
     """Build NWBFile from components.
@@ -370,7 +362,7 @@ def _build_nwb_file(
     # Include optional modalities if present in manifest
     if "events" in manifest:
         logger.debug("Including events data in NWB")
-        # TODO: Add BehavioralEvents when events module is complete
+        # TODO: Add TrialEvents when events module is complete
     if "pose" in manifest:
         logger.debug("Including pose data in NWB")
         # TODO: Add PoseEstimation when pose module is complete
@@ -406,7 +398,7 @@ def assemble_nwb(
     output_dir: Path,
     pose_bundles: Optional[List[PoseBundle]] = None,
     facemap_bundles: Optional[List[FacemapBundle]] = None,
-    bpod_summary: Optional[BpodSummary] = None,
+    bpod_summary: Optional[TrialSummary] = None,
     session_metadata: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """Assemble NWB file from manifest and optional bundles.

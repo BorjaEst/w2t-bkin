@@ -71,7 +71,7 @@ def assemble_nwb(
     output_dir: Path,
     pose_bundles: Optional[List[PoseBundle]] = None,
     facemap_bundles: Optional[List[FacemapBundle]] = None,
-    bpod_summary: Optional[BpodSummary] = None,
+    bpod_summary: Optional[TrialSummary] = None,
     session_metadata: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """Assemble NWB file from manifest and optional modalities.
@@ -83,7 +83,7 @@ def assemble_nwb(
         output_dir: Directory for NWB file output
         pose_bundles: Optional list of PoseBundle objects (Phase 3)
         facemap_bundles: Optional list of FacemapBundle objects (Phase 3)
-        bpod_summary: Optional BpodSummary object (Phase 3)
+        bpod_summary: Optional TrialSummary object (Phase 3)
         session_metadata: Optional session metadata to override defaults
 
     Returns:
@@ -461,7 +461,7 @@ from w2t_bkin.domain import (
     Config,
     PoseBundle,
     FacemapBundle,
-    BpodSummary,
+    TrialSummary,
 )
 ```
 

@@ -317,7 +317,7 @@ class Manifest(BaseModel):
       "ttl_pulse_count": 18000,
       "mismatch": 0,
       "verifiable": true,
-      "status": "verified"
+      "status": "pass"
     }
   ],
   "generated_at": "2025-11-12T12:00:00Z"

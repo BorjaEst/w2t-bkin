@@ -45,7 +45,7 @@ modular architecture and a CLI-first user experience.
 - FR-10 — Ubiquitous: THE SYSTEM SHALL be configuration-driven via TOML validated by Pydantic
   models with environment overrides.
 - FR-11 — Optional: WHERE a Bpod MATLAB .mat file is present, THE SYSTEM SHALL parse it into a
-  Trials TimeIntervals table and BehavioralEvents without using it for video timing.
+  Trials TimeIntervals table and TrialEvents without using it for video timing.
 - FR-12 — Ubiquitous (modularity): THE SYSTEM SHALL organize implementation into modular Python
   subpackages with clear contracts and minimal coupling. Package boundaries MAY align with
   configuration groups where practical (e.g., labels/pose), and naming MAY evolve as the design

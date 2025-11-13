@@ -337,7 +337,7 @@ sequenceDiagram
     Note over CLI,events: Optional: Bpod parsing
     opt bpod.parse == true
       CLI->>events: parse_bpod_files(Session)
-      events-->>CLI: BpodSummary
+      events-->>CLI: TrialSummary
     end
 
     Note over CLI,sync: Phase 2: Timebase + Alignment

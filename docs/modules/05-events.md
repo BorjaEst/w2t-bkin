@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Parses Bpod .mat files into TrialData and BehavioralEvents, generates QC summaries. Extracts trial timing, states, and events from Bpod SessionData structure. Infers trial outcomes from visited states (handling NaN for unvisited states).
+Parses Bpod .mat files into Trial and TrialEvents, generates QC summaries. Extracts trial timing, states, and events from Bpod SessionData structure. Infers trial outcomes from visited states (handling NaN for unvisited states).
 
 ## Key Functions
 
@@ -58,7 +58,7 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
 ### Trial Extraction
 
 ```python
-def extract_trials(data: Dict[str, Any]) -> List[TrialData]:
+def extract_trials(data: Dict[str, Any]) -> List[Trial]:
     """Extract trial data from parsed Bpod data.
 
     Process:
@@ -68,13 +68,13 @@ def extract_trials(data: Dict[str, Any]) -> List[TrialData]:
     4. Extract RawEvents.Trial data for each trial
     5. Extract States from each trial
     6. Infer outcome from visited states (non-NaN)
-    7. Build TrialData objects
+    7. Build Trial objects
 
     Args:
         data: Parsed Bpod .mat data
 
     Returns:
-        List of TrialData objects (1-indexed trial numbers)
+        List of Trial objects (1-indexed trial numbers)
 
     Raises:
         BpodParseError: If structure invalid or extraction fails
@@ -120,7 +120,7 @@ def _infer_outcome(states: Dict[str, Any]) -> str:
 ### Behavioral Event Extraction
 
 ```python
-def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
+def extract_behavioral_events(data: Dict[str, Any]) -> List[TrialEvent]:
     """Extract behavioral events from parsed Bpod data.
 
     Process:
@@ -129,13 +129,13 @@ def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
     3. For each event type, extract timestamp(s)
     4. Handle multiple timestamps per event (e.g., BNC1High: [1.5, 8.5])
     5. Filter out NaN timestamps
-    6. Create BehavioralEvent for each valid timestamp
+    6. Create TrialEvent for each valid timestamp
 
     Args:
         data: Parsed Bpod .mat data
 
     Returns:
-        List of BehavioralEvent objects (flattened across all trials)
+        List of TrialEvent objects (flattened across all trials)
 
     Note:
         Returns empty list if structure invalid or no events found
@@ -153,20 +153,20 @@ def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
 ```python
 def create_event_summary(
     session_id: str,
-    trials: List[TrialData],
-    events: List[BehavioralEvent],
+    trials: List[Trial],
+    events: List[TrialEvent],
     bpod_files: List[str]
-) -> BpodSummary:
+) -> TrialSummary:
     """Create event summary for QC report.
 
     Args:
         session_id: Session identifier
-        trials: List of TrialData objects
-        events: List of BehavioralEvent objects
+        trials: List of Trial objects
+        events: List of TrialEvent objects
         bpod_files: List of Bpod file paths
 
     Returns:
-        BpodSummary with trial counts, outcome counts, event categories
+        TrialSummary with trial counts, outcome counts, event categories
 
     Example:
         >>> summary = create_event_summary("Session-001", trials, events, ["/data/bpod.mat"])
@@ -175,11 +175,11 @@ def create_event_summary(
         >>> print(f"Event categories: {summary.event_categories}")
     """
 
-def write_event_summary(summary: BpodSummary, output_path: Path) -> None:
+def write_event_summary(summary: TrialSummary, output_path: Path) -> None:
     """Write event summary to JSON file.
 
     Args:
-        summary: BpodSummary instance
+        summary: TrialSummary instance
         output_path: Output JSON path
 
     Note:
@@ -236,10 +236,10 @@ def write_event_summary(summary: BpodSummary, output_path: Path) -> None:
 
 ## Domain Models
 
-### TrialData
+### Trial
 
 ```python
-class TrialData(BaseModel):
+class Trial(BaseModel):
     """Trial data extracted from Bpod."""
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -249,10 +249,10 @@ class TrialData(BaseModel):
     outcome: str  # "hit", "miss", "correct_rejection", "false_alarm", "unknown"
 ```
 
-### BehavioralEvent
+### TrialEvent
 
 ```python
-class BehavioralEvent(BaseModel):
+class TrialEvent(BaseModel):
     """Behavioral event extracted from Bpod."""
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -261,10 +261,10 @@ class BehavioralEvent(BaseModel):
     trial_number: int  # 1-indexed
 ```
 
-### BpodSummary
+### TrialSummary
 
 ```python
-class BpodSummary(BaseModel):
+class TrialSummary(BaseModel):
     """Bpod summary for QC report."""
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -522,7 +522,7 @@ Events module recognizes common Bpod state names for outcome inference:
 ## Related Modules
 
 - **ingest:** Discovers Bpod .mat files and includes them in manifest
-- **domain:** Defines TrialData, BehavioralEvent, BpodSummary models
+- **domain:** Defines Trial, TrialEvent, TrialSummary models
 - **nwb:** Writes trials and events to NWB file format
 - **utils:** Provides write_json() for summary output
 

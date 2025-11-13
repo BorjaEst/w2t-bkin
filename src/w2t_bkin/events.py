@@ -12,16 +12,16 @@ Key Features:
 -------------
 - **Bpod Compatibility**: Handles SessionData structure from Bpod r2.5+
 - **Trial Extraction**: Parses trial outcomes and timing from States/RawEvents
-- **Event Extraction**: Converts Bpod events to standardized BehavioralEvent format
+- **Event Extraction**: Converts Bpod events to standardized TrialEvent format
 - **Outcome Inference**: Derives trial outcomes from state visit patterns
 - **QC Summaries**: Generates statistics for quality control
 
 Main Functions:
 ---------------
 - parse_bpod_mat: Load and validate Bpod .mat file
-- extract_trials: Extract TrialData objects from SessionData
-- extract_behavioral_events: Convert Bpod events to BehavioralEvent format
-- create_event_summary: Generate BpodSummary for QC reporting
+- extract_trials: Extract Trial objects from SessionData
+- extract_behavioral_events: Convert Bpod events to TrialEvent format
+- create_event_summary: Generate TrialSummary for QC reporting
 
 Requirements:
 -------------
@@ -37,9 +37,9 @@ Data Flow:
 ----------
 1. Load .mat file → Raw MATLAB structures
 2. Validate SessionData structure
-3. Extract trials → TrialData objects (outcome, times)
-4. Extract events → BehavioralEvent objects (category, timestamp)
-5. Create summary → BpodSummary (counts, categories)
+3. Extract trials → Trial objects (outcome, times)
+4. Extract events → TrialEvent objects (category, timestamp)
+5. Create summary → TrialSummary (counts, categories)
 
 Example:
 --------
@@ -72,7 +72,7 @@ try:
 except ImportError:
     loadmat = None
 
-from .domain import BehavioralEvent, BpodSummary, TrialData
+from .domain import Trial, TrialEvent, TrialSummary
 from .utils import write_json
 
 logger = logging.getLogger(__name__)
@@ -333,14 +333,14 @@ def _infer_outcome(states: Dict[str, Any]) -> str:
     return _validate_outcome("unknown")
 
 
-def extract_trials(data: Dict[str, Any]) -> List[TrialData]:
+def extract_trials(data: Dict[str, Any]) -> List[Trial]:
     """Extract trial data from parsed Bpod data with validation.
 
     Args:
         data: Parsed Bpod data dictionary
 
     Returns:
-        List of TrialData objects
+        List of Trial objects
 
     Raises:
         BpodParseError: If structure is invalid or extraction fails
@@ -380,9 +380,30 @@ def extract_trials(data: Dict[str, Any]) -> List[TrialData]:
 
             # Convert MATLAB struct to dict if needed
             states = _convert_matlab_struct(states)
-            outcome = _infer_outcome(states)
+            outcome_str = _infer_outcome(states)
 
-            trials.append(TrialData(trial_number=trial_num, start_time=start_time, stop_time=stop_time, outcome=outcome))
+            # Map string outcome to TrialOutcome enum
+            from .domain import TrialOutcome
+
+            outcome_map = {
+                "hit": TrialOutcome.HIT,
+                "miss": TrialOutcome.MISS,
+                "correct_rejection": TrialOutcome.CORRECT_REJECTION,
+                "false_alarm": TrialOutcome.FALSE_ALARM,
+                "unknown": TrialOutcome.MISS,  # Default unknown to MISS
+            }
+            outcome = outcome_map.get(outcome_str, TrialOutcome.MISS)
+
+            trials.append(
+                Trial(
+                    trial_number=trial_num,
+                    trial_type=1,  # Default trial type, can be enhanced later
+                    start_time=start_time,
+                    end_time=stop_time,
+                    outcome=outcome,
+                    events=[],  # Events extracted separately
+                )
+            )
         except Exception as e:
             raise BpodParseError(f"Failed to extract trial {i + 1}: {type(e).__name__}")
 
@@ -395,14 +416,14 @@ def extract_trials(data: Dict[str, Any]) -> List[TrialData]:
 # =============================================================================
 
 
-def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
+def extract_behavioral_events(data: Dict[str, Any]) -> List[TrialEvent]:
     """Extract behavioral events from parsed Bpod data with sanitization.
 
     Args:
         data: Parsed Bpod data dictionary
 
     Returns:
-        List of BehavioralEvent objects with sanitized event types
+        List of TrialEvent objects with sanitized event types
     """
     if not validate_bpod_structure(data):
         logger.warning("Invalid Bpod structure, returning empty event list")
@@ -446,7 +467,13 @@ def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
 
             for timestamp in timestamps:
                 if isinstance(timestamp, (int, float)) and not math.isnan(timestamp):
-                    events.append(BehavioralEvent(event_type=safe_event_type, timestamp=float(timestamp), trial_number=trial_num))
+                    events.append(
+                        TrialEvent(
+                            event_type=safe_event_type,
+                            timestamp=float(timestamp),
+                            metadata={"trial_number": float(trial_num)},
+                        )
+                    )
 
     logger.info(f"Extracted {len(events)} behavioral events from Bpod file")
     return events
@@ -457,7 +484,7 @@ def extract_behavioral_events(data: Dict[str, Any]) -> List[BehavioralEvent]:
 # =============================================================================
 
 
-def create_event_summary(session_id: str, trials: List[TrialData], events: List[BehavioralEvent], bpod_files: List[str]) -> BpodSummary:
+def create_event_summary(session_id: str, trials: List[Trial], events: List[TrialEvent], bpod_files: List[str]) -> TrialSummary:
     """Create event summary for QC report with validated data.
 
     Args:
@@ -467,18 +494,37 @@ def create_event_summary(session_id: str, trials: List[TrialData], events: List[
         bpod_files: List of source Bpod file paths
 
     Returns:
-        BpodSummary object for QC reporting
+        TrialSummary object for QC reporting
     """
+    # Count outcomes
     outcome_counts = {}
     for trial in trials:
-        outcome_counts[trial.outcome] = outcome_counts.get(trial.outcome, 0) + 1
+        outcome_str = trial.outcome.value  # Get string value from enum
+        outcome_counts[outcome_str] = outcome_counts.get(outcome_str, 0) + 1
 
+    # Count trial types
+    trial_type_counts = {}
+    for trial in trials:
+        trial_type_counts[trial.trial_type] = trial_type_counts.get(trial.trial_type, 0) + 1
+
+    # Calculate mean trial duration
+    durations = [trial.duration for trial in trials]
+    mean_trial_duration = sum(durations) / len(durations) if durations else 0.0
+
+    # Calculate mean response latency (only for trials with valid latency)
+    latencies = [trial.response_latency for trial in trials if trial.response_latency is not None]
+    mean_response_latency = sum(latencies) / len(latencies) if latencies else None
+
+    # Extract unique event categories
     event_categories = sorted(set(e.event_type for e in events))
 
-    summary = BpodSummary(
+    summary = TrialSummary(
         session_id=session_id,
         total_trials=len(trials),
         outcome_counts=outcome_counts,
+        trial_type_counts=trial_type_counts,
+        mean_trial_duration=mean_trial_duration,
+        mean_response_latency=mean_response_latency,
         event_categories=event_categories,
         bpod_files=bpod_files,
         generated_at=datetime.utcnow().isoformat(),
@@ -488,11 +534,11 @@ def create_event_summary(session_id: str, trials: List[TrialData], events: List[
     return summary
 
 
-def write_event_summary(summary: BpodSummary, output_path: Path) -> None:
+def write_event_summary(summary: TrialSummary, output_path: Path) -> None:
     """Write event summary to JSON file.
 
     Args:
-        summary: BpodSummary object to write
+        summary: TrialSummary object to write
         output_path: Destination path for JSON file
     """
     data = summary.model_dump()
@@ -535,7 +581,7 @@ if __name__ == "__main__":
         print(f"✓ Extracted {len(events)} behavioral events")
 
         if events:
-            categories = set(e.category for e in events)
+            categories = set(e.event_type for e in events)
             print(f"  Event categories: {', '.join(sorted(categories))}")
 
         # Create summary

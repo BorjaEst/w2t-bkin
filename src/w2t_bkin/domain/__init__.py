@@ -11,7 +11,8 @@ Package Structure:
 - session: Session models (Session, Camera, TTL, SessionMetadata, etc.)
 - manifest: Manifest and verification models (Manifest, VerificationSummary, etc.)
 - alignment: Alignment and provenance models (AlignmentStats, Provenance)
-- bpod: Behavioral events models (TrialData, BehavioralEvent, BpodSummary)
+- bpod: Bpod file parsing models (BpodMatFile, SessionData, RawTrial, etc.)
+- trials: Trial domain models (Trial, TrialEvent, TrialOutcome, TrialSummary)
 - pose: Pose estimation models (PoseBundle, PoseFrame, PoseKeypoint)
 - facemap: Facemap models (FacemapBundle, FacemapROI, FacemapSignal)
 - transcode: Transcoding models (TranscodeOptions, TranscodedVideo)
@@ -71,8 +72,23 @@ Example:
 # Alignment and provenance models (Phase 2)
 from w2t_bkin.domain.alignment import AlignmentStats, Provenance
 
-# Behavioral events models (Phase 3 - Optional)
-from w2t_bkin.domain.bpod import BehavioralEvent, BpodSummary, TrialData
+# Bpod file parsing models (Phase 3 - Optional, Low-level)
+from w2t_bkin.domain.bpod import (
+    AnalogData,
+    AnalogInfo,
+    BpodMatFile,
+    CircuitRevision,
+    FirmwareInfo,
+    ModulesInfo,
+    PCSetup,
+    RawData,
+    RawEvents,
+    RawTrial,
+    SessionData,
+    SessionInfo,
+    StateTimings,
+    TrialEvents,
+)
 
 # Configuration models (Phase 0)
 from w2t_bkin.domain.config import (
@@ -140,6 +156,9 @@ from w2t_bkin.domain.session import TTL, BpodSession, Camera, Session, SessionMe
 # Transcoding models (Phase 3 - Optional)
 from w2t_bkin.domain.transcode import TranscodedVideo, TranscodeOptions
 
+# Trial domain models (Phase 3 - Optional, High-level)
+from w2t_bkin.domain.trials import Trial, TrialEvent, TrialOutcome, TrialSummary
+
 # Public API (alphabetically ordered within categories)
 __all__ = [
     # Exceptions
@@ -203,10 +222,26 @@ __all__ = [
     # Alignment models
     "AlignmentStats",
     "Provenance",
-    # Bpod models
-    "TrialData",
-    "BehavioralEvent",
-    "BpodSummary",
+    # Bpod file parsing models (low-level)
+    "BpodMatFile",
+    "SessionData",
+    "SessionInfo",
+    "AnalogData",
+    "AnalogInfo",
+    "FirmwareInfo",
+    "CircuitRevision",
+    "ModulesInfo",
+    "PCSetup",
+    "RawEvents",
+    "RawTrial",
+    "StateTimings",
+    "TrialEvents",
+    "RawData",
+    # Trial domain models (high-level)
+    "Trial",
+    "TrialEvent",
+    "TrialOutcome",
+    "TrialSummary",
     # Pose models
     "PoseBundle",
     "PoseFrame",
