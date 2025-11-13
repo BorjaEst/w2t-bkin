@@ -49,9 +49,9 @@ See Also:
 - spec/spec-config-toml.md: Schema specification
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProjectConfig(BaseModel):
@@ -59,7 +59,7 @@ class ProjectConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    name: str
+    name: str = Field(..., description="Project name for identification and reporting")
 
 
 class PathsConfig(BaseModel):
@@ -67,11 +67,11 @@ class PathsConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    raw_root: str
-    intermediate_root: str
-    output_root: str
-    metadata_file: str
-    models_root: str
+    raw_root: str = Field(..., description="Root directory for raw input data")
+    intermediate_root: str = Field(..., description="Root directory for intermediate processing outputs")
+    output_root: str = Field(..., description="Root directory for final pipeline outputs")
+    metadata_file: str = Field(..., description="Path to metadata file (e.g., session.toml)")
+    models_root: str = Field(..., description="Root directory for ML models (DLC, SLEAP, etc.)")
 
 
 class TimebaseConfig(BaseModel):
@@ -95,12 +95,12 @@ class TimebaseConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    source: str  # Enum validated at load time: nominal_rate|ttl|neuropixels
-    mapping: str  # Enum validated at load time: nearest|linear
-    jitter_budget_s: float
-    offset_s: float
-    ttl_id: Optional[str] = None
-    neuropixels_stream: Optional[str] = None
+    source: str = Field(..., description="Timebase source: 'nominal_rate' | 'ttl' | 'neuropixels'")
+    mapping: str = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
+    jitter_budget_s: float = Field(..., description="Maximum acceptable jitter in seconds before aborting", gt=0)
+    offset_s: float = Field(default=0.0, description="Time offset applied to timebase in seconds")
+    ttl_id: Optional[str] = Field(default=None, description="TTL channel ID when source='ttl'")
+    neuropixels_stream: Optional[str] = Field(default=None, description="Neuropixels stream name when source='neuropixels'")
 
 
 class AcquisitionConfig(BaseModel):
@@ -108,7 +108,7 @@ class AcquisitionConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    concat_strategy: str  # Enum validated at load time
+    concat_strategy: str = Field(..., description="Video concatenation strategy (validated at load time)")
 
 
 class VerificationConfig(BaseModel):
@@ -125,8 +125,8 @@ class VerificationConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    mismatch_tolerance_frames: int
-    warn_on_mismatch: bool
+    mismatch_tolerance_frames: int = Field(..., description="Maximum acceptable frame/TTL mismatch", ge=0)
+    warn_on_mismatch: bool = Field(..., description="Emit warning when mismatch is within tolerance")
 
 
 class BpodConfig(BaseModel):
@@ -138,7 +138,7 @@ class BpodConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    parse: bool
+    parse: bool = Field(..., description="Enable parsing of Bpod behavioral data files")
 
 
 class TranscodeConfig(BaseModel):
@@ -157,11 +157,11 @@ class TranscodeConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    enabled: bool
-    codec: str
-    crf: int
-    preset: str
-    keyint: int
+    enabled: bool = Field(..., description="Enable video transcoding to mezzanine format")
+    codec: str = Field(..., description="ffmpeg video codec (e.g., 'libx264', 'libx265')")
+    crf: int = Field(..., description="Constant Rate Factor (0-51, lower=better quality)", ge=0, le=51)
+    preset: str = Field(..., description="ffmpeg encoding preset (e.g., 'ultrafast', 'medium', 'veryslow')")
+    keyint: int = Field(..., description="Keyframe interval in frames", gt=0)
 
 
 class VideoConfig(BaseModel):
@@ -169,7 +169,7 @@ class VideoConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    transcode: TranscodeConfig
+    transcode: TranscodeConfig = Field(..., description="Video transcoding settings")
 
 
 class NWBConfig(BaseModel):
@@ -189,11 +189,11 @@ class NWBConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    link_external_video: bool
-    lab: str
-    institution: str
-    file_name_template: str
-    session_description_template: str
+    link_external_video: bool = Field(..., description="Use external_file links instead of embedding videos")
+    lab: str = Field(..., description="Laboratory name for NWB metadata")
+    institution: str = Field(..., description="Institution name for NWB metadata")
+    file_name_template: str = Field(..., description="Template for NWB output filename (supports placeholders)")
+    session_description_template: str = Field(..., description="Template for NWB session description")
 
 
 class QCConfig(BaseModel):
@@ -205,9 +205,9 @@ class QCConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    generate_report: bool
-    out_template: str
-    include_verification: bool
+    generate_report: bool = Field(..., description="Enable QC HTML report generation")
+    out_template: str = Field(..., description="Template for QC report output path")
+    include_verification: bool = Field(..., description="Include frame/TTL verification results in report")
 
 
 class LoggingConfig(BaseModel):
@@ -219,8 +219,8 @@ class LoggingConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    level: str
-    structured: bool
+    level: str = Field(..., description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    structured: bool = Field(..., description="Enable structured JSON logging")
 
 
 class DLCConfig(BaseModel):
@@ -232,8 +232,8 @@ class DLCConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    run_inference: bool
-    model: str
+    run_inference: bool = Field(..., description="Enable DeepLabCut pose inference")
+    model: str = Field(..., description="Path to DeepLabCut model")
 
 
 class SLEAPConfig(BaseModel):
@@ -245,8 +245,8 @@ class SLEAPConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    run_inference: bool
-    model: str
+    run_inference: bool = Field(..., description="Enable SLEAP pose inference")
+    model: str = Field(..., description="Path to SLEAP model")
 
 
 class LabelsConfig(BaseModel):
@@ -254,8 +254,8 @@ class LabelsConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    dlc: DLCConfig
-    sleap: SLEAPConfig
+    dlc: DLCConfig = Field(..., description="DeepLabCut configuration")
+    sleap: SLEAPConfig = Field(..., description="SLEAP configuration")
 
 
 class FacemapConfig(BaseModel):
@@ -267,8 +267,8 @@ class FacemapConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    run_inference: bool
-    ROIs: List[str]
+    run_inference: bool = Field(..., description="Enable Facemap motion energy computation")
+    ROIs: List[str] = Field(..., description="List of ROI names to analyze")
 
 
 class Config(BaseModel):
@@ -292,15 +292,15 @@ class Config(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    project: ProjectConfig
-    paths: PathsConfig
-    timebase: TimebaseConfig
-    acquisition: AcquisitionConfig
-    verification: VerificationConfig
-    bpod: BpodConfig
-    video: VideoConfig
-    nwb: NWBConfig
-    qc: QCConfig
-    logging: LoggingConfig
-    labels: LabelsConfig
-    facemap: FacemapConfig
+    project: ProjectConfig = Field(..., description="Project identification configuration")
+    paths: PathsConfig = Field(..., description="Data directory paths configuration")
+    timebase: TimebaseConfig = Field(..., description="Timebase alignment configuration")
+    acquisition: AcquisitionConfig = Field(..., description="Acquisition policies")
+    verification: VerificationConfig = Field(..., description="Frame/TTL verification policies")
+    bpod: BpodConfig = Field(..., description="Bpod behavioral data configuration")
+    video: VideoConfig = Field(..., description="Video processing configuration")
+    nwb: NWBConfig = Field(..., description="NWB export configuration")
+    qc: QCConfig = Field(..., description="Quality control report configuration")
+    logging: LoggingConfig = Field(..., description="Logging configuration")
+    labels: LabelsConfig = Field(..., description="Pose estimation configuration")
+    facemap: FacemapConfig = Field(..., description="Facemap motion energy configuration")

@@ -64,7 +64,7 @@ See Also:
 
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PoseKeypoint(BaseModel):
@@ -84,10 +84,10 @@ class PoseKeypoint(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    name: str
-    x: float
-    y: float
-    confidence: float
+    name: str = Field(..., description="Keypoint name from canonical skeleton (e.g., 'nose', 'left_ear')")
+    x: float = Field(..., description="X coordinate in pixels")
+    y: float = Field(..., description="Y coordinate in pixels")
+    confidence: float = Field(..., description="Confidence score (0.0-1.0)", ge=0.0, le=1.0)
 
 
 class PoseFrame(BaseModel):
@@ -113,10 +113,10 @@ class PoseFrame(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    frame_index: int
-    timestamp: float  # Aligned timestamp
-    keypoints: List[PoseKeypoint]
-    source: str  # "dlc" | "sleap"
+    frame_index: int = Field(..., description="Video frame index (0-indexed)", ge=0)
+    timestamp: float = Field(..., description="Aligned timestamp in seconds (reference timebase)")
+    keypoints: List[PoseKeypoint] = Field(..., description="List of keypoints for this frame")
+    source: str = Field(..., description="Pose estimation source: 'dlc' (DeepLabCut) | 'sleap' (SLEAP)")
 
 
 class PoseBundle(BaseModel):
@@ -156,11 +156,11 @@ class PoseBundle(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    session_id: str
-    camera_id: str
-    model_name: str
-    skeleton: str  # Canonical skeleton name
-    frames: List[PoseFrame]
-    alignment_method: str  # "nearest" | "linear"
-    mean_confidence: float
-    generated_at: str
+    session_id: str = Field(..., description="Session identifier")
+    camera_id: str = Field(..., description="Camera identifier")
+    model_name: str = Field(..., description="Pose model identifier (e.g., 'dlc_mouse_v1', 'sleap_rat_16pt')")
+    skeleton: str = Field(..., description="Canonical skeleton name (e.g., 'mouse_12pt', 'rat_16pt')")
+    frames: List[PoseFrame] = Field(..., description="List of pose frames with aligned timestamps")
+    alignment_method: str = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
+    mean_confidence: float = Field(..., description="Mean confidence across all keypoints and frames", ge=0.0, le=1.0)
+    generated_at: str = Field(..., description="ISO 8601 timestamp of pose bundle generation")

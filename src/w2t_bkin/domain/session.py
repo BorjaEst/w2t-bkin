@@ -45,7 +45,7 @@ See Also:
 
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SessionMetadata(BaseModel):
@@ -68,14 +68,14 @@ class SessionMetadata(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    id: str
-    subject_id: str
-    date: str
-    experimenter: str
-    description: str
-    sex: str
-    age: str
-    genotype: str
+    id: str = Field(..., description="Unique session identifier")
+    subject_id: str = Field(..., description="Subject/animal identifier (supports anonymization)")
+    date: str = Field(..., description="Session date (ISO 8601 format recommended)")
+    experimenter: str = Field(..., description="Name or ID of experimenter")
+    description: str = Field(..., description="Human-readable session description")
+    sex: str = Field(..., description="Subject sex: 'M' (male), 'F' (female), or 'U' (unknown)")
+    age: str = Field(..., description="Subject age (e.g., 'P60', '3mo', '2y')")
+    genotype: str = Field(..., description="Subject genotype (e.g., 'WT', 'Cre+', 'KO')")
 
 
 class BpodSession(BaseModel):
@@ -92,8 +92,8 @@ class BpodSession(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    path: str
-    order: str
+    path: str = Field(..., description="Glob pattern for Bpod .mat files (e.g., 'Bpod/*.mat')")
+    order: str = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
 
 
 class TTL(BaseModel):
@@ -115,9 +115,9 @@ class TTL(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    id: str
-    description: str
-    paths: str
+    id: str = Field(..., description="Unique TTL channel identifier (referenced by cameras)")
+    description: str = Field(..., description="Human-readable description of TTL channel")
+    paths: str = Field(..., description="Glob pattern for TTL pulse files (e.g., 'TTLs/cam_sync*.txt')")
 
 
 class Camera(BaseModel):
@@ -140,11 +140,11 @@ class Camera(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    id: str
-    description: str
-    paths: str
-    order: str
-    ttl_id: str
+    id: str = Field(..., description="Unique camera identifier")
+    description: str = Field(..., description="Human-readable description of camera view")
+    paths: str = Field(..., description="Glob pattern for video files (e.g., 'Video/cam0_*.avi')")
+    order: str = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
+    ttl_id: str = Field(..., description="Reference to TTL channel ID for frame/pulse verification")
 
 
 class Session(BaseModel):
@@ -169,7 +169,7 @@ class Session(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    session: SessionMetadata
-    bpod: BpodSession
-    TTLs: List[TTL]
-    cameras: List[Camera]
+    session: SessionMetadata = Field(..., description="Session metadata and subject information")
+    bpod: BpodSession = Field(..., description="Bpod file configuration")
+    TTLs: List[TTL] = Field(..., description="List of TTL channel configurations")
+    cameras: List[Camera] = Field(..., description="List of camera configurations")

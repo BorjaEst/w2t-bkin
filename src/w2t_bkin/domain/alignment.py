@@ -51,7 +51,7 @@ See Also:
 - design.md: Alignment stats schema
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AlignmentStats(BaseModel):
@@ -90,12 +90,12 @@ class AlignmentStats(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    timebase_source: str  # "nominal_rate" | "ttl" | "neuropixels"
-    mapping: str  # "nearest" | "linear"
-    offset_s: float
-    max_jitter_s: float
-    p95_jitter_s: float
-    aligned_samples: int
+    timebase_source: str = Field(..., description="Source of reference timebase: 'nominal_rate' | 'ttl' | 'neuropixels'")
+    mapping: str = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
+    offset_s: float = Field(..., description="Time offset applied to timebase in seconds")
+    max_jitter_s: float = Field(..., description="Maximum jitter observed in seconds", ge=0)
+    p95_jitter_s: float = Field(..., description="95th percentile jitter in seconds", ge=0)
+    aligned_samples: int = Field(..., description="Number of samples successfully aligned", ge=0)
 
 
 class Provenance(BaseModel):
@@ -128,5 +128,5 @@ class Provenance(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    config_hash: str
-    session_hash: str
+    config_hash: str = Field(..., description="SHA256 hash of config.toml content for reproducibility")
+    session_hash: str = Field(..., description="SHA256 hash of session.toml content for reproducibility")

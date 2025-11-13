@@ -85,11 +85,11 @@ class ManifestCamera(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    camera_id: str
-    ttl_id: str
-    video_files: List[str]
-    frame_count: Optional[int] = None  # None = not counted yet
-    ttl_pulse_count: Optional[int] = None  # None = not counted yet
+    camera_id: str = Field(..., description="Camera identifier from session.toml")
+    ttl_id: str = Field(..., description="Referenced TTL channel ID for verification")
+    video_files: List[str] = Field(..., description="List of absolute paths to discovered video files")
+    frame_count: Optional[int] = Field(default=None, description="Total frame count across all videos (None = not counted yet)")
+    ttl_pulse_count: Optional[int] = Field(default=None, description="Total TTL pulse count (None = not counted yet)")
 
 
 class ManifestTTL(BaseModel):
@@ -105,8 +105,8 @@ class ManifestTTL(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    ttl_id: str
-    files: List[str]
+    ttl_id: str = Field(..., description="TTL channel identifier")
+    files: List[str] = Field(..., description="List of absolute paths to discovered TTL files")
 
 
 class Manifest(BaseModel):
@@ -137,10 +137,10 @@ class Manifest(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    session_id: str
-    cameras: List[ManifestCamera] = Field(default_factory=list)
-    ttls: List[ManifestTTL] = Field(default_factory=list)
-    bpod_files: Optional[List[str]] = None
+    session_id: str = Field(..., description="Session identifier")
+    cameras: List[ManifestCamera] = Field(default_factory=list, description="List of camera manifest entries")
+    ttls: List[ManifestTTL] = Field(default_factory=list, description="List of TTL manifest entries")
+    bpod_files: Optional[List[str]] = Field(default=None, description="List of Bpod .mat file paths (optional)")
 
 
 class CameraVerificationResult(BaseModel):
@@ -165,13 +165,13 @@ class CameraVerificationResult(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    camera_id: str
-    ttl_id: str
-    frame_count: int
-    ttl_pulse_count: int
-    mismatch: int
-    verifiable: bool
-    status: str  # "pass" | "warn" | "fail"
+    camera_id: str = Field(..., description="Camera identifier")
+    ttl_id: str = Field(..., description="Referenced TTL channel ID")
+    frame_count: int = Field(..., description="Total video frame count", ge=0)
+    ttl_pulse_count: int = Field(..., description="Total TTL pulse count", ge=0)
+    mismatch: int = Field(..., description="Absolute difference |frame_count - ttl_pulse_count|", ge=0)
+    verifiable: bool = Field(..., description="Whether camera has valid TTL reference for verification")
+    status: str = Field(..., description="Verification status: 'pass' | 'warn' | 'fail'")
 
 
 class VerificationSummary(BaseModel):
@@ -198,9 +198,9 @@ class VerificationSummary(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    session_id: str
-    cameras: List[CameraVerificationResult]
-    generated_at: str
+    session_id: str = Field(..., description="Session identifier")
+    cameras: List[CameraVerificationResult] = Field(..., description="List of per-camera verification results")
+    generated_at: str = Field(..., description="ISO 8601 timestamp of verification")
 
 
 class VerificationResult(BaseModel):
@@ -218,5 +218,5 @@ class VerificationResult(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    status: str  # "pass" | "warn" | "fail"
-    camera_results: List[CameraVerificationResult] = Field(default_factory=list)
+    status: str = Field(..., description="Overall verification status: 'pass' | 'warn' | 'fail'")
+    camera_results: List[CameraVerificationResult] = Field(default_factory=list, description="Per-camera verification details")

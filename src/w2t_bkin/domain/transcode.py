@@ -54,7 +54,7 @@ See Also:
 
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TranscodeOptions(BaseModel):
@@ -82,10 +82,10 @@ class TranscodeOptions(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    codec: str
-    crf: int
-    preset: str
-    keyint: int
+    codec: str = Field(..., description="ffmpeg video codec (e.g., 'libx264', 'libx265')")
+    crf: int = Field(..., description="Constant Rate Factor (0-51, lower=better quality)", ge=0, le=51)
+    preset: str = Field(..., description="ffmpeg encoding preset (e.g., 'ultrafast', 'medium', 'veryslow')")
+    keyint: int = Field(..., description="Keyframe interval in frames", gt=0)
 
 
 class TranscodedVideo(BaseModel):
@@ -125,9 +125,9 @@ class TranscodedVideo(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    camera_id: str
-    original_path: Path
-    output_path: Path  # Content-addressed path
-    codec: str
-    checksum: str  # SHA256 or similar
-    frame_count: int
+    camera_id: str = Field(..., description="Camera identifier")
+    original_path: Path = Field(..., description="Path to original raw video file")
+    output_path: Path = Field(..., description="Path to transcoded mezzanine video (content-addressed)")
+    codec: str = Field(..., description="Video codec used for transcoding")
+    checksum: str = Field(..., description="Content-addressed hash (e.g., SHA256) for idempotent operations")
+    frame_count: int = Field(..., description="Total frame count for verification", ge=0)

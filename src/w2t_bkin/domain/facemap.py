@@ -63,7 +63,7 @@ See Also:
 
 from typing import List
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class FacemapROI(BaseModel):
@@ -85,11 +85,11 @@ class FacemapROI(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    name: str
-    x: int
-    y: int
-    width: int
-    height: int
+    name: str = Field(..., description="ROI identifier (e.g., 'eye', 'whisker', 'nose')")
+    x: int = Field(..., description="Top-left X coordinate in pixels", ge=0)
+    y: int = Field(..., description="Top-left Y coordinate in pixels", ge=0)
+    width: int = Field(..., description="ROI width in pixels", gt=0)
+    height: int = Field(..., description="ROI height in pixels", gt=0)
 
 
 class FacemapSignal(BaseModel):
@@ -116,10 +116,10 @@ class FacemapSignal(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    roi_name: str
-    timestamps: List[float]  # Aligned timestamps
-    values: List[float]
-    sampling_rate: float
+    roi_name: str = Field(..., description="Name of source ROI (must match an ROI in FacemapBundle)")
+    timestamps: List[float] = Field(..., description="Aligned timestamps in seconds (reference timebase)")
+    values: List[float] = Field(..., description="Motion energy signal values (normalized 0.0-1.0)")
+    sampling_rate: float = Field(..., description="Signal sampling rate in Hz", gt=0)
 
 
 class FacemapBundle(BaseModel):
@@ -158,12 +158,12 @@ class FacemapBundle(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    session_id: str
-    camera_id: str
-    rois: List[FacemapROI]
-    signals: List[FacemapSignal]
-    alignment_method: str  # "nearest" | "linear"
-    generated_at: str
+    session_id: str = Field(..., description="Session identifier")
+    camera_id: str = Field(..., description="Camera identifier")
+    rois: List[FacemapROI] = Field(..., description="List of ROI definitions")
+    signals: List[FacemapSignal] = Field(..., description="List of motion energy signals (one per ROI)")
+    alignment_method: str = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
+    generated_at: str = Field(..., description="ISO 8601 timestamp of facemap bundle generation")
 
     @model_validator(mode="after")
     def validate_signals_match_rois(self) -> "FacemapBundle":

@@ -50,7 +50,7 @@ See Also:
 
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TrialData(BaseModel):
@@ -77,10 +77,10 @@ class TrialData(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    trial_number: int
-    start_time: float
-    stop_time: float
-    outcome: str
+    trial_number: int = Field(..., description="Sequential trial identifier (1-indexed)", ge=1)
+    start_time: float = Field(..., description="Trial start time in seconds (Bpod timebase)")
+    stop_time: float = Field(..., description="Trial stop time in seconds (Bpod timebase)")
+    outcome: str = Field(..., description="Trial outcome classification (e.g., 'correct', 'incorrect', 'miss')")
 
 
 class BehavioralEvent(BaseModel):
@@ -105,9 +105,9 @@ class BehavioralEvent(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    event_type: str
-    timestamp: float
-    trial_number: int
+    event_type: str = Field(..., description="Event classification (e.g., 'nose_poke', 'reward', 'tone')")
+    timestamp: float = Field(..., description="Event timestamp in seconds (Bpod timebase)")
+    trial_number: int = Field(..., description="Associated trial number (1-indexed)", ge=1)
 
 
 class BpodSummary(BaseModel):
@@ -141,9 +141,9 @@ class BpodSummary(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    session_id: str
-    total_trials: int
-    outcome_counts: dict
-    event_categories: List[str]
-    bpod_files: List[str]
-    generated_at: str
+    session_id: str = Field(..., description="Session identifier")
+    total_trials: int = Field(..., description="Total number of trials in session", ge=0)
+    outcome_counts: dict = Field(..., description="Dictionary of outcome counts (e.g., {'correct': 45, 'incorrect': 5})")
+    event_categories: List[str] = Field(..., description="List of unique event types observed in session")
+    bpod_files: List[str] = Field(..., description="List of Bpod .mat file paths processed")
+    generated_at: str = Field(..., description="ISO 8601 timestamp of summary generation")
