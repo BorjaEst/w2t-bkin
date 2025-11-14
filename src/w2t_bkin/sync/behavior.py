@@ -178,8 +178,8 @@ def align_bpod_trials_to_ttl(
     raw_events = convert_matlab_struct(session_data["RawEvents"])
     trial_data_list = raw_events["Trial"]
 
-    # Extract TrialTypes if available (use helper from events module)
-    from ..events import _to_scalar
+    # Extract TrialTypes if available (use helper from events.helpers)
+    from ..events.helpers import to_scalar
 
     trial_types_array = session_data.get("TrialTypes")
     if trial_types_array is None:
@@ -195,7 +195,7 @@ def align_bpod_trials_to_ttl(
         trial_data = convert_matlab_struct(trial_data_list[i])
 
         # Get trial type (handle numpy arrays)
-        trial_type = int(_to_scalar(trial_types_array, i))
+        trial_type = int(to_scalar(trial_types_array, i))
 
         if trial_type not in trial_type_map:
             warnings_list.append(f"Trial {trial_num}: trial_type {trial_type} not in session config, skipping")
