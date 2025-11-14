@@ -38,7 +38,7 @@ Acceptance Criteria:
 
 Usage:
 ------
->>> from w2t_bkin.ingest import build_manifest
+>>> from w2t_bkin.ingest import build_and_count_manifest
 >>> manifest = build_and_count_manifest(config, session)
 >>> manifest.cameras[0].frame_count  # int or None
 >>>

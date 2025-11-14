@@ -157,7 +157,7 @@ def create_image_series(
 from pathlib import Path
 from w2t_bkin.nwb import assemble_nwb
 from w2t_bkin.config import load_config, load_session
-from w2t_bkin.ingest import build_manifest
+from w2t_bkin.ingest import build_and_count_manifest
 
 # Load configuration and session
 config = load_config("config.toml")

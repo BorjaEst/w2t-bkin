@@ -329,7 +329,7 @@ def test_successful_ingest_and_verification(tmp_path):
     """
     from w2t_bkin.config import compute_config_hash, load_config
     from w2t_bkin.domain import Manifest, ManifestCamera
-    from w2t_bkin.ingest import build_manifest, count_ttl_pulses, count_video_frames, create_verification_summary, verify_manifest, write_verification_summary
+    from w2t_bkin.ingest import build_and_count_manifest, count_ttl_pulses, count_video_frames, create_verification_summary, verify_manifest, write_verification_summary
 
     # Load canonical config & session fixtures
     config = load_config(Path(__file__).parent.parent / "fixtures" / "configs" / "valid_config.toml")

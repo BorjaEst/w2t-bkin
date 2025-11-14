@@ -113,38 +113,59 @@ verification = ingest.verify_manifest(manifest, tolerance=5, warn_on_mismatch=Tr
 # manifest = ingest.build_and_count_manifest(cfg, session)
 # verification = ingest.verify_manifest(manifest, tolerance=5, warn_on_mismatch=True)
 
-# 3. Create timebase and align (Phase 2)
-from w2t_bkin.sync import create_timebase_provider, align_samples
+# 3. Create timebase and align videos/data to absolute time (Phase 2)
+from w2t_bkin.sync import create_timebase_provider, get_ttl_pulses, align_bpod_trials_to_ttl
+
+# Create reference timebase (e.g., from camera with highest frame rate)
 provider = create_timebase_provider(cfg, manifest)
-# reference_times = provider.get_timestamps(n_samples=1000)
-# alignment = align_samples(sample_times, reference_times, cfg.timebase)
 
-# 4. Optional: Parse Bpod behavioral data (Phase 3) - Simplified API
-from w2t_bkin.events import extract_trials, extract_behavioral_events, create_event_summary
+# Get video frame timestamps aligned to timebase
+video_timestamps = provider.get_timestamps(n_samples=manifest.cameras[0].frame_count)
+print(f"Video frames: {len(video_timestamps)} timestamps from {video_timestamps[0]:.3f}s to {video_timestamps[-1]:.3f}s")
 
-# Extract trials with automatic loading and TTL alignment
-trials, offsets, warnings = extract_trials(session)
+# 4. Optional: Align Bpod behavioral data to timebase (Phase 3)
+from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary
 
-# Extract behavioral events with automatic alignment
-events_list = extract_behavioral_events(session, trial_offsets=offsets)
+# Parse Bpod data
+bpod_data = parse_bpod_session(session)
+
+# Get TTL sync pulses (used to align Bpod trials to absolute time)
+ttl_pulses = get_ttl_pulses(session)
+print(f"TTL channels: {list(ttl_pulses.keys())}")
+
+# Align Bpod trials to TTL sync signals (converts relative → absolute timestamps)
+trial_offsets, warnings = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
+print(f"Aligned {len(trial_offsets)} trials to absolute time")
+
+# Extract trials with absolute timestamps
+trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
+print(f"Trial 1: {trials[0].start_time:.3f}s to {trials[0].end_time:.3f}s (absolute)")
+
+# Extract behavioral events with absolute timestamps
+events_list = extract_behavioral_events(bpod_data, trial_offsets=trial_offsets)
+print(f"Extracted {len(events_list)} behavioral events")
 
 # Generate QC summary
 summary = create_event_summary(session, trials, events_list, alignment_warnings=warnings)
+print(f"Session summary: {summary.total_trials} trials, {len(summary.event_categories)} event types")
 
-# Advanced: Low-level dict-based API for unit testing
-# from w2t_bkin.events import parse_bpod_session, parse_bpod_mat
-# bpod_data = parse_bpod_session(session)  # Or parse_bpod_mat(Path("bpod.mat"))
-# trials, _, _ = extract_trials(bpod_data)
-# events_list = extract_behavioral_events(bpod_data)
+# Now video frames and Bpod events share the same timebase!
+# Example: Find video frames during first trial
+trial_1_frames = [
+    i for i, t in enumerate(video_timestamps)
+    if trials[0].start_time <= t <= trials[0].end_time
+]
+print(f"Trial 1 spans video frames {trial_1_frames[0]} to {trial_1_frames[-1]}")
 
-# 5. Optional: Import pose/facemap (Phase 3)
+# 5. Optional: Import pose/facemap aligned to same timebase (Phase 3)
 # from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical
 # from w2t_bkin.facemap import define_rois, compute_facemap_signals
 # pose_data = import_dlc_pose(pose_csv_path)
 # harmonized = harmonize_dlc_to_canonical(pose_data, mapping)
 # facemap_signals = compute_facemap_signals(video_path, rois)
+# Note: Pose and facemap data use video_timestamps for alignment
 
-# 6. Assemble NWB (Phase 4 - implemented with pynwb)
+# 6. Assemble NWB with aligned data (Phase 4 - implemented with pynwb)
 from w2t_bkin.nwb import assemble_nwb
 provenance = {
     "config_hash": "abc123",
