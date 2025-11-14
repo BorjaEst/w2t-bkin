@@ -1,157 +1,369 @@
-"""Events module for W2T-BKIN pipeline (Phase 3 - Behavioral Data).
+"""Events module for W2T-BKIN pipeline (Phase 3 - Behavioral Data)."""Events module for W2T-BKIN pipeline (Phase 3 - Behavioral Data)."""Events module for W2T-BKIN pipeline (Phase 3 - Behavioral Data).
 
-Parses Bpod behavioral task data from .mat files (MATLAB format) and extracts:
-- Trial data: trial numbers, outcomes (hit/miss/correct reject), start/end times
-- Behavioral events: state entries/exits, port interactions, stimulus presentations
-- QC summaries: trial counts, outcome distributions, event categories
 
-The module uses scipy.io.loadmat for MATLAB file parsing and implements robust
-validation for Bpod data structure variations across different task protocols.
 
-**Note**: This module handles Bpod data parsing and extraction only. For TTL-based
-temporal alignment, use the sync module (sync.get_ttl_pulses, sync.align_bpod_trials_to_ttl).
+This module is now a facade that re-exports all public APIs from the events subpackage.
 
-Key Features:
--------------
-- **Bpod Compatibility**: Handles SessionData structure from Bpod r2.5+
-- **Trial Extraction**: Parses trial outcomes and timing from States/RawEvents
-- **Event Extraction**: Converts Bpod events to standardized TrialEvent format
-- **Outcome Inference**: Derives trial outcomes from state visit patterns
-- **QC Summaries**: Generates statistics for quality control
-- **Flexible Timestamps**: Supports both relative and absolute timestamps via offsets
 
-Main Functions:
----------------
-High-level API (recommended):
-- extract_trials: Extract trials from Bpod data with optional TTL offsets
-- extract_behavioral_events: Extract events from Bpod data with optional TTL offsets
-- create_event_summary: Generate QC summary from Session and extracted data
 
-Low-level API (for advanced use cases):
-- parse_bpod_mat: Load and validate single Bpod .mat file
-- parse_bpod_session: Discover and merge multiple Bpod files from Session config
-- discover_bpod_files: Find Bpod files matching glob pattern
-- merge_bpod_sessions: Combine multiple Bpod files into unified session
+For the refactored structure, see:**This module now re-exports all public APIs from the events subpackage.**Parses Bpod behavioral task data from .mat files (MATLAB format) and extracts:
 
-Data manipulation API:
-- index_bpod_data: Filter Bpod data to keep only specified trials
-- write_bpod_mat: Write Bpod data dictionary back to .mat file
+- events.bpod: Bpod file I/O operations
 
-Requirements:
--------------
-- FR-11: Behavioral event parsing from Bpod
-- FR-14: Trial outcome and timing extraction
-- NFR-7: Flexible handling of varying Bpod protocols
+- events.trials: Trial extraction and outcome inference  - Trial data: trial numbers, outcomes (hit/miss/correct reject), start/end times
 
-Acceptance Criteria:
--------------------
-- A4: Trial counts and event categories available for QC
+- events.behavior: Behavioral event extraction
 
-Data Flow:
-----------
-1. Session → Load .mat files → Raw MATLAB structures
-2. Validate SessionData structure
-3. Extract trials → Trial objects (relative or absolute timestamps)
-4. Extract events → TrialEvent objects (relative or absolute timestamps)
-5. Create summary → TrialSummary (counts, categories, warnings)
+- events.summary: QC summary creationFor the refactored structure, see:- Behavioral events: state entries/exits, port interactions, stimulus presentations
 
-Example (Without TTL Alignment - Relative Timestamps):
--------------------------------------------------------
->>> from w2t_bkin.config import load_session
->>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary
->>>
->>> # Load session configuration
+- events.exceptions: Error types
+
+- events.bpod: Bpod file I/O operations- QC summaries: trial counts, outcome distributions, event categories
+
+All public functions remain available at the top level for backward compatibility.
+
+"""- events.trials: Trial extraction and outcome inference  
+
+
+
+# Re-export all public APIs from events subpackage for backward compatibility- events.behavior: Behavioral event extractionThe module uses scipy.io.loadmat for MATLAB file parsing and implements robust
+
+from .events import (
+
+    # Exceptions- events.summary: QC summary creationvalidation for Bpod data structure variations across different task protocols.
+
+    BpodParseError,
+
+    BpodValidationError,- events.exceptions: Error types
+
+    EventsError,
+
+    # Bpod operations**Note**: This module handles Bpod data parsing and extraction only. For TTL-based
+
+    discover_bpod_files,
+
+    index_bpod_data,All public functions remain available at the top level for backward compatibility:temporal alignment, use the sync module (sync.get_ttl_pulses, sync.align_bpod_trials_to_ttl).
+
+    merge_bpod_sessions,
+
+    parse_bpod_mat,
+
+    parse_bpod_session,
+
+    validate_bpod_structure,    from w2t_bkin.events import (Key Features:
+
+    write_bpod_mat,
+
+    # Trial extraction        parse_bpod_mat,-------------
+
+    extract_trials,
+
+    # Behavioral events        extract_trials,- **Bpod Compatibility**: Handles SessionData structure from Bpod r2.5+
+
+    extract_behavioral_events,
+
+    # Summary        extract_behavioral_events,- **Trial Extraction**: Parses trial outcomes and timing from States/RawEvents
+
+    create_event_summary,
+
+    write_event_summary,        create_event_summary,- **Event Extraction**: Converts Bpod events to standardized TrialEvent format
+
+)
+
+    )- **Outcome Inference**: Derives trial outcomes from state visit patterns
+
+__all__ = [
+
+    # Exceptions- **QC Summaries**: Generates statistics for quality control
+
+    "EventsError",
+
+    "BpodParseError",Data Flow:- **Flexible Timestamps**: Supports both relative and absolute timestamps via offsets
+
+    "BpodValidationError",
+
+    # Bpod operations----------
+
+    "parse_bpod_mat",
+
+    "discover_bpod_files",1. Session → Load .mat files (bpod) → Raw MATLAB structuresMain Functions:
+
+    "merge_bpod_sessions",
+
+    "parse_bpod_session",2. Validate SessionData structure (bpod)---------------
+
+    "validate_bpod_structure",
+
+    "index_bpod_data",3. Extract trials (trials) → Trial objects (relative or absolute timestamps)High-level API (recommended):
+
+    "write_bpod_mat",
+
+    # Trial extraction4. Extract events (behavior) → TrialEvent objects (relative or absolute timestamps)- extract_trials: Extract trials from Bpod data with optional TTL offsets
+
+    "extract_trials",
+
+    # Behavioral events5. Create summary (summary) → TrialSummary (counts, categories, warnings)- extract_behavioral_events: Extract events from Bpod data with optional TTL offsets
+
+    "extract_behavioral_events",
+
+    # Summary- create_event_summary: Generate QC summary from Session and extracted data
+
+    "create_event_summary",
+
+    "write_event_summary",Example (Without TTL Alignment - Relative Timestamps):
+
+]
+
+-------------------------------------------------------Low-level API (for advanced use cases):
+
+>>> from w2t_bkin.config import load_session- parse_bpod_mat: Load and validate single Bpod .mat file
+
+>>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary- parse_bpod_session: Discover and merge multiple Bpod files from Session config
+
+>>>- discover_bpod_files: Find Bpod files matching glob pattern
+
+>>> # Load session configuration- merge_bpod_sessions: Combine multiple Bpod files into unified session
+
 >>> session = load_session("data/raw/Session-001/session.toml")
+
+>>>Data manipulation API:
+
+>>> # Parse Bpod data from session- index_bpod_data: Filter Bpod data to keep only specified trials
+
+>>> bpod_data = parse_bpod_session(session)- write_bpod_mat: Write Bpod data dictionary back to .mat file
+
 >>>
->>> # Parse Bpod data from session
->>> bpod_data = parse_bpod_session(session)
->>>
->>> # Extract trials with relative timestamps
->>> trials = extract_trials(bpod_data)
->>> print(f"Extracted {len(trials)} trials with relative timestamps")
->>>
->>> # Extract behavioral events with relative timestamps
+
+>>> # Extract trials with relative timestampsRequirements:
+
+>>> trials = extract_trials(bpod_data)-------------
+
+>>> print(f"Extracted {len(trials)} trials with relative timestamps")- FR-11: Behavioral event parsing from Bpod
+
+>>>- FR-14: Trial outcome and timing extraction
+
+>>> # Extract behavioral events with relative timestamps- NFR-7: Flexible handling of varying Bpod protocols
+
 >>> events = extract_behavioral_events(bpod_data)
->>> print(f"Extracted {len(events)} events")
->>>
->>> # Generate QC summary
+
+>>> print(f"Extracted {len(events)} events")Acceptance Criteria:
+
+>>>-------------------
+
+>>> # Generate QC summary- A4: Trial counts and event categories available for QC
+
 >>> summary = create_event_summary(session, trials, events)
->>> print(f"Session: {summary.session_id}, Trials: {summary.total_trials}")
 
-Example (With TTL Alignment - Absolute Timestamps):
-----------------------------------------------------
->>> from w2t_bkin.config import load_session
->>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
->>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary
->>>
->>> # Load session and Bpod data
->>> session = load_session("data/raw/Session-001/session.toml")
->>> bpod_data = parse_bpod_session(session)
->>>
->>> # Compute TTL-based temporal alignment (from sync module)
->>> ttl_pulses = get_ttl_pulses(session)
->>> trial_offsets, align_warnings = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
->>>
->>> # Extract trials and events with absolute timestamps
->>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
->>> events = extract_behavioral_events(bpod_data, trial_offsets=trial_offsets)
->>>
->>> # Generate QC summary with alignment info
->>> summary = create_event_summary(session, trials, events,
-...                               n_total_trials=len(bpod_data['SessionData']['TrialStartTimestamp']),
-...                               alignment_warnings=align_warnings)
+>>> print(f"Session: {summary.session_id}, Trials: {summary.total_trials}")Data Flow:
 
-Example (Dict-based for unit testing):
----------------------------------------
->>> from pathlib import Path
->>> from w2t_bkin.events import parse_bpod_mat, extract_trials, extract_behavioral_events
+----------
+
+Example (With TTL Alignment - Absolute Timestamps):1. Session → Load .mat files → Raw MATLAB structures
+
+----------------------------------------------------2. Validate SessionData structure
+
+>>> from w2t_bkin.config import load_session3. Extract trials → Trial objects (relative or absolute timestamps)
+
+>>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl4. Extract events → TrialEvent objects (relative or absolute timestamps)
+
+>>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary5. Create summary → TrialSummary (counts, categories, warnings)
+
 >>>
->>> # Parse single file
->>> bpod_path = Path("data/raw/Session-001/Bpod/session.mat")
->>> bpod_data = parse_bpod_mat(bpod_path)
->>>
->>> # Extract trial outcomes (relative timestamps)
->>> trials = extract_trials(bpod_data)
->>> print(f"Extracted {len(trials)} trials")
->>>
->>> # Extract behavioral events (relative timestamps)
+
+>>> # Load session and Bpod dataExample (Without TTL Alignment - Relative Timestamps):
+
+>>> session = load_session("data/raw/Session-001/session.toml")-------------------------------------------------------
+
+>>> bpod_data = parse_bpod_session(session)>>> from w2t_bkin.config import load_session
+
+>>>>>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary
+
+>>> # Compute TTL-based temporal alignment (from sync module)>>>
+
+>>> ttl_pulses = get_ttl_pulses(session)>>> # Load session configuration
+
+>>> trial_offsets, align_warnings = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)>>> session = load_session("data/raw/Session-001/session.toml")
+
+>>>>>>
+
+>>> # Extract trials and events with absolute timestamps>>> # Parse Bpod data from session
+
+>>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)>>> bpod_data = parse_bpod_session(session)
+
+>>> events = extract_behavioral_events(bpod_data, trial_offsets=trial_offsets)>>>
+
+>>>>>> # Extract trials with relative timestamps
+
+>>> # Generate QC summary with alignment info>>> trials = extract_trials(bpod_data)
+
+>>> summary = create_event_summary(session, trials, events,>>> print(f"Extracted {len(trials)} trials with relative timestamps")
+
+...                               n_total_trials=len(bpod_data['SessionData']['TrialStartTimestamp']),>>>
+
+...                               alignment_warnings=align_warnings)>>> # Extract behavioral events with relative timestamps
+
 >>> events = extract_behavioral_events(bpod_data)
->>> print(f"Extracted {len(events)} events")
 
-Example (Filter and save Bpod data):
--------------------------------------
->>> from pathlib import Path
->>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat
->>>
->>> # Load Bpod data
->>> bpod_data = parse_bpod_mat(Path("data/raw/Session-001/Bpod/session.mat"))
->>>
->>> # Keep only first 3 trials
->>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])
->>>
+Example (Dict-based for unit testing):>>> print(f"Extracted {len(events)} events")
+
+--------------------------------------->>>
+
+>>> from pathlib import Path>>> # Generate QC summary
+
+>>> from w2t_bkin.events import parse_bpod_mat, extract_trials, extract_behavioral_events>>> summary = create_event_summary(session, trials, events)
+
+>>>>>> print(f"Session: {summary.session_id}, Trials: {summary.total_trials}")
+
+>>> # Parse single file
+
+>>> bpod_path = Path("data/raw/Session-001/Bpod/session.mat")Example (With TTL Alignment - Absolute Timestamps):
+
+>>> bpod_data = parse_bpod_mat(bpod_path)----------------------------------------------------
+
+>>>>>> from w2t_bkin.config import load_session
+
+>>> # Extract trial outcomes (relative timestamps)>>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
+
+>>> trials = extract_trials(bpod_data)>>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events, create_event_summary
+
+>>> print(f"Extracted {len(trials)} trials")>>>
+
+>>>>>> # Load session and Bpod data
+
+>>> # Extract behavioral events (relative timestamps)>>> session = load_session("data/raw/Session-001/session.toml")
+
+>>> events = extract_behavioral_events(bpod_data)>>> bpod_data = parse_bpod_session(session)
+
+>>> print(f"Extracted {len(events)} events")>>>
+
+>>> # Compute TTL-based temporal alignment (from sync module)
+
+Example (Filter and save Bpod data):>>> ttl_pulses = get_ttl_pulses(session)
+
+------------------------------------->>> trial_offsets, align_warnings = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
+
+>>> from pathlib import Path>>>
+
+>>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat>>> # Extract trials and events with absolute timestamps
+
+>>>>>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
+
+>>> # Load Bpod data>>> events = extract_behavioral_events(bpod_data, trial_offsets=trial_offsets)
+
+>>> bpod_data = parse_bpod_mat(Path("data/raw/Session-001/Bpod/session.mat"))>>>
+
+>>>>>> # Generate QC summary with alignment info
+
+>>> # Keep only first 3 trials>>> summary = create_event_summary(session, trials, events,
+
+>>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])...                               n_total_trials=len(bpod_data['SessionData']['TrialStartTimestamp']),
+
+>>>...                               alignment_warnings=align_warnings)
+
 >>> # Save filtered data back to .mat file
+
+>>> write_bpod_mat(filtered_data, Path("data/processed/session_first3.mat"))Example (Dict-based for unit testing):
+
+>>>---------------------------------------
+
+>>> # Verify: reload and check>>> from pathlib import Path
+
+>>> reloaded = parse_bpod_mat(Path("data/processed/session_first3.mat"))>>> from w2t_bkin.events import parse_bpod_mat, extract_trials, extract_behavioral_events
+
+>>> print(f"Filtered file has {reloaded['SessionData']['nTrials']} trials")>>>
+
+""">>> # Parse single file
+
+>>> bpod_path = Path("data/raw/Session-001/Bpod/session.mat")
+
+# Re-export all public APIs from events subpackage for backward compatibility>>> bpod_data = parse_bpod_mat(bpod_path)
+
+from .events import (>>>
+
+    # Exceptions>>> # Extract trial outcomes (relative timestamps)
+
+    BpodParseError,>>> trials = extract_trials(bpod_data)
+
+    BpodValidationError,>>> print(f"Extracted {len(trials)} trials")
+
+    EventsError,>>>
+
+    # Bpod operations>>> # Extract behavioral events (relative timestamps)
+
+    discover_bpod_files,>>> events = extract_behavioral_events(bpod_data)
+
+    index_bpod_data,>>> print(f"Extracted {len(events)} events")
+
+    merge_bpod_sessions,
+
+    parse_bpod_mat,Example (Filter and save Bpod data):
+
+    parse_bpod_session,-------------------------------------
+
+    validate_bpod_structure,>>> from pathlib import Path
+
+    write_bpod_mat,>>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat
+
+    # Trial extraction>>>
+
+    extract_trials,>>> # Load Bpod data
+
+    # Behavioral events>>> bpod_data = parse_bpod_mat(Path("data/raw/Session-001/Bpod/session.mat"))
+
+    extract_behavioral_events,>>>
+
+    # Summary>>> # Keep only first 3 trials
+
+    create_event_summary,>>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])
+
+    write_event_summary,>>>
+
+)>>> # Save filtered data back to .mat file
+
 >>> write_bpod_mat(filtered_data, Path("data/processed/session_first3.mat"))
->>>
->>> # Verify: reload and check
->>> reloaded = parse_bpod_mat(Path("data/processed/session_first3.mat"))
->>> print(f"Filtered file has {reloaded['SessionData']['nTrials']} trials")
-"""
 
-from datetime import datetime
-import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+__all__ = [>>>
 
-import numpy as np
+    # Exceptions>>> # Verify: reload and check
 
-try:
-    from scipy.io import loadmat, savemat
-except ImportError:
-    loadmat = None
-    savemat = None
+    "EventsError",>>> reloaded = parse_bpod_mat(Path("data/processed/session_first3.mat"))
 
-from .domain import Trial, TrialEvent, TrialSummary
-from .domain.exceptions import BpodParseError, BpodValidationError, EventsError
+    "BpodParseError",>>> print(f"Filtered file has {reloaded['SessionData']['nTrials']} trials")
+
+    "BpodValidationError","""
+
+    # Bpod operations
+
+    "parse_bpod_mat",from datetime import datetime
+
+    "discover_bpod_files",import logging
+
+    "merge_bpod_sessions",from pathlib import Path
+
+    "parse_bpod_session",from typing import Any, Dict, List, Optional, Tuple, Union
+
+    "validate_bpod_structure",
+
+    "index_bpod_data",import numpy as np
+
+    "write_bpod_mat",
+
+    # Trial extractiontry:
+
+    "extract_trials",    from scipy.io import loadmat, savemat
+
+    # Behavioral eventsexcept ImportError:
+
+    "extract_behavioral_events",    loadmat = None
+
+    # Summary    savemat = None
+
+    "create_event_summary",
+
+    "write_event_summary",from .domain import Trial, TrialEvent, TrialSummary
+
+]from .domain.exceptions import BpodParseError, BpodValidationError, EventsError
+
 from .domain.session import BpodSession, Session
 from .domain.trials import TrialOutcome
 from .utils import (
