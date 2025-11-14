@@ -10,35 +10,33 @@ Discovers camera video files, TTL pulse logs, and Bpod files declared in configu
 
 ## Key Functions
 
-### Manifest Building
+### Manifest building (explicit workflow)
+
+The ingest module exposes an explicit two-step API plus a convenience helper:
 
 ```python
-def build_manifest(config: Config, session: Session) -> Manifest:
-    """Build manifest by discovering files from session configuration.
+def discover_files(config: Config, session: Session) -> Manifest:
+    """Discover files from session configuration without counting.
 
-    Process:
-    1. Resolve raw_root and session directory paths
-    2. Discover camera video files using glob patterns from session.cameras
-    3. Discover TTL pulse log files using glob patterns from session.TTLs
-    4. Discover Bpod .mat files using glob pattern from session.bpod
-    5. Convert all paths to absolute paths
-    6. Build Manifest with discovered files
+    - Resolves raw_root and session directory paths.
+    - Discovers camera video files, TTL pulse log files, and Bpod files via glob patterns.
+    - Populates Manifest with paths only; frame_count and ttl_pulse_count remain None.
+    """
 
-    Args:
-        config: Pipeline configuration
-        session: Session metadata with file patterns
+def populate_manifest_counts(manifest: Manifest) -> Manifest:
+    """Populate frame and TTL pulse counts for a manifest.
 
-    Returns:
-        Manifest with discovered files
+    - Iterates over TTL files and uses count_ttl_pulses() to compute total pulses per ttl_id.
+    - Uses count_video_frames() to compute total frames per camera.
+    - Returns a new Manifest instance with frame_count/ttl_pulse_count set on each camera.
+    """
 
-    Raises:
-        IngestError: If expected files are missing (cameras only; TTLs warn)
+def build_and_count_manifest(config: Config, session: Session) -> Manifest:
+    """Discover files and count frames/TTL pulses in one call (convenience).
 
-    Example:
-        >>> from w2t_bkin.ingest import build_manifest
-        >>> manifest = build_manifest(config, session)
-        >>> print(manifest.session_id)
-        >>> print([cam.camera_id for cam in manifest.cameras])
+    Equivalent to:
+        manifest = discover_files(config, session)
+        manifest = populate_manifest_counts(manifest)
     """
 ```
 
@@ -280,7 +278,7 @@ def check_camera_verifiable(camera, ttl_ids: Set[str]) -> bool:
     return bool(camera.ttl_id and camera.ttl_id in ttl_ids)
 ```
 
-## Manifest Schema
+## Manifest schema
 
 ```python
 class ManifestCamera(BaseModel):
@@ -288,8 +286,8 @@ class ManifestCamera(BaseModel):
     camera_id: str
     ttl_id: str
     video_files: List[str]  # Absolute paths (not video_paths)
-    frame_count: int = 0  # Added by counting
-    ttl_pulse_count: int = 0  # Added by counting
+    frame_count: Optional[int] = None  # Populated by counting
+    ttl_pulse_count: Optional[int] = None  # Populated by counting
 
 class ManifestTTL(BaseModel):
     """TTL entry in manifest."""
@@ -385,37 +383,25 @@ pytest tests/integration/test_phase_1_ingest.py -v
 ### Basic ingestion workflow
 
 ```python
-from w2t_bkin.config import load_config, load_session
-from w2t_bkin.ingest import (
-    build_manifest,
-    count_video_frames,
-    count_ttl_pulses,
-    verify_manifest,
-    create_verification_summary,
-    write_verification_summary
-)
-from w2t_bkin.domain import VerificationSummary
 from pathlib import Path
+
+from w2t_bkin.config import load_config, load_session
+from w2t_bkin.domain import VerificationSummary
+from w2t_bkin.ingest import (
+    build_and_count_manifest,
+    create_verification_summary,
+    verify_manifest,
+    write_verification_summary,
+)
 
 # Load configuration
 config = load_config(Path("config.toml"))
 session = load_session(Path("session.toml"))
 
-# Build manifest (file discovery)
-manifest = build_manifest(config, session)
+# One-step: discover files and count frames/TTLs
+manifest = build_and_count_manifest(config, session)
 print(f"Found {len(manifest.cameras)} cameras")
 print(f"Found {len(manifest.ttls)} TTL channels")
-
-# Count frames and TTL pulses for each camera
-for camera in manifest.cameras:
-    for video_file in camera.video_files:
-        camera.frame_count += count_video_frames(Path(video_file))
-
-    # Find corresponding TTL files
-    ttl = next((t for t in manifest.ttls if t.ttl_id == camera.ttl_id), None)
-    if ttl:
-        for ttl_file in ttl.files:
-            camera.ttl_pulse_count += count_ttl_pulses(Path(ttl_file))
 
 # Verify frame/TTL matching
 try:
@@ -434,7 +420,7 @@ try:
 
 except VerificationError as e:
     print(f"Verification failed:\n{e}")
-    exit(1)
+    raise SystemExit(1)
 ```
 
 ### Handle unverifiable cameras

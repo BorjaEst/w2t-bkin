@@ -79,7 +79,7 @@ Orchestration
 | utils     | 0     | ✅ Complete        | compute_hash, sanitize_path, run_ffprobe                                                                                | NFR-1/2/3         |
 | domain    | 0     | ✅ Complete        | All Pydantic models                                                                                                     | FR-12, NFR-7      |
 | config    | 0     | ✅ Complete        | load_config, load_session                                                                                               | FR-10, NFR-10/11  |
-| ingest    | 1     | ✅ Complete        | build_manifest, verify_manifest                                                                                         | FR-1/2/3/13/15/16 |
+| ingest    | 1     | ✅ Complete        | discover_files, populate_manifest_counts, build_and_count_manifest, verify_manifest                                     | FR-1/2/3/13/15/16 |
 | sync      | 2     | ✅ Complete        | create_timebase_provider, align_samples                                                                                 | FR-TB-1..6, FR-17 |
 | events    | 3     | ✅ Complete        | parse_bpod_mat, parse_bpod_session, discover_bpod_files, merge_bpod_sessions, extract_trials, extract_behavioral_events | FR-11/14, NFR-7   |
 | transcode | 3     | ✅ Complete        | transcode_video, compute_video_checksum                                                                                 | FR-4, NFR-2       |
@@ -101,9 +101,17 @@ from w2t_bkin import config, ingest, sync, events, nwb
 cfg = config.load_config("tests/fixtures/configs/valid_config.toml")
 session = config.load_session("tests/fixtures/data/raw/Session-000001/session.toml")
 
-# 2. Ingest and verify
-manifest = ingest.build_manifest(cfg, session)
+# 2. Ingest and verify (recommended explicit workflow)
+# Step 2a: Fast file discovery
+manifest = ingest.discover_files(cfg, session)
+# Step 2b: Count frames/TTLs (slow, only when needed for verification)
+manifest = ingest.populate_manifest_counts(manifest)
+# Step 2c: Verify alignment
 verification = ingest.verify_manifest(manifest, tolerance=5, warn_on_mismatch=True)
+
+# Alternative one-step convenience function:
+# manifest = ingest.build_and_count_manifest(cfg, session)
+# verification = ingest.verify_manifest(manifest, tolerance=5, warn_on_mismatch=True)
 
 # 3. Create timebase and align (Phase 2)
 from w2t_bkin.sync import create_timebase_provider, align_samples

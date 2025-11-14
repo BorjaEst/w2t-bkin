@@ -20,10 +20,18 @@ Key Features:
 
 Main Functions:
 ---------------
-- build_manifest: Discover files and optionally count frames/TTLs
+**Recommended Workflow (Explicit Steps):**
+- discover_files: Discover all files (FAST, no counting)
+- populate_manifest_counts: Count frames/TTLs for verification (SLOW)
+- verify_manifest: Validate frame/TTL alignment
+
+**Convenience Functions:**
+- build_and_count_manifest: One-step discover + count
+- build_manifest: Legacy function (use above functions instead)
+
+**Utilities:**
 - count_video_frames: Count frames using ffprobe
 - count_ttl_pulses: Count TTL pulses from log file
-- verify_manifest: Validate frame/TTL alignment
 - validate_ttl_references: Check camera TTL cross-references
 - create_verification_summary: Create JSON-serializable summary
 - write_verification_summary: Save summary to JSON
@@ -52,14 +60,21 @@ Example:
 >>> cfg = config.load_config("config.toml")
 >>> session = config.load_session("Session-000001/session.toml")
 >>>
->>> # Build manifest with frame/TTL counting
->>> manifest = ingest.build_manifest(cfg, session, count_frames=True)
+>>> # RECOMMENDED: Explicit workflow with separate steps
+>>> # Step 1: Fast file discovery (always runs)
+>>> manifest = ingest.discover_files(cfg, session)
 >>> print(f"Discovered {len(manifest.cameras)} cameras")
 >>>
->>> # Verify frame/TTL alignment
->>> from w2t_bkin.ingest import verify_manifest
+>>> # Step 2: Count frames/TTLs (only when needed for verification)
+>>> manifest = ingest.populate_manifest_counts(manifest)
+>>>
+>>> # Step 3: Verify frame/TTL alignment
 >>> result = ingest.verify_manifest(manifest, tolerance=10)
->>> print(f"Verification: {result.passed}")
+>>> print(f"Verification: {result.status}")
+>>>
+>>> # ALTERNATIVE: One-step convenience function
+>>> manifest = ingest.build_and_count_manifest(cfg, session)
+>>> result = ingest.verify_manifest(manifest, tolerance=10)
 >>>
 >>> # Generate verification summary
 >>> summary = ingest.create_verification_summary(manifest)
@@ -72,7 +87,8 @@ from pathlib import Path
 from typing import Dict, List, Set, Union
 
 from .domain import CameraVerificationResult, Config, Manifest, ManifestCamera, ManifestTTL, Session, VerificationResult, VerificationSummary
-from .utils import discover_files, run_ffprobe, write_json
+from .utils import discover_files as find_files
+from .utils import run_ffprobe, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +105,198 @@ class VerificationError(Exception):
     pass
 
 
+def discover_files(config: Config, session: Session) -> Manifest:
+    """Discover files from session configuration without counting.
+
+    This function performs ONLY file discovery, which is fast and always succeeds.
+    Frame and TTL counts are left as None. Use populate_manifest_counts() to add counts.
+
+    Args:
+        config: Pipeline configuration (used for paths)
+        session: Session metadata with file patterns
+
+    Returns:
+        Manifest with discovered files but counts set to None
+
+    Raises:
+        IngestError: If expected files are missing
+
+    Example:
+        >>> # Fast file discovery
+        >>> manifest = discover_files(config, session)
+        >>> print(f"Found {len(manifest.cameras)} cameras")
+        >>>
+        >>> # Later, add counts if needed for verification
+        >>> manifest = populate_manifest_counts(manifest)
+        >>> verify_manifest(manifest, tolerance=10)
+    """
+    raw_root = Path(config.paths.raw_root)
+    session_dir = raw_root / session.session.id
+
+    # Discover cameras and their video files
+    cameras = []
+    for camera_config in session.cameras:
+        # Discover video files
+        video_files = find_files(session_dir, camera_config.paths, sort=True)
+
+        if not video_files:
+            pattern = str(session_dir / camera_config.paths)
+            raise IngestError(f"No video files found for camera {camera_config.id} with pattern: {pattern}")
+
+        # Convert to strings (find_files returns Path objects)
+        video_files = [str(f) for f in video_files]
+
+        cameras.append(
+            ManifestCamera(
+                camera_id=camera_config.id,
+                ttl_id=camera_config.ttl_id,
+                video_files=video_files,
+                frame_count=None,  # Not counted yet
+                ttl_pulse_count=None,  # Not counted yet
+            )
+        )
+
+    # Discover TTLs (file paths only)
+    ttls = []
+    for ttl_config in session.TTLs:
+        ttl_files = find_files(session_dir, ttl_config.paths, sort=True)
+
+        if not ttl_files:
+            pattern = str(session_dir / ttl_config.paths)
+            logger.warning(f"No TTL files found for {ttl_config.id} with pattern: {pattern}")
+
+        # Convert to strings
+        ttl_files = [str(f) for f in ttl_files]
+
+        ttls.append(ManifestTTL(ttl_id=ttl_config.id, files=ttl_files))
+
+    # Discover Bpod files
+    bpod_files = None
+    if session.bpod.path:
+        discovered = find_files(session_dir, session.bpod.path, sort=True)
+        if discovered:
+            bpod_files = [str(f) for f in discovered]
+
+    return Manifest(
+        session_id=session.session.id,
+        cameras=cameras,
+        ttls=ttls,
+        bpod_files=bpod_files,
+    )
+
+
+def populate_manifest_counts(manifest: Manifest) -> Manifest:
+    """Populate frame and TTL pulse counts for a manifest.
+
+    Takes a manifest (typically from discover_files) and counts frames/TTL pulses
+    for all cameras. Returns a new Manifest with counts populated.
+
+    This is the SLOW operation - use only when verification is needed.
+
+    Args:
+        manifest: Manifest with discovered files (counts may be None)
+
+    Returns:
+        New Manifest with frame_count and ttl_pulse_count populated
+
+    Raises:
+        IngestError: If counting fails
+
+    Example:
+        >>> # Fast discovery first
+        >>> manifest = discover_files(config, session)
+        >>>
+        >>> # Later, count when needed
+        >>> manifest = populate_manifest_counts(manifest)
+        >>> verify_manifest(manifest, tolerance=10)
+    """
+    # Build TTL pulse count map
+    ttl_pulse_counts = {}
+    ttl_files_by_id = {ttl.ttl_id: ttl.files for ttl in manifest.ttls}
+
+    for ttl_id, ttl_files in ttl_files_by_id.items():
+        total_pulses = 0
+        for ttl_file in ttl_files:
+            total_pulses += count_ttl_pulses(Path(ttl_file))
+        ttl_pulse_counts[ttl_id] = total_pulses
+        logger.debug(f"Counted {total_pulses} TTL pulses for '{ttl_id}'")
+
+    # Count frames for each camera
+    counted_cameras = []
+    for camera in manifest.cameras:
+        total_frames = 0
+        for video_file in camera.video_files:
+            try:
+                frames = count_video_frames(Path(video_file))
+                total_frames += frames
+            except IngestError as e:
+                logger.error(f"Failed to count frames in {video_file}: {e}")
+                raise
+
+        # Get TTL pulse count for this camera
+        ttl_pulses = ttl_pulse_counts.get(camera.ttl_id, 0)
+
+        logger.debug(f"Camera {camera.camera_id}: {total_frames} frames, " f"{ttl_pulses} TTL pulses (ttl_id={camera.ttl_id})")
+
+        # Create new camera with counts
+        counted_cameras.append(
+            ManifestCamera(
+                camera_id=camera.camera_id,
+                ttl_id=camera.ttl_id,
+                video_files=camera.video_files,
+                frame_count=total_frames,
+                ttl_pulse_count=ttl_pulses,
+            )
+        )
+
+    # Return new Manifest with counted cameras
+    return Manifest(
+        session_id=manifest.session_id,
+        cameras=counted_cameras,
+        ttls=manifest.ttls,
+        bpod_files=manifest.bpod_files,
+    )
+
+
+def build_and_count_manifest(config: Config, session: Session) -> Manifest:
+    """Discover files and count frames/TTL pulses in one call (convenience function).
+
+    This is equivalent to:
+        manifest = discover_files(config, session)
+        manifest = populate_manifest_counts(manifest)
+
+    Use this when you need a counted manifest and want a simple one-liner.
+    For more control, use discover_files() and populate_manifest_counts() separately.
+
+    Args:
+        config: Pipeline configuration
+        session: Session metadata
+
+    Returns:
+        Manifest with all files discovered and counts populated
+
+    Raises:
+        IngestError: If discovery or counting fails
+
+    Example:
+        >>> # One-step: discover + count
+        >>> manifest = build_and_count_manifest(config, session)
+        >>> verify_manifest(manifest, tolerance=10)
+    """
+    manifest = discover_files(config, session)
+    return populate_manifest_counts(manifest)
+
+
 def build_manifest(config: Config, session: Session, count_frames: bool = True) -> Manifest:
     """Build manifest by discovering files and optionally counting frames/TTLs.
 
-    This function follows the single-responsibility principle: it discovers files,
-    and optionally counts frames/TTL pulses in one pass. This avoids the need to
-    recreate frozen Pydantic models later.
+    .. deprecated::
+        The count_frames parameter makes this function do two different things.
+        Use the explicit workflow instead:
+
+        - discover_files() for fast file discovery
+        - populate_manifest_counts() to add counts
+        - build_and_count_manifest() for one-step convenience
 
     Args:
         config: Pipeline configuration
@@ -107,6 +309,17 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
 
     Raises:
         IngestError: If expected files are missing or counting fails
+
+    Migration Guide:
+        >>> # Old way (mixed concerns):
+        >>> manifest = build_manifest(config, session, count_frames=True)
+        >>>
+        >>> # New way (explicit):
+        >>> manifest = discover_files(config, session)
+        >>> manifest = populate_manifest_counts(manifest)
+        >>>
+        >>> # Or use convenience function:
+        >>> manifest = build_and_count_manifest(config, session)
     """
     raw_root = Path(config.paths.raw_root)
     session_dir = raw_root / session.session.id
@@ -115,7 +328,7 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
     ttl_pulse_counts = {}
     if count_frames:
         for ttl_config in session.TTLs:
-            ttl_files = discover_files(session_dir, ttl_config.paths, sort=True)
+            ttl_files = find_files(session_dir, ttl_config.paths, sort=True)
 
             total_pulses = 0
             for ttl_file in ttl_files:
@@ -128,13 +341,13 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
     cameras = []
     for camera_config in session.cameras:
         # Discover video files
-        video_files = discover_files(session_dir, camera_config.paths, sort=True)
+        video_files = find_files(session_dir, camera_config.paths, sort=True)
 
         if not video_files:
             pattern = str(session_dir / camera_config.paths)
             raise IngestError(f"No video files found for camera {camera_config.id} with pattern: {pattern}")
 
-        # Convert to strings (discover_files returns Path objects)
+        # Convert to strings (find_files returns Path objects)
         video_files = [str(f) for f in video_files]
 
         # Count frames if enabled
@@ -169,13 +382,13 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
     # Discover TTLs (file paths only)
     ttls = []
     for ttl_config in session.TTLs:
-        ttl_files = discover_files(session_dir, ttl_config.paths, sort=True)
+        ttl_files = find_files(session_dir, ttl_config.paths, sort=True)
 
         if not ttl_files:
             pattern = str(session_dir / ttl_config.paths)
             logger.warning(f"No TTL files found for {ttl_config.id} with pattern: {pattern}")
 
-        # Convert to strings (discover_files returns Path objects)
+        # Convert to strings (find_files returns Path objects)
         ttl_files = [str(f) for f in ttl_files]
 
         ttls.append(ManifestTTL(ttl_id=ttl_config.id, files=ttl_files))
@@ -183,7 +396,7 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
     # Discover Bpod files
     bpod_files = None
     if session.bpod.path:
-        discovered = discover_files(session_dir, session.bpod.path, sort=True)
+        discovered = find_files(session_dir, session.bpod.path, sort=True)
         if discovered:
             bpod_files = [str(f) for f in discovered]
 
@@ -282,7 +495,14 @@ def verify_manifest(manifest: Manifest, tolerance: int, warn_on_mismatch: bool =
     for camera in manifest.cameras:
         # Validate that counts exist
         if camera.frame_count is None or camera.ttl_pulse_count is None:
-            raise ValueError(f"Camera {camera.camera_id} has None counts. " f"Call build_manifest() with count_frames=True first.")
+            raise ValueError(
+                f"Camera {camera.camera_id} has None counts. "
+                f"Manifest must have counts populated before verification.\n"
+                f"Solution: Call populate_manifest_counts() first:\n"
+                f"  manifest = populate_manifest_counts(manifest)\n"
+                f"  verify_manifest(manifest, tolerance={tolerance})\n"
+                f"Or use: build_and_count_manifest() for one-step workflow."
+            )
 
         mismatch = compute_mismatch(camera.frame_count, camera.ttl_pulse_count)
 
