@@ -29,6 +29,7 @@ from w2t_bkin.events import (
     extract_trials,
     index_bpod_data,
     parse_bpod_mat,
+    split_bpod_data,
     validate_bpod_structure,
     write_event_summary,
 )
@@ -923,3 +924,106 @@ class TestBpodDataManipulation:
         # Verify data is identical to original
         assert session_data["nTrials"] == 3
         assert len(session_data["TrialStartTimestamp"]) == 3
+
+    def test_Should_SplitAndRoundtrip_When_SplittingBpodData(self, sample_bpod_data, tmp_path):
+        """Should split Bpod data into multiple files and merge back with continuous timeline.
+
+        This validates the new split_bpod_data helper for the workflow:
+
+        - split a unified Bpod dataset into chunks
+        - write each chunk as its own .mat file
+        - later merge the files back with merge_bpod_sessions
+        - verify that the merged timeline is continuous and preserves per-chunk ordering
+        """
+
+        from w2t_bkin.events import merge_bpod_sessions, write_bpod_mat
+        from w2t_bkin.utils import convert_matlab_struct
+
+        # Original timestamps (relative timeline)
+        original_session = sample_bpod_data["SessionData"]
+        original_session = convert_matlab_struct(original_session)
+        original_start = np.asarray(original_session["TrialStartTimestamp"], dtype=float)
+        original_end = np.asarray(original_session["TrialEndTimestamp"], dtype=float)
+
+        # Split into two chunks: first 2 trials, then remaining trials
+        split_indices = [[0, 1], [2, 3, 4]]
+        chunks = split_bpod_data(sample_bpod_data, split_indices)
+
+        assert len(chunks) == 2
+        assert chunks[0]["SessionData"]["nTrials"] == 2
+        assert chunks[1]["SessionData"]["nTrials"] == 3
+
+        # Write each chunk to disk
+        bpod_dir = tmp_path / "Bpod"
+        bpod_dir.mkdir(parents=True)
+        file1 = bpod_dir / "session_split01.mat"
+        file2 = bpod_dir / "session_split02.mat"
+
+        write_bpod_mat(chunks[0], file1)
+        write_bpod_mat(chunks[1], file2)
+
+        # Merge back into a continuous session
+        merged = merge_bpod_sessions([file1, file2])
+        merged_session = convert_matlab_struct(merged["SessionData"])
+
+        # Verify trial count
+        assert merged_session["nTrials"] == original_session["nTrials"]
+
+        merged_start = np.asarray(merged_session["TrialStartTimestamp"], dtype=float)
+        merged_end = np.asarray(merged_session["TrialEndTimestamp"], dtype=float)
+
+        # Trials from the first chunk should retain their original timestamps
+        np.testing.assert_allclose(merged_start[:2], original_start[:2], rtol=1e-10)
+        np.testing.assert_allclose(merged_end[:2], original_end[:2], rtol=1e-10)
+
+        # Trials from the second chunk should be offset by the last end time
+        offset = original_end[1]
+        expected_start_chunk2 = original_start[2:] + offset
+        expected_end_chunk2 = original_end[2:] + offset
+
+        np.testing.assert_allclose(merged_start[2:], expected_start_chunk2, rtol=1e-10)
+        np.testing.assert_allclose(merged_end[2:], expected_end_chunk2, rtol=1e-10)
+
+    def test_Should_PreservePerFileTimestamps_When_MergingWithoutContinuousTime(self, sample_bpod_data, tmp_path):
+        """Should preserve per-file timestamps when merging with continuous_time=False.
+
+        When continuous_time=False, the merge should concatenate trials without
+        applying time offsets, preserving each file's original timebase.
+        """
+        from w2t_bkin.events import merge_bpod_sessions, write_bpod_mat
+        from w2t_bkin.utils import convert_matlab_struct
+
+        # Split into two chunks
+        split_indices = [[0, 1], [2, 3, 4]]
+        chunks = split_bpod_data(sample_bpod_data, split_indices)
+
+        # Write each chunk to disk
+        bpod_dir = tmp_path / "Bpod"
+        bpod_dir.mkdir(parents=True)
+        file1 = bpod_dir / "session_split01.mat"
+        file2 = bpod_dir / "session_split02.mat"
+
+        write_bpod_mat(chunks[0], file1)
+        write_bpod_mat(chunks[1], file2)
+
+        # Merge with continuous_time=False
+        merged = merge_bpod_sessions([file1, file2], continuous_time=False)
+        merged_session = convert_matlab_struct(merged["SessionData"])
+
+        # Get original timestamps from each chunk
+        chunk1_session = convert_matlab_struct(chunks[0]["SessionData"])
+        chunk2_session = convert_matlab_struct(chunks[1]["SessionData"])
+
+        chunk1_start = np.asarray(chunk1_session["TrialStartTimestamp"], dtype=float)
+        chunk1_end = np.asarray(chunk1_session["TrialEndTimestamp"], dtype=float)
+        chunk2_start = np.asarray(chunk2_session["TrialStartTimestamp"], dtype=float)
+        chunk2_end = np.asarray(chunk2_session["TrialEndTimestamp"], dtype=float)
+
+        merged_start = np.asarray(merged_session["TrialStartTimestamp"], dtype=float)
+        merged_end = np.asarray(merged_session["TrialEndTimestamp"], dtype=float)
+
+        # Verify timestamps are preserved exactly (no offset)
+        np.testing.assert_allclose(merged_start[:2], chunk1_start, rtol=1e-10)
+        np.testing.assert_allclose(merged_end[:2], chunk1_end, rtol=1e-10)
+        np.testing.assert_allclose(merged_start[2:], chunk2_start, rtol=1e-10)
+        np.testing.assert_allclose(merged_end[2:], chunk2_end, rtol=1e-10)

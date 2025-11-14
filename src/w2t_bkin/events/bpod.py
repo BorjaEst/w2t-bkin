@@ -7,7 +7,7 @@ This module provides all low-level Bpod data operations.
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Sequence
 
 import numpy as np
 
@@ -126,14 +126,16 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
 # =============================================================================
 
 
-def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
+def merge_bpod_sessions(file_paths: List[Path], continuous_time: bool = True) -> Dict[str, Any]:
     """Merge multiple Bpod .mat files into unified session data.
 
     Combines trials from multiple Bpod files in order, updating trial numbers
-    and timestamps to create a continuous session.
+    and optionally offsetting timestamps to create a continuous session timeline.
 
     Args:
         file_paths: Ordered list of Bpod .mat file paths
+        continuous_time: If True (default), offset timestamps to create continuous timeline.
+                        If False, preserve original per-file timestamps (concatenate mode).
 
     Returns:
         Merged Bpod data dictionary with combined trials
@@ -220,8 +222,8 @@ def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
         session_data = convert_matlab_struct(data["SessionData"])
         raw_events = convert_matlab_struct(session_data["RawEvents"])
 
-        # Get trial offset (time of last trial end)
-        time_offset = all_end_times[-1] if all_end_times else 0.0
+        # Get trial offset (time of last trial end) - only if continuous_time is True
+        time_offset = all_end_times[-1] if all_end_times and continuous_time else 0.0
 
         # Convert Trial to list if it's a mat_struct or numpy array
         trials = raw_events["Trial"]
@@ -295,7 +297,7 @@ def parse_bpod_session(session: Session) -> Dict[str, Any]:
     High-level function that:
     1. Discovers files from glob pattern
     2. Orders files according to strategy
-    3. Merges multiple files if needed
+    3. Merges multiple files if needed, respecting continuous_time setting
 
     Args:
         session: Full Session object containing Bpod configuration and session_dir
@@ -317,8 +319,8 @@ def parse_bpod_session(session: Session) -> Dict[str, Any]:
     # Discover files
     file_paths = discover_bpod_files(session.bpod, session_dir)
 
-    # Merge if multiple files
-    merged_data = merge_bpod_sessions(file_paths)
+    # Merge if multiple files, using continuous_time setting from session config
+    merged_data = merge_bpod_sessions(file_paths, continuous_time=session.bpod.continuous_time)
 
     return merged_data
 
@@ -422,6 +424,70 @@ def index_bpod_data(bpod_data: Dict[str, Any], trial_indices: List[int]) -> Dict
 
     logger.info(f"Indexed Bpod data: kept {len(trial_indices)} trials out of {n_trials}")
     return filtered_data
+
+
+def split_bpod_data(bpod_data: Dict[str, Any], splits: Sequence[Sequence[int]]) -> List[Dict[str, Any]]:
+    """Split Bpod data into multiple Bpod data dictionaries.
+
+    This is the inverse of ``merge_bpod_sessions`` for the use case where a
+    single Bpod session is exported into several .mat files that are later
+    merged back into a continuous timeline.
+
+    **Key properties**
+
+    - Each returned chunk is a valid Bpod data dict (passes
+      :func:`validate_bpod_structure`) and can be written using
+      :func:`write_bpod_mat`.
+    - Trial start/end timestamps and trial structure are preserved exactly as
+      they appear in ``bpod_data`` for the selected indices (no additional
+      offsets are introduced at split time).
+    - When the resulting files are later merged with
+      :func:`merge_bpod_sessions`, the timestamps are concatenated into a
+      continuous timeline using the merge logic (second file offset by the
+      last end time of the previous file, etc.).
+
+    Args:
+        bpod_data: Parsed Bpod data dictionary (from :func:`parse_bpod_mat` or
+            :func:`parse_bpod_session`).
+        splits: Sequence of trial index sequences, each containing **0-based**
+            trial indices that should go into one output chunk, in the order
+            they should appear in that chunk.
+
+    Returns:
+        List of Bpod data dictionaries, one per entry in ``splits``.
+
+    Raises:
+        BpodParseError: If the input structure is invalid.
+        IndexError: If any index is out of bounds.
+        ValueError: If a split is empty.
+    """
+
+    # Validate structure first
+    if not validate_bpod_structure(bpod_data):
+        raise BpodParseError("Invalid Bpod structure")
+
+    # Convert and inspect the source to validate indices against nTrials
+    session_data = convert_matlab_struct(bpod_data["SessionData"])
+    n_trials = int(session_data["nTrials"])
+
+    # Helper for a single split; reuses index_bpod_data to ensure deep copy
+    # and consistent filtering of all fields.
+    def _make_chunk(indices: Sequence[int]) -> Dict[str, Any]:
+        if not indices:
+            raise ValueError("split indices cannot be empty")
+
+        for idx in indices:
+            if idx < 0 or idx >= n_trials:
+                raise IndexError(f"Trial index {idx} out of bounds (0-{n_trials-1})")
+
+        # Delegate the heavy lifting to index_bpod_data, which:
+        # - deep copies the original structure
+        # - converts MATLAB structs to dicts
+        # - consistently filters timestamps, RawEvents.Trial, TrialSettings,
+        #   TrialTypes, and updates nTrials.
+        return index_bpod_data(bpod_data, list(indices))
+
+    return [_make_chunk(indices) for indices in splits]
 
 
 def write_bpod_mat(bpod_data: Dict[str, Any], output_path: Path) -> None:

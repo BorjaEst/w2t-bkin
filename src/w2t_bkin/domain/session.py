@@ -118,6 +118,7 @@ class BpodSession(BaseModel):
     Attributes:
         path: Glob pattern for Bpod .mat files
         order: File ordering strategy (e.g., "name_asc", "time_asc")
+        continuous_time: Whether to merge files with continuous timeline (default True)
         trial_type: List of trial type synchronization configurations
 
     Requirements:
@@ -129,6 +130,7 @@ class BpodSession(BaseModel):
 
     path: str = Field(..., description="Glob pattern for Bpod .mat files (e.g., 'Bpod/*.mat')")
     order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(..., description="File ordering strategy: 'name_asc', 'name_desc', 'time_asc', 'time_desc'")
+    continuous_time: bool = Field(True, description="Whether to merge files with continuous timeline (offset timestamps). If False, timestamps are preserved as-is.")
     trial_types: List[BpodTrialType] = Field(default_factory=list, description="List of trial type synchronization configurations")
 
 

@@ -26,7 +26,7 @@ See individual modules for detailed documentation.
 from .behavior import extract_behavioral_events
 
 # Bpod file operations
-from .bpod import discover_bpod_files, index_bpod_data, merge_bpod_sessions, parse_bpod_mat, parse_bpod_session, validate_bpod_structure, write_bpod_mat
+from .bpod import discover_bpod_files, index_bpod_data, merge_bpod_sessions, parse_bpod_mat, parse_bpod_session, split_bpod_data, validate_bpod_structure, write_bpod_mat
 
 # Exceptions
 from .exceptions import BpodParseError, BpodValidationError, EventsError
@@ -49,6 +49,7 @@ __all__ = [
     "parse_bpod_session",
     "validate_bpod_structure",
     "index_bpod_data",
+    "split_bpod_data",
     "write_bpod_mat",
     # Trial extraction
     "extract_trials",
