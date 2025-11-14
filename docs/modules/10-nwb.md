@@ -164,7 +164,7 @@ config = load_config("config.toml")
 session = load_session("Session-000001/session.toml")
 
 # Build manifest (Phase 1)
-manifest = build_manifest(config, session)
+manifest = build_and_count_manifest(config, session)
 
 # Create provenance metadata
 provenance = {

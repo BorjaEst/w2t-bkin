@@ -329,7 +329,7 @@ from w2t_bkin.ingest import IngestError, VerificationError
 
 # Ingestion errors
 try:
-    manifest = build_manifest(config, session)
+    manifest = build_and_count_manifest(config, session)
 except IngestError as e:
     print(f"Ingestion failed: {e}")
     # Example: "No video files found for camera cam0 with pattern: ..."

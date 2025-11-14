@@ -211,7 +211,7 @@ from w2t_bkin.pose import PoseError
 from w2t_bkin.facemap import FacemapError
 
 try:
-    manifest = ingest.build_manifest(cfg, session)
+    manifest = ingest.build_and_count_manifest(cfg, session)
 except IngestError as e:
     print(f"Ingest failed: {e}")
 

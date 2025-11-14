@@ -368,7 +368,7 @@ session = config.load_session("session.toml")
 
 # 2. Build manifest (from ingest phase)
 from w2t_bkin.ingest import build_manifest
-manifest = build_manifest(cfg, session)
+manifest = build_and_count_manifest(cfg, session)
 
 # 3. Create timebase provider
 provider = sync.create_timebase_provider(cfg, manifest)
