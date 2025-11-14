@@ -62,9 +62,9 @@ def valid_bpod_file(tmp_path, monkeypatch):
 
     bpod_file.write_text("")
 
-    from w2t_bkin import events
+    from w2t_bkin.events import bpod
 
-    monkeypatch.setattr(events, "loadmat", mock_loadmat)
+    monkeypatch.setattr(bpod, "loadmat", mock_loadmat)
 
     return bpod_file
 
@@ -341,12 +341,12 @@ class TestSecurityAndValidation:
         bad_file.write_bytes(b"not a valid mat file")
 
         # Mock loadmat to fail
-        from w2t_bkin import events
+        from w2t_bkin.events import bpod
 
         def mock_loadmat(*args, **kwargs):
             raise ValueError("Parse error")
 
-        monkeypatch.setattr(events, "loadmat", mock_loadmat)
+        monkeypatch.setattr(bpod, "loadmat", mock_loadmat)
 
         with pytest.raises(BpodParseError) as exc_info:
             parse_bpod_mat(bad_file)
