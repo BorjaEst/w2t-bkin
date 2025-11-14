@@ -359,6 +359,35 @@ def ttl_files(tmp_path):
     return [str(ttl_file)]
 
 
+@pytest.fixture
+def ttl_manifest(ttl_files):
+    """Create a minimal Manifest with TTL configuration for testing.
+
+    Returns a Manifest domain model with one camera and one TTL channel,
+    suitable for testing TTL-based synchronization.
+    """
+    from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
+
+    return Manifest(
+        session_id="test-session",
+        cameras=[
+            ManifestCamera(
+                camera_id="cam0",
+                ttl_id="ttl_camera",
+                video_files=[],
+                frame_count=1000,
+                ttl_pulse_count=1000,
+            )
+        ],
+        ttls=[
+            ManifestTTL(
+                ttl_id="ttl_camera",
+                files=ttl_files,
+            )
+        ],
+    )
+
+
 # ============================================================================
 # Session Metadata Fixtures
 # ============================================================================

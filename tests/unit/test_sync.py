@@ -31,6 +31,59 @@ from w2t_bkin.sync import (
     write_alignment_stats,
 )
 
+# Test Constants
+STANDARD_FRAMERATE = 30.0  # Standard video framerate for tests (fps)
+STANDARD_FRAME_INTERVAL = 1.0 / STANDARD_FRAMERATE  # ~0.033s between frames
+STANDARD_SAMPLE_COUNT = 100  # Standard number of samples for tests
+STANDARD_JITTER_BUDGET = 0.010  # Standard jitter budget for tests (10ms)
+LOOSE_JITTER_BUDGET = 0.001  # Strict jitter budget for failure tests (1ms)
+
+
+# Test Data Builders
+def create_reference_times(n_samples: int = 5, interval: float = 1.0, start: float = 0.0) -> list[float]:
+    """Create evenly-spaced reference timestamps for testing.
+
+    Args:
+        n_samples: Number of samples to generate
+        interval: Time interval between samples (seconds)
+        start: Starting timestamp (seconds)
+
+    Returns:
+        List of reference timestamps
+    """
+    return [start + i * interval for i in range(n_samples)]
+
+
+def create_sample_times_with_jitter(reference_times: list[float], offsets: list[float]) -> list[float]:
+    """Create sample timestamps with specified offsets from reference times.
+
+    Args:
+        reference_times: Base reference timestamps
+        offsets: Offset from each reference time (can be positive or negative)
+
+    Returns:
+        List of sample timestamps with jitter
+    """
+    return [ref + offset for ref, offset in zip(reference_times, offsets)]
+
+
+def create_timebase_config(
+    source: str = "nominal_rate", mapping: str = "nearest", jitter_budget_s: float = STANDARD_JITTER_BUDGET, offset_s: float = 0.0, **kwargs
+) -> TimebaseConfig:
+    """Create a TimebaseConfig for testing with sensible defaults.
+
+    Args:
+        source: Timebase source (nominal_rate, ttl, neuropixels)
+        mapping: Mapping strategy (nearest, linear)
+        jitter_budget_s: Maximum allowed jitter in seconds
+        offset_s: Time offset in seconds
+        **kwargs: Additional config parameters (ttl_id, neuropixels_stream, etc.)
+
+    Returns:
+        TimebaseConfig instance for testing
+    """
+    return TimebaseConfig(source=source, mapping=mapping, jitter_budget_s=jitter_budget_s, offset_s=offset_s, **kwargs)
+
 
 class TestTimebaseProviderCreation:
     """Test timebase provider factory and instantiation."""
@@ -44,55 +97,28 @@ class TestTimebaseProviderCreation:
         assert isinstance(provider, NominalRateProvider)
         assert provider.source == "nominal_rate"
 
-    def test_Should_CreateTTLProvider_When_SourceIsTTL(self, ttl_config: Config, ttl_files):
+    def test_Should_CreateTTLProvider_When_SourceIsTTL(self, ttl_config: Config, ttl_manifest):
         """FR-TB-3: Create TTL provider when source='ttl'."""
-        from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
-
-        # Create manifest with actual TTL files
-        manifest = Manifest(
-            session_id="test-session",
-            cameras=[
-                ManifestCamera(
-                    camera_id="cam0",
-                    ttl_id="ttl_camera",
-                    video_files=[],
-                    frame_count=1000,
-                    ttl_pulse_count=1000,
-                )
-            ],
-            ttls=[
-                ManifestTTL(
-                    ttl_id="ttl_camera",
-                    files=ttl_files,
-                )
-            ],
-        )
-
-        config = ttl_config
-
-        provider = create_timebase_provider(config, manifest=manifest)
+        provider = create_timebase_provider(ttl_config, manifest=ttl_manifest)
 
         assert isinstance(provider, TTLProvider)
         assert provider.source == "ttl"
-        assert provider.ttl_id == config.timebase.ttl_id
+        assert provider.ttl_id == ttl_config.timebase.ttl_id
 
     def test_Should_CreateNeuropixelsProvider_When_SourceIsNeuropixels(self, neuropixels_config: Config):
         """FR-TB-2: Create Neuropixels provider when source='neuropixels'."""
-        config = neuropixels_config
-
-        provider = create_timebase_provider(config, manifest=None)
+        provider = create_timebase_provider(neuropixels_config, manifest=None)
 
         assert isinstance(provider, NeuropixelsProvider)
         assert provider.source == "neuropixels"
-        assert provider.stream == config.timebase.neuropixels_stream
+        assert provider.stream == neuropixels_config.timebase.neuropixels_stream
 
     def test_Should_ApplyOffset_When_OffsetConfigured(self, valid_config: Config):
         """FR-TB-5: Provider should respect configured offset_s."""
-        config = valid_config
-        offset = config.timebase.offset_s
+        offset = valid_config.timebase.offset_s
 
-        provider = create_timebase_provider(config, manifest=None)
-        timestamps = provider.get_timestamps(n_samples=100)
+        provider = create_timebase_provider(valid_config, manifest=None)
+        timestamps = provider.get_timestamps(n_samples=STANDARD_SAMPLE_COUNT)
 
         assert timestamps[0] == offset
 
@@ -102,28 +128,27 @@ class TestNominalRateProvider:
 
     def test_Should_GenerateSyntheticTimestamps_When_UsingNominalRate(self):
         """FR-TB-4: Generate timestamps from nominal rate."""
-        rate = 30.0
         offset_s = 0.0
-        n_samples = 100
 
-        provider = NominalRateProvider(rate=rate, offset_s=offset_s)
-        timestamps = provider.get_timestamps(n_samples)
+        provider = NominalRateProvider(rate=STANDARD_FRAMERATE, offset_s=offset_s)
+        timestamps = provider.get_timestamps(STANDARD_SAMPLE_COUNT)
 
-        assert len(timestamps) == n_samples
+        assert len(timestamps) == STANDARD_SAMPLE_COUNT
         assert timestamps[0] == offset_s
-        assert timestamps[-1] == pytest.approx((n_samples - 1) / rate, rel=1e-6)
+        expected_last = (STANDARD_SAMPLE_COUNT - 1) / STANDARD_FRAMERATE
+        assert timestamps[-1] == pytest.approx(expected_last, rel=1e-6)
 
     def test_Should_ApplyOffsetCorrectly_When_OffsetNonZero(self):
         """Nominal rate provider should apply offset to all timestamps."""
-        rate = 30.0
         offset_s = 10.0
         n_samples = 10
 
-        provider = NominalRateProvider(rate=rate, offset_s=offset_s)
+        provider = NominalRateProvider(rate=STANDARD_FRAMERATE, offset_s=offset_s)
         timestamps = provider.get_timestamps(n_samples)
 
         assert timestamps[0] == offset_s
-        assert timestamps[5] == pytest.approx(offset_s + 5 / rate, rel=1e-6)
+        expected_mid = offset_s + 5 / STANDARD_FRAMERATE
+        assert timestamps[5] == pytest.approx(expected_mid, rel=1e-6)
 
 
 class TestTTLProvider:
@@ -168,18 +193,18 @@ class TestMappingStrategies:
 
     def test_Should_MapUsingNearest_When_StrategyIsNearest(self):
         """FR-TB-6: Nearest neighbor mapping."""
-        reference_times = [0.0, 1.0, 2.0, 3.0, 4.0]
+        reference_times = create_reference_times(n_samples=5, interval=1.0)
         sample_times = [0.3, 1.5, 2.8]
 
         indices = map_nearest(sample_times, reference_times)
 
         assert len(indices) == len(sample_times)
-        assert indices[0] == 0
-        assert indices[2] == 3
+        assert indices[0] == 0  # 0.3 closer to 0.0
+        assert indices[2] == 3  # 2.8 closer to 3.0
 
     def test_Should_MapUsingLinear_When_StrategyIsLinear(self):
         """FR-TB-6: Linear interpolation mapping."""
-        reference_times = [0.0, 1.0, 2.0, 3.0, 4.0]
+        reference_times = create_reference_times(n_samples=5, interval=1.0)
         sample_times = [0.5, 1.5, 2.5]
 
         indices, weights = map_linear(sample_times, reference_times)
@@ -191,7 +216,7 @@ class TestMappingStrategies:
 
     def test_Should_ProduceLowerJitter_When_UsingLinearVsNearest(self):
         """A20: Linear mapping should produce lower jitter than nearest."""
-        reference_times = [0.0, 0.5, 1.0, 1.5, 2.0]
+        reference_times = create_reference_times(n_samples=5, interval=0.5, start=0.0)
         sample_times = [0.25, 0.75, 1.25, 1.75]
 
         indices_nearest = map_nearest(sample_times, reference_times)
@@ -211,9 +236,9 @@ class TestJitterComputation:
 
     def test_Should_ComputeMaxJitter_When_AligningSamples(self):
         """Compute maximum jitter between sample and reference times."""
-        reference_times = [0.0, 1.0, 2.0, 3.0]
-        sample_times = [0.1, 1.2, 1.9, 3.1]
-        indices = [0, 1, 2, 3]
+        reference_times = create_reference_times(n_samples=4, interval=1.0)
+        sample_times = create_sample_times_with_jitter(reference_times, offsets=[0.1, 0.2, -0.1, 0.1])
+        indices = list(range(len(reference_times)))
 
         stats = compute_jitter_stats(sample_times, reference_times, indices)
 
@@ -222,9 +247,9 @@ class TestJitterComputation:
 
     def test_Should_ComputeP95Jitter_When_AligningSamples(self):
         """Compute 95th percentile jitter."""
-        reference_times = [float(i) for i in range(100)]
-        sample_times = [i + 0.05 for i in range(100)]
-        indices = list(range(100))
+        reference_times = create_reference_times(n_samples=STANDARD_SAMPLE_COUNT, interval=1.0)
+        sample_times = [t + 0.05 for t in reference_times]
+        indices = list(range(STANDARD_SAMPLE_COUNT))
 
         stats = compute_jitter_stats(sample_times, reference_times, indices)
 
@@ -233,9 +258,9 @@ class TestJitterComputation:
 
     def test_Should_ReturnZeroJitter_When_PerfectAlignment(self):
         """Perfect alignment should have zero jitter."""
-        reference_times = [0.0, 1.0, 2.0, 3.0]
+        reference_times = create_reference_times(n_samples=4, interval=1.0)
         sample_times = reference_times.copy()
-        indices = [0, 1, 2, 3]
+        indices = list(range(len(reference_times)))
 
         stats = compute_jitter_stats(sample_times, reference_times, indices)
 
@@ -282,13 +307,8 @@ class TestAlignmentProcess:
 
     def test_Should_ProduceAlignmentIndices_When_AligningSamples(self):
         """Generate alignment indices for derived data."""
-        config = TimebaseConfig(
-            source="nominal_rate",
-            mapping="nearest",
-            jitter_budget_s=0.010,
-            offset_s=0.0,
-        )
-        reference_times = [0.0, 0.5, 1.0, 1.5, 2.0]
+        config = create_timebase_config(mapping="nearest")
+        reference_times = create_reference_times(n_samples=5, interval=0.5)
         sample_times = [0.3, 0.8, 1.3, 1.8]
 
         result = align_samples(sample_times, reference_times, config)
@@ -299,13 +319,8 @@ class TestAlignmentProcess:
 
     def test_Should_RecordMappingStrategy_When_Aligning(self):
         """Alignment result should record mapping strategy used."""
-        config = TimebaseConfig(
-            source="nominal_rate",
-            mapping="linear",
-            jitter_budget_s=0.010,
-            offset_s=0.0,
-        )
-        reference_times = [0.0, 1.0, 2.0]
+        config = create_timebase_config(mapping="linear")
+        reference_times = create_reference_times(n_samples=3, interval=1.0)
         sample_times = [0.5, 1.5]
 
         result = align_samples(sample_times, reference_times, config)
@@ -314,14 +329,9 @@ class TestAlignmentProcess:
 
     def test_Should_EnforceBudget_When_AlignmentComplete(self):
         """Alignment should enforce jitter budget automatically."""
-        config = TimebaseConfig(
-            source="nominal_rate",
-            mapping="nearest",
-            jitter_budget_s=0.001,
-            offset_s=0.0,
-        )
-        reference_times = [0.0, 1.0, 2.0]
-        sample_times = [0.5, 1.5]
+        config = create_timebase_config(mapping="nearest", jitter_budget_s=LOOSE_JITTER_BUDGET)
+        reference_times = create_reference_times(n_samples=3, interval=1.0)
+        sample_times = [0.5, 1.5]  # These will exceed 1ms jitter budget
 
         with pytest.raises(JitterBudgetExceeded):
             align_samples(sample_times, reference_times, config, enforce_budget=True)
@@ -410,7 +420,7 @@ class TestEdgeCases:
 
     def test_Should_HandleEmptySampleSet_When_NoSamplesToAlign(self):
         """Handle case where no samples need alignment."""
-        reference_times = [0.0, 1.0, 2.0]
+        reference_times = create_reference_times(n_samples=3, interval=1.0)
         sample_times = []
 
         indices = map_nearest(sample_times, reference_times)
@@ -419,7 +429,7 @@ class TestEdgeCases:
 
     def test_Should_HandleNonMonotonicTimestamps_When_InvalidData(self):
         """Detect and reject non-monotonic timestamps."""
-        reference_times = [0.0, 2.0, 1.0, 3.0]
+        reference_times = [0.0, 2.0, 1.0, 3.0]  # Non-monotonic
         sample_times = [0.5, 1.5]
 
         with pytest.raises(SyncError, match="monotonic"):
@@ -427,8 +437,8 @@ class TestEdgeCases:
 
     def test_Should_WarnOnLargeSampleGap_When_AligningSparseData(self):
         """Warn when sample time falls far from any reference time."""
-        reference_times = [0.0, 1.0, 10.0, 11.0]
-        sample_times = [5.0]
+        reference_times = [0.0, 1.0, 10.0, 11.0]  # Large gap between 1.0 and 10.0
+        sample_times = [5.0]  # Falls in large gap
 
         with pytest.warns(UserWarning, match="large gap"):
             indices = map_nearest(sample_times, reference_times)
@@ -444,5 +454,6 @@ class TestEdgeCases:
 # - ttl_config: Config object with TTL timebase
 # - neuropixels_config: Config object with Neuropixels timebase
 # - valid_manifest: Manifest object with one camera and TTL
-# - ttl_files: Test TTL files with timestamps
+# - ttl_files: Test TTL files with timestamps (list of file paths)
+# - ttl_manifest: Manifest with TTL configuration (uses ttl_files)
 # =============================================================================

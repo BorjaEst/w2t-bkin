@@ -235,8 +235,10 @@ def align_bpod_trials_to_ttl(
         trial_offsets[trial_num] = offset_abs
 
         logger.debug(
-            f"Trial {trial_num}: type={trial_type}, sync_signal={sync_signal}, " f"sync_rel={sync_time_rel:.4f}s, ttl_abs={ttl_pulse_time:.4f}s, " f"offset={offset_abs:.4f}s"
-        )
+            f"Trial {trial_num}: type={trial_type}, sync_signal={sync_signal}, "
+            f"sync_rel={sync_time_rel:.4f}s, ttl_abs={ttl_pulse_time:.4f}s, "
+            f"offset={offset_abs:.4f}s"
+        )  # fmt: skip
 
     # Warn about unused TTL pulses
     for ttl_id, ptr in ttl_pointers.items():
