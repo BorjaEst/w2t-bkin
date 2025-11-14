@@ -55,24 +55,47 @@ Principles:
 
 ## Module Responsibilities (minimal contracts)
 
-| Module          | Key Input                              | Output / Contract                                           | FR/NFR Coverage                  |
-| --------------- | -------------------------------------- | ----------------------------------------------------------- | -------------------------------- |
-| config          | config.toml, session.toml              | validated Config, Session, hashes                           | FR-10, FR-15, FR-TB-\* NFR-10/11 |
-| domain          | none                                   | Pydantic models (immutable)                                 | FR-12 NFR-7                      |
-| utils           | primitives                             | hashing, path safety, subprocess wrappers, logging          | NFR-1/2/3                        |
-| ingest+verify   | Config, Session                        | manifest.json, verification_summary.json (abort/warn logic) | FR-1/2/3/13/15/16                |
-| sync            | Config(Timebase), Manifest             | alignment indices + alignment_stats.json (budget enforced)  | FR-TB-1..6, FR-17, A17           |
-| transcode (opt) | Manifest                               | updated Manifest (mezzanine paths)                          | FR-4, NFR-2                      |
-| pose (opt)      | Manifest, timebase                     | PoseBundle (aligned)                                        | FR-5                             |
-| facemap (opt)   | Manifest, timebase                     | FacemapBundle (aligned)                                     | FR-6                             |
-| events (opt)    | Bpod .mat files, BpodSession, timebase | Trials/Events (aligned), TrialSummary, multi-file merging   | FR-11/14                         |
-| nwb             | Manifest + bundles + provenance        | NWB file (rate-based ImageSeries)                           | FR-7 NFR-6                       |
-| validate        | NWB                                    | nwbinspector report                                         | FR-9                             |
-| qc              | NWB + sidecars                         | QC HTML                                                     | FR-8/14 NFR-3                    |
+| Module          | Key Input                              | Output / Contract                                                                                 | FR/NFR Coverage                  |
+| --------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------- |
+| config          | config.toml, session.toml              | validated Config, Session, hashes                                                                 | FR-10, FR-15, FR-TB-\* NFR-10/11 |
+| domain          | none                                   | Pydantic models (immutable)                                                                       | FR-12 NFR-7                      |
+| utils           | primitives                             | hashing, path safety, subprocess wrappers, logging                                                | NFR-1/2/3                        |
+| ingest+verify   | Config, Session                        | Manifest model (Python), manifest.json (phase stub), verification_summary.json (abort/warn logic) | FR-1/2/3/13/15/16                |
+| sync            | Config(Timebase), Manifest             | alignment indices + alignment_stats.json (budget enforced)                                        | FR-TB-1..6, FR-17, A17           |
+| transcode (opt) | Manifest                               | updated Manifest (mezzanine paths)                                                                | FR-4, NFR-2                      |
+| pose (opt)      | Manifest, timebase                     | PoseBundle (aligned)                                                                              | FR-5                             |
+| facemap (opt)   | Manifest, timebase                     | FacemapBundle (aligned)                                                                           | FR-6                             |
+| events (opt)    | Bpod .mat files, BpodSession, timebase | Trials/Events (aligned), TrialSummary, multi-file merging                                         | FR-11/14                         |
+| nwb             | Manifest + bundles + provenance        | NWB file (rate-based ImageSeries)                                                                 | FR-7 NFR-6                       |
+| validate        | NWB                                    | nwbinspector report                                                                               | FR-9                             |
+| qc              | NWB + sidecars                         | QC HTML                                                                                           | FR-8/14 NFR-3                    |
 
-## Sidecar Schemas (summary)
+## Sidecar & Manifest Schemas (summary)
 
-**verification_summary.json:**
+### Manifest (in-memory model)
+
+The primary contract between Phase 1 (Ingest + Verify) and downstream stages is an in-memory
+`Manifest` Pydantic model defined under `w2t_bkin.domain`. It is populated by the ingest module
+using a two-step workflow:
+
+1. **Fast discovery** — `discover_files(config, session) → Manifest`
+
+   - Resolves `config.paths.raw_root` and `session.session.id` into a session directory.
+   - Discovers camera video files, TTL files, and Bpod files using glob patterns.
+   - Populates `ManifestCamera.video_files`, `ManifestTTL.files`, and `Manifest.bpod_files`.
+   - Leaves `frame_count` and `ttl_pulse_count` as `None` (no counting, O(n) in file count only).
+
+2. **Slow counting** — `populate_manifest_counts(manifest) → Manifest`
+   - Iterates over discovered TTL files and uses `count_ttl_pulses()` to build a map of
+     `ttl_id → total_pulses`.
+   - Iterates over all camera videos and uses `count_video_frames()` (ffprobe) to compute total
+     frame counts per camera.
+   - Returns a **new** `Manifest` with `frame_count`/`ttl_pulse_count` populated on each camera.
+
+For convenience, `build_and_count_manifest(config, session)` performs both steps in one call and is
+used by higher-level orchestration where a fully counted manifest is required.
+
+### verification_summary.json
 
 ```json
 {
@@ -92,7 +115,7 @@ Principles:
 }
 ```
 
-**alignment_stats.json:**
+### alignment_stats.json
 
 ```json
 {
@@ -105,7 +128,7 @@ Principles:
 }
 ```
 
-**provenance.json:**
+### provenance.json
 
 ```json
 {
@@ -138,7 +161,7 @@ Principles:
 }
 ```
 
-**validation_report.json:**
+### validation_report.json
 
 ```json
 {
@@ -160,48 +183,11 @@ Principles:
 }
 ```
 
-## Error Taxonomy
+## Timebase Strategy (summary)
 
-Codes: CONFIG_MISSING_KEY, CONFIG_EXTRA_KEY, SESSION_MISSING_KEY, SESSION_EXTRA_KEY, CAMERA_UNVERIFIABLE, MISMATCH_EXCEEDS_TOLERANCE, JITTER_EXCEEDS_BUDGET, PROVIDER_RESOURCE_MISSING, DERIVED_COUNT_MISMATCH, EXTERNAL_TOOL_ERROR.
-Shape: { error_code, message, context:{...}, hint, stage }.
-
-### Exception Hierarchy
-
-```python
-W2TError(Exception)
-├── ConfigError
-│   ├── ConfigMissingKeyError
-│   ├── ConfigExtraKeyError
-│   └── ConfigValidationError
-├── SessionError
-│   ├── SessionMissingKeyError
-│   ├── SessionExtraKeyError
-│   └── SessionValidationError
-├── IngestError
-│   ├── FileNotFoundError
-│   └── VerificationError
-│       └── MismatchExceedsToleranceError
-├── SyncError
-│   ├── TimebaseProviderError
-│   ├── JitterExceedsBudgetError
-│   └── AlignmentError
-├── EventsError
-│   └── BpodParseError
-├── TranscodeError
-├── PoseError
-├── FacemapError
-├── NWBError
-│   └── ExternalToolError
-├── ValidationError (nwbinspector)
-└── QCError
-```
-
-Base `W2TError` includes structured fields: `error_code`, `message`, `context` (dict), `hint` (str), `stage` (str).
-Module-specific errors (IngestError, SyncError, etc.) inherit from W2TError and add domain-specific context.
-
-## Timebase Strategy (Reference Only)
-
-Provider (nominal|ttl|neuropixels) chosen via config; mapping strategy (nearest|linear) aligns derived samples; jitter metrics (max, p95) computed and compared to budget. Abort prior to NWB if budget exceeded (A17). ImageSeries timing untouched (rate-based invariant).
+Provider (nominal|ttl|neuropixels) chosen via config; mapping strategy (nearest|linear) aligns
+derived samples; jitter metrics (max, p95) compared to budget with abort prior to NWB if exceeded
+per A17. ImageSeries timing remains rate-based and independent of timebase choice.
 
 ## Build Order & Dependencies
 
@@ -238,23 +224,7 @@ Provider (nominal|ttl|neuropixels) chosen via config; mapping strategy (nearest|
 | NFR-12            | pytest + CI gating                            |
 | NFR-13            | sync abstraction                              |
 
-## Testing & Quality Gates
-
-Unit: config/session validation, mismatch logic, timebase jitter computation, hashing reproducibility.
-Property: reproducible config/session hashes, linear vs nearest jitter comparison (A20).
-Integration: ingest → nwb → validate → qc on synthetic fixtures (A1/A2/A3/A4/A5).
-Edge: unverifiable camera, tolerance boundary, jitter budget exceeded, missing ttl_id, duplicate Bpod order.
-CI: pre-commit (ruff, black, mypy), unit matrix, integration job storing NWB + QC artifacts.
-
-## Security & Privacy
-
-Path sanitization, restricted subprocess arguments, optional checksums, deterministic anonymized subject IDs (salted hash), no PII in logs.
-
-## Extensibility
-
-Entry points: `w2t_bkin.pose_plugins`, `w2t_bkin.facemap_plugins`. Failures isolated; warnings logged; core unaffected.
-
-## Sequence & State (Minimal)
+## Sequence & State (minimal)
 
 ```mermaid
 stateDiagram-v2
@@ -263,50 +233,20 @@ stateDiagram-v2
   Ingest --> Verify
 
   Verify --> Abort: mismatch > tolerance
-  Verify --> CheckOptionals: mismatch <= tolerance
+  Verify --> Optionals: mismatch <= tolerance
 
-  state CheckOptionals {
-    [*] --> CheckTranscode
-    CheckTranscode --> Transcode: enabled
-    CheckTranscode --> CheckEvents: disabled
-    Transcode --> CheckEvents
+  Optionals --> Transcode: if enabled
+  Optionals --> Events: if bpod.parse=true
+  Optionals --> Pose: if files exist
+  Optionals --> Facemap: if enabled
+  Optionals --> Sync: proceed with available data
 
-    CheckEvents --> ParseBpod: bpod.parse=true
-    CheckEvents --> Sync: bpod.parse=false
-    ParseBpod --> Sync
-  }
-
-  state CheckOptionals {
-    [*] --> CheckTranscode
-    CheckTranscode --> Transcode: enabled
-    CheckTranscode --> CheckEvents: disabled
-    Transcode --> CheckEvents
-
-    CheckEvents --> ParseBpod: bpod.parse=true
-    CheckEvents --> CheckPose: bpod.parse=false
-    ParseBpod --> CheckPose
-  }
-
-  CheckOptionals --> CheckPose: video transcoded (if enabled)
-
-  state CheckPose {
-    [*] --> ImportPose: pose files exist
-    [*] --> CheckFacemap: no pose files
-    ImportPose --> CheckFacemap
-  }
-
-  CheckPose --> CheckFacemap: pose imported (if available)
-
-  state CheckFacemap {
-    [*] --> ComputeFacemap: enabled
-    [*] --> Sync: disabled
-    ComputeFacemap --> Sync
-  }
-
-  CheckFacemap --> Sync: optional data ready for alignment
+  Transcode --> Sync
+  Events --> Sync
+  Pose --> Sync
+  Facemap --> Sync
 
   Sync --> NWB: all data aligned to timebase
-
   NWB --> Validate
   Validate --> QC
   QC --> [*]: pipeline complete
@@ -335,9 +275,11 @@ sequenceDiagram
   config-->>CLI: Session
 
   Note over CLI,ingest: Phase 1: Ingest + Verify
-  CLI->>ingest: build_manifest(Config, Session)
-  ingest-->>CLI: Manifest
-  CLI->>verify: verify_manifest(Manifest, Config)
+  CLI->>ingest: discover_files(Config, Session)
+  ingest-->>CLI: Manifest (no counts)
+  CLI->>ingest: populate_manifest_counts(Manifest)
+  ingest-->>CLI: Manifest (with counts)
+  CLI->>verify: verify_manifest(Manifest, tolerance)
   verify-->>CLI: VerificationResult
 
   alt mismatch > tolerance
@@ -403,10 +345,7 @@ sequenceDiagram
   Note over CLI: Pipeline complete
 ```
 
-## Provenance (Determinism)
+## Provenance (determinism)
 
-Canonicalization: strip comments → sort keys → compact JSON → SHA256. Record timebase selection and jitter metrics. Ensures reproducibility (NFR-1) and traceability (FR-17, A18).
-
-## Summary
-
-Design reduced to essential contracts and flow while maintaining full requirements coverage, reproducibility, modularity, and observability. For extended rationale or detailed schemas, see `spec/spec-design-w2t-bkin-simplified.md` and `spec/*` schema specs.
+Canonicalization: strip comments → sort keys → compact JSON → SHA256. Record timebase selection
+and jitter metrics. Ensures reproducibility (NFR-1) and traceability (FR-17, A18).
