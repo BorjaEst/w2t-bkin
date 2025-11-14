@@ -522,6 +522,74 @@ class TestTTLAlignment:
         with pytest.raises(SyncError, match="No trial_type sync configuration"):
             align_bpod_trials_to_ttl(session, bpod_data_with_sync, {})
 
+    def test_Should_AlignMergedBpod_When_NonZeroTrialStartTimestamp(self, mock_session_with_ttl):
+        """Should correctly align merged Bpod files with non-zero TrialStartTimestamp."""
+        # Simulate merged Bpod data where second file's trials have offset TrialStartTimestamp
+        # This happens when continuous_time=True during merge
+        bpod_data = {
+            "SessionData": {
+                "nTrials": 3,
+                "TrialStartTimestamp": [0.0, 100.0, 200.0],  # File 1: 0s, File 2: starts at 100s, File 3: starts at 200s
+                "TrialEndTimestamp": [9.0, 108.0, 210.0],
+                "TrialTypes": [1, 2, 1],
+                "RawEvents": {
+                    "Trial": [
+                        # Trial 1: W2L_Audio at 6.0s (rel to trial), TTL at 10.0s (abs)
+                        {"States": {"W2L_Audio": [6.0, 7.0], "HIT": [7.5, 7.6]}, "Events": {}},
+                        # Trial 2: A2L_Audio at 5.0s (rel to trial), starts at 100s, TTL at 110.0s (abs)
+                        # In merged timeline: 100.0 + 5.0 = 105.0s → should align to TTL 110.0s
+                        {"States": {"A2L_Audio": [5.0, 6.0], "Miss": [7.0, 7.1]}, "Events": {}},
+                        # Trial 3: W2L_Audio at 6.5s (rel to trial), starts at 200s, TTL at 210.0s (abs)
+                        # In merged timeline: 200.0 + 6.5 = 206.5s → should align to TTL 210.0s
+                        {"States": {"W2L_Audio": [6.5, 7.5], "HIT": [8.0, 8.1]}, "Events": {}},
+                    ]
+                },
+                "Info": {"SessionDate": "13-Nov-2025", "SessionStartTime_UTC": "10:00:00"},
+            }
+        }
+
+        # TTL pulses for alignment
+        ttl_pulses = {
+            "ttl_cue": [10.0, 110.0, 210.0],  # All sync signals use ttl_cue channel
+        }
+
+        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+
+        assert len(trial_offsets) == 3
+        assert len(warnings) == 0
+
+        # Trial 1: TrialStart=0.0, sync at 6.0 (rel) → 0.0+6.0=6.0 (merged) → TTL 10.0 → offset = 10.0 - 6.0 = 4.0
+        assert trial_offsets[1] == pytest.approx(4.0)
+
+        # Trial 2: TrialStart=100.0, sync at 5.0 (rel) → 100.0+5.0=105.0 (merged) → TTL 110.0 → offset = 110.0 - 105.0 = 5.0
+        assert trial_offsets[2] == pytest.approx(5.0)
+
+        # Trial 3: TrialStart=200.0, sync at 6.5 (rel) → 200.0+6.5=206.5 (merged) → TTL 210.0 → offset = 210.0 - 206.5 = 3.5
+        assert trial_offsets[3] == pytest.approx(3.5)
+
+        # Extract trials with absolute timestamps to verify alignment
+        aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
+
+        assert len(aligned_trials) == 3
+
+        # Verify absolute start times
+        # Trial 1: offset + TrialStart = 4.0 + 0.0 = 4.0
+        assert aligned_trials[0].start_time == pytest.approx(4.0)
+        assert aligned_trials[0].stop_time == pytest.approx(13.0)
+
+        # Trial 2: offset + TrialStart = 5.0 + 100.0 = 105.0
+        assert aligned_trials[1].start_time == pytest.approx(105.0)
+        assert aligned_trials[1].stop_time == pytest.approx(113.0)
+
+        # Trial 3: offset + TrialStart = 3.5 + 200.0 = 203.5
+        assert aligned_trials[2].start_time == pytest.approx(203.5)
+        assert aligned_trials[2].stop_time == pytest.approx(213.5)
+
+        # Verify sync signals align to TTL pulses
+        # Trial 1: start + sync_rel = 4.0 + 6.0 = 10.0 ✓
+        # Trial 2: start + sync_rel = 105.0 + 5.0 = 110.0 ✓
+        # Trial 3: start + sync_rel = 203.5 + 6.5 = 210.0 ✓
+
 
 class TestExtractTrialsWithAlignment:
     """Test extract_trials integration with TTL alignment."""

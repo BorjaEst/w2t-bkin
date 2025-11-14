@@ -100,8 +100,9 @@ def align_bpod_trials_to_ttl(
     2. Lookup sync configuration from session.bpod.trial_types
     3. Extract sync_signal start time (relative to trial start) from States
     4. Match to next available TTL pulse from corresponding channel
-    5. Compute offset: offset_abs = ttl_pulse_time - bpod_sync_time_rel
-    6. Return offsets for use: t_abs = offset + t_rel
+    5. Compute offset accounting for TrialStartTimestamp:
+       offset = ttl_pulse_time - (TrialStartTimestamp + sync_time_rel)
+    6. Return offsets for use: t_abs = offset + TrialStartTimestamp
 
     Edge Cases:
     -----------
@@ -230,14 +231,20 @@ def align_bpod_trials_to_ttl(
         ttl_pulse_time = ttl_channel[ttl_ptr]
         ttl_pointers[sync_ttl_id] += 1
 
-        # Compute offset: absolute_time = offset + relative_time
-        offset_abs = ttl_pulse_time - sync_time_rel
+        # Get trial start timestamp from Bpod (may be non-zero after merge)
+        trial_start_timestamp = float(to_scalar(session_data["TrialStartTimestamp"], i))
+
+        # Compute offset: absolute_time = offset + TrialStartTimestamp
+        # The sync signal occurs at: trial_start_timestamp + sync_time_rel (in Bpod timeline)
+        # And should align to: ttl_pulse_time (in absolute timeline)
+        # Therefore: offset + (trial_start_timestamp + sync_time_rel) = ttl_pulse_time
+        offset_abs = ttl_pulse_time - (trial_start_timestamp + sync_time_rel)
         trial_offsets[trial_num] = offset_abs
 
         logger.debug(
             f"Trial {trial_num}: type={trial_type}, sync_signal={sync_signal}, "
-            f"sync_rel={sync_time_rel:.4f}s, ttl_abs={ttl_pulse_time:.4f}s, "
-            f"offset={offset_abs:.4f}s"
+            f"trial_start={trial_start_timestamp:.4f}s, sync_rel={sync_time_rel:.4f}s, "
+            f"ttl_abs={ttl_pulse_time:.4f}s, offset={offset_abs:.4f}s"
         )  # fmt: skip
 
     # Warn about unused TTL pulses
