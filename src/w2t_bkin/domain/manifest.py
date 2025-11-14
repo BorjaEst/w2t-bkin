@@ -39,7 +39,7 @@ Acceptance Criteria:
 Usage:
 ------
 >>> from w2t_bkin.ingest import build_manifest
->>> manifest = build_manifest(config, session)
+>>> manifest = build_and_count_manifest(config, session)
 >>> manifest.cameras[0].frame_count  # int or None
 >>>
 >>> from w2t_bkin.domain.manifest import VerificationSummary
@@ -112,7 +112,7 @@ class ManifestTTL(BaseModel):
 class Manifest(BaseModel):
     """Manifest tracking all discovered files for a session.
 
-    Built by ingest.build_manifest() and persisted as manifest.json.
+    Built by ingest.build_and_count_manifest() and persisted as manifest.json.
     Links session specifications to actual discovered files with optional
     verification counts.
 

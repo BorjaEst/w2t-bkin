@@ -29,7 +29,7 @@ class TestBasicNWBAssembly:
     ):
         """Should create basic NWB file from Session-000001 manifest (FR-7, A1)."""
         from w2t_bkin.config import load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import build_and_count_manifest
         from w2t_bkin.nwb import assemble_nwb
 
         # Load config and session
@@ -40,7 +40,7 @@ class TestBasicNWBAssembly:
         session = load_session(fixture_session_toml)
 
         # Build manifest (Phase 1)
-        manifest = build_manifest(config, session)
+        manifest = build_and_count_manifest(config, session)
 
         # Create provenance
         provenance = {
@@ -71,7 +71,7 @@ class TestBasicNWBAssembly:
         from pynwb import NWBHDF5IO
 
         from w2t_bkin.config import load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import build_and_count_manifest
         from w2t_bkin.nwb import assemble_nwb
 
         # Setup
@@ -79,7 +79,7 @@ class TestBasicNWBAssembly:
         config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)
         config = Config(**config_dict)
         session = load_session(fixture_session_toml)
-        manifest = build_manifest(config, session)
+        manifest = build_and_count_manifest(config, session)
 
         # Assemble NWB
         output_dir = tmp_work_dir / "processed" / "Session-000001"
@@ -319,7 +319,7 @@ class TestEndToEndPipeline:
     ):
         """Should complete ingest → sync → NWB pipeline (A1)."""
         from w2t_bkin.config import load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import build_and_count_manifest
         from w2t_bkin.nwb import assemble_nwb
         from w2t_bkin.sync import create_timebase_provider
 
@@ -330,7 +330,7 @@ class TestEndToEndPipeline:
         session = load_session(fixture_session_toml)
 
         # Phase 1: Ingest
-        manifest = build_manifest(config, session)
+        manifest = build_and_count_manifest(config, session)
 
         # Phase 2: Sync
         provider = create_timebase_provider(config, manifest=None)

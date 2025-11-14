@@ -290,13 +290,16 @@ def build_and_count_manifest(config: Config, session: Session) -> Manifest:
 def build_manifest(config: Config, session: Session, count_frames: bool = True) -> Manifest:
     """Build manifest by discovering files and optionally counting frames/TTLs.
 
-    .. deprecated::
-        The count_frames parameter makes this function do two different things.
-        Use the explicit workflow instead:
+    .. deprecated:: 0.2.0
+        The ``build_manifest`` helper is kept for backward compatibility but
+        will be removed in a future release. The ``count_frames`` parameter
+        also makes this function do two different things.
 
-        - discover_files() for fast file discovery
-        - populate_manifest_counts() to add counts
-        - build_and_count_manifest() for one-step convenience
+        Prefer the explicit workflow instead:
+
+        - :func:`discover_files` for fast file discovery
+        - :func:`populate_manifest_counts` to add counts
+        - :func:`build_and_count_manifest` for one-step convenience
 
     Args:
         config: Pipeline configuration
@@ -321,6 +324,14 @@ def build_manifest(config: Config, session: Session, count_frames: bool = True) 
         >>> # Or use convenience function:
         >>> manifest = build_and_count_manifest(config, session)
     """
+
+    import warnings
+
+    warnings.warn(
+        "build_manifest() is deprecated and will be removed in a future " "release. Use discover_files() + populate_manifest_counts() or " "build_and_count_manifest() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     raw_root = Path(config.paths.raw_root)
     session_dir = raw_root / session.session.id
 

@@ -47,7 +47,7 @@ Example:
 >>> # Load configuration and build manifest
 >>> cfg = config.load_config("config.toml")
 >>> session = config.load_session("Session-000001/session.toml")
->>> manifest = ingest.build_manifest(cfg, session)
+>>> manifest = ingest.build_and_count_manifest(cfg, session)
 >>>
 >>> # Create provenance metadata
 >>> provenance = {

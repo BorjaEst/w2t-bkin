@@ -32,7 +32,7 @@ def test_real_session_001_end_to_end_ingest(
     """
     from w2t_bkin.config import load_session
     from w2t_bkin.domain import Config, VerificationSummary
-    from w2t_bkin.ingest import build_manifest, create_verification_summary, write_verification_summary
+    from w2t_bkin.ingest import build_and_count_manifest, create_verification_summary, write_verification_summary
 
     # Setup: Load session and configure paths
     session = load_session(fixture_session_toml)
@@ -43,7 +43,7 @@ def test_real_session_001_end_to_end_ingest(
     config = Config(**config_dict)
 
     # Phase 1: Discovery and Counting - Build manifest with frame/TTL counts
-    manifest = build_manifest(config, session, count_frames=True)
+    manifest = build_and_count_manifest(config, session)
 
     assert manifest.session_id == "Session-000001"
     assert len(manifest.cameras) == 2, "Should discover 2 cameras"
@@ -236,7 +236,7 @@ def test_real_session_001_verification_with_real_mismatch(
     """
     from w2t_bkin.config import load_session
     from w2t_bkin.domain import Config
-    from w2t_bkin.ingest import build_manifest, count_ttl_pulses, count_video_frames, verify_manifest
+    from w2t_bkin.ingest import build_and_count_manifest, count_ttl_pulses, count_video_frames, verify_manifest
 
     # Setup
     session = load_session(fixture_session_toml)
@@ -244,10 +244,8 @@ def test_real_session_001_verification_with_real_mismatch(
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)
     config = Config(**config_dict)
 
-    # Build and populate manifest
-    # Note: The old workflow used build_manifest without counting, then manually populated
-    # New approach: build_manifest now includes counting by default
-    manifest = build_manifest(config, session, count_frames=True)
+    # Build and populate manifest using new convenience API
+    manifest = build_and_count_manifest(config, session)
 
     # Verify counts are already populated (no need for _populate_manifest_with_counts)
     for cam in manifest.cameras:
@@ -288,7 +286,7 @@ def test_real_session_001_complete_manifest(
     """
     from w2t_bkin.config import load_session
     from w2t_bkin.domain import Config
-    from w2t_bkin.ingest import build_manifest
+    from w2t_bkin.ingest import build_and_count_manifest
 
     session = load_session(fixture_session_toml)
 
@@ -297,7 +295,7 @@ def test_real_session_001_complete_manifest(
     config = Config(**config_dict)
 
     # Build manifest with full counting (default behavior)
-    manifest = build_manifest(config, session, count_frames=True)
+    manifest = build_and_count_manifest(config, session)
 
     # Verify completeness
     assert manifest.session_id == session.session.id
@@ -364,7 +362,7 @@ def test_successful_ingest_and_verification(tmp_path):
     _write_lines(ttl_file, 1000)
 
     # Build manifest with automatic counting (counts empty videos as 0 frames, TTLs as 1000)
-    manifest = build_manifest(config, session, count_frames=True)
+    manifest = build_and_count_manifest(config, session)
 
     # Verify counts are populated
     for cam in manifest.cameras:
@@ -398,7 +396,7 @@ def test_abort_on_mismatch_exceeds_tolerance(tmp_path):
     """
     from w2t_bkin.config import load_config
     from w2t_bkin.domain import Manifest, ManifestCamera
-    from w2t_bkin.ingest import build_manifest, verify_manifest
+    from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
 
     config = load_config(Path(__file__).parent.parent / "fixtures" / "configs" / "valid_config.toml")
     session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml")
@@ -419,7 +417,7 @@ def test_abort_on_mismatch_exceeds_tolerance(tmp_path):
     _write_lines(ttl_file, 900)
 
     # Build manifest with automatic counting (empty videos = 0 frames, TTL = 900 pulses)
-    manifest = build_manifest(config, session, count_frames=True)
+    manifest = build_and_count_manifest(config, session)
 
     # Verify mismatch is large (900) for empty videos vs 900 TTL pulses
     for cam in manifest.cameras:
@@ -438,7 +436,7 @@ def test_warn_on_mismatch_within_tolerance(tmp_path, caplog):
     """
     from w2t_bkin.config import load_config
     from w2t_bkin.domain import Manifest, ManifestCamera
-    from w2t_bkin.ingest import build_manifest, verify_manifest
+    from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
 
     config = load_config(Path(__file__).parent.parent / "fixtures" / "configs" / "valid_config.toml")
     session = __import__("w2t_bkin.config", fromlist=["load_session"]).load_session(Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml")
@@ -458,7 +456,7 @@ def test_warn_on_mismatch_within_tolerance(tmp_path, caplog):
     _write_lines(ttl_file, 995)
 
     # Build manifest with automatic counting (empty videos = 0 frames, TTL = 995 pulses)
-    manifest = build_manifest(config, session, count_frames=True)
+    manifest = build_and_count_manifest(config, session)
 
     # Verify mismatch is 995 for each camera
     for cam in manifest.cameras:

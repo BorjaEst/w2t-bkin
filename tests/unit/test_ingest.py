@@ -19,7 +19,7 @@ class TestManifestBuilding:
     def test_Should_DiscoverAllCameraVideos_When_SessionProvided(self):
         """Should discover all camera video files matching session paths pattern (FR-1)."""
         from w2t_bkin.config import load_config, load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import build_and_count_manifest
 
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
@@ -28,7 +28,7 @@ class TestManifestBuilding:
         session = load_session(session_path)
 
         # Build manifest with counting enabled (default behavior)
-        manifest = build_manifest(config, session, count_frames=True)
+        manifest = build_and_count_manifest(config, session)
 
         # Should have discovered cameras
         assert len(manifest.cameras) > 0, "Expected at least one camera to be discovered"
@@ -42,7 +42,7 @@ class TestManifestBuilding:
     def test_Should_DiscoverTTLFiles_When_DeclaredInSession(self):
         """Should discover TTL files matching paths pattern (FR-1)."""
         from w2t_bkin.config import load_config, load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import build_and_count_manifest
 
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
@@ -50,7 +50,7 @@ class TestManifestBuilding:
         config = load_config(config_path)
         session = load_session(session_path)
 
-        manifest = build_manifest(config, session, count_frames=True)
+        manifest = build_and_count_manifest(config, session)
 
         # Should have discovered TTLs
         assert len(manifest.ttls) > 0, "Expected at least one TTL to be discovered"
@@ -62,7 +62,7 @@ class TestManifestBuilding:
     def test_Should_DiscoverBpodFile_When_DeclaredInSession(self):
         """Should discover Bpod .mat file when present (FR-1)."""
         from w2t_bkin.config import load_config, load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import build_and_count_manifest
 
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
@@ -70,7 +70,7 @@ class TestManifestBuilding:
         config = load_config(config_path)
         session = load_session(session_path)
 
-        manifest = build_manifest(config, session, count_frames=True)
+        manifest = build_and_count_manifest(config, session)
 
         # Should have bpod file if present in session
         if session.bpod.path:
@@ -80,7 +80,7 @@ class TestManifestBuilding:
     def test_Should_RaiseError_When_ExpectedFilesAreMissing(self):
         """Should raise descriptive error when expected files don't exist (FR-1)."""
         from w2t_bkin.config import load_config, load_session
-        from w2t_bkin.ingest import IngestError, build_manifest
+        from w2t_bkin.ingest import IngestError, build_and_count_manifest
 
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         session_path = Path("tests/fixtures/sessions/missing_files.toml")
@@ -89,7 +89,7 @@ class TestManifestBuilding:
         session = load_session(session_path)
 
         with pytest.raises(IngestError) as exc_info:
-            build_manifest(config, session, count_frames=True)
+            build_and_count_manifest(config, session)
 
         # Verify error message contains relevant information
         error_message = str(exc_info.value).lower()
@@ -98,7 +98,7 @@ class TestManifestBuilding:
     def test_Should_IncludeAbsolutePaths_When_ManifestBuilt(self):
         """Should store absolute paths in manifest (FR-1)."""
         from w2t_bkin.config import load_config, load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import build_and_count_manifest
 
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
@@ -106,7 +106,7 @@ class TestManifestBuilding:
         config = load_config(config_path)
         session = load_session(session_path)
 
-        manifest = build_manifest(config, session, count_frames=True)
+        manifest = build_and_count_manifest(config, session)
 
         # All video paths should be absolute
         for camera in manifest.cameras:
@@ -117,7 +117,7 @@ class TestManifestBuilding:
     def test_Should_SupportFastDiscovery_When_CountingDisabled(self):
         """Should support fast file discovery without counting frames/TTLs (FR-1)."""
         from w2t_bkin.config import load_config, load_session
-        from w2t_bkin.ingest import build_manifest
+        from w2t_bkin.ingest import discover_files
 
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
@@ -126,7 +126,7 @@ class TestManifestBuilding:
         session = load_session(session_path)
 
         # Build manifest WITHOUT counting (fast discovery mode)
-        manifest = build_manifest(config, session, count_frames=False)
+        manifest = discover_files(config, session)
 
         # Should have discovered cameras and files
         assert len(manifest.cameras) > 0, "Expected cameras to be discovered"

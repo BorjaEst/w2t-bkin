@@ -35,7 +35,7 @@ Quick Start:
 >>> session = config.load_session("Session-000001/session.toml")
 >>>
 >>> # Build manifest
->>> manifest = ingest.build_manifest(cfg, session)
+>>> manifest = ingest.build_and_count_manifest(cfg, session)
 >>>
 >>> # Assemble NWB
 >>> provenance = {"config_hash": "abc123", "software": {"name": "w2t_bkin"}}

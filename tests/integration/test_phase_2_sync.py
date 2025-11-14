@@ -17,14 +17,8 @@ import pytest
 
 from w2t_bkin.config import load_config, load_session
 from w2t_bkin.domain import AlignmentStats, Config, Manifest
-from w2t_bkin.ingest import build_manifest
-from w2t_bkin.sync import (
-    JitterBudgetExceeded,
-    align_samples,
-    create_alignment_stats,
-    create_timebase_provider,
-    write_alignment_stats,
-)
+from w2t_bkin.ingest import build_and_count_manifest
+from w2t_bkin.sync import JitterBudgetExceeded, align_samples, create_alignment_stats, create_timebase_provider, write_alignment_stats
 
 
 @pytest.mark.integration
@@ -85,7 +79,7 @@ def test_Should_CreateTTLTimebase_When_ConfiguredWithManifest_Issue3(
     session = load_session(fixture_session_toml)
 
     # Build manifest to get TTL files
-    manifest = build_manifest(config, session)
+    manifest = build_and_count_manifest(config, session)
 
     # Create TTL provider
     provider = create_timebase_provider(config, manifest=manifest)
@@ -291,7 +285,7 @@ def test_Should_HandleRealSessionAlignment_When_UsingSession000001Data_Issue3(
     config = Config(**config_dict)
 
     session = load_session(fixture_session_toml)
-    manifest = build_manifest(config, session)
+    manifest = build_and_count_manifest(config, session)
 
     # Create nominal rate timebase for camera frames (8580 frames at 30 Hz)
     provider = create_timebase_provider(config, manifest=None)
