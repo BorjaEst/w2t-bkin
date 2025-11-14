@@ -33,6 +33,10 @@ Low-level API (for advanced use cases):
 - discover_bpod_files: Find Bpod files matching glob pattern
 - merge_bpod_sessions: Combine multiple Bpod files into unified session
 
+Data manipulation API:
+- index_bpod_data: Filter Bpod data to keep only specified trials
+- write_bpod_mat: Write Bpod data dictionary back to .mat file
+
 Requirements:
 -------------
 - FR-11: Behavioral event parsing from Bpod
@@ -113,6 +117,24 @@ Example (Dict-based for unit testing):
 >>> # Extract behavioral events (relative timestamps)
 >>> events = extract_behavioral_events(bpod_data)
 >>> print(f"Extracted {len(events)} events")
+
+Example (Filter and save Bpod data):
+-------------------------------------
+>>> from pathlib import Path
+>>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat
+>>>
+>>> # Load Bpod data
+>>> bpod_data = parse_bpod_mat(Path("data/raw/Session-001/Bpod/session.mat"))
+>>>
+>>> # Keep only first 3 trials
+>>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])
+>>>
+>>> # Save filtered data back to .mat file
+>>> write_bpod_mat(filtered_data, Path("data/processed/session_first3.mat"))
+>>>
+>>> # Verify: reload and check
+>>> reloaded = parse_bpod_mat(Path("data/processed/session_first3.mat"))
+>>> print(f"Filtered file has {reloaded['SessionData']['nTrials']} trials")
 """
 
 from datetime import datetime
@@ -123,9 +145,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 try:
-    from scipy.io import loadmat
+    from scipy.io import loadmat, savemat
 except ImportError:
     loadmat = None
+    savemat = None
 
 from .domain import Trial, TrialEvent, TrialSummary
 from .domain.exceptions import BpodParseError, BpodValidationError, EventsError
@@ -315,11 +338,49 @@ def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
 
     # Add first file's data
     first_raw_events = convert_matlab_struct(merged_session["RawEvents"])
-    all_trials.extend(first_raw_events["Trial"])
-    all_start_times.extend(merged_session["TrialStartTimestamp"])
-    all_end_times.extend(merged_session["TrialEndTimestamp"])
-    all_trial_settings.extend(merged_session.get("TrialSettings", []))
-    all_trial_types.extend(merged_session.get("TrialTypes", []))
+    # Ensure RawEvents is a dict in merged_session
+    merged_session["RawEvents"] = first_raw_events
+
+    # Convert Trial to list if it's a mat_struct or numpy array
+    trials = first_raw_events["Trial"]
+    if hasattr(trials, "__dict__"):
+        # mat_struct object - could be a single trial or not iterable
+        # Try to iterate, if not possible, wrap in list
+        try:
+            trials = [convert_matlab_struct(trial) for trial in trials]
+        except TypeError:
+            # Single mat_struct object - wrap in list
+            trials = [convert_matlab_struct(trials)]
+    elif isinstance(trials, np.ndarray):
+        # numpy array - convert to list
+        trials = trials.tolist()
+    elif not isinstance(trials, list):
+        # Other types - wrap in list
+        trials = list(trials) if hasattr(trials, "__iter__") else [trials]
+
+    all_trials.extend(trials)
+
+    # Convert timestamps to lists if they're numpy arrays
+    start_times = merged_session["TrialStartTimestamp"]
+    end_times = merged_session["TrialEndTimestamp"]
+    if isinstance(start_times, np.ndarray):
+        start_times = start_times.tolist()
+    if isinstance(end_times, np.ndarray):
+        end_times = end_times.tolist()
+
+    all_start_times.extend(start_times if isinstance(start_times, list) else [start_times])
+    all_end_times.extend(end_times if isinstance(end_times, list) else [end_times])
+
+    # Convert settings and types to lists if they're numpy arrays
+    trial_settings = merged_session.get("TrialSettings", [])
+    trial_types = merged_session.get("TrialTypes", [])
+    if isinstance(trial_settings, np.ndarray):
+        trial_settings = trial_settings.tolist()
+    if isinstance(trial_types, np.ndarray):
+        trial_types = trial_types.tolist()
+
+    all_trial_settings.extend(trial_settings if isinstance(trial_settings, list) else [trial_settings])
+    all_trial_types.extend(trial_types if isinstance(trial_types, list) else [trial_types])
 
     # Merge subsequent files
     for path, data in parsed_files[1:]:
@@ -329,12 +390,35 @@ def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
         # Get trial offset (time of last trial end)
         time_offset = all_end_times[-1] if all_end_times else 0.0
 
-        # Append trials with time offset
-        all_trials.extend(raw_events["Trial"])
+        # Convert Trial to list if it's a mat_struct or numpy array
+        trials = raw_events["Trial"]
+        if hasattr(trials, "__dict__"):
+            # mat_struct object - could be a single trial or not iterable
+            # Try to iterate, if not possible, wrap in list
+            try:
+                trials = [convert_matlab_struct(trial) for trial in trials]
+            except TypeError:
+                # Single mat_struct object - wrap in list
+                trials = [convert_matlab_struct(trials)]
+        elif isinstance(trials, np.ndarray):
+            # numpy array - convert to list
+            trials = trials.tolist()
+        elif not isinstance(trials, list):
+            # Other types - wrap in list
+            trials = list(trials) if hasattr(trials, "__iter__") else [trials]
+
+        # Append trials
+        all_trials.extend(trials)
 
         # Offset timestamps
         start_times = session_data["TrialStartTimestamp"]
         end_times = session_data["TrialEndTimestamp"]
+
+        # Convert numpy arrays to lists
+        if isinstance(start_times, np.ndarray):
+            start_times = start_times.tolist()
+        if isinstance(end_times, np.ndarray):
+            end_times = end_times.tolist()
 
         if isinstance(start_times, (list, tuple)):
             all_start_times.extend([t + time_offset for t in start_times])
@@ -344,8 +428,17 @@ def merge_bpod_sessions(file_paths: List[Path]) -> Dict[str, Any]:
             all_end_times.append(end_times + time_offset)
 
         # Append settings and types
-        all_trial_settings.extend(session_data.get("TrialSettings", []))
-        all_trial_types.extend(session_data.get("TrialTypes", []))
+        trial_settings = session_data.get("TrialSettings", [])
+        trial_types = session_data.get("TrialTypes", [])
+
+        # Convert numpy arrays to lists
+        if isinstance(trial_settings, np.ndarray):
+            trial_settings = trial_settings.tolist()
+        if isinstance(trial_types, np.ndarray):
+            trial_types = trial_types.tolist()
+
+        all_trial_settings.extend(trial_settings if isinstance(trial_settings, list) else [trial_settings])
+        all_trial_types.extend(trial_types if isinstance(trial_types, list) else [trial_types])
 
         logger.debug(f"Merged {path.name}: added {session_data['nTrials']} trials")
 
@@ -433,6 +526,159 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
 
     logger.debug("Bpod structure validation passed")
     return True
+
+
+# =============================================================================
+# Bpod Data Manipulation
+# =============================================================================
+
+
+def index_bpod_data(bpod_data: Dict[str, Any], trial_indices: List[int]) -> Dict[str, Any]:
+    """Index Bpod data to keep only specified trials.
+
+    Creates a new Bpod data dictionary containing only the trials specified by
+    their indices (0-based). All trial-related arrays (timestamps, events, settings,
+    types) are filtered consistently.
+
+    Args:
+        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod_session)
+        trial_indices: List of 0-based trial indices to keep (e.g., [0, 1, 2] for first 3 trials)
+
+    Returns:
+        New Bpod data dictionary with filtered trials
+
+    Raises:
+        BpodParseError: If structure is invalid
+        IndexError: If trial indices are out of bounds
+
+    Examples:
+        >>> from pathlib import Path
+        >>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat
+        >>>
+        >>> # Load Bpod data
+        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
+        >>>
+        >>> # Keep only first 3 trials
+        >>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])
+        >>>
+        >>> # Save filtered data
+        >>> write_bpod_mat(filtered_data, Path("data/Bpod/session_first3.mat"))
+        >>>
+        >>> # Keep specific trials (e.g., trials 5, 10, 15)
+        >>> selected_data = index_bpod_data(bpod_data, [4, 9, 14])
+        >>> write_bpod_mat(selected_data, Path("data/Bpod/session_selected.mat"))
+    """
+    # Validate structure
+    if not validate_bpod_structure(bpod_data):
+        raise BpodParseError("Invalid Bpod structure")
+
+    # Deep copy to avoid modifying original
+    import copy
+
+    filtered_data = copy.deepcopy(bpod_data)
+
+    # Convert MATLAB struct to dict if needed
+    session_data = convert_matlab_struct(filtered_data["SessionData"])
+    filtered_data["SessionData"] = session_data
+
+    n_trials = int(session_data["nTrials"])
+
+    # Validate indices
+    if not trial_indices:
+        raise ValueError("trial_indices cannot be empty")
+
+    for idx in trial_indices:
+        if idx < 0 or idx >= n_trials:
+            raise IndexError(f"Trial index {idx} out of bounds (0-{n_trials-1})")
+
+    # Filter trial-related arrays
+    start_timestamps = session_data["TrialStartTimestamp"]
+    end_timestamps = session_data["TrialEndTimestamp"]
+
+    # Convert RawEvents to dict if needed
+    raw_events = convert_matlab_struct(session_data["RawEvents"])
+    session_data["RawEvents"] = raw_events
+
+    # Handle both numpy arrays and lists
+    def _index_array(arr: Any, indices: List[int]) -> Any:
+        """Helper to index arrays or lists."""
+        if isinstance(arr, np.ndarray):
+            return arr[indices]
+        elif isinstance(arr, (list, tuple)):
+            return [arr[i] for i in indices]
+        else:
+            # Scalar - shouldn't happen for these fields
+            return arr
+
+    # Filter timestamps
+    session_data["TrialStartTimestamp"] = _index_array(start_timestamps, trial_indices)
+    session_data["TrialEndTimestamp"] = _index_array(end_timestamps, trial_indices)
+
+    # Filter RawEvents.Trial (now always a dict)
+    trial_list = raw_events["Trial"]
+    filtered_trials = _index_array(trial_list, trial_indices)
+    raw_events["Trial"] = filtered_trials
+
+    # Filter optional fields if present
+    if "TrialSettings" in session_data:
+        trial_settings = session_data["TrialSettings"]
+        session_data["TrialSettings"] = _index_array(trial_settings, trial_indices)
+
+    if "TrialTypes" in session_data:
+        trial_types = session_data["TrialTypes"]
+        session_data["TrialTypes"] = _index_array(trial_types, trial_indices)
+
+    # Update nTrials count
+    session_data["nTrials"] = len(trial_indices)
+
+    logger.info(f"Indexed Bpod data: kept {len(trial_indices)} trials out of {n_trials}")
+    return filtered_data
+
+
+def write_bpod_mat(bpod_data: Dict[str, Any], output_path: Path) -> None:
+    """Write Bpod data dictionary back to MATLAB .mat file.
+
+    Saves Bpod data structure to a .mat file compatible with Bpod software.
+    Can be used after filtering with index_bpod_data() or manual modifications.
+
+    Args:
+        bpod_data: Bpod data dictionary (from parse_bpod_mat or index_bpod_data)
+        output_path: Path where to save the .mat file
+
+    Raises:
+        BpodParseError: If scipy is not available or write fails
+        BpodValidationError: If data structure is invalid
+
+    Examples:
+        >>> from pathlib import Path
+        >>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat
+        >>>
+        >>> # Load, filter, and save
+        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
+        >>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])
+        >>> write_bpod_mat(filtered_data, Path("data/Bpod/session_filtered.mat"))
+        >>>
+        >>> # Verify filtered data
+        >>> reloaded = parse_bpod_mat(Path("data/Bpod/session_filtered.mat"))
+        >>> print(f"Filtered session has {reloaded['SessionData']['nTrials']} trials")
+    """
+    # Validate structure before writing
+    if not validate_bpod_structure(bpod_data):
+        raise BpodValidationError("Invalid Bpod structure - cannot write to file")
+
+    if savemat is None:
+        raise BpodParseError("scipy is required for .mat file writing. Install with: pip install scipy")
+
+    try:
+        # Ensure parent directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write to .mat file (MATLAB v5 format for compatibility)
+        savemat(str(output_path), bpod_data, format="5", oned_as="column")
+
+        logger.info(f"Successfully wrote Bpod data to: {output_path.name}")
+    except Exception as e:
+        raise BpodParseError(f"Failed to write Bpod file: {type(e).__name__}: {e}")
 
 
 # =============================================================================

@@ -14,6 +14,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from w2t_bkin.domain import Session, Trial, TrialEvent, TrialSummary
@@ -26,6 +27,7 @@ from w2t_bkin.events import (
     create_event_summary,
     extract_behavioral_events,
     extract_trials,
+    index_bpod_data,
     parse_bpod_mat,
     validate_bpod_structure,
     write_event_summary,
@@ -104,12 +106,12 @@ class TestTrialExtraction:
     """Test trial data extraction - FR-11."""
 
     def test_Should_ExtractTrials_When_BpodParsed(self, parsed_bpod_data):
-        trials, _ = extract_trials(parsed_bpod_data)
+        trials = extract_trials(parsed_bpod_data)
         assert len(trials) == 3
         assert all(isinstance(t, Trial) for t in trials)
 
     def test_Should_IncludeTrialTimestamps_When_Extracting(self, parsed_bpod_data):
-        trials, _ = extract_trials(parsed_bpod_data)
+        trials = extract_trials(parsed_bpod_data)
         first_trial = trials[0]
         assert hasattr(first_trial, "start_time")
         assert hasattr(first_trial, "stop_time")
@@ -118,7 +120,7 @@ class TestTrialExtraction:
 
     def test_Should_InferOutcomeFromStates_When_Extracting(self, parsed_bpod_data):
         """Outcome must be inferred from States (HIT/Miss), not from TrialSettings."""
-        trials, _ = extract_trials(parsed_bpod_data)
+        trials = extract_trials(parsed_bpod_data)
 
         # Trial 0: HIT state is valid (not NaN) → hit
         from w2t_bkin.domain.trials import TrialOutcome
@@ -133,7 +135,7 @@ class TestTrialExtraction:
 
     def test_Should_IncludeTrialNumber_When_Extracting(self, parsed_bpod_data):
         """Trials should include trial_number field (1-indexed)."""
-        trials, _ = extract_trials(parsed_bpod_data)
+        trials = extract_trials(parsed_bpod_data)
         assert trials[0].trial_number == 1
         assert trials[1].trial_number == 2
         assert trials[2].trial_number == 3
@@ -204,7 +206,7 @@ class TestEdgeCasesAndErrorHandling:
 
     def test_Should_HandleNaNStates_When_StateNotVisited(self, parsed_bpod_data):
         """States with [NaN, NaN] indicate state was not visited in that trial."""
-        trials, _ = extract_trials(parsed_bpod_data)
+        trials = extract_trials(parsed_bpod_data)
 
         # Trial 1 has Miss state as NaN (not visited) → should be "hit"
         from w2t_bkin.domain.trials import TrialOutcome
@@ -222,7 +224,7 @@ class TestEdgeCasesAndErrorHandling:
             }
         }
 
-        trials, _ = extract_trials(data_with_nans)
+        trials = extract_trials(data_with_nans)
         from w2t_bkin.domain.trials import TrialOutcome
 
         assert trials[0].outcome == TrialOutcome.MISS
@@ -322,7 +324,7 @@ class TestSecurityAndValidation:
             }
         }
 
-        trials, _ = extract_trials(data)
+        trials = extract_trials(data)
         # Should get a valid outcome from Trial TrialOutcome enum
         from w2t_bkin.domain.trials import TrialOutcome
 
@@ -403,7 +405,7 @@ class TestTTLAlignment:
         assert len(warnings) == 0
 
         # Extract trials with absolute timestamps
-        aligned_trials, _ = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
+        aligned_trials = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
 
         assert len(aligned_trials) == 3
 
@@ -444,7 +446,7 @@ class TestTTLAlignment:
         trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
 
         # Extract trials with offsets (only trial 1 should have offset)
-        aligned_trials, _ = extract_trials(bpod_data, trial_offsets=trial_offsets)
+        aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
 
         assert len(aligned_trials) == 2  # Both trials extracted, but only 1 has absolute timestamp
         assert 1 in trial_offsets
@@ -468,7 +470,7 @@ class TestTTLAlignment:
         trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
 
         # Extract trials - should get all 5 trials, but only 3 will have absolute timestamps
-        aligned_trials, _ = extract_trials(bpod_data, trial_offsets=trial_offsets)
+        aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
 
         assert len(aligned_trials) == 5  # All trials extracted
         assert len(trial_offsets) == 3  # Only 3 have offsets
@@ -492,7 +494,7 @@ class TestTTLAlignment:
         trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
 
         # Extract trial with offset
-        aligned_trials, _ = extract_trials(bpod_data, trial_offsets=trial_offsets)
+        aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
 
         assert len(aligned_trials) == 1
         assert any("unused pulses" in w for w in warnings)
@@ -530,14 +532,14 @@ class TestExtractTrialsWithAlignment:
         trial_offsets, _ = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
 
         # Extract trials with absolute timestamps
-        trials, _ = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
+        trials = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
 
         assert len(trials) == 3
         assert trials[0].start_time == pytest.approx(4.0)  # Absolute timestamp
 
     def test_Should_UseRelativeTime_When_NoOffsets(self, bpod_data_with_sync):
         """Should use relative timestamps when no trial_offsets provided."""
-        trials, _ = extract_trials(bpod_data_with_sync)
+        trials = extract_trials(bpod_data_with_sync)
 
         assert len(trials) == 3
         assert trials[0].start_time == 0.0  # Relative timestamp
@@ -608,3 +610,316 @@ class TestEventSummaryWithAlignment:
         assert summary.n_aligned is None
         assert summary.n_dropped is None
         assert summary.alignment_warnings == []
+
+
+# =============================================================================
+# Bpod Data Manipulation Tests (Indexing and I/O)
+# =============================================================================
+
+
+class TestBpodDataManipulation:
+    """Test Bpod data indexing and file I/O operations."""
+
+    # Indexing tests
+    def test_Should_IndexFirstTrials_When_FilteringBpodData(self, sample_bpod_data):
+        """Should correctly index and keep first N trials."""
+        filtered = index_bpod_data(sample_bpod_data, [0, 1, 2])
+
+        assert filtered["SessionData"]["nTrials"] == 3
+        assert len(filtered["SessionData"]["TrialStartTimestamp"]) == 3
+        assert len(filtered["SessionData"]["RawEvents"]["Trial"]) == 3
+        np.testing.assert_array_equal(filtered["SessionData"]["TrialStartTimestamp"], np.array([0.0, 1.0, 2.0]))
+
+    def test_Should_IndexNonSequentialTrials_When_FilteringBpodData(self, sample_bpod_data):
+        """Should correctly index non-sequential trials."""
+        filtered = index_bpod_data(sample_bpod_data, [1, 3])
+
+        assert filtered["SessionData"]["nTrials"] == 2
+        np.testing.assert_array_equal(filtered["SessionData"]["TrialStartTimestamp"], np.array([1.0, 3.0]))
+        np.testing.assert_array_equal(filtered["SessionData"]["TrialTypes"], np.array([2, 2]))
+
+    def test_Should_IndexSingleTrial_When_FilteringBpodData(self, sample_bpod_data):
+        """Should correctly index a single trial."""
+        filtered = index_bpod_data(sample_bpod_data, [2])
+
+        assert filtered["SessionData"]["nTrials"] == 1
+        assert filtered["SessionData"]["TrialStartTimestamp"][0] == 2.0
+
+    def test_Should_RaiseIndexError_When_IndexOutOfBounds(self, sample_bpod_data):
+        """Should raise IndexError for out-of-bounds indices."""
+        with pytest.raises(IndexError, match="out of bounds"):
+            index_bpod_data(sample_bpod_data, [0, 10])
+
+    def test_Should_RaiseIndexError_When_NegativeIndex(self, sample_bpod_data):
+        """Should raise IndexError for negative indices."""
+        with pytest.raises(IndexError, match="out of bounds"):
+            index_bpod_data(sample_bpod_data, [-1, 0])
+
+    def test_Should_RaiseValueError_When_EmptyIndices(self, sample_bpod_data):
+        """Should raise ValueError for empty index list."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            index_bpod_data(sample_bpod_data, [])
+
+    def test_Should_RaiseBpodParseError_When_InvalidStructure(self):
+        """Should raise BpodParseError for invalid data structure."""
+        invalid_data = {"SessionData": {"nTrials": 5}}
+
+        with pytest.raises(BpodParseError, match="Invalid Bpod structure"):
+            index_bpod_data(invalid_data, [0, 1])
+
+    def test_Should_PreserveOriginalData_When_Indexing(self, sample_bpod_data):
+        """Should not modify original data when indexing (deep copy)."""
+        original_n_trials = sample_bpod_data["SessionData"]["nTrials"]
+        original_start_times = sample_bpod_data["SessionData"]["TrialStartTimestamp"].copy()
+
+        filtered = index_bpod_data(sample_bpod_data, [0, 1])
+
+        # Verify original unchanged
+        assert sample_bpod_data["SessionData"]["nTrials"] == original_n_trials
+        np.testing.assert_array_equal(sample_bpod_data["SessionData"]["TrialStartTimestamp"], original_start_times)
+        # Verify filtered is different
+        assert filtered["SessionData"]["nTrials"] == 2
+
+    # I/O tests
+    def test_Should_WriteAndReadBpodMat_When_ValidData(self, sample_bpod_data, tmp_path):
+        """Should write and read back Bpod data correctly."""
+        from w2t_bkin.events import write_bpod_mat
+
+        output_path = tmp_path / "test_session.mat"
+        write_bpod_mat(sample_bpod_data, output_path)
+
+        assert output_path.exists()
+
+        reloaded = parse_bpod_mat(output_path)
+        assert validate_bpod_structure(reloaded)
+
+        from w2t_bkin.utils import convert_matlab_struct
+
+        session_data = convert_matlab_struct(reloaded["SessionData"])
+        assert session_data["nTrials"] == 5
+
+    def test_Should_CreateDirectories_When_WritingBpodMat(self, sample_bpod_data, tmp_path):
+        """Should create parent directories when writing."""
+        from w2t_bkin.events import write_bpod_mat
+
+        output_path = tmp_path / "subdir" / "nested" / "test_session.mat"
+        write_bpod_mat(sample_bpod_data, output_path)
+
+        assert output_path.exists()
+
+    def test_Should_RaiseBpodValidationError_When_WritingInvalidStructure(self, tmp_path):
+        """Should raise BpodValidationError when writing invalid data."""
+        from w2t_bkin.domain.exceptions import BpodValidationError
+        from w2t_bkin.events import write_bpod_mat
+
+        invalid_data = {"SessionData": {"nTrials": 5}}
+        output_path = tmp_path / "invalid.mat"
+
+        with pytest.raises(BpodValidationError, match="Invalid Bpod structure"):
+            write_bpod_mat(invalid_data, output_path)
+
+    # Integrated workflow tests
+    def test_Should_FilterAndSaveSuccessfully_When_CompleteWorkflow(self, sample_bpod_data, tmp_path):
+        """Should complete full workflow: filter → save → reload → filter again."""
+        from w2t_bkin.events import write_bpod_mat
+        from w2t_bkin.utils import convert_matlab_struct
+
+        # Step 1: Filter to first 3 trials
+        filtered = index_bpod_data(sample_bpod_data, [0, 1, 2])
+
+        # Step 2: Save filtered data
+        output_path = tmp_path / "filtered_session.mat"
+        write_bpod_mat(filtered, output_path)
+
+        # Step 3: Reload filtered data
+        reloaded = parse_bpod_mat(output_path)
+        assert validate_bpod_structure(reloaded)
+
+        session_data = convert_matlab_struct(reloaded["SessionData"])
+        assert session_data["nTrials"] == 3
+
+        # Step 4: Filter again to single trial
+        single_trial = index_bpod_data(reloaded, [1])
+        single_session = convert_matlab_struct(single_trial["SessionData"])
+        assert single_session["nTrials"] == 1
+
+    def test_Should_PreserveAllData_When_WriteReadCycle(self, sample_bpod_data, tmp_path):
+        """Should preserve all essential data through write → read cycle."""
+        from w2t_bkin.events import write_bpod_mat
+        from w2t_bkin.utils import convert_matlab_struct
+
+        output_path = tmp_path / "test_roundtrip.mat"
+        write_bpod_mat(sample_bpod_data, output_path)
+
+        reloaded = parse_bpod_mat(output_path)
+        original_session = sample_bpod_data["SessionData"]
+        reloaded_session = convert_matlab_struct(reloaded["SessionData"])
+
+        # Verify core fields
+        assert reloaded_session["nTrials"] == original_session["nTrials"]
+        np.testing.assert_allclose(reloaded_session["TrialStartTimestamp"], original_session["TrialStartTimestamp"], rtol=1e-10)
+        np.testing.assert_allclose(reloaded_session["TrialEndTimestamp"], original_session["TrialEndTimestamp"], rtol=1e-10)
+        np.testing.assert_array_equal(reloaded_session["TrialTypes"], original_session["TrialTypes"])
+
+        # Verify trial structure
+        original_raw = original_session["RawEvents"]
+        reloaded_raw = convert_matlab_struct(reloaded_session["RawEvents"])
+        assert len(reloaded_raw["Trial"]) == len(original_raw["Trial"])
+
+    def test_Should_PreserveTrialData_When_Indexing(self, sample_bpod_data):
+        """Should preserve all trial data (states, events, settings) when indexing."""
+        from w2t_bkin.utils import convert_matlab_struct
+
+        trial_indices = [1, 3]
+        filtered = index_bpod_data(sample_bpod_data, trial_indices)
+
+        original_session = sample_bpod_data["SessionData"]
+        filtered_session = filtered["SessionData"]
+
+        # Verify correct trials selected
+        expected_start_times = [original_session["TrialStartTimestamp"][i] for i in trial_indices]
+        np.testing.assert_array_equal(filtered_session["TrialStartTimestamp"], expected_start_times)
+
+        # Verify trial structure integrity
+        original_trials = original_session["RawEvents"]["Trial"]
+        filtered_trials = filtered_session["RawEvents"]["Trial"]
+        assert len(filtered_trials) == len(trial_indices)
+
+        # Verify each trial's states and events preserved
+        for filtered_idx, original_idx in enumerate(trial_indices):
+            original_trial = original_trials[original_idx]
+            filtered_trial = filtered_trials[filtered_idx]
+
+            # States preserved
+            if "States" in original_trial:
+                assert set(filtered_trial["States"].keys()) == set(original_trial["States"].keys())
+                for state_name in original_trial["States"].keys():
+                    np.testing.assert_array_equal(np.array(filtered_trial["States"][state_name]), np.array(original_trial["States"][state_name]))
+
+            # Events preserved
+            if "Events" in original_trial:
+                assert set(filtered_trial["Events"].keys()) == set(original_trial["Events"].keys())
+
+    def test_Should_MergeWrittenFiles_When_UsingParseSession(self, sample_bpod_data, tmp_path):
+        """Should successfully merge multiple Bpod files written with write_bpod_mat.
+
+        This test reproduces the issue where write_bpod_mat creates files with
+        mat_struct objects that aren't properly handled during merge.
+        """
+        from w2t_bkin.events import merge_bpod_sessions, parse_bpod_session, write_bpod_mat
+
+        # Create filtered datasets
+        filtered_data1 = index_bpod_data(sample_bpod_data, [0, 1])
+        filtered_data2 = index_bpod_data(sample_bpod_data, [2, 3])
+
+        # Write to files
+        bpod_dir = tmp_path / "Bpod"
+        bpod_dir.mkdir(parents=True)
+        file1 = bpod_dir / "session_file01.mat"
+        file2 = bpod_dir / "session_file02.mat"
+
+        write_bpod_mat(filtered_data1, file1)
+        write_bpod_mat(filtered_data2, file2)
+
+        # Attempt to merge using merge_bpod_sessions
+        merged_data = merge_bpod_sessions([file1, file2])
+
+        # Verify merge succeeded
+        assert merged_data["SessionData"]["nTrials"] == 4
+        assert len(merged_data["SessionData"]["TrialStartTimestamp"]) == 4
+
+        # Verify trials are accessible
+        trials = extract_trials(merged_data)
+        assert len(trials) == 4
+
+    def test_Should_MergeThreeFiles_When_UsingParseSession(self, sample_bpod_data, tmp_path):
+        """Should successfully merge three or more Bpod files."""
+        from w2t_bkin.events import merge_bpod_sessions, write_bpod_mat
+
+        # Create filtered datasets
+        filtered_data1 = index_bpod_data(sample_bpod_data, [0])
+        filtered_data2 = index_bpod_data(sample_bpod_data, [1, 2])
+        filtered_data3 = index_bpod_data(sample_bpod_data, [3, 4])
+
+        # Write to files
+        bpod_dir = tmp_path / "Bpod"
+        bpod_dir.mkdir(parents=True)
+        file1 = bpod_dir / "session_file01.mat"
+        file2 = bpod_dir / "session_file02.mat"
+        file3 = bpod_dir / "session_file03.mat"
+
+        write_bpod_mat(filtered_data1, file1)
+        write_bpod_mat(filtered_data2, file2)
+        write_bpod_mat(filtered_data3, file3)
+
+        # Merge all three files
+        merged_data = merge_bpod_sessions([file1, file2, file3])
+
+        # Verify merge succeeded
+        assert merged_data["SessionData"]["nTrials"] == 5
+        assert len(merged_data["SessionData"]["TrialStartTimestamp"]) == 5
+
+        # Verify trials are accessible and in correct order
+        trials = extract_trials(merged_data)
+        assert len(trials) == 5
+
+    def test_Should_OffsetTimestamps_When_Merging(self, sample_bpod_data, tmp_path):
+        """Should correctly offset timestamps when merging multiple files."""
+        from w2t_bkin.events import merge_bpod_sessions, write_bpod_mat
+
+        # Create filtered datasets with known timestamps
+        filtered_data1 = index_bpod_data(sample_bpod_data, [0, 1])
+        filtered_data2 = index_bpod_data(sample_bpod_data, [2, 3])
+
+        # Write to files
+        bpod_dir = tmp_path / "Bpod"
+        bpod_dir.mkdir(parents=True)
+        file1 = bpod_dir / "session_file01.mat"
+        file2 = bpod_dir / "session_file02.mat"
+
+        write_bpod_mat(filtered_data1, file1)
+        write_bpod_mat(filtered_data2, file2)
+
+        # Merge files
+        merged_data = merge_bpod_sessions([file1, file2])
+
+        # Get merged timestamps
+        start_times = merged_data["SessionData"]["TrialStartTimestamp"]
+        end_times = merged_data["SessionData"]["TrialEndTimestamp"]
+
+        # First file timestamps should be unchanged (trials 0, 1)
+        assert start_times[0] == 0.0
+        assert start_times[1] == 1.0
+
+        # Second file timestamps should be offset by last end time of first file (1.5)
+        # Original trial 2 starts at 2.0, offset by 1.5 → 3.5
+        # Original trial 3 starts at 3.0, offset by 1.5 → 4.5
+        assert start_times[2] == pytest.approx(3.5)
+        assert start_times[3] == pytest.approx(4.5)
+
+    def test_Should_ParseSingleFile_When_NoMergingNeeded(self, sample_bpod_data, tmp_path):
+        """Should handle single file case without merging logic."""
+        from w2t_bkin.events import merge_bpod_sessions, write_bpod_mat
+
+        # Create single file
+        filtered_data = index_bpod_data(sample_bpod_data, [0, 1, 2])
+
+        bpod_dir = tmp_path / "Bpod"
+        bpod_dir.mkdir(parents=True)
+        file1 = bpod_dir / "session_file01.mat"
+
+        write_bpod_mat(filtered_data, file1)
+
+        # "Merge" single file
+        merged_data = merge_bpod_sessions([file1])
+
+        # Convert SessionData if it's a mat_struct
+        from w2t_bkin.utils import convert_matlab_struct
+
+        session_data = merged_data["SessionData"]
+        if hasattr(session_data, "__dict__"):
+            session_data = convert_matlab_struct(session_data)
+
+        # Verify data is identical to original
+        assert session_data["nTrials"] == 3
+        assert len(session_data["TrialStartTimestamp"]) == 3

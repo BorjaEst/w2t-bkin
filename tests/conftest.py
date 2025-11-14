@@ -560,6 +560,31 @@ def valid_bpod_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def sample_bpod_data():
+    """Create sample Bpod data structure for testing indexing and I/O operations."""
+    import numpy as np
+
+    return {
+        "SessionData": {
+            "nTrials": 5,
+            "TrialStartTimestamp": np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+            "TrialEndTimestamp": np.array([0.5, 1.5, 2.5, 3.5, 4.5]),
+            "TrialTypes": np.array([1, 2, 1, 2, 1]),
+            "TrialSettings": [{"param": 1}, {"param": 2}, {"param": 1}, {"param": 2}, {"param": 1}],
+            "RawEvents": {
+                "Trial": [
+                    {"States": {"HIT": [0.1, 0.2]}, "Events": {"Port1In": [0.15]}},
+                    {"States": {"Miss": [0.1, 0.2]}, "Events": {"Port1In": [0.15]}},
+                    {"States": {"HIT": [0.1, 0.2]}, "Events": {"Port1In": [0.15]}},
+                    {"States": {"Miss": [0.1, 0.2]}, "Events": {"Port1In": [0.15]}},
+                    {"States": {"HIT": [0.1, 0.2]}, "Events": {"Port1In": [0.15]}},
+                ]
+            },
+        }
+    }
+
+
+@pytest.fixture
 def parsed_bpod_data():
     """Realistic Bpod structure with 3 trials."""
     return {
