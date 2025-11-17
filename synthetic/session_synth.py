@@ -114,16 +114,9 @@ def create_session(
 
     # Generate TTL files
     ttl_files_per_ttl = {}
-    for ttl in params.ttls:
-        ttl_filename = f"{ttl.ttl_id}.txt"
-        ttl_path = ttl_dir / ttl_filename
+    bpod_sync_timestamps = None  # Will hold Bpod sync pulse times if Bpod is present
 
-        create_ttl_file(ttl_path, ttl, seed=params.seed)
-
-        session.ttl_paths[ttl.ttl_id] = ttl_path
-        ttl_files_per_ttl[ttl.ttl_id] = f"TTLs/{ttl_filename}"
-
-    # Generate Bpod files if requested
+    # Generate Bpod files first if requested, so we can get sync pulse times
     bpod_files = None
     if params.with_bpod:
         from synthetic.bpod_synth import create_bpod_mat_file
@@ -131,8 +124,8 @@ def create_session(
         bpod_filename = f"{params.session_id}_bpod_data.mat"
         bpod_path = bpod_dir / bpod_filename
 
-        # Create actual Bpod .mat file
-        create_bpod_mat_file(
+        # Create actual Bpod .mat file and get sync pulse timestamps
+        _, bpod_sync_timestamps = create_bpod_mat_file(
             bpod_path,
             n_trials=params.bpod_trial_count,
             seed=params.seed,
@@ -140,6 +133,22 @@ def create_session(
 
         session.bpod_path = bpod_path
         bpod_files = [f"Bpod/{bpod_filename}"]
+
+    # Now generate TTL files (including Bpod sync TTL if we have timestamps)
+    for ttl in params.ttls:
+        ttl_filename = f"{ttl.ttl_id}.txt"
+        ttl_path = ttl_dir / ttl_filename
+
+        # Special handling for Bpod sync TTL: use actual Bpod sync times
+        if ttl.ttl_id == "bpod_d1_ttl" and bpod_sync_timestamps:
+            from synthetic.ttl_synth import create_ttl_file_from_timestamps
+
+            create_ttl_file_from_timestamps(ttl_path, bpod_sync_timestamps)
+        else:
+            create_ttl_file(ttl_path, ttl, seed=params.seed)
+
+        session.ttl_paths[ttl.ttl_id] = ttl_path
+        ttl_files_per_ttl[ttl.ttl_id] = f"TTLs/{ttl_filename}"
 
     # Generate pose files if requested
     if params.with_pose:

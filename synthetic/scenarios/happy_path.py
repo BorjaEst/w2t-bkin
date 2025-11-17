@@ -117,13 +117,23 @@ def make_session_with_bpod(
             )
         ],
         ttls=[
+            # Camera TTL: one pulse per frame
             SyntheticTTL(
                 ttl_id="cam0_ttl",
                 pulse_count=n_frames,
                 start_time_s=0.0,
                 period_s=1.0 / 30.0,
                 jitter_s=0.0001,
-            )
+            ),
+            # Bpod sync TTL: one pulse per trial from Bpod's sync output (e.g., D1)
+            # This is a SEPARATE TTL channel that records when Bpod outputs a sync pulse.
+            SyntheticTTL(
+                ttl_id="bpod_d1_ttl",
+                pulse_count=n_trials,
+                start_time_s=0.0,  # Will be adjusted to match Bpod trial timing
+                period_s=1.0,  # Approximate spacing between trials
+                jitter_s=0.001,
+            ),
         ],
         with_bpod=True,
         bpod_trial_count=n_trials,

@@ -169,3 +169,36 @@ def create_ttl_file_with_jitter(
         jitter_s=jitter_s,
     )
     return create_ttl_file(output_path, ttl, seed=seed)
+
+
+def create_ttl_file_from_timestamps(
+    output_path: Path,
+    timestamps: list[float],
+) -> Path:
+    """Create a TTL file from explicit timestamps.
+
+    This is useful when TTL pulses need to align with specific events
+    (e.g., Bpod sync states) rather than having a regular period.
+
+    Args:
+        output_path: Path where TTL file should be written
+        timestamps: List of pulse timestamps (in seconds)
+
+    Returns:
+        Path to created TTL file
+
+    Example:
+        >>> # Create TTL with pulses at specific times
+        >>> path = create_ttl_file_from_timestamps(
+        ...     Path("bpod_sync.ttl"),
+        ...     timestamps=[1.5, 8.2, 15.7, 22.1]
+        ... )
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write timestamps to file (sorted)
+    with open(output_path, "w") as f:
+        for ts in sorted(timestamps):
+            f.write(f"{ts:.6f}\n")
+
+    return output_path

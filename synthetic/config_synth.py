@@ -200,6 +200,17 @@ genotype = "WT"
         session_content += "\n[bpod]\n"
         session_content += f'path = "{bpod_files[0]}"\n'
         session_content += 'order = "name_asc"\n'
+
+        # Provide default trial_types sync configuration for synthetic sessions
+        # This makes examples and tests simpler: they can directly use
+        # session.bpod.trial_types for Bpod–TTL alignment.
+        # Note: sync_ttl refers to a dedicated TTL channel that records Bpod sync pulses,
+        # NOT the camera TTL. This should be a separate TTL line (e.g., "bpod_d1_ttl").
+        session_content += "\n  [[bpod.trial_types]]\n"
+        session_content += "  trial_type = 1\n"
+        session_content += '  description = "Synthetic default trial type"\n'
+        session_content += '  sync_signal = "bpod_d1"\n'
+        session_content += '  sync_ttl = "bpod_d1_ttl"\n'
     else:
         # Bpod section is required, even if empty/placeholder
         session_content += "\n[bpod]\n"

@@ -30,17 +30,17 @@ def create_bpod_mat_file(
     n_trials: int = 10,
     seed: int = 42,
     trial_types: Optional[List[int]] = None,
-) -> Path:
+) -> tuple[Path, list[float]]:
     """Create a synthetic Bpod .mat file with realistic SessionData structure.
 
     Args:
         output_path: Path where .mat file should be written
         n_trials: Number of trials to generate
         seed: Random seed for reproducibility
-        trial_types: List of trial type codes (defaults to alternating 1,2,1,2...)
+        trial_types: List of trial type codes (defaults to all type 1)
 
     Returns:
-        Path to created .mat file
+        Tuple of (Path to created .mat file, list of sync pulse timestamps)
 
     Raises:
         ImportError: If scipy is not installed
@@ -48,7 +48,7 @@ def create_bpod_mat_file(
     Example:
         >>> from pathlib import Path
         >>> from synthetic.bpod_synth import create_bpod_mat_file
-        >>> mat_path = create_bpod_mat_file(
+        >>> mat_path, sync_times = create_bpod_mat_file(
         ...     Path("test_session.mat"),
         ...     n_trials=20,
         ...     seed=42
@@ -67,12 +67,13 @@ def create_bpod_mat_file(
 
     # Default trial types: alternating 1 and 2
     if trial_types is None:
-        trial_types = [1 if i % 2 == 0 else 2 for i in range(n_trials)]
+        trial_types = [1] * n_trials  # Use all type 1 for simplicity in synthetic sessions
 
     # Generate trial data
     trials = []
     trial_start_timestamps = []
     trial_end_timestamps = []
+    sync_pulse_timestamps = []  # Track absolute sync pulse times for TTL generation
     current_time = 0.0
 
     for trial_idx in range(n_trials):
@@ -87,12 +88,21 @@ def create_bpod_mat_file(
         iti_times = np.array([current_time, current_time + iti_duration])
         current_time += iti_duration
 
+        # Add Bpod sync state (e.g., D1 output pulse)
+        # This is a brief digital output that triggers a TTL pulse for alignment
+        sync_pulse_start = current_time
+        sync_pulse_duration = 0.01  # 10ms pulse
+        sync_pulse_times = np.array([sync_pulse_start, sync_pulse_start + sync_pulse_duration])
+        sync_pulse_timestamps.append(sync_pulse_start)  # Record absolute time for TTL
+        current_time += sync_pulse_duration
+
         response_times = np.array([current_time, current_time + response_duration])
         current_time += response_duration
 
         # States dict with realistic behavioral states
         states = {
             "ITI": iti_times,
+            "bpod_d1": sync_pulse_times,  # Sync signal state for TTL alignment
             "Response_window": response_times,
         }
 
@@ -232,14 +242,14 @@ def create_bpod_mat_file(
         oned_as="row",
     )
 
-    return output_path
+    return output_path, sync_pulse_timestamps
 
 
 def create_simple_bpod_file(
     output_path: Path,
     n_trials: int = 5,
     seed: int = 42,
-) -> Path:
+) -> tuple[Path, list[float]]:
     """Create a minimal Bpod .mat file for quick tests.
 
     This creates a simplified version with fewer states and events,
@@ -251,7 +261,7 @@ def create_simple_bpod_file(
         seed: Random seed
 
     Returns:
-        Path to created .mat file
+        Tuple of (Path to created .mat file, list of sync pulse timestamps)
     """
     return create_bpod_mat_file(
         output_path,
