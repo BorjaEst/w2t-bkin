@@ -287,7 +287,7 @@ def build_and_count_manifest(config: Config, session: Session) -> Manifest:
 
 
 def count_video_frames(video_path: Path) -> int:
-    """Count frames in a video file using ffprobe.
+    """Count frames in a video file using ffprobe or synthetic stub.
 
     Args:
         video_path: Path to video file
@@ -307,6 +307,19 @@ def count_video_frames(video_path: Path) -> int:
     if video_path.stat().st_size == 0:
         logger.warning(f"Video file is empty: {video_path}")
         return 0
+
+    # Check if this is a synthetic stub video
+    try:
+        # Try importing synthetic module (only available if in test/synthetic context)
+        from synthetic.video_synth import count_stub_frames, is_synthetic_stub
+
+        if is_synthetic_stub(video_path):
+            frame_count = count_stub_frames(video_path)
+            logger.debug(f"Counted {frame_count} frames in synthetic stub {video_path.name}")
+            return frame_count
+    except ImportError:
+        # Synthetic module not available - continue with normal ffprobe
+        pass
 
     # Use ffprobe to count frames
     try:
