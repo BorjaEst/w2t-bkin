@@ -8,6 +8,9 @@
     "python.testing.pytestPath": "${workspaceFolder}/.venv/bin/pytest",
     "python.testing.cwd": "${workspaceFolder}",
     "python.envFile": "${workspaceFolder}/.env",
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}"
+    },
     "black-formatter.args": [
         "--config",
         "${workspaceFolder}/pyproject.toml"
