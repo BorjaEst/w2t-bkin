@@ -104,10 +104,12 @@ def run_scenario(
     config = cfg_module.load_config(session.config_path)
     session_data = cfg_module.load_session(session.session_path)
 
-    # Override jitter budget if provided
+    # Note: Config is frozen and cannot be modified after creation
+    # The jitter budget should be set during synthetic session generation
+    # (scenario functions like jitter_exceeds_budget.make_session accept budget_s parameter)
     if jitter_budget_s is not None:
-        config.timebase.jitter_budget_s = jitter_budget_s
-        print(f"   ⚙️  Jitter budget override: {jitter_budget_s * 1000:.3f} ms")
+        print(f"   ⚙️  Using jitter budget from session: {config.timebase.jitter_budget_s * 1000:.3f} ms")
+        print(f"   ℹ️  To test different budgets, regenerate session with budget_s parameter")
 
     # Build manifest
     print(f"🔍 Building manifest...")

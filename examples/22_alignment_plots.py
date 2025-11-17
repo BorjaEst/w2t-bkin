@@ -118,17 +118,33 @@ if __name__ == "__main__":
         config = cfg_module.load_config(session.config_path)
         session_data = cfg_module.load_session(session.session_path)
 
-        # Override jitter budget
+        # Note: jitter_budget_s from config or use the settings value for visualization
         jitter_budget_s = settings.jitter_budget_ms / 1000.0
-        config.timebase.jitter_budget_s = jitter_budget_s
-        print(f"   ⚙️  Jitter budget: {settings.jitter_budget_ms:.3f} ms")
+        print(f"   ⚙️  Jitter budget (for visualization): {settings.jitter_budget_ms:.3f} ms")
 
         print(f"\n🔍 Building manifest...")
         manifest = ingest.build_and_count_manifest(config, session_data)
 
-        print(f"\n⏱️  Creating timebase and aligning...")
-        timebase_provider = create_timebase_provider(config, manifest)
-        alignment_stats = compute_alignment(manifest, timebase_provider, config)
+        print(f"\n⏱️  Creating mock alignment statistics...")
+        # For now, create mock alignment stats since full alignment is not yet implemented
+        from w2t_bkin.sync import create_alignment_stats
+
+        # Create different jitter profiles based on scenario
+        if settings.scenario == "jitter_exceeds":
+            max_jitter_ms = settings.jitter_budget_ms * 1.5  # Exceed budget by 50%
+            p95_jitter_ms = settings.jitter_budget_ms * 1.2
+        else:
+            max_jitter_ms = settings.jitter_budget_ms * 0.3  # Well within budget
+            p95_jitter_ms = settings.jitter_budget_ms * 0.2
+
+        alignment_stats = create_alignment_stats(
+            timebase_source=str(config.timebase.source),
+            mapping=str(config.timebase.mapping),
+            offset_s=0.0,
+            max_jitter_s=max_jitter_ms / 1000.0,
+            p95_jitter_s=p95_jitter_ms / 1000.0,
+            aligned_samples=manifest.cameras[0].frame_count if manifest.cameras else 0,
+        )
 
         print(f"   ✓ Max jitter: {alignment_stats.max_jitter_s * 1000:.3f} ms")
         print(f"   ✓ P95 jitter: {alignment_stats.p95_jitter_s * 1000:.3f} ms")
@@ -147,6 +163,7 @@ if __name__ == "__main__":
         print(f"\n   ✓ Alignment stats written: {alignment_path}")
 
     # =========================================================================
+    # =========================================================================
     # PHASE 2: Create Alignment Visualizations
     # =========================================================================
     print("\n" + "=" * 80)
@@ -156,46 +173,19 @@ if __name__ == "__main__":
     figures_dir = output_root / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n📊 Creating alignment plots...")
+    print(f"\n📊 Creating alignment plots using render_sync_figures...")
 
-    # Plot 1: Jitter histogram
-    print(f"   Creating: jitter_histogram.png")
-    import matplotlib.pyplot as plt
-
-    fig1, ax1 = plt.subplots(figsize=(10, 6))
-    fig_sync.plot_jitter_histogram(
+    # Use the high-level render function which creates all sync/alignment plots
+    saved_paths = fig_sync.render_sync_figures(
         alignment_stats=alignment_stats,
+        output_dir=figures_dir,
         jitter_budget_s=settings.jitter_budget_ms / 1000.0,
-        ax=ax1,
+        formats=("png",),
     )
-    fig1_path = figures_dir / "jitter_histogram.png"
-    fig1.savefig(fig1_path, dpi=150, bbox_inches="tight")
-    plt.close(fig1)
-    print(f"   ✓ Saved: {fig1_path}")
 
-    # Plot 2: Jitter CDF
-    print(f"   Creating: jitter_cdf.png")
-    fig2, ax2 = plt.subplots(figsize=(10, 6))
-    fig_sync.plot_jitter_cdf(
-        alignment_stats=alignment_stats,
-        jitter_budget_s=settings.jitter_budget_ms / 1000.0,
-        ax=ax2,
-    )
-    fig2_path = figures_dir / "jitter_cdf.png"
-    fig2.savefig(fig2_path, dpi=150, bbox_inches="tight")
-    plt.close(fig2)
-    print(f"   ✓ Saved: {fig2_path}")
-
-    # Plot 3: Alignment summary panel
-    print(f"   Creating: alignment_summary.png")
-    fig3 = fig_sync.plot_alignment_summary_panel(
-        alignment_stats=alignment_stats,
-        jitter_budget_s=settings.jitter_budget_ms / 1000.0,
-    )
-    fig3_path = figures_dir / "alignment_summary.png"
-    fig3.savefig(fig3_path, dpi=150, bbox_inches="tight")
-    plt.close(fig3)
-    print(f"   ✓ Saved: {fig3_path}")
+    print(f"   ✓ Generated {len(saved_paths)} figure(s):")
+    for path in saved_paths:
+        print(f"     - {path.name}")
 
     # =========================================================================
     # Summary
@@ -213,23 +203,22 @@ if __name__ == "__main__":
     print(f"   ✓ P95 jitter: {alignment_stats.p95_jitter_s * 1000:.3f} ms")
     print(f"   ✓ Aligned samples: {alignment_stats.aligned_samples}")
 
-    print(f"\n📊 Figures Generated:")
-    print(f"   ✓ jitter_histogram.png - Jitter distribution with budget")
-    print(f"   ✓ jitter_cdf.png - Cumulative distribution")
-    print(f"   ✓ alignment_summary.png - Multi-panel summary")
+    print(f"\n📊 Figures Generated ({len(saved_paths)} files):")
+    for path in saved_paths:
+        print(f"   ✓ {path.name}")
 
     print("\n" + "=" * 80)
     print("✅ Example Complete!")
     print("=" * 80)
 
     print("\nKey Takeaways:")
-    print("  - figures.sync module handles alignment and jitter plots")
+    print("  - figures.sync module handles alignment and jitter plots automatically")
+    print("  - render_sync_figures() creates comprehensive multi-panel summaries")
     print("  - Jitter budget visualization shows pass/fail clearly")
-    print("  - CDF plots help understand jitter distribution shape")
-    print("  - Summary panels combine multiple metrics in one view")
+    print("  - Deterministic filenames based on session_id")
 
     print("\nNext Steps:")
     print("  - Try SCENARIO=jitter_exceeds to see budget violations")
     print("  - Adjust JITTER_BUDGET_MS to see threshold effects")
     print("  - Use with your own alignment_stats.json files")
-    print("  - Combine with verification plots for complete QC")
+    print("  - Combine with verification plots (Example 21) for complete QC")

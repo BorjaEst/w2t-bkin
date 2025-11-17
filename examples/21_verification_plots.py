@@ -103,9 +103,20 @@ if __name__ == "__main__":
         manifest = ingest.build_and_count_manifest(config, session_data)
         verification = ingest.verify_manifest(manifest, tolerance=5)
 
+        # Convert VerificationResult to VerificationSummary for persistence
+        from datetime import datetime, timezone
+
+        from w2t_bkin.domain.manifest import VerificationSummary
+
+        verification_summary = VerificationSummary(
+            session_id=session_data.session.id,
+            cameras=verification.camera_results,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
         verification_path = output_root / "output" / "verification_summary.json"
         verification_path.parent.mkdir(parents=True, exist_ok=True)
-        ingest.write_verification_summary(verification, verification_path)
+        ingest.write_verification_summary(verification_summary, verification_path)
         print(f"   ✓ Verification written: {verification_path}")
 
     # =========================================================================
@@ -118,26 +129,32 @@ if __name__ == "__main__":
     figures_dir = output_root / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n📊 Creating verification plots...")
+    print(f"\n📊 Creating verification plots using render_ingest_figures...")
 
-    # Plot 1: Frame/TTL comparison with mismatches
-    print(f"   Creating: verification_summary.png")
-    fig = fig_ingest.plot_verification_summary(
-        verification_path=verification_path,
-        title="Frame/TTL Verification Summary",
-    )
-    fig_path = figures_dir / "verification_summary.png"
-    fig.savefig(fig_path, dpi=150, bbox_inches="tight")
-    print(f"   ✓ Saved: {fig_path}")
+    # Load manifest for render_ingest_figures (it needs both manifest and verification)
+    import json
 
-    # Plot 2: Status distribution pie chart
-    print(f"   Creating: status_distribution.png")
-    fig2 = fig_ingest.plot_verification_status_pie(
-        verification_path=verification_path,
+    from w2t_bkin.domain.manifest import Manifest
+
+    # Find manifest.json in the output directory
+    manifest_path = output_root / "output" / "manifest.json"
+    if not manifest_path.exists():
+        # Generate manifest if it doesn't exist
+        print(f"   ℹ️  Manifest not found, loading from session data...")
+        with open(manifest_path, "w") as f:
+            json.dump(manifest.model_dump(), f, indent=2)
+
+    # Use the high-level render function which creates all ingest/verification plots
+    saved_paths = fig_ingest.render_ingest_figures(
+        manifest=manifest_path,
+        verification_summary=verification_path,
+        output_dir=figures_dir,
+        formats=("png",),
     )
-    fig2_path = figures_dir / "status_distribution.png"
-    fig2.savefig(fig2_path, dpi=150, bbox_inches="tight")
-    print(f"   ✓ Saved: {fig2_path}")
+
+    print(f"   ✓ Generated {len(saved_paths)} figure(s):")
+    for path in saved_paths:
+        print(f"     - {path.name}")
 
     # =========================================================================
     # Summary
@@ -147,7 +164,24 @@ if __name__ == "__main__":
     print("=" * 80)
 
     print(f"\n📁 Output Directory: {output_root}")
-    print(f"\n📊 Figures Generated:")
+    print(f"\n📊 Figures Generated ({len(saved_paths)} files):")
+    for path in saved_paths:
+        print(f"   ✓ {path.name}")
+
+    print("\n" + "=" * 80)
+    print("✅ Example Complete!")
+    print("=" * 80)
+
+    print("\nKey Takeaways:")
+    print("  - figures.ingest_verify module creates comprehensive verification plots")
+    print("  - render_ingest_figures() handles all plot generation automatically")
+    print("  - Deterministic filenames based on session_id")
+    print("  - Multi-panel summaries and individual component plots")
+
+    print("\nNext Steps:")
+    print("  - Inspect individual plots in the figures directory")
+    print("  - Try with your own verification_summary.json files")
+    print("  - Combine with alignment plots (Example 22) for full QC")
     print(f"   ✓ verification_summary.png - Frame/TTL comparison")
     print(f"   ✓ status_distribution.png - Status pie chart")
 

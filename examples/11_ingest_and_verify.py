@@ -106,7 +106,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
         n_frames=n_frames,
         seed=seed,
     )
-    print(f"   ✓ Data generated in: {session.session_dir}")
+    print(f"   ✓ Data generated in: {session.raw_dir}")
 
     # =========================================================================
     # PHASE 1: Load Configuration
@@ -126,7 +126,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"      - ID: {session_data.session.id}")
     print(f"      - Subject: {session_data.session.subject_id}")
     print(f"      - Cameras: {len(session_data.cameras)}")
-    print(f"      - TTLs: {len(session_data.ttls)}")
+    print(f"      - TTLs: {len(session_data.TTLs)}")
 
     # =========================================================================
     # PHASE 2: Fast Discovery (No Counting)
@@ -152,7 +152,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"      TTLs: {len(manifest_fast.ttls)}")
     for ttl in manifest_fast.ttls:
         file_count = len(ttl.files) if ttl.files else 0
-        print(f"         - {ttl.ttl_id}: {file_count} file(s), " f"ttl_pulse_count={ttl.ttl_pulse_count or 'None'}")
+        print(f"         - {ttl.ttl_id}: {file_count} file(s)")
 
     print(f"\n   💡 Use fast mode for:")
     print(f"      - Quick sanity checks")
@@ -179,8 +179,9 @@ def run_pipeline(settings: ExampleSettings) -> dict:
         print(f"      - {cam.camera_id}: {cam.frame_count} frames")
 
     print(f"\n   TTL Pulse Counts:")
-    for ttl in manifest.ttls:
-        print(f"      - {ttl.ttl_id}: {ttl.ttl_pulse_count} pulses")
+    for cam in manifest.cameras:
+        if cam.ttl_id and cam.ttl_pulse_count is not None:
+            print(f"      - {cam.ttl_id} (for {cam.camera_id}): {cam.ttl_pulse_count} pulses")
 
     # =========================================================================
     # PHASE 4: Verification
@@ -193,10 +194,9 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     verification = ingest.verify_manifest(manifest, tolerance=tolerance)
 
     print(f"\n   Overall Status: {verification.status}")
-    print(f"   Generated At: {verification.generated_at}")
 
     print(f"\n   Per-Camera Results:")
-    for cam in verification.cameras:
+    for cam in verification.camera_results:
         # Compute mismatch string
         if cam.mismatch > 0:
             mismatch_str = f"+{cam.mismatch}"
@@ -291,7 +291,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"   ✓ Session: {session_data.session.id}")
     print(f"   ✓ Cameras: {len(manifest.cameras)}")
     print(f"   ✓ Total Frames: {sum(c.frame_count for c in manifest.cameras if c.frame_count)}")
-    print(f"   ✓ Total Pulses: {sum(t.ttl_pulse_count for t in manifest.ttls if t.ttl_pulse_count)}")
+    print(f"   ✓ Total Pulses: {sum(c.ttl_pulse_count for c in manifest.cameras if c.ttl_pulse_count)}")
     print(f"   ✓ Verification: {verification.status}")
 
     print(f"\n⏱️  Performance:")

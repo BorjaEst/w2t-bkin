@@ -21,6 +21,8 @@ description = "Active wisker touch trials"
 trial_type = 1
 sync_signal = "W2T_Audio"
 sync_ttl = "ttl_cue"
+### Add here a list with the items that are going to be extracted from bpod
+
 
 [[bpod.trial_types]]
 description = "Passive wisker touch trials"

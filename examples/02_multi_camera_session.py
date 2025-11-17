@@ -112,12 +112,16 @@ def run_pipeline(settings: ExampleSettings) -> dict:
 
     print(f"   ✓ Config: {session.config_path}")
     print(f"   ✓ Session: {session.session_path}")
-    print(f"   ✓ Cameras: {len(session.videos)}")
-    for i, video in enumerate(session.videos):
-        print(f"     - Camera {i}: {video.name}")
-    print(f"   ✓ TTL channels: {len(session.ttls)}")
-    for i, ttl in enumerate(session.ttls):
-        print(f"     - TTL {i}: {ttl.name}")
+    print(f"   ✓ Cameras: {len(session.camera_video_paths)}")
+    for cam_id, video_paths in session.camera_video_paths.items():
+        # video_paths could be a Path or list of Paths
+        if isinstance(video_paths, list):
+            print(f"     - {cam_id}: {len(video_paths)} video(s)")
+        else:
+            print(f"     - {cam_id}: {video_paths.name}")
+    print(f"   ✓ TTL channels: {len(session.ttl_paths)}")
+    for ttl_id, ttl_path in session.ttl_paths.items():
+        print(f"     - {ttl_id}: {ttl_path.name}")
 
     # =========================================================================
     # PHASE 1: Load Config and Session
@@ -135,10 +139,10 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"   ✓ Cameras in session.toml: {len(session_data.cameras)}")
     for cam in session_data.cameras:
         ttl_ref = f" → {cam.ttl_id}" if cam.ttl_id else " (no TTL)"
-        print(f"     - {cam.camera_id}{ttl_ref}")
-    print(f"   ✓ TTLs in session.toml: {len(session_data.ttls)}")
-    for ttl in session_data.ttls:
-        print(f"     - {ttl.ttl_id}")
+        print(f"     - {cam.id}{ttl_ref}")
+    print(f"   ✓ TTLs in session.toml: {len(session_data.TTLs)}")
+    for ttl in session_data.TTLs:
+        print(f"     - {ttl.id}")
 
     # =========================================================================
     # PHASE 2: Fast Discovery (No Counting)
@@ -178,8 +182,10 @@ def run_pipeline(settings: ExampleSettings) -> dict:
         print(f"     - {cam.camera_id}: {cam.frame_count} frames")
 
     print(f"   ✓ TTL pulse counts populated:")
-    for ttl in manifest.ttls:
-        print(f"     - {ttl.ttl_id}: {ttl.ttl_pulse_count} pulses")
+    # Note: TTL pulse counts are stored in ManifestCamera, not ManifestTTL
+    for cam in manifest.cameras:
+        if cam.ttl_id:
+            print(f"     - {cam.ttl_id}: {cam.ttl_pulse_count} pulses (from {cam.camera_id})")
 
     # =========================================================================
     # PHASE 4: Cross-Reference Validation
@@ -190,7 +196,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
 
     print("\n🔗 Validating camera → TTL references...")
     try:
-        ingest.validate_ttl_references(manifest)
+        ingest.validate_ttl_references(session_data)
         print("   ✓ All camera TTL references are valid")
     except ValueError as e:
         print(f"   ✗ Validation failed: {e}")
@@ -200,9 +206,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print("\n   Camera → TTL Mapping:")
     for cam in manifest.cameras:
         if cam.ttl_id:
-            ttl = next((t for t in manifest.ttls if t.ttl_id == cam.ttl_id), None)
-            if ttl:
-                print(f"     {cam.camera_id} → {cam.ttl_id} " f"({cam.frame_count} frames vs {ttl.ttl_pulse_count} pulses)")
+            print(f"     {cam.camera_id} → {cam.ttl_id} " f"({cam.frame_count} frames vs {cam.ttl_pulse_count} pulses)")
         else:
             print(f"     {cam.camera_id} → (no TTL)")
 
@@ -217,16 +221,15 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     verification = ingest.verify_manifest(manifest, tolerance=5)
 
     print(f"   ✓ Overall status: {verification.status}")
-    print(f"   ✓ Generated at: {verification.generated_at}")
 
     print("\n   Per-Camera Results:")
-    for cam_result in verification.cameras:
+    for cam_result in verification.camera_results:
         mismatch_str = f"{cam_result.mismatch:+d}" if cam_result.mismatch != 0 else "0"
 
         # Status icon
-        if cam_result.status == "OK":
+        if cam_result.status == "pass":
             icon = "✅"
-        elif cam_result.status == "WARN":
+        elif cam_result.status == "warn":
             icon = "⚠️ "
         else:
             icon = "❌"
@@ -251,7 +254,19 @@ def run_pipeline(settings: ExampleSettings) -> dict:
 
     verification_path = output_root / "output" / "verification_summary.json"
     verification_path.parent.mkdir(parents=True, exist_ok=True)
-    ingest.write_verification_summary(verification, verification_path)
+
+    # Create VerificationSummary from VerificationResult
+    from datetime import datetime, timezone
+
+    from w2t_bkin.domain.manifest import VerificationSummary
+
+    summary = VerificationSummary(
+        session_id=manifest.session_id,
+        cameras=verification.camera_results,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    ingest.write_verification_summary(summary, verification_path)
 
     print(f"\n📄 Verification summary written: {verification_path}")
 
@@ -272,12 +287,12 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"   ✓ Cameras: {len(manifest.cameras)}")
     print(f"   ✓ TTL Channels: {len(manifest.ttls)}")
     print(f"   ✓ Total Frames: {sum(c.frame_count for c in manifest.cameras if c.frame_count)}")
-    print(f"   ✓ Total Pulses: {sum(t.ttl_pulse_count for t in manifest.ttls if t.ttl_pulse_count)}")
+    print(f"   ✓ Total Pulses: {sum(c.ttl_pulse_count for c in manifest.cameras if c.ttl_pulse_count)}")
     print(f"   ✓ Verification: {verification.status}")
 
-    ok_count = sum(1 for c in verification.cameras if c.status == "OK")
-    warn_count = sum(1 for c in verification.cameras if c.status == "WARN")
-    fail_count = sum(1 for c in verification.cameras if c.status == "FAIL")
+    ok_count = sum(1 for c in verification.camera_results if c.status == "pass")
+    warn_count = sum(1 for c in verification.camera_results if c.status == "warn")
+    fail_count = sum(1 for c in verification.camera_results if c.status == "fail")
 
     print(f"\n   Camera Status Breakdown:")
     print(f"     - OK: {ok_count}")
