@@ -169,6 +169,78 @@ def demo_5_complete_session():
 
     print(f"\n🎉 All modalities generated successfully!")
 
+    # Generate visualizations for pose and facemap
+    print(f"\n📊 Generating visualizations...")
+    figures_dir = Path("temp/demo/session_complete/figures")
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pose visualizations
+    if session.pose_path and session.pose_path.exists():
+        print(f"   Creating pose plots...")
+        from figures.pose import render_pose_figures
+        from w2t_bkin.domain.pose import PoseBundle, PoseFrame, PoseKeypoint
+        from w2t_bkin.pose import import_dlc_pose
+
+        # Load pose data
+        frames_dict = import_dlc_pose(session.pose_path)
+
+        # Convert to PoseFrame objects
+        pose_frames = []
+        for frame_data in frames_dict:
+            keypoints = []
+            for kp_name, kp_data in frame_data["keypoints"].items():
+                keypoints.append(PoseKeypoint(name=kp_name, x=kp_data["x"], y=kp_data["y"], confidence=kp_data["confidence"]))
+            pose_frames.append(
+                PoseFrame(frame_index=frame_data["frame_index"], timestamp=frame_data["frame_index"] / 30.0, keypoints=keypoints, source="dlc")  # Assume 30 fps  # DLC format
+            )
+
+        pose_bundle = PoseBundle(
+            session_id="demo-complete",
+            camera_id="cam0",
+            model_name="synthetic_dlc",
+            skeleton="custom_3pt",
+            frames=pose_frames,
+            alignment_method="nearest",
+            mean_confidence=sum(kp.confidence for f in pose_frames for kp in f.keypoints) / sum(len(f.keypoints) for f in pose_frames) if pose_frames else 0.0,
+            generated_at="2025-11-17T00:00:00Z",
+        )
+
+        pose_paths = render_pose_figures(
+            pose_bundle=pose_bundle,
+            output_dir=figures_dir / "pose",
+            formats=("png",),
+        )
+        print(f"   ✓ Generated {len(pose_paths)} pose figure(s)")
+
+    # Facemap visualizations
+    if session.facemap_path and session.facemap_path.exists():
+        print(f"   Creating facemap plots...")
+        import numpy as np
+
+        from figures.facemap import render_facemap_figures
+        from w2t_bkin.domain.facemap import FacemapBundle, FacemapROI, FacemapSignal
+
+        # Load facemap data
+        data = np.load(session.facemap_path, allow_pickle=True).item()
+
+        # Create FacemapBundle with correct structure
+        timestamps = (np.arange(len(data["motion"])) / 30.0).tolist()
+
+        rois = [FacemapROI(name="motion", x=0, y=0, width=100, height=100)]
+
+        signals = [FacemapSignal(roi_name="motion", timestamps=timestamps, values=data["motion"].tolist(), sampling_rate=30.0)]
+
+        facemap_bundle = FacemapBundle(session_id="demo-complete", camera_id="cam0", rois=rois, signals=signals, alignment_method="nearest", generated_at="2025-11-17T00:00:00Z")
+
+        facemap_paths = render_facemap_figures(
+            facemap_bundle=facemap_bundle,
+            output_dir=figures_dir / "facemap",
+            formats=("png",),
+        )
+        print(f"   ✓ Generated {len(facemap_paths)} facemap figure(s)")
+
+    print(f"\n📁 Figures saved to: {figures_dir}")
+
 
 def main():
     """Run all demos."""

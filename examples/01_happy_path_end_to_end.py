@@ -232,10 +232,47 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"\n   ✓ Alignment stats written: {alignment_path}")
 
     # =========================================================================
-    # PHASE 4: Summary and Outputs (NWB creation requires full implementation)
+    # PHASE 4: Generate QC Visualizations
     # =========================================================================
     print("\n" + "=" * 80)
-    print("PHASE 4: Summary and Outputs")
+    print("PHASE 4: Generate QC Visualizations")
+    print("=" * 80)
+
+    figures_dir = output_root / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    
+    print("\n📊 Generating verification plots...")
+    from figures.ingest_verify import render_ingest_figures
+    
+    # Save manifest for visualization
+    manifest_path = output_root / "output" / "manifest.json"
+    with open(manifest_path, "w") as f:
+        json.dump(manifest.model_dump(), f, indent=2)
+    
+    verification_figures = render_ingest_figures(
+        manifest=manifest_path,
+        verification_summary=verification_path,
+        output_dir=figures_dir / "verification",
+        formats=("png",),
+    )
+    print(f"   ✓ Generated {len(verification_figures)} verification figure(s)")
+    
+    print("\n📊 Generating alignment plots...")
+    from figures.sync import render_sync_figures
+    
+    alignment_figures = render_sync_figures(
+        alignment_stats=alignment_stats,
+        output_dir=figures_dir / "alignment",
+        jitter_budget_s=config.timebase.jitter_budget_s if hasattr(config.timebase, "jitter_budget_s") else None,
+        formats=("png",),
+    )
+    print(f"   ✓ Generated {len(alignment_figures)} alignment figure(s)")
+
+    # =========================================================================
+    # PHASE 5: Summary and Outputs
+    # =========================================================================
+    print("\n" + "=" * 80)
+    print("PHASE 5: Summary and Outputs")
     print("=" * 80)
 
     print("\n� Note: NWB assembly, validation, and provenance generation")
@@ -247,6 +284,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
         "session": session.session_path,
         "verification_summary": verification_path,
         "alignment_stats": alignment_path,
+        "figures": figures_dir,
     }
 
     print("\n📊 Pipeline Summary:")
@@ -255,6 +293,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"   ✓ Frames: {manifest.cameras[0].frame_count if manifest.cameras else 0}")
     print(f"   ✓ Verification: {verification.status}")
     print(f"   ✓ Jitter (max): {alignment_stats.max_jitter_s * 1000:.3f} ms")
+    print(f"   ✓ Figures: {len(verification_figures) + len(alignment_figures)} QC plots")
 
     print("\n📁 Artifacts Generated:")
     for name, path in artifacts.items():
@@ -266,7 +305,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"\nAll outputs saved to: {output_root}")
     print("\nNext steps:")
     print("  - Inspect sidecars for detailed metrics")
-    print("  - Run visualization examples (21_*, 22_*) for QC plots")
+    print("  - Review QC plots in figures/ directory")
     print("  - Use these patterns for your own data processing")
 
     if cleanup:
