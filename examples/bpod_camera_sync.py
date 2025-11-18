@@ -57,6 +57,7 @@ import numpy as np
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offsets, plot_ttl_timeline
 from synthetic import build_raw_folder
 from w2t_bkin import config as cfg_module
 from w2t_bkin import ingest
@@ -74,15 +75,15 @@ class ExampleSettings(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=False, extra="ignore")
 
     output_root: Path = Field(default=Path("output/bpod_camera_sync"), description="Root directory for generated synthetic session and output files")
-    n_frames: int = Field(default=300, description="Number of camera frames to generate (one TTL pulse per frame)")
-    n_trials: int = Field(default=10, description="Number of Bpod trials to generate (one sync TTL pulse per trial)")
+    n_frames: int = Field(default=600, description="Number of camera frames to generate (one TTL pulse per frame)")
+    n_trials: int = Field(default=8, description="Number of Bpod trials to generate (one sync TTL pulse per trial)")
     seed: int = Field(default=42, description="Random seed for reproducible synthetic data generation")
     cleanup: bool = Field(default=False, description="Whether to remove existing output directory before running")
 
     # Timing offsets (in seconds)
     camera_start_delay_s: float = Field(default=2.0, description="Delay before camera starts recording (relative to TTL system start)")
     bpod_start_delay_s: float = Field(default=6.0, description="Delay before Bpod starts first trial (relative to TTL system start)")
-    bpod_clock_jitter_s: float = Field(default=1e-4, description="Simulated jitter in Bpod clock (seconds)")
+    bpod_clock_jitter_s: float = Field(default=1e-3, description="Simulated jitter in Bpod clock (seconds)")
     bpod_sync_delay_s: float = Field(default=1.0, description="Delay of sync signal within each Bpod trial (relative to trial start)")
 
 
@@ -269,6 +270,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     raw_events = convert_matlab_struct(session_data_struct["RawEvents"])
     trial_raw = convert_matlab_struct(raw_events["Trial"][example_trial - 1])
     trial_start_ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], example_trial - 1))
+    trial_end_ts = float(to_scalar(session_data_struct["TrialEndTimestamp"], example_trial - 1))
 
     # Look up sync signal from session config (first trial_type as example)
     # In a real session, this can differ per trial_type.
@@ -283,6 +285,55 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"  - Offset (trial):             {offset:.3f} s")
     print(f"  - TTL sync time:              {ttl_sync_time:.3f} s")
     print("  => absolute_time = offset + bpod_time")
+
+    # -----------------------------------------------------------------
+    # PHASE 4b: Visualizations to aid understanding
+    # -----------------------------------------------------------------
+    figs_dir = settings.output_root / "output" / "figures"
+    figs_dir.mkdir(parents=True, exist_ok=True)
+
+    # TTL timeline for key channels (camera TTL and Bpod sync TTL)
+    example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else None
+    example_sync_ttl = session_cfg.bpod.trial_types[0].sync_ttl if session_cfg.bpod.trial_types else None
+    ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
+    plot_ttl_timeline(ttl_pulses, channel_order=ttl_order, out_path=figs_dir / "ttl_timeline.png")
+
+    # Offsets trend across trials
+    plot_trial_offsets(trial_offsets, out_path=figs_dir / "trial_offsets.png")
+
+    # Alignment example illustration for the first trial, with more context.
+    # Extra Bpod-relative signals: trial start/end, sync start/end (if available)
+    extra_bpod_rel = [("trial start", 0.0), ("trial end", max(0.0, trial_end_ts - trial_start_ts)), ("sync start", sync_time_rel)]
+    # Optionally include sync end from Bpod states (if present)
+    try:
+        states = convert_matlab_struct(trial_raw.get("States", {}))
+        if isinstance(states, dict) and sync_signal in states:
+            sync_arr = states[sync_signal]
+            if isinstance(sync_arr, (list, tuple, np.ndarray)) and len(sync_arr) == 2:
+                extra_bpod_rel.append(("sync end", float(sync_arr[1])))
+    except Exception:
+        pass
+
+    # Extra TTL series: camera TTL pulses near the trial window
+    example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else None
+    extra_ttl_series = {}
+    if example_cam_ttl and example_cam_ttl in ttl_pulses:
+        window_start = trial_start_ts - 0.25
+        window_end = trial_end_ts + 0.25
+        cam_pulses_near = [t for t in ttl_pulses[example_cam_ttl] if window_start <= t <= window_end]
+        # Limit to avoid clutter if necessary
+        extra_ttl_series[example_cam_ttl] = cam_pulses_near[:120]
+
+    plot_alignment_example(
+        trial_number=example_trial,
+        trial_start_ts=trial_start_ts,
+        trial_end_ts=trial_end_ts,
+        sync_time_rel=sync_time_rel,
+        ttl_sync_time=ttl_sync_time,
+        out_path=figs_dir / "alignment_example.png",
+        extra_bpod_rel=extra_bpod_rel,
+        extra_ttl_series=extra_ttl_series,
+    )
 
     # ---------------------------------------------------------------------
     # PHASE 5: Extract trials with offsets + behavioral events
@@ -359,6 +410,40 @@ def run_pipeline(settings: ExampleSettings) -> dict:
         with open(alignment_stats_path, "w") as f:
             json.dump(alignment_results, f, indent=2)
         print(f"  - Alignment results:     {alignment_stats_path}")
+    # Figures (if matplotlib available)
+    figures_written = [
+        output_dir / "figures" / "ttl_timeline.png",
+        output_dir / "figures" / "trial_offsets.png",
+        output_dir / "figures" / "alignment_example.png",
+    ]
+    # Add a small-multiples alignment panel across the first few trials
+    try:
+        grid_infos = []
+        max_trials_grid = 6
+        for tn in sorted(trial_offsets.keys())[:max_trials_grid]:
+            ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], tn - 1))
+            te = float(to_scalar(session_data_struct["TrialEndTimestamp"], tn - 1))
+            trial_raw_n = convert_matlab_struct(raw_events["Trial"][tn - 1])
+            sync_rel_n = get_sync_time_from_bpod_trial(trial_raw_n, sync_signal)
+            ttl_sync_n = ts + sync_rel_n + trial_offsets[tn]
+            grid_infos.append(
+                {
+                    "trial_number": tn,
+                    "trial_start_ts": ts,
+                    "trial_end_ts": te,
+                    "sync_time_rel": float(sync_rel_n),
+                    "ttl_sync_time": float(ttl_sync_n),
+                }
+            )
+        grid_path = output_dir / "figures" / "alignment_grid.png"
+        if grid_infos:
+            plot_alignment_grid(grid_infos, out_path=grid_path, cols=3)
+            figures_written.append(grid_path)
+    except Exception:
+        pass
+    for p in figures_written:
+        if p.exists():
+            print(f"  - Figure:                {p}")
 
     print("\nSummary:")
     print("  - TTL system defines absolute time (t = 0)")
