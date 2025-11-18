@@ -29,6 +29,8 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from pydantic import BaseModel, Field
 
+from synthetic.utils import derive_sequenced_paths
+
 try:
     from scipy.io import savemat  # type: ignore
 except Exception as e:  # pragma: no cover - scipy is required by project
@@ -58,27 +60,17 @@ class BpodSynthOptions(BaseModel):
 def _derive_bpod_paths(pattern: str, files: int) -> List[Path]:
     """Derive concrete output paths from a glob pattern like `Bpod/*.mat`.
 
-    Rules:
-    - If `*` present in the stem, replace with 1-based zero-padded index (4 digits).
-    - If the stem is exactly `*`, produce `0001.mat`, `0002.mat`, ...
-    - If no wildcard, generate one file at the exact path (ignoring `files`).
+    Uses shared sequencing helper; when no wildcard is present, always
+    generates a single file path (ignores `files`) to match expectations.
     """
-    p = Path(pattern)
-    parent = p.parent
-    name = p.name
-
-    if "." in name:
-        stem, ext = name.rsplit(".", 1)
-        ext = "." + ext
-    else:
-        stem, ext = name, ".mat"
-
-    if "*" in stem:
-        base_stem = stem.replace("*", "")
-        paths = [parent / f"{base_stem}{i:04d}{ext}" for i in range(1, files + 1)]
-        return paths
-    else:
-        return [parent / f"{stem}{ext}"]
+    return derive_sequenced_paths(
+        pattern,
+        files,
+        default_ext="mat",
+        pad=4,
+        dash_when_no_wildcard=False,
+        single_when_no_wildcard=True,
+    )
 
 
 def _build_sessiondata_dict(

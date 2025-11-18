@@ -39,6 +39,7 @@ from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from synthetic.utils import deterministic_rng, write_float_lines
 from w2t_bkin.domain.session import Session as SessionModel
 
 
@@ -75,7 +76,7 @@ def generate_ttl_pulses(ttl_ids: List[str], *, options: Optional[TTLGenerationOp
         count = base.pulses_per_ttl_overrides.get(tid, base.pulses_per_ttl)
         rate = base.rate_overrides_hz.get(tid, base.rate_hz)
         interval = 1.0 / rate
-        rng = random.Random(f"{base.seed}:{tid}")
+        rng = deterministic_rng(base.seed, tid)
 
         channel_pulses: List[float] = []
         for i in range(count):
@@ -141,9 +142,7 @@ def write_ttl_pulse_files(
             if not overwrite and full.exists():
                 concrete_paths.append(full)
                 continue
-            with open(full, "w", encoding="utf-8") as f:
-                for ts in channel_pulses:
-                    f.write(f"{ts:.6f}\n")
+            write_float_lines(full, channel_pulses, decimals=6, overwrite=True)
             concrete_paths.append(full)
         output[tid] = concrete_paths
     return output

@@ -33,6 +33,8 @@ from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from synthetic.utils import derive_sequenced_paths
+
 try:
     import ffmpeg  # type: ignore
 except Exception:  # pragma: no cover - fallback if import fails
@@ -72,31 +74,16 @@ class VideoGenerationOptions(BaseModel):
 def _derive_video_paths(pattern: str, segments: int, extension: str) -> List[Path]:
     """Derive concrete video file paths from a glob pattern with `*`.
 
-    Rules:
-    - If `*` present: replace with zero-padded segment index (1-based).
-    - Else: append `-0001`, `-0002`, ... before extension (or add extension).
+    Delegates to shared utility for consistent sequencing behavior.
     """
-    p = Path(pattern)
-    parent = p.parent
-    name = p.name
-
-    # Determine extension
-    if "." in name:
-        stem, ext = name.rsplit(".", 1)
-        ext = "." + ext
-    else:
-        stem, ext = name, f".{extension}"
-
-    paths: List[Path] = []
-    if "*" in stem:
-        base_stem = stem.replace("*", "")
-        for i in range(1, segments + 1):
-            paths.append(parent / f"{base_stem}{i:04d}{ext}")
-    else:
-        for i in range(1, segments + 1):
-            suffix = f"-{i:04d}" if segments > 1 else ""
-            paths.append(parent / f"{stem}{suffix}{ext}")
-    return paths
+    return derive_sequenced_paths(
+        pattern,
+        segments,
+        default_ext=extension,
+        pad=4,
+        dash_when_no_wildcard=True,
+        single_when_no_wildcard=False,
+    )
 
 
 def _camera_color(base_hex: str, camera_id: str, seed: int) -> str:
