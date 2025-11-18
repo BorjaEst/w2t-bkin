@@ -1,271 +1,263 @@
-"""Synthetic Bpod data generation for testing.
+"""Synthetic Bpod .mat file generator.
 
-This module generates synthetic Bpod .mat files matching the structure expected
-by the W2T-BKIN events parsing pipeline. It creates minimal but valid SessionData
-structures using scipy.io.savemat.
+Creates minimal-yet-valid Bpod MATLAB .mat files that satisfy the
+`w2t_bkin.events.bpod` loader and validators. Designed for tests,
+examples, and E2E demos where real Bpod data is unavailable.
 
-Features:
----------
-- Generate valid Bpod .mat files with SessionData structure
-- Configurable number of trials and trial types
-- Realistic state machine timings
-- Port entry/exit events
-- Deterministic generation with random seed
+Structure written (per file):
+- `SessionData` (MATLAB struct)
+  - `nTrials`: int
+  - `TrialStartTimestamp`: 1D float array [nTrials]
+  - `TrialEndTimestamp`: 1D float array [nTrials]
+  - `RawEvents`: struct
+    - `Trial`: struct array length nTrials, each with:
+      - `States`: struct (includes `ITI` [start, end])
+      - `Events`: struct (empty arrays by default)
 
-Requirements Coverage:
-----------------------
-- FR-11: Bpod .mat file generation for testing
-- FR-14: Trial/event data for QC testing
+Notes:
+- Uses `scipy.io.savemat` (scipy is declared in project dependencies).
+- All generation is deterministic w.r.t. `seed`.
+- Output file names follow the session's `bpod.path` glob pattern.
 """
+
+from __future__ import annotations
 
 from pathlib import Path
 import random
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+from pydantic import BaseModel, Field
+
+try:
+    from scipy.io import savemat  # type: ignore
+except Exception as e:  # pragma: no cover - scipy is required by project
+    savemat = None  # type: ignore
+
+from w2t_bkin.domain.session import Session as SessionModel
+from w2t_bkin.events.bpod import write_bpod_mat
 
 
-def create_bpod_mat_file(
-    output_path: Path,
-    n_trials: int = 10,
-    seed: int = 42,
-    trial_types: Optional[List[int]] = None,
-) -> tuple[Path, list[float]]:
-    """Create a synthetic Bpod .mat file with realistic SessionData structure.
+class BpodSynthOptions(BaseModel):
+    """Options controlling synthetic Bpod generation."""
 
-    Args:
-        output_path: Path where .mat file should be written
-        n_trials: Number of trials to generate
-        seed: Random seed for reproducibility
-        trial_types: List of trial type codes (defaults to all type 1)
+    files: int = Field(2, ge=1, description="How many .mat files to generate")
+    trials_per_file: int = Field(10, ge=0, description="Trials per generated file")
+    start_time_s: float = Field(0.0, ge=0)
+    trial_interval_s: float = Field(2.0, gt=0, description="Start-to-start interval between trials")
+    trial_duration_s: float = Field(1.0, gt=0, description="Duration of a trial (for end timestamp)")
+    jitter_s: float = Field(0.0, ge=0, description="Uniform jitter magnitude applied to start times")
+    clock_jitter_ppm: float = Field(0.0, description="Clock drift in parts per million (positive = Bpod clock runs fast, negative = slow)")
+    seed: int = Field(1234, description="Random seed for deterministic jitter")
+    include_states: bool = Field(True, description="Include minimal States with ITI timing")
+    include_events: bool = Field(True, description="Include Events struct (empty arrays by default)")
+    sync_signal_name: str = Field("SyncSignal1", description="Name of the sync state (e.g., SyncSignal1)")
+    sync_delay_s: float = Field(0.0, ge=0, description="Delay of sync signal within each trial (relative to trial start)")
 
-    Returns:
-        Tuple of (Path to created .mat file, list of sync pulse timestamps)
 
-    Raises:
-        ImportError: If scipy is not installed
+def _derive_bpod_paths(pattern: str, files: int) -> List[Path]:
+    """Derive concrete output paths from a glob pattern like `Bpod/*.mat`.
 
-    Example:
-        >>> from pathlib import Path
-        >>> from synthetic.bpod_synth import create_bpod_mat_file
-        >>> mat_path, sync_times = create_bpod_mat_file(
-        ...     Path("test_session.mat"),
-        ...     n_trials=20,
-        ...     seed=42
-        ... )
+    Rules:
+    - If `*` present in the stem, replace with 1-based zero-padded index (4 digits).
+    - If the stem is exactly `*`, produce `0001.mat`, `0002.mat`, ...
+    - If no wildcard, generate one file at the exact path (ignoring `files`).
     """
-    try:
-        from scipy.io import savemat
-    except ImportError:
-        raise ImportError("scipy is required for Bpod .mat generation. " "Install with: pip install scipy")
+    p = Path(pattern)
+    parent = p.parent
+    name = p.name
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if "." in name:
+        stem, ext = name.rsplit(".", 1)
+        ext = "." + ext
+    else:
+        stem, ext = name, ".mat"
 
-    # Set random seed
-    np.random.seed(seed)
-    random.seed(seed)
+    if "*" in stem:
+        base_stem = stem.replace("*", "")
+        paths = [parent / f"{base_stem}{i:04d}{ext}" for i in range(1, files + 1)]
+        return paths
+    else:
+        return [parent / f"{stem}{ext}"]
 
-    # Default trial types: alternating 1 and 2
-    if trial_types is None:
-        trial_types = [1] * n_trials  # Use all type 1 for simplicity in synthetic sessions
 
-    # Generate trial data
-    trials = []
-    trial_start_timestamps = []
-    trial_end_timestamps = []
-    sync_pulse_timestamps = []  # Track absolute sync pulse times for TTL generation
-    current_time = 0.0
+def _build_sessiondata_dict(
+    n_trials: int,
+    *,
+    start_time_s: float,
+    trial_interval_s: float,
+    trial_duration_s: float,
+    jitter_s: float,
+    clock_jitter_ppm: float,
+    rng: random.Random,
+    include_states: bool,
+    include_events: bool,
+    trial_type_codes: Optional[List[int]] = None,
+    sync_signal_name: str = "SyncSignal1",
+    sync_delay_s: float = 0.0,
+) -> Dict[str, object]:
+    """Construct a Python dict closely matching Bpod SessionData shape.
 
-    for trial_idx in range(n_trials):
-        trial_start = current_time
+    Includes required fields used by the events parser and reasonable
+    placeholders for optional ones (TrialSettings, TrialTypes, RawData).
 
-        # Generate realistic state timings (in seconds)
-        iti_duration = np.random.uniform(1.0, 2.0)
-        response_duration = np.random.uniform(3.0, 5.0)
-        reward_duration = np.random.uniform(0.5, 1.0) if trial_types[trial_idx] == 1 else 0.0
+    Clock drift simulation:
+    - clock_jitter_ppm: Parts per million clock drift (e.g., 100 ppm = 0.0001 = 0.01%)
+    - Positive values: Bpod clock runs fast (timestamps advance more than real time)
+    - Negative values: Bpod clock runs slow (timestamps advance less than real time)
+    - Drift accumulates linearly over time
+    """
 
-        # State entry/exit times (2-element arrays: [start, end])
-        iti_times = np.array([current_time, current_time + iti_duration])
-        current_time += iti_duration
+    starts: List[float] = []
+    ends: List[float] = []
+    trials: List[Dict[str, object]] = []
 
-        # Add Bpod sync state (e.g., D1 output pulse)
-        # This is a brief digital output that triggers a TTL pulse for alignment
-        sync_pulse_start = current_time
-        sync_pulse_duration = 0.01  # 10ms pulse
-        sync_pulse_times = np.array([sync_pulse_start, sync_pulse_start + sync_pulse_duration])
-        sync_pulse_timestamps.append(sync_pulse_start)  # Record absolute time for TTL
-        current_time += sync_pulse_duration
+    # Clock drift simulation: accumulate drift over session time
+    # drift_factor = 1 + (clock_jitter_ppm / 1_000_000)
+    # For each second of real time, Bpod clock advances by drift_factor seconds
+    drift_factor = 1.0 + (clock_jitter_ppm / 1_000_000.0)
 
-        response_times = np.array([current_time, current_time + response_duration])
-        current_time += response_duration
+    for i in range(n_trials):
+        # Nominal time (what TTL clock sees)
+        t0_nominal = start_time_s + i * trial_interval_s
 
-        # States dict with realistic behavioral states
-        states = {
-            "ITI": iti_times,
-            "bpod_d1": sync_pulse_times,  # Sync signal state for TTL alignment
-            "Response_window": response_times,
-        }
+        # Apply clock drift: elapsed time from session start gets scaled by drift
+        elapsed_from_start = i * trial_interval_s
+        drift_offset = elapsed_from_start * (drift_factor - 1.0)
+        t0 = t0_nominal + drift_offset
 
-        # Add reward state for successful trials
-        if reward_duration > 0:
-            reward_times = np.array([current_time, current_time + reward_duration])
-            states["Reward"] = reward_times
-            current_time += reward_duration
+        if jitter_s > 0:
+            t0 += rng.uniform(-jitter_s, jitter_s)
+
+        t1 = t0 + trial_duration_s
+        if t0 < 0:
+            t0 = 0.0
+        if t1 < 0:
+            t1 = 0.0
+
+        starts.append(float(t0))
+        ends.append(float(t1))
+
+        # Per-trial structures
+        states_struct: Dict[str, object] = {}
+        events_struct: Dict[str, object] = {}
+        if include_states:
+            # State times are relative to trial start (t0), not absolute
+            # ITI runs from 0 to trial duration
+            states_struct["ITI"] = np.array([0.0, trial_duration_s], dtype=float)
+            # Add sync signal state at the specified delay within the trial (relative timing)
+            sync_start_rel = sync_delay_s
+            sync_end_rel = min(sync_start_rel + 0.1, trial_duration_s)  # 100ms sync pulse
+            states_struct[sync_signal_name] = np.array([sync_start_rel, sync_end_rel], dtype=float)
+        if include_events:
+            # Empty arrays for optional event signals
+            events_struct["Port1In"] = np.array([], dtype=float)
+            events_struct["Port1Out"] = np.array([], dtype=float)
+
+        trial_struct: Dict[str, object] = {}
+        if include_states:
+            trial_struct["States"] = states_struct
+        if include_events:
+            trial_struct["Events"] = events_struct
+        trials.append(trial_struct)
+
+    raw_events = {"Trial": np.array(trials, dtype=object)}
+
+    # Trial settings (list of per-trial dicts; keep minimal)
+    trial_settings: List[Dict[str, object]] = [{"ProtocolState": "ITI"} for _ in range(n_trials)]
+
+    # Trial types (uint8 codes)
+    if n_trials > 0:
+        if trial_type_codes:
+            codes = [trial_type_codes[i % len(trial_type_codes)] for i in range(n_trials)]
         else:
-            states["Timeout"] = np.array([current_time, current_time + 1.0])
-            current_time += 1.0
+            codes = [1 for _ in range(n_trials)]
+        trial_types = np.array(codes, dtype=np.uint8)
+    else:
+        trial_types = np.array([], dtype=np.uint8)
 
-        # Generate port events (random port entries during response window)
-        n_port_events = np.random.randint(1, 4)
-        port_in_times = response_times[0] + np.sort(np.random.uniform(0, response_duration, n_port_events))
-        port_out_times = port_in_times + np.random.uniform(0.05, 0.3, n_port_events)
+    # RawData.OriginalStateNamesByNumber is an object array; we provide a
+    # simple state list per trial to mirror typical Bpod structures.
+    state_names = np.array([np.array(["ITI", "End"], dtype=object) for _ in range(n_trials)], dtype=object)
+    raw_data = {"OriginalStateNamesByNumber": state_names}
 
-        # Events dict
-        events = {
-            "Port1In": port_in_times,
-            "Port1Out": port_out_times,
-        }
-
-        # Occasionally add Tup events (timer)
-        if np.random.rand() > 0.5:
-            events["Tup"] = np.array([response_times[0] + response_duration * 0.5])
-
-        # Build trial structure
-        trial = {
-            "States": states,
-            "Events": events,
-        }
-
-        trials.append(trial)
-        trial_start_timestamps.append(trial_start)
-        trial_end_timestamps.append(current_time)
-
-    # Build complete SessionData structure
     session_data = {
-        # Session info
-        "Info": {
-            "SessionDate": "2025-01-15",
-            "SessionStartTime_UTC": "2025-01-15 10:00:00",
-            "BpodSoftwareVersion": "2.3.0",
-            "MaxStates": 256,
-            "MaxSerialEvents": 15,
-            "StateMachineType": "Bpod 2.0",
-            "CycleFrequency": 10000,
-            "SessionDateTime": "2025-01-15 10:00:00",
-            "FirmwareInfo": {
-                "StateMachine": 23,
-                "StateMachine_Minor": 0,
-            },
-            "CircuitRevision": {
-                "StateMachine": 2,
-            },
-            "Modules": {
-                "nModules": 0,
-                "RelayActive": np.array([], dtype=np.uint8),
-                "Connected": np.array([], dtype=np.uint8),
-                "Name": np.array([], dtype=object),
-                "Module2SM_BaudRate": np.array([], dtype=np.uint32),
-                "FirmwareVersion": np.array([], dtype=np.uint32),
-                "nSerialEvents": np.array([], dtype=np.uint8),
-                "EventNames": np.array([], dtype=object),
-                "USBport": np.array([], dtype=object),
-                "HWVersion_Major": np.array([], dtype=np.float64),
-                "HWVersion_Minor": np.array([], dtype=np.float64),
-            },
-            "PCSetup": {
-                "Manufacturer": "Test System",
-                "Model": "Synthetic",
-                "ProcessorName": "TestProc",
-                "TotalMemory_GB": 32.0,
-            },
-        },
-        # Analog data (minimal placeholder)
-        "Analog": {
-            "info": {
-                "FileName": "Description: Complete path and filename of the binary file",
-                "nChannels": "Description: Number of Flex I/O channels configured as analog input",
-                "channelNumbers": "Description: Indexes of Flex I/O channels configured as analog input",
-                "SamplingRate": "Description: Sampling rate of analog data (Hz)",
-                "nSamples": "Description: Total number of analog samples captured during the session",
-                "Samples": "Description: Analog measurements captured (Volts)",
-                "Timestamps": "Description: Time of each sample relative to the first TTL pulse from the state machine (seconds)",
-                "TrialNumber": "Description: Experimental trial for each corresponding sample",
-                "Trial": "Description: Cell array with one cell per trial. Each cell contains analog samples captured during that trial.",
-            },
-            "FileName": "",
-            "nChannels": 0,
-            "channelNumbers": np.array([], dtype=np.uint8),
-            "SamplingRate": 0,
-            "nSamples": 0,
-        },
-        # Settings file (minimal)
-        "SettingsFile": {
-            "GUI": {
-                "RewardAmount": 5.0,
-                "TimeoutDuration": 1.0,
-                "ITIMin": 1.0,
-                "ITIMax": 2.0,
-            },
-            "protocol": "SyntheticProtocol",
-        },
-        # Trial counts and types
-        "nTrials": n_trials,
-        "TrialTypes": np.array(trial_types, dtype=np.uint8),
-        # Trial timestamps
-        "TrialStartTimestamp": np.array(trial_start_timestamps, dtype=np.float64),
-        "TrialEndTimestamp": np.array(trial_end_timestamps, dtype=np.float64),
-        # Trial settings (one per trial)
-        "TrialSettings": [{"RewardAmount": 5.0, "TimeoutDuration": 1.0} for _ in range(n_trials)],
-        # Raw events (list of trials)
-        "RawEvents": {
-            "Trial": trials,
-        },
-        # Raw data (state names)
-        "RawData": {
-            "OriginalStateNamesByNumber": np.array([[[""] * 256 for _ in range(n_trials)]], dtype=object),  # Empty state names for each trial
-        },
+        "nTrials": int(n_trials),
+        "TrialStartTimestamp": np.array(starts, dtype=float),
+        "TrialEndTimestamp": np.array(ends, dtype=float),
+        "RawEvents": raw_events,
+        "TrialSettings": trial_settings,
+        "TrialTypes": trial_types,
+        "RawData": raw_data,
     }
-
-    # Wrap in top-level structure with MATLAB metadata
-    mat_data = {
-        "__header__": b"MATLAB 5.0 MAT-file, Created by synthetic.bpod_synth",
-        "__version__": "1.0",
-        "__globals__": [],
-        "SessionData": session_data,
-    }
-
-    # Save to .mat file
-    savemat(
-        output_path,
-        mat_data,
-        do_compression=True,
-        oned_as="row",
-    )
-
-    return output_path, sync_pulse_timestamps
+    return session_data
 
 
-def create_simple_bpod_file(
-    output_path: Path,
-    n_trials: int = 5,
-    seed: int = 42,
-) -> tuple[Path, list[float]]:
-    """Create a minimal Bpod .mat file for quick tests.
+def write_bpod_mat_files_for_session(
+    session: SessionModel,
+    base_dir: Union[str, Path],
+    *,
+    options: Optional[BpodSynthOptions] = None,
+    **overrides,
+) -> List[Path]:
+    """Generate and write Bpod .mat files based on a `Session`'s config.
 
-    This creates a simplified version with fewer states and events,
-    suitable for unit tests that don't need full complexity.
-
-    Args:
-        output_path: Path where .mat file should be written
-        n_trials: Number of trials (default: 5 for fast tests)
-        seed: Random seed
-
-    Returns:
-        Tuple of (Path to created .mat file, list of sync pulse timestamps)
+    Returns list of written file paths (ordered).
     """
-    return create_bpod_mat_file(
-        output_path,
-        n_trials=n_trials,
-        seed=seed,
-        trial_types=[1] * n_trials,  # All same type
-    )
+    base = options or BpodSynthOptions()
+    if overrides:
+        base = base.model_copy(update=overrides)
+
+    if savemat is None:
+        raise RuntimeError("scipy.io.savemat is required to write Bpod .mat files")
+
+    out_base = Path(base_dir)
+    paths = _derive_bpod_paths(session.bpod.path, base.files)
+    rng = random.Random(base.seed)
+
+    written: List[Path] = []
+    for idx, rel in enumerate(paths):
+        full = out_base / rel
+        full.parent.mkdir(parents=True, exist_ok=True)
+
+        # Build trial type codes from session config if present
+        tt_codes = [tt.trial_type for tt in session.bpod.trial_types] if session.bpod and session.bpod.trial_types else None
+        # Extract sync_signal name from first trial type if available
+        sync_signal = session.bpod.trial_types[0].sync_signal if session.bpod and session.bpod.trial_types else base.sync_signal_name
+
+        session_dict = _build_sessiondata_dict(
+            base.trials_per_file,
+            start_time_s=base.start_time_s,
+            trial_interval_s=base.trial_interval_s,
+            trial_duration_s=base.trial_duration_s,
+            jitter_s=base.jitter_s,
+            clock_jitter_ppm=base.clock_jitter_ppm,
+            rng=rng,
+            include_states=base.include_states,
+            include_events=base.include_events,
+            trial_type_codes=tt_codes,
+            sync_signal_name=sync_signal,
+            sync_delay_s=base.sync_delay_s,
+        )
+
+        # Use events API to validate and write .mat in a consistent manner
+        write_bpod_mat({"SessionData": session_dict}, full)
+        written.append(full.resolve())
+
+    return written
+
+
+def generate_bpod_files_for_session(session: SessionModel, base_dir: Union[str, Path], **kwargs) -> List[Path]:
+    """Convenience wrapper around `write_bpod_mat_files_for_session`."""
+    return write_bpod_mat_files_for_session(session, base_dir, **kwargs)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    from synthetic.session_synth import build_session
+
+    s = build_session()
+    out = Path("temp/Session-SYNTH-BPOD")
+    out.mkdir(parents=True, exist_ok=True)
+    files = write_bpod_mat_files_for_session(s, out, options=BpodSynthOptions(files=2, trials_per_file=5))
+    for f in files:
+        print(f"Wrote: {f}")

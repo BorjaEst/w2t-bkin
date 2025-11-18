@@ -1,204 +1,177 @@
-"""Synthetic TTL pulse generation for testing.
+"""Synthetic TTL pulse generation utilities.
 
-This module generates synthetic TTL (Transistor-Transistor Logic) pulse timing
-files that match the format expected by the W2T-BKIN pipeline.
-
-TTL File Format:
-----------------
-Each line contains a single timestamp (float, in seconds) representing a pulse.
-Lines are sorted chronologically.
-
-Example:
-    0.0
-    0.033
-    0.066
-    0.100
+Generates deterministic TTL pulse timestamp files compatible with the
+loader in `w2t_bkin.sync.ttl`. Intended for tests, demos, and synthetic
+end-to-end pipeline runs.
 
 Features:
----------
-- Deterministic generation with random seed
-- Configurable pulse count, period, and jitter
-- Support for irregular timing (jitter) to test alignment
-- Fast generation (no external dependencies)
+- `TTLGenerationOptions` Pydantic model grouping generation knobs.
+- Deterministic pulse sequences (seeded RNG) with optional jitter.
+- Per-TTL overrides for pulse counts and rates.
+- Writer that respects session TTL glob pattern conventions.
+- Convenience function to generate & write for a `Session` model.
 
-Requirements Coverage:
-----------------------
-- FR-15: TTL pulse file generation for testing
-- NFR-4: Fast generation for unit tests
+TTL File Format:
+        One floating-point timestamp per line (seconds). Lines are sorted.
+
+Example:
+        from synthetic.session_synth import build_session
+        from synthetic.ttl_synth import TTLGenerationOptions, generate_and_write_ttls_for_session
+
+        session = build_session()  # contains TTL definitions (e.g., ttl_sync)
+        opts = TTLGenerationOptions(pulses_per_ttl=100, rate_hz=30.0, jitter_s=0.0005)
+        mapping = generate_and_write_ttls_for_session(session, base_dir='temp/Session-SYNTH-0001', options=opts)
+        print(mapping['ttl_sync'])  # path to generated pulse file
+
+Smoke test (combined with loader):
+        from w2t_bkin.config import load_session
+        from w2t_bkin.sync import get_ttl_pulses
+        session = load_session('temp/Session-SYNTH-0001/session.toml')
+        pulses = get_ttl_pulses(session)
+        print(len(pulses['ttl_sync']))  # 100
 """
+
+from __future__ import annotations
 
 from pathlib import Path
 import random
-from typing import Optional
+from typing import Dict, List, Optional, Union
 
-from synthetic.models import SyntheticTTL
+from pydantic import BaseModel, Field
+
+from w2t_bkin.domain.session import Session as SessionModel
 
 
-def create_ttl_file(
-    output_path: Path,
-    ttl: SyntheticTTL,
-    seed: Optional[int] = None,
-) -> Path:
-    """Create a synthetic TTL pulse file.
+class TTLGenerationOptions(BaseModel):
+    """Knobs controlling synthetic TTL pulse generation.
 
-    Args:
-        output_path: Path where TTL file should be written
-        ttl: TTL generation parameters
-        seed: Random seed for jitter (uses ttl params if None)
-
-    Returns:
-        Path to created TTL file
-
-    Example:
-        >>> from pathlib import Path
-        >>> from synthetic.models import SyntheticTTL
-        >>> ttl = SyntheticTTL(
-        ...     ttl_id="cam0_ttl",
-        ...     pulse_count=100,
-        ...     period_s=0.033,
-        ...     jitter_s=0.001
-        ... )
-        >>> path = create_ttl_file(Path("test.ttl"), ttl, seed=42)
+    Fields mirror typical acquisition properties while remaining
+    lightweight. All pulses are generated with a deterministic RNG
+    initialized from `seed` and TTL id to ensure reproducibility.
     """
-    # Ensure parent directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Set random seed for reproducibility
-    if seed is not None:
-        random.seed(seed)
-
-    # Generate pulse timestamps
-    timestamps = []
-    current_time = ttl.start_time_s
-
-    for _ in range(ttl.pulse_count):
-        # Add jitter if specified
-        if ttl.jitter_s > 0:
-            jitter = random.uniform(-ttl.jitter_s, ttl.jitter_s)
-            current_time += jitter
-
-        timestamps.append(current_time)
-        current_time += ttl.period_s
-
-    # Write timestamps to file
-    with open(output_path, "w") as f:
-        for ts in timestamps:
-            f.write(f"{ts:.6f}\n")
-
-    return output_path
+    pulses_per_ttl: int = Field(default=60, ge=0, description="Default number of pulses per TTL channel")
+    rate_hz: float = Field(default=30.0, gt=0, description="Nominal pulse rate (interval = 1/rate_hz) if used")
+    start_time_s: float = Field(default=0.0, ge=0, description="Start time for first pulse")
+    jitter_s: float = Field(default=0.0, ge=0, description="Uniform jitter magnitude applied per pulse (±jitter_s)")
+    seed: int = Field(default=12345, description="Base RNG seed for deterministic generation")
+    pulses_per_ttl_overrides: Dict[str, int] = Field(default_factory=dict, description="Per-TTL pulse count overrides")
+    rate_overrides_hz: Dict[str, float] = Field(default_factory=dict, description="Per-TTL rate overrides")
+    multi_file: bool = Field(default=False, description="If True, split pulses into two files per TTL (even/odd)")
 
 
-def create_ttl_file_with_mismatch(
-    output_path: Path,
-    expected_count: int,
-    actual_count: int,
-    period_s: float = 0.033,
-    start_time_s: float = 0.0,
-    seed: Optional[int] = None,
-) -> Path:
-    """Create a TTL file with a deliberate count mismatch for testing verification.
+def generate_ttl_pulses(ttl_ids: List[str], *, options: Optional[TTLGenerationOptions] = None, **overrides) -> Dict[str, List[float]]:
+    """Generate synthetic TTL pulse timestamps for provided TTL IDs.
 
-    This is a convenience function for creating scenarios where TTL pulse count
-    doesn't match video frame count.
-
-    Args:
-        output_path: Path where TTL file should be written
-        expected_count: The count that should match (for documentation)
-        actual_count: The actual pulse count to generate
-        period_s: Time between pulses
-        start_time_s: Start time
-        seed: Random seed
-
-    Returns:
-        Path to created TTL file
-
-    Example:
-        >>> # Video has 100 frames, but TTL only has 95 pulses
-        >>> path = create_ttl_file_with_mismatch(
-        ...     Path("test.ttl"),
-        ...     expected_count=100,
-        ...     actual_count=95
-        ... )
+    Preferred: pass `options=TTLGenerationOptions(...)`.
+    Convenience: overrides accepted as kwargs (merged into options).
     """
-    ttl = SyntheticTTL(
-        ttl_id="mismatch_test",
-        pulse_count=actual_count,
-        start_time_s=start_time_s,
-        period_s=period_s,
-        jitter_s=0.0,
+    base = options or TTLGenerationOptions()
+    if overrides:
+        base = base.model_copy(update=overrides)
+
+    pulses: Dict[str, List[float]] = {}
+    for tid in ttl_ids:
+        count = base.pulses_per_ttl_overrides.get(tid, base.pulses_per_ttl)
+        rate = base.rate_overrides_hz.get(tid, base.rate_hz)
+        interval = 1.0 / rate
+        rng = random.Random(f"{base.seed}:{tid}")
+
+        channel_pulses: List[float] = []
+        for i in range(count):
+            t = base.start_time_s + i * interval
+            if base.jitter_s > 0:
+                t += rng.uniform(-base.jitter_s, base.jitter_s)
+            if t < 0:
+                t = 0.0
+            channel_pulses.append(t)
+
+        channel_pulses.sort()
+        pulses[tid] = channel_pulses
+    return pulses
+
+
+def _derive_output_paths(pattern: str, ttl_id: str, multi_file: bool) -> List[Path]:
+    """Derive concrete output file paths from a session TTL glob pattern.
+
+    Strategy:
+    - Replace wildcard '*' with a deterministic suffix.
+    - If no wildcard present, append an index for multi-file scenario.
+    """
+    # Example pattern: 'TTLs/ttl_sync_*.txt'
+    path = Path(pattern)
+    parent = path.parent
+    stem = path.name
+
+    if "*" in stem:
+        base_stem = stem.replace("*", "")
+        if multi_file:
+            return [parent / f"{base_stem}partA.txt", parent / f"{base_stem}partB.txt"]
+        return [parent / f"{base_stem}0001.txt"]
+    else:
+        if multi_file:
+            return [parent / f"{stem}.partA", parent / f"{stem}.partB"]
+        return [parent / stem]
+
+
+def write_ttl_pulse_files(
+    session: SessionModel,
+    pulses: Dict[str, List[float]],
+    base_dir: Union[str, Path],
+    *,
+    multi_file: bool = False,
+    overwrite: bool = True,
+) -> Dict[str, List[Path]]:
+    """Write TTL pulse lists to disk matching session TTL patterns.
+
+    Returns mapping TTL id -> list of written file paths.
+    """
+    base_dir = Path(base_dir)
+    output: Dict[str, List[Path]] = {}
+
+    for ttl_cfg in session.TTLs:
+        tid = ttl_cfg.id
+        channel_pulses = pulses.get(tid, [])
+        pattern = ttl_cfg.paths
+        paths = _derive_output_paths(pattern, tid, multi_file)
+        concrete_paths: List[Path] = []
+        for p in paths:
+            full = base_dir / p
+            full.parent.mkdir(parents=True, exist_ok=True)
+            if not overwrite and full.exists():
+                concrete_paths.append(full)
+                continue
+            with open(full, "w", encoding="utf-8") as f:
+                for ts in channel_pulses:
+                    f.write(f"{ts:.6f}\n")
+            concrete_paths.append(full)
+        output[tid] = concrete_paths
+    return output
+
+
+def generate_and_write_ttls_for_session(
+    session: SessionModel,
+    base_dir: Union[str, Path],
+    *,
+    options: Optional[TTLGenerationOptions] = None,
+    **overrides,
+) -> Dict[str, List[Path]]:
+    """Generate pulses for each TTL in `session` and write them to disk."""
+    ttl_ids = [ttl.id for ttl in session.TTLs]
+    pulses = generate_ttl_pulses(ttl_ids, options=options, **overrides)
+    multi_file = options.multi_file if options else False
+    return write_ttl_pulse_files(session, pulses, base_dir, multi_file=multi_file)
+
+
+if __name__ == "__main__":
+    from synthetic.session_synth import build_session
+
+    out_dir = Path("temp/Session-SYNTH-TTL")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths_map = generate_and_write_ttls_for_session(
+        session=build_session(),
+        base_dir=out_dir,
+        options=TTLGenerationOptions(pulses_per_ttl=10, rate_hz=20.0),
     )
-    return create_ttl_file(output_path, ttl, seed=seed)
-
-
-def create_ttl_file_with_jitter(
-    output_path: Path,
-    pulse_count: int,
-    period_s: float = 0.033,
-    jitter_s: float = 0.005,
-    seed: Optional[int] = None,
-) -> Path:
-    """Create a TTL file with high jitter for testing alignment budget.
-
-    This is a convenience function for creating scenarios where jitter exceeds
-    the configured alignment budget.
-
-    Args:
-        output_path: Path where TTL file should be written
-        pulse_count: Number of pulses to generate
-        period_s: Nominal time between pulses
-        jitter_s: Amount of random jitter (±jitter_s)
-        seed: Random seed
-
-    Returns:
-        Path to created TTL file
-
-    Example:
-        >>> # Create TTL with 10ms jitter (exceeds typical 5ms budget)
-        >>> path = create_ttl_file_with_jitter(
-        ...     Path("test.ttl"),
-        ...     pulse_count=100,
-        ...     jitter_s=0.010,
-        ...     seed=42
-        ... )
-    """
-    ttl = SyntheticTTL(
-        ttl_id="jitter_test",
-        pulse_count=pulse_count,
-        start_time_s=0.0,
-        period_s=period_s,
-        jitter_s=jitter_s,
-    )
-    return create_ttl_file(output_path, ttl, seed=seed)
-
-
-def create_ttl_file_from_timestamps(
-    output_path: Path,
-    timestamps: list[float],
-) -> Path:
-    """Create a TTL file from explicit timestamps.
-
-    This is useful when TTL pulses need to align with specific events
-    (e.g., Bpod sync states) rather than having a regular period.
-
-    Args:
-        output_path: Path where TTL file should be written
-        timestamps: List of pulse timestamps (in seconds)
-
-    Returns:
-        Path to created TTL file
-
-    Example:
-        >>> # Create TTL with pulses at specific times
-        >>> path = create_ttl_file_from_timestamps(
-        ...     Path("bpod_sync.ttl"),
-        ...     timestamps=[1.5, 8.2, 15.7, 22.1]
-        ... )
-    """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write timestamps to file (sorted)
-    with open(output_path, "w") as f:
-        for ts in sorted(timestamps):
-            f.write(f"{ts:.6f}\n")
-
-    return output_path
+    for tid, paths in paths_map.items():
+        print(f"TTL {tid} -> {', '.join(str(p) for p in paths)}")

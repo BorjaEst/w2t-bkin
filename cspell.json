@@ -10,13 +10,21 @@
         "Bpod",
         "BPOD",
         "etype",
+        "facemap",
+        "keyint",
+        "lavfi",
+        "libx",
+        "neuropixels",
         "pypa",
         "pypi",
         "pyproject",
+        "rois",
         "sdist",
+        "sleap",
         "timebase",
         "tomli",
-        "ttls"
+        "ttls",
+        "vcodec"
     ],
     "ignoreWords": [],
     "import": []

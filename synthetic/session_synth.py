@@ -1,285 +1,238 @@
-"""Orchestrate complete synthetic session generation.
+"""Synthetic session configuration generator for W2T-BKIN.
 
-This module provides high-level functions to generate complete synthetic session
-directory trees that can be used for end-to-end testing of the W2T-BKIN pipeline.
+Generates valid `session.toml` files using the project's domain session
+models. Intended for tests, demos, and quick experimentation.
 
 Features:
----------
-- Generate complete session directory structure
-- Create all required files (videos, TTLs, configs)
-- Support for optional modalities (Bpod, pose, facemap)
-- Return typed session paths for easy test access
+- Structured `SessionSynthOptions` Pydantic model to configure generation.
+- Deterministic building of `Session` model instances.
+- TOML rendering without external dependencies (arrays-of-tables syntax).
+- Convenience helpers to write and load synthetic sessions.
 
-Requirements Coverage:
-----------------------
-- FR-1/2/3: Complete session structure for ingest testing
-- NFR-4: Fast session generation for tests
+Example:
+    from synthetic.session_synth import build_session, write_session_toml
+    session = build_session()  # uses defaults (two cameras, one TTL)
+    write_session_toml('output/Session-SYNTH-0001/session.toml', session)
+
+Advanced overrides:
+    from synthetic.session_synth import SessionSynthOptions, build_session
+    opts = SessionSynthOptions(camera_ids=['camA','camB','camTop'], ttl_ids=['ttl_sync'])
+    session = build_session(options=opts, number_of_trial_types=2)
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
+from typing import List, Literal, Optional, Union
 
-from synthetic.config_synth import create_config_toml, create_session_toml
-from synthetic.models import SyntheticCamera, SyntheticSession, SyntheticSessionParams
-from synthetic.ttl_synth import create_ttl_file
-from synthetic.video_synth import check_ffmpeg_available, create_stub_video_file, create_video_file
+from pydantic import BaseModel, Field
+
+from w2t_bkin.domain.session import Session as SessionModel
+from w2t_bkin.domain.session import SessionMetadata
+from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera
 
 
-def create_session(
-    root: Path,
-    params: SyntheticSessionParams,
-    use_ffmpeg: Optional[bool] = None,
-) -> SyntheticSession:
-    """Create a complete synthetic session with all files.
+class SessionSynthOptions(BaseModel):
+    """Options for synthesizing a minimal session.
 
-    This is the main entry point for generating synthetic test sessions.
-    It creates:
-    - Directory structure matching raw data layout
-    - config.toml and session.toml
-    - Video files for each camera
-    - TTL files for each TTL channel
-    - Optional: Bpod, pose, facemap files
-
-    Args:
-        root: Root directory where session should be created
-        params: Session generation parameters
-        use_ffmpeg: Whether to use ffmpeg for video generation
-                   (None = auto-detect, True = require, False = use stubs)
-
-    Returns:
-        SyntheticSession with paths to all generated files
-
-    Example:
-        >>> from pathlib import Path
-        >>> from synthetic.models import SyntheticSessionParams, SyntheticCamera, SyntheticTTL
-        >>> params = SyntheticSessionParams(
-        ...     session_id="test-001",
-        ...     cameras=[SyntheticCamera(camera_id="cam0", ttl_id="cam0_ttl")],
-        ...     ttls=[SyntheticTTL(ttl_id="cam0_ttl", pulse_count=100)],
-        ...     seed=42
-        ... )
-        >>> session = create_session(Path("temp/test_sessions"), params)
-        >>> print(session.config_path)
-        >>> print(session.camera_video_paths)
+    Designed to keep defaults sensible while allowing targeted overrides.
+    All fields may be overridden via `build_session(..., field=value)`.
     """
-    # Determine video generation strategy
-    if use_ffmpeg is None:
-        use_ffmpeg = check_ffmpeg_available()
-    elif use_ffmpeg and not check_ffmpeg_available():
-        raise RuntimeError("ffmpeg is required but not available on system")
 
-    # Create directory structure
-    root.mkdir(parents=True, exist_ok=True)
-    raw_dir = root / "raw" / params.session_id
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    # Session metadata
+    session_id: str = Field(default="Session-SYNTH-0001")
+    subject_id: str = Field(default="Subject-XYZ")
+    date: str = Field(default="2025-01-01")
+    experimenter: str = Field(default="synthetic")
+    description: str = Field(default="Synthetic test session")
+    sex: Literal["M", "F", "U"] = Field(default="U")
+    age: str = Field(default="P60")
+    genotype: str = Field(default="WT")
 
-    processed_dir = root / "processed"
-    processed_dir.mkdir(parents=True, exist_ok=True)
+    # Cameras
+    camera_ids: List[str] = Field(default_factory=lambda: ["cam0", "cam1"])
+    camera_paths_template: str = Field(default="Video/{camera_id}_*.avi")
+    camera_description_template: str = Field(default="Camera {camera_id} view")
+    camera_order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(default="name_asc")
 
-    temp_dir = root / "temp"
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    # TTLs
+    ttl_ids: List[str] = Field(default_factory=lambda: ["ttl_sync"])
+    ttl_description_template: str = Field(default="Sync TTL channel {ttl_id}")
+    ttl_paths_template: str = Field(default="TTLs/{ttl_id}_*.txt")
 
-    # Create subdirectories for different data types
-    video_dir = raw_dir / "Video"
-    video_dir.mkdir(parents=True, exist_ok=True)
-
-    ttl_dir = raw_dir / "TTLs"
-    ttl_dir.mkdir(parents=True, exist_ok=True)
-
-    bpod_dir = raw_dir / "Bpod"
-    if params.with_bpod:
-        bpod_dir.mkdir(parents=True, exist_ok=True)
-
-    # Initialize result
-    session = SyntheticSession(
-        root_dir=root,
-        raw_dir=raw_dir,
-        config_path=root / "config.toml",
-        session_path=raw_dir / "session.toml",
-    )
-
-    # Generate video files for each camera
-    video_files_per_camera = {}
-    for camera in params.cameras:
-        video_filename = f"{camera.camera_id}_test_video.mp4"
-        video_path = video_dir / video_filename
-
-        if use_ffmpeg:
-            create_video_file(video_path, camera, seed=params.seed)
-        else:
-            create_stub_video_file(video_path, frame_count=camera.frame_count)
-
-        session.camera_video_paths[camera.camera_id] = [video_path]
-        video_files_per_camera[camera.camera_id] = [f"Video/{video_filename}"]
-
-    # Generate TTL files
-    ttl_files_per_ttl = {}
-    bpod_sync_timestamps = None  # Will hold Bpod sync pulse times if Bpod is present
-
-    # Generate Bpod files first if requested, so we can get sync pulse times
-    bpod_files = None
-    if params.with_bpod:
-        from synthetic.bpod_synth import create_bpod_mat_file
-
-        bpod_filename = f"{params.session_id}_bpod_data.mat"
-        bpod_path = bpod_dir / bpod_filename
-
-        # Create actual Bpod .mat file and get sync pulse timestamps
-        _, bpod_sync_timestamps = create_bpod_mat_file(
-            bpod_path,
-            n_trials=params.bpod_trial_count,
-            seed=params.seed,
-        )
-
-        session.bpod_path = bpod_path
-        bpod_files = [f"Bpod/{bpod_filename}"]
-
-    # Now generate TTL files (including Bpod sync TTL if we have timestamps)
-    for ttl in params.ttls:
-        ttl_filename = f"{ttl.ttl_id}.txt"
-        ttl_path = ttl_dir / ttl_filename
-
-        # Special handling for Bpod sync TTL: use actual Bpod sync times
-        if ttl.ttl_id == "bpod_d1_ttl" and bpod_sync_timestamps:
-            from synthetic.ttl_synth import create_ttl_file_from_timestamps
-
-            create_ttl_file_from_timestamps(ttl_path, bpod_sync_timestamps)
-        else:
-            create_ttl_file(ttl_path, ttl, seed=params.seed)
-
-        session.ttl_paths[ttl.ttl_id] = ttl_path
-        ttl_files_per_ttl[ttl.ttl_id] = f"TTLs/{ttl_filename}"
-
-    # Generate pose files if requested
-    if params.with_pose:
-        from synthetic.pose_synth import PoseParams, create_dlc_pose_csv
-
-        pose_dir = raw_dir / "Pose"
-        pose_dir.mkdir(parents=True, exist_ok=True)
-
-        # Get frame count from first camera
-        n_frames = params.cameras[0].frame_count if params.cameras else 100
-
-        # Use provided keypoints or defaults
-        keypoints = params.pose_keypoints or ["nose", "left_ear", "right_ear"]
-
-        pose_params = PoseParams(
-            keypoints=keypoints,
-            n_frames=n_frames,
-            image_width=params.cameras[0].resolution[0] if params.cameras else 640,
-            image_height=params.cameras[0].resolution[1] if params.cameras else 480,
-        )
-
-        pose_filename = f"{params.session_id}_pose.csv"
-        pose_path = pose_dir / pose_filename
-
-        create_dlc_pose_csv(pose_path, pose_params, seed=params.seed)
-
-        session.pose_path = pose_path
-
-    # Generate facemap files if requested
-    if params.with_facemap:
-        from synthetic.facemap_synth import FacemapParams, create_facemap_output
-
-        facemap_dir = raw_dir / "Facemap"
-        facemap_dir.mkdir(parents=True, exist_ok=True)
-
-        # Get frame count and resolution from first camera
-        n_frames = params.cameras[0].frame_count if params.cameras else 100
-        fps = params.cameras[0].fps if params.cameras else 30.0
-
-        facemap_params = FacemapParams(
-            n_frames=n_frames,
-            image_width=params.cameras[0].resolution[0] if params.cameras else 640,
-            image_height=params.cameras[0].resolution[1] if params.cameras else 480,
-            sample_rate=fps,
-        )
-
-        facemap_filename = f"{params.session_id}_facemap.npy"
-        facemap_path = facemap_dir / facemap_filename
-
-        create_facemap_output(facemap_path, facemap_params, seed=params.seed)
-
-        session.facemap_path = facemap_path
-
-    # Determine timebase configuration
-    timebase_ttl_id = None
-    if params.ttls:
-        # Use first TTL as timebase by default
-        timebase_ttl_id = params.ttls[0].ttl_id
-
-    # Create config.toml
-    create_config_toml(
-        session.config_path,
-        raw_root=raw_dir.parent,
-        processed_root=processed_dir,
-        temp_root=temp_dir,
-        timebase_source="ttl" if timebase_ttl_id else "nominal_rate",
-        timebase_mapping="nearest",
-        timebase_ttl_id=timebase_ttl_id,
-        jitter_budget_s=0.005,
-    )
-
-    # Create session.toml
-    create_session_toml(
-        session.session_path,
-        params=params,
-        cameras=params.cameras,
-        ttls=params.ttls,
-        video_files_per_camera=video_files_per_camera,
-        ttl_files_per_ttl=ttl_files_per_ttl,
-        bpod_files=bpod_files,
-    )
-
-    return session
+    # Bpod
+    bpod_enabled: bool = Field(default=True)
+    bpod_path: str = Field(default="Bpod/*.mat")
+    bpod_order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(default="name_asc")
+    bpod_continuous_time: bool = Field(default=True)
+    number_of_trial_types: int = Field(default=1, ge=0)
+    trial_type_description_template: str = Field(default="Trial type {trial_type}")
+    trial_type_sync_signal_template: str = Field(default="SyncSignal{trial_type}")
+    trial_type_sync_ttl: Optional[str] = Field(default=None, description="TTL id to associate with trial types; defaults to first ttl id")
 
 
-def create_minimal_session(
-    root: Path,
-    session_id: str = "test-minimal",
-    n_frames: int = 64,
-    seed: int = 42,
-) -> SyntheticSession:
-    """Create a minimal synthetic session for quick tests.
+def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides) -> SessionModel:
+    """Create a synthetic `Session` model.
 
-    This is a convenience function that creates a single-camera session
-    with matching TTL, suitable for basic pipeline testing.
-
-    Args:
-        root: Root directory where session should be created
-        session_id: Session identifier
-        n_frames: Number of frames/pulses
-        seed: Random seed
-
-    Returns:
-        SyntheticSession with paths to all generated files
-
-    Example:
-        >>> from pathlib import Path
-        >>> session = create_minimal_session(Path("temp/test"), n_frames=100)
+    Preferred usage: `build_session(options=SessionSynthOptions(...))`.
+    Convenience: pass overrides as kwargs.
     """
-    from synthetic.models import SyntheticTTL
+    base = options or SessionSynthOptions()
+    if overrides:
+        base = base.model_copy(update=overrides)
 
-    params = SyntheticSessionParams(
-        session_id=session_id,
-        subject_id="test-subject",
-        experimenter="test-experimenter",
-        cameras=[
-            SyntheticCamera(
-                camera_id="cam0",
-                ttl_id="cam0_ttl",
-                frame_count=n_frames,
-                fps=30.0,
-            )
-        ],
-        ttls=[
-            SyntheticTTL(
-                ttl_id="cam0_ttl",
-                pulse_count=n_frames,
-                period_s=1.0 / 30.0,
-            )
-        ],
-        seed=seed,
+    # Metadata
+    metadata = SessionMetadata(
+        id=base.session_id,
+        subject_id=base.subject_id,
+        date=base.date,
+        experimenter=base.experimenter,
+        description=base.description,
+        sex=base.sex,
+        age=base.age,
+        genotype=base.genotype,
     )
 
-    return create_session(root, params, use_ffmpeg=False)
+    # TTLs
+    ttl_models: List[TTL] = []
+    for tid in base.ttl_ids:
+        ttl_models.append(
+            TTL(
+                id=tid,
+                description=base.ttl_description_template.format(ttl_id=tid),
+                paths=base.ttl_paths_template.format(ttl_id=tid),
+            )
+        )
+
+    # Cameras referencing first TTL (or specified mapping)
+    camera_models: List[Camera] = []
+    camera_ttl = base.trial_type_sync_ttl or (base.ttl_ids[0] if base.ttl_ids else "ttl_sync")
+    for cid in base.camera_ids:
+        camera_models.append(
+            Camera(
+                id=cid,
+                description=base.camera_description_template.format(camera_id=cid),
+                paths=base.camera_paths_template.format(camera_id=cid),
+                order=base.camera_order,
+                ttl_id=camera_ttl,
+            )
+        )
+
+    # Bpod / trial types
+    trial_types: List[BpodTrialType] = []
+    if base.bpod_enabled and base.number_of_trial_types > 0:
+        # Smart TTL selection: if trial_type_sync_ttl is explicitly set, use it
+        # Otherwise, if we have >1 TTL, assume second one is for Bpod sync
+        # Otherwise fall back to the camera TTL
+        if base.trial_type_sync_ttl:
+            sync_ttl = base.trial_type_sync_ttl
+        elif len(base.ttl_ids) > 1:
+            sync_ttl = base.ttl_ids[1]  # Second TTL for Bpod
+        else:
+            sync_ttl = camera_ttl
+        for i in range(1, base.number_of_trial_types + 1):
+            trial_types.append(
+                BpodTrialType(
+                    trial_type=i,
+                    description=base.trial_type_description_template.format(trial_type=i),
+                    sync_signal=base.trial_type_sync_signal_template.format(trial_type=i),
+                    sync_ttl=sync_ttl,
+                )
+            )
+
+    bpod = BpodSession(
+        path=base.bpod_path,
+        order=base.bpod_order,
+        continuous_time=base.bpod_continuous_time,
+        trial_types=trial_types,
+    )
+
+    return SessionModel(
+        session=metadata,
+        bpod=bpod,
+        TTLs=ttl_models,
+        cameras=camera_models,
+        session_dir=".",  # load_session will override
+    )
+
+
+def _kv_line(key: str, value: Union[str, int, float, bool]) -> str:
+    if isinstance(value, str):
+        return f'{key} = "{value}"\n'
+    if isinstance(value, bool):
+        return f"{key} = {'true' if value else 'false'}\n"
+    return f"{key} = {value}\n"
+
+
+def session_to_toml(session: SessionModel) -> str:
+    """Render a `Session` model to TOML text with arrays-of-tables."""
+    lines: list[str] = []
+
+    # [session]
+    lines.append("[session]\n")
+    lines.append(_kv_line("id", session.session.id))
+    lines.append(_kv_line("subject_id", session.session.subject_id))
+    lines.append(_kv_line("date", session.session.date))
+    lines.append(_kv_line("experimenter", session.session.experimenter))
+    lines.append(_kv_line("description", session.session.description))
+    lines.append(_kv_line("sex", session.session.sex))
+    lines.append(_kv_line("age", session.session.age))
+    lines.append(_kv_line("genotype", session.session.genotype))
+    lines.append("\n")
+
+    # [bpod]
+    lines.append("[bpod]\n")
+    lines.append(_kv_line("path", session.bpod.path))
+    lines.append(_kv_line("order", session.bpod.order))
+    lines.append(_kv_line("continuous_time", session.bpod.continuous_time))
+    lines.append("\n")
+
+    # [[bpod.trial_types]]
+    for tt in session.bpod.trial_types:
+        lines.append("[[bpod.trial_types]]\n")
+        lines.append(_kv_line("trial_type", tt.trial_type))
+        lines.append(_kv_line("description", tt.description))
+        lines.append(_kv_line("sync_signal", tt.sync_signal))
+        lines.append(_kv_line("sync_ttl", tt.sync_ttl))
+        lines.append("\n")
+
+    # [[TTLs]]
+    for ttl in session.TTLs:
+        lines.append("[[TTLs]]\n")
+        lines.append(_kv_line("id", ttl.id))
+        lines.append(_kv_line("description", ttl.description))
+        lines.append(_kv_line("paths", ttl.paths))
+        lines.append("\n")
+
+    # [[cameras]]
+    for cam in session.cameras:
+        lines.append("[[cameras]]\n")
+        lines.append(_kv_line("id", cam.id))
+        lines.append(_kv_line("description", cam.description))
+        lines.append(_kv_line("paths", cam.paths))
+        lines.append(_kv_line("order", cam.order))
+        lines.append(_kv_line("ttl_id", cam.ttl_id))
+        lines.append("\n")
+
+    return "".join(lines)
+
+
+def write_session_toml(path: Union[str, Path], session: SessionModel) -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = session_to_toml(session)
+    path.write_text(text, encoding="utf-8")
+    return path.resolve()
+
+
+def generate_and_save_session(path: Union[str, Path], **kwargs) -> Path:
+    session = build_session(**kwargs)
+    return write_session_toml(path, session)
+
+
+if __name__ == "__main__":
+    # Generate and write a synthetic session.
+    out = Path("output/Session-SYNTH-0001/session.toml")
+    session = build_session()
+    p = write_session_toml(out, session)
+    print(f"Wrote synthetic session to: {p}")

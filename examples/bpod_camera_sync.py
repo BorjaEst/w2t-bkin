@@ -10,17 +10,18 @@ offsets, with a clear mental model of the three systems:
    - Records *all* hardware sync pulses
    - For cameras: logs one pulse per frame → frame index → absolute timestamp
    - For Bpod: logs a sync pulse per trial from a specific Bpod state/event
-     (e.g., Bpod outputs a TTL pulse on D1 when entering a sync state)
+     (e.g., Bpod outputs a TTL pulse when entering a sync state)
 
 2. Camera system (starts at camera_start_delay_s)
    - Frames are triggered by TTL pulses
    - TTL log gives absolute time for each frame index
-   - Recorded in TTL channel: cam0_ttl (one pulse per frame)
+   - Recorded in TTL channel defined in session config (one pulse per frame)
 
 3. Bpod system (starts at bpod_start_delay_s)
    - Within each trial, Bpod times are **relative to trial start**
-   - A chosen state/event (sync_signal, e.g., "bpod_d1") also triggers a TTL pulse
-   - That TTL pulse is recorded in a SEPARATE TTL channel: bpod_d1_ttl (one pulse per trial)
+   - A chosen state/event (sync_signal) also triggers a TTL pulse
+   - That TTL pulse is recorded in a SEPARATE TTL channel (one pulse per trial)
+   - Both sync_signal and sync_ttl are defined per trial_type in session config
 
 Core idea
 ---------
@@ -42,10 +43,10 @@ We use:
 
 Example usage
 -------------
-    $ python examples/04_bpod_camera_sync.py
+    $ python examples/bpod_camera_sync.py
 
 With different timing:
-    $ CAMERA_START_DELAY_S=3.0 BPOD_START_DELAY_S=10.0 python examples/04_bpod_camera_sync.py
+    $ CAMERA_START_DELAY_S=3.0 BPOD_START_DELAY_S=10.0 python examples/bpod_camera_sync.py
 """
 
 import json
@@ -56,10 +57,7 @@ import numpy as np
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Synthetic data imports
-from synthetic.scenarios import happy_path
-
-# W2T-BKIN imports
+from synthetic import build_raw_folder
 from w2t_bkin import config as cfg_module
 from w2t_bkin import ingest
 from w2t_bkin.events import discover_bpod_files, extract_behavioral_events, extract_trials, parse_bpod_mat, parse_bpod_session
@@ -75,7 +73,7 @@ class ExampleSettings(BaseSettings):
 
     model_config = SettingsConfigDict(case_sensitive=False, extra="ignore")
 
-    output_root: Path = Field(default=Path("temp/examples/04_bpod_camera_sync"), description="Root directory for generated synthetic session and output files")
+    output_root: Path = Field(default=Path("output/bpod_camera_sync"), description="Root directory for generated synthetic session and output files")
     n_frames: int = Field(default=300, description="Number of camera frames to generate (one TTL pulse per frame)")
     n_trials: int = Field(default=10, description="Number of Bpod trials to generate (one sync TTL pulse per trial)")
     seed: int = Field(default=42, description="Random seed for reproducible synthetic data generation")
@@ -84,29 +82,21 @@ class ExampleSettings(BaseSettings):
     # Timing offsets (in seconds)
     camera_start_delay_s: float = Field(default=2.0, description="Delay before camera starts recording (relative to TTL system start)")
     bpod_start_delay_s: float = Field(default=6.0, description="Delay before Bpod starts first trial (relative to TTL system start)")
-    bpod_sync_delay_s: float = Field(default=0.0, description="Delay of sync signal within each Bpod trial (relative to trial start)")
+    bpod_clock_jitter_s: float = Field(default=1e-4, description="Simulated jitter in Bpod clock (seconds)")
+    bpod_sync_delay_s: float = Field(default=1.0, description="Delay of sync signal within each Bpod trial (relative to trial start)")
 
 
 def run_pipeline(settings: ExampleSettings) -> dict:
     """Run the Bpod–camera synchronization demo."""
-
-    output_root = settings.output_root
-    n_frames = settings.n_frames
-    n_trials = settings.n_trials
-    seed = settings.seed
-    cleanup = settings.cleanup
-    camera_start_delay_s = settings.camera_start_delay_s
-    bpod_start_delay_s = settings.bpod_start_delay_s
-    bpod_sync_delay_s = settings.bpod_sync_delay_s
 
     print("=" * 80)
     print("Example 04: Bpod Camera Synchronization (simplified)")
     print("=" * 80)
 
     # Clean output directory if requested
-    if output_root.exists() and cleanup:
-        shutil.rmtree(output_root)
-    output_root.mkdir(parents=True, exist_ok=True)
+    if settings.output_root.exists() and settings.cleanup:
+        shutil.rmtree(settings.output_root)
+    settings.output_root.mkdir(parents=True, exist_ok=True)
 
     # ---------------------------------------------------------------------
     # PHASE 0: Generate synthetic session with known delays
@@ -116,21 +106,29 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print("=" * 80)
 
     print(f"\nGenerating synthetic session:")
-    print(f"  - Camera frames:        {n_frames}")
-    print(f"  - Bpod trials:          {n_trials}")
-    print(f"  - Seed:                 {seed}")
+    print(f"  - Camera frames:        {settings.n_frames}")
+    print(f"  - Bpod trials:          {settings.n_trials}")
+    print(f"  - Seed:                 {settings.seed}")
     print("\nSystem start times (TTL timeline):")
     print(f"  - TTL system:           t = 0.0 s")
-    print(f"  - Camera system:        t = {camera_start_delay_s:.3f} s")
-    print(f"  - Bpod system:          t = {bpod_start_delay_s:.3f} s")
-    print(f"  - Bpod sync delay:      {bpod_sync_delay_s:.3f} s within each trial")
+    print(f"  - Camera system:        t = {settings.camera_start_delay_s:.3f} s")
+    print(f"  - Bpod system:          t = {settings.bpod_start_delay_s:.3f} s")
+    print(f"  - Bpod sync delay:      {settings.bpod_sync_delay_s:.3f} s within each trial")
 
-    session = happy_path.make_session_with_bpod(
-        root=output_root,
-        session_id="bpod-sync-001",
-        n_frames=n_frames,
-        n_trials=n_trials,
-        seed=seed,
+    session = build_raw_folder(
+        out_root=settings.output_root / "raw",
+        project_name="Bpod-Camera-Sync-Demo",
+        session_id="Session-000001",
+        camera_ids=["cam0", "cam1"],
+        ttl_ids=["ttl_camera", "ttl_bpod"],
+        n_frames=settings.n_frames,
+        n_trials=settings.n_trials,
+        fps=30.0,
+        camera_start_delay_s=settings.camera_start_delay_s,
+        bpod_start_delay_s=settings.bpod_start_delay_s,
+        bpod_sync_delay_s=settings.bpod_sync_delay_s,
+        bpod_clock_jitter_ppm=settings.bpod_clock_jitter_s * 1_000_000.0,  # Convert to ppm
+        seed=settings.seed,
     )
 
     print("\nSynthetic artifacts:")
@@ -138,8 +136,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print(f"  - Session:              {session.session_path}")
     print(f"  - Camera video files:   {len(session.camera_video_paths)}")
     print(f"  - TTL files:            {len(session.ttl_paths)}")
-    if session.bpod_path:
-        print(f"  - Bpod .mat file:       {session.bpod_path.name}")
+    print(f"  - Bpod .mat files:      {len(session.bpod_paths)}")
 
     # ---------------------------------------------------------------------
     # PHASE 1: Load config + build manifest
@@ -181,7 +178,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     verification = ingest.verify_manifest(manifest, tolerance=5)
     print("\nVerification per camera:")
     for cam in verification.camera_results:
-        status_symbol = "✓" if cam.status == "OK" else "⚠" if cam.status == "WARN" else "✗"
+        status_symbol = "✓" if cam.status == "pass" else "✗"
         print(f"  {status_symbol} {cam.camera_id}: status={cam.status}, mismatch={cam.mismatch}")
 
     # ---------------------------------------------------------------------
@@ -231,8 +228,9 @@ def run_pipeline(settings: ExampleSettings) -> dict:
 
     print("\nStep 4.2: Compute per-trial offsets (Bpod → TTL)")
     print("  For each trial, align Bpod sync state to next TTL pulse.")
-    print("  - sync_signal 'bpod_d1' is a Bpod state that triggers a TTL output")
-    print("  - sync_ttl 'bpod_d1_ttl' is the TTL channel that records those pulses")
+    # Get sync signal and TTL from session config (first trial type as example)
+    print(f"  - sync_signal '{session_cfg.bpod.trial_types[0].sync_signal}' is a Bpod state that triggers a TTL output")
+    print(f"  - sync_ttl '{session_cfg.bpod.trial_types[0].sync_ttl}' is the TTL channel that records those pulses")
     print("  offset_trial = T_ttl_sync - (TrialStartTimestamp + sync_time_rel)")
 
     trial_offsets, warnings = align_bpod_trials_to_ttl(
@@ -250,45 +248,41 @@ def run_pipeline(settings: ExampleSettings) -> dict:
 
     print(f"\nComputed offsets for {len(trial_offsets)} trial(s).")
 
-    if trial_offsets:
-        offsets_array = np.array(list(trial_offsets.values()))
-        print("\nOffset statistics:")
-        print(f"  - Mean: {np.mean(offsets_array):.4f} s")
-        print(f"  - Std:  {np.std(offsets_array):.4f} s")
-        print(f"  - Min:  {np.min(offsets_array):.4f} s")
-        print(f"  - Max:  {np.max(offsets_array):.4f} s")
+    offsets_array = np.array(list(trial_offsets.values()))
+    print("\nOffset statistics:")
+    print(f"  - Mean: {np.mean(offsets_array):.4f} s")
+    print(f"  - Std:  {np.std(offsets_array):.4f} s")
+    print(f"  - Min:  {np.min(offsets_array):.4f} s")
+    print(f"  - Max:  {np.max(offsets_array):.4f} s")
 
-        print("\nFirst 10 per-trial offsets:")
-        for trial_num in sorted(trial_offsets.keys())[:10]:
-            print(f"  - Trial {trial_num:2d}: offset = {trial_offsets[trial_num]:.4f} s")
+    print("\nFirst 10 per-trial offsets:")
+    for trial_num in sorted(trial_offsets.keys())[:10]:
+        print(f"  - Trial {trial_num:2d}: offset = {trial_offsets[trial_num]:.4f} s")
 
-    # Optional: demonstrate the math explicitly for trial 1
-    if trial_offsets:
-        example_trial = sorted(trial_offsets.keys())[0]
-        offset = trial_offsets[example_trial]
+    # Demonstrate the math explicitly for trial 1
+    example_trial = sorted(trial_offsets.keys())[0]
+    offset = trial_offsets[example_trial]
 
-        print(f"\nExample alignment math for Trial {example_trial}:")
-        session_data_struct = bpod_data_raw["SessionData"] if isinstance(bpod_data_raw, dict) else bpod_data_raw.SessionData
-        session_data_struct = convert_matlab_struct(session_data_struct)
-        raw_events = convert_matlab_struct(session_data_struct["RawEvents"])
-        trial_raw = convert_matlab_struct(raw_events["Trial"][example_trial - 1])
+    print(f"\nExample alignment math for Trial {example_trial}:")
+    session_data_struct = bpod_data_raw["SessionData"]
+    session_data_struct = convert_matlab_struct(session_data_struct)
+    raw_events = convert_matlab_struct(session_data_struct["RawEvents"])
+    trial_raw = convert_matlab_struct(raw_events["Trial"][example_trial - 1])
+    trial_start_ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], example_trial - 1))
 
-        trial_start_ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], example_trial - 1))
+    # Look up sync signal from session config (first trial_type as example)
+    # In a real session, this can differ per trial_type.
+    sync_signal = session_cfg.bpod.trial_types[0].sync_signal
+    sync_time_rel = get_sync_time_from_bpod_trial(trial_raw, sync_signal)
+    bpod_sync_time = trial_start_ts + sync_time_rel
+    ttl_sync_time = bpod_sync_time + offset
 
-        # Look up sync signal from session config (first trial_type as example)
-        # In a real session, this can differ per trial_type.
-        sync_signal = session_cfg.bpod.trial_types[0].sync_signal
-        sync_time_rel = get_sync_time_from_bpod_trial(trial_raw, sync_signal)
-
-        bpod_sync_time = trial_start_ts + sync_time_rel
-        ttl_sync_time = bpod_sync_time + offset
-
-        print(f"  - TrialStartTimestamp (Bpod): {trial_start_ts:.3f} s")
-        print(f"  - Sync time (relative):       {sync_time_rel:.3f} s")
-        print(f"  - Bpod sync time:             {bpod_sync_time:.3f} s")
-        print(f"  - Offset (trial):             {offset:.3f} s")
-        print(f"  - TTL sync time:              {ttl_sync_time:.3f} s")
-        print("  => absolute_time = offset + bpod_time")
+    print(f"  - TrialStartTimestamp (Bpod): {trial_start_ts:.3f} s")
+    print(f"  - Sync time (relative):       {sync_time_rel:.3f} s")
+    print(f"  - Bpod sync time:             {bpod_sync_time:.3f} s")
+    print(f"  - Offset (trial):             {offset:.3f} s")
+    print(f"  - TTL sync time:              {ttl_sync_time:.3f} s")
+    print("  => absolute_time = offset + bpod_time")
 
     # ---------------------------------------------------------------------
     # PHASE 5: Extract trials with offsets + behavioral events
@@ -330,7 +324,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print("PHASE 6: Trial Summary + Report")
     print("=" * 80)
 
-    output_dir = output_root / "output"
+    output_dir = settings.output_root / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     trial_summary = create_event_summary(
@@ -368,10 +362,15 @@ def run_pipeline(settings: ExampleSettings) -> dict:
 
     print("\nSummary:")
     print("  - TTL system defines absolute time (t = 0)")
-    print(f"  - Camera frames start at {camera_start_delay_s:.3f} s " "and are aligned via cam0_ttl (one pulse per frame)")
-    print(f"  - Bpod trials start at {bpod_start_delay_s:.3f} s")
-    print("  - Bpod sync state 'bpod_d1' triggers TTL pulses on bpod_d1_ttl (one per trial)")
-    print("  - align_bpod_trials_to_ttl() uses bpod_d1_ttl to compute per-trial offsets")
+    # Get camera TTL from session config (first camera as example)
+    example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else "cam_ttl"
+    print(f"  - Camera frames start at {settings.camera_start_delay_s:.3f} s " f"and are aligned via {example_cam_ttl} (one pulse per frame)")
+    print(f"  - Bpod trials start at {settings.bpod_start_delay_s:.3f} s")
+    # Get sync signal and TTL from session config (first trial type as example)
+    example_sync_signal = session_cfg.bpod.trial_types[0].sync_signal if session_cfg.bpod.trial_types else "sync_signal"
+    example_sync_ttl = session_cfg.bpod.trial_types[0].sync_ttl if session_cfg.bpod.trial_types else "sync_ttl"
+    print(f"  - Bpod sync state '{example_sync_signal}' triggers TTL pulses on {example_sync_ttl} (one per trial)")
+    print(f"  - align_bpod_trials_to_ttl() uses {example_sync_ttl} to compute per-trial offsets")
     print("  - extract_trials(..., trial_offsets=...) yields trials in TTL absolute time")
 
     print("\nDone.")
