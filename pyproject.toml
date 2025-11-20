@@ -23,11 +23,14 @@ dependencies = [
     "facemap~=1.0.0",
     "torch~=2.9.0",
     "torchvision~=0.24.0",
-    "deeplabcut~=2.3.0",
+    "deeplabcut[tf]~=2.3.0",
     "pynwb~=3.1.0",
     "hdmf~=4.1.0",
     "ffmpeg-python~=0.2.0",
     "scipy~=1.15.0",
+    "pandas~=2.3.0",
+    "h5py~=3.15.0",
+    "tables~=3.8.0",
 ]
 optional-dependencies = { dev = [
     "black~=25.9.0",
