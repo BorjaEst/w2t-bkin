@@ -12,7 +12,7 @@ import warnings
 
 import numpy as np
 
-from ..exceptions import JitterBudgetExceeded, SyncError
+from ..exceptions import JitterExceedsBudgetError, SyncError
 from .protocols import TimebaseConfigProtocol
 
 __all__ = [
@@ -190,7 +190,7 @@ def enforce_jitter_budget(max_jitter: float, p95_jitter: float, budget: float) -
         budget: Configured jitter budget threshold (seconds)
 
     Raises:
-        JitterBudgetExceeded: If max or p95 jitter exceeds budget
+        JitterExceedsBudgetError: If max or p95 jitter exceeds budget
 
     Example:
         >>> enforce_jitter_budget(
@@ -202,10 +202,10 @@ def enforce_jitter_budget(max_jitter: float, p95_jitter: float, budget: float) -
         ...     max_jitter=0.015,
         ...     p95_jitter=0.008,
         ...     budget=0.010
-        ... )  # Raises JitterBudgetExceeded
+        ... )  # Raises JitterExceedsBudgetError
     """
     if max_jitter > budget or p95_jitter > budget:
-        raise JitterBudgetExceeded(f"Jitter exceeds budget: max={max_jitter:.6f}s, " f"p95={p95_jitter:.6f}s, budget={budget:.6f}s")
+        raise JitterExceedsBudgetError(f"Jitter exceeds budget: max={max_jitter:.6f}s, " f"p95={p95_jitter:.6f}s, budget={budget:.6f}s")
 
 
 # =============================================================================
@@ -232,7 +232,7 @@ def align_samples(sample_times: List[float], reference_times: List[float], confi
         - mapping: Strategy used ("nearest" or "linear")
 
     Raises:
-        JitterBudgetExceeded: If enforce_budget=True and budget exceeded
+        JitterExceedsBudgetError: If enforce_budget=True and budget exceeded
         SyncError: If invalid mapping strategy
 
     Example:

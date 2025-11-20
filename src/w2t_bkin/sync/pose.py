@@ -34,7 +34,7 @@ def sync_pose_to_timebase(
         Dict with indices, pose_times_aligned, jitter_stats, and mapping
 
     Raises:
-        JitterBudgetExceeded: Jitter exceeds budget
+        JitterExceedsBudgetError: Jitter exceeds budget
         SyncError: Alignment failed
 
     Example:

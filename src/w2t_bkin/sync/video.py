@@ -37,7 +37,7 @@ def sync_video_frames_to_timebase(
         Dict with indices, frame_times_aligned, jitter_stats, and mapping
 
     Raises:
-        JitterBudgetExceeded: Jitter exceeds budget
+        JitterExceedsBudgetError: Jitter exceeds budget
         SyncError: Alignment failed
 
     Example:

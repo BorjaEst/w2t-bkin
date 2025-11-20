@@ -10,7 +10,7 @@ Example:
 """
 
 # Exceptions
-from ..exceptions import JitterBudgetExceeded, SyncError
+from ..exceptions import JitterExceedsBudgetError, SyncError
 
 # Behavioral synchronization
 from .behavior import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
@@ -42,7 +42,7 @@ from .video import sync_video_frames_to_timebase
 __all__ = [
     # Exceptions
     "SyncError",
-    "JitterBudgetExceeded",
+    "JitterExceedsBudgetError",
     # Models
     "AlignmentStats",
     # Timebase

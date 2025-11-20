@@ -18,7 +18,7 @@ import pytest
 from w2t_bkin.config import load_config, load_session
 from w2t_bkin.domain import AlignmentStats, Config, Manifest
 from w2t_bkin.ingest import build_and_count_manifest
-from w2t_bkin.sync import JitterBudgetExceeded, align_samples, create_alignment_stats, create_timebase_provider_from_config, write_alignment_stats
+from w2t_bkin.sync import JitterExceedsBudgetError, align_samples, create_alignment_stats, create_timebase_provider_from_config, write_alignment_stats
 
 
 @pytest.mark.integration
@@ -139,7 +139,7 @@ def test_Should_EnforceJitterBudget_When_ExceededDuringAlignment_Issue3(
     fixture_session_path,
     minimal_config_dict,
 ):
-    """Should raise JitterBudgetExceeded when alignment jitter exceeds budget.
+    """Should raise JitterExceedsBudgetError when alignment jitter exceeds budget.
 
     Requirements: FR-TB-6, A17
     """
@@ -157,8 +157,8 @@ def test_Should_EnforceJitterBudget_When_ExceededDuringAlignment_Issue3(
     # Create samples with large jitter that will exceed budget
     sample_times = [reference_times[i] + 0.5 for i in range(0, 100, 3)]
 
-    # Should raise JitterBudgetExceeded
-    with pytest.raises(JitterBudgetExceeded) as exc_info:
+    # Should raise JitterExceedsBudgetError
+    with pytest.raises(JitterExceedsBudgetError) as exc_info:
         align_samples(sample_times, reference_times, config.timebase, enforce_budget=True)
 
     assert "budget" in str(exc_info.value).lower()

@@ -15,7 +15,7 @@ import pytest
 
 from w2t_bkin.domain import AlignmentStats, Config, TimebaseConfig
 from w2t_bkin.sync import (
-    JitterBudgetExceeded,
+    JitterExceedsBudgetError,
     NeuropixelsProvider,
     NominalRateProvider,
     SyncError,
@@ -286,7 +286,7 @@ class TestJitterBudgetEnforcement:
         p95_jitter = 0.008
         budget = 0.010
 
-        with pytest.raises(JitterBudgetExceeded, match="exceeds budget"):
+        with pytest.raises(JitterExceedsBudgetError, match="exceeds budget"):
             enforce_jitter_budget(max_jitter, p95_jitter, budget)
 
     def test_Should_IncludeDiagnostics_When_BudgetExceeded(self):
@@ -295,7 +295,7 @@ class TestJitterBudgetEnforcement:
         p95_jitter = 0.012
         budget = 0.010
 
-        with pytest.raises(JitterBudgetExceeded) as exc_info:
+        with pytest.raises(JitterExceedsBudgetError) as exc_info:
             enforce_jitter_budget(max_jitter, p95_jitter, budget)
 
         error_msg = str(exc_info.value)
@@ -334,7 +334,7 @@ class TestAlignmentProcess:
         reference_times = create_reference_times(n_samples=3, interval=1.0)
         sample_times = [0.5, 1.5]  # These will exceed 1ms jitter budget
 
-        with pytest.raises(JitterBudgetExceeded):
+        with pytest.raises(JitterExceedsBudgetError):
             align_samples(sample_times, reference_times, config, enforce_budget=True)
 
 
