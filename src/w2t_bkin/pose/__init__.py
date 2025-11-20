@@ -1,8 +1,13 @@
 """Pose estimation import, harmonization, and alignment module (Phase 3 - Optional).
 
-Ingests pose tracking data from DeepLabCut (DLC) or SLEAP, harmonizes diverse
-skeleton definitions to a canonical W2T model, and aligns pose frames to the
-reference timebase for integration into NWB files.
+Ingests pose tracking data from DeepLabCut (DLC) or SLEAP H5 files, harmonizes
+diverse skeleton definitions to a canonical W2T model, and aligns pose frames to
+the reference timebase for integration into NWB files.
+
+Supported Formats:
+------------------
+- DeepLabCut: H5 files (pandas DataFrame with MultiIndex)
+- SLEAP: H5 files (HDF5 with 4D numpy arrays)
 
 Public API:
 -----------
@@ -15,7 +20,9 @@ All public functions and models are re-exported at the package level:
         import_dlc_pose,
         import_sleap_pose,
         harmonize_dlc_to_canonical,
+        harmonize_sleap_to_canonical,
         align_pose_to_timebase,
+        validate_pose_confidence,
     )
 
 See core and models modules for detailed documentation.

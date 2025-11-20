@@ -1,29 +1,26 @@
 """Pose estimation import, harmonization, and alignment module (Phase 3 - Optional).
 
-Ingests pose tracking data from DeepLabCut (DLC) or SLEAP, harmonizes diverse
-skeleton definitions to a canonical W2T model, and aligns pose frames to the
-reference timebase for integration into NWB files.
-
-The module handles format-specific quirks (CSV/H5/JSON), confidence thresholding,
-multi-animal tracking, and skeleton remapping to ensure consistent downstream
-processing regardless of the original pose estimation tool.
+Ingests pose tracking data from DeepLabCut (DLC) or SLEAP H5 files, harmonizes
+diverse skeleton definitions to a canonical W2T model, and aligns pose frames to
+the reference timebase for integration into NWB files.
 
 Key Features:
 -------------
-- **Multi-Format Support**: DeepLabCut CSV/H5, SLEAP H5/JSON
+- **H5 Format Support**: DeepLabCut H5 (pandas) and SLEAP H5 (numpy arrays)
 - **Skeleton Harmonization**: Maps diverse keypoint sets to canonical W2T skeleton
 - **Confidence Filtering**: Excludes low-confidence keypoints
-- **Multi-Animal Handling**: Supports identity tracking (planned)
+- **Multi-Animal Handling**: Supports single-animal tracking (SLEAP first instance)
 - **Temporal Alignment**: Maps pose frames to reference timebase
 - **NWB Integration**: Produces PoseBundle for NWB PoseEstimation module
 
 Main Functions:
 ---------------
-- parse_dlc_csv: Import DeepLabCut CSV outputs
-- parse_sleap_h5: Import SLEAP H5 outputs (planned)
-- harmonize_skeleton: Map keypoints to canonical W2T skeleton
+- import_dlc_pose: Import DeepLabCut H5 outputs
+- import_sleap_pose: Import SLEAP H5 outputs
+- harmonize_dlc_to_canonical: Map DLC keypoints to canonical skeleton
+- harmonize_sleap_to_canonical: Map SLEAP keypoints to canonical skeleton
 - align_pose_to_timebase: Sync pose frames to reference timestamps
-- create_pose_bundle: Package harmonized pose data
+- validate_pose_confidence: Check pose quality
 
 Requirements:
 -------------
@@ -34,30 +31,30 @@ Requirements:
 
 Acceptance Criteria:
 -------------------
-- A-POSE-1: Parse DLC CSV files
+- A-POSE-1: Parse DLC H5 files
 - A-POSE-2: Map keypoints to canonical skeleton
 - A-POSE-3: Align pose frames to reference timebase
 - A-POSE-4: Create PoseBundle for NWB
 
 Data Flow:
 ----------
-1. parse_dlc_csv / parse_sleap_h5 → Raw pose data
-2. harmonize_skeleton → Canonical keypoint names
+1. import_dlc_pose / import_sleap_pose → Raw pose data
+2. harmonize_*_to_canonical → Canonical keypoint names
 3. align_pose_to_timebase → Sync to reference
-4. create_pose_bundle → Package for NWB
+4. PoseBundle → Package for NWB
 
 Example:
 --------
->>> from w2t_bkin.pose import parse_dlc_csv, harmonize_skeleton
+>>> from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical
 >>> from w2t_bkin.sync import create_timebase_provider
 >>>
->>> # Parse DeepLabCut output
->>> pose_data = parse_dlc_csv("DLC_tracking.csv", scorer="DLC_resnet50")
+>>> # Import DeepLabCut H5 output
+>>> pose_data = import_dlc_pose(Path("pose.h5"))
 >>> print(f"Loaded {len(pose_data)} pose frames")
 >>>
 >>> # Harmonize skeleton
 >>> skeleton_map = {"nose": "snout", "left_ear": "ear_left", ...}
->>> harmonized = harmonize_skeleton(pose_data, skeleton_map)
+>>> harmonized = harmonize_dlc_to_canonical(pose_data, skeleton_map)
 >>>
 >>> # Align to reference timebase
 >>> from w2t_bkin.pose import align_pose_to_timebase
@@ -67,13 +64,13 @@ Example:
 ... )
 """
 
-import csv
-import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
+import h5py
 import numpy as np
+import pandas as pd
 
 from .models import PoseBundle, PoseFrame, PoseKeypoint
 
@@ -94,100 +91,130 @@ class KeypointsDict(dict):
         return iter(self.values())
 
 
-def import_dlc_pose(csv_path: Path) -> List[Dict]:
-    """Import DeepLabCut CSV pose data.
+def import_dlc_pose(h5_path: Path) -> List[Dict]:
+    """Import DeepLabCut H5 pose data.
+
+    DLC stores data as pandas DataFrame with MultiIndex columns:
+    (scorer, bodyparts, coords) where coords are x, y, likelihood.
 
     Args:
-        csv_path: Path to DLC CSV output file
+        h5_path: Path to DLC H5 output file
 
     Returns:
         List of frame dictionaries with keypoints and confidence scores
 
     Raises:
         PoseError: If file doesn't exist or format is invalid
+
+    Example:
+        >>> data = import_dlc_pose(Path("pose.h5"))
+        >>> print(f"Loaded {len(data)} frames")
+        >>> print(f"Keypoints: {list(data[0]['keypoints'].keys())}")
     """
-    if not csv_path.exists():
-        raise PoseError(f"DLC CSV file not found: {csv_path}")
+    if not h5_path.exists():
+        raise PoseError(f"DLC H5 file not found: {h5_path}")
 
     try:
-        with open(csv_path, "r") as f:
-            lines = list(csv.reader(f))
+        # Read DLC HDF5 (stored as pandas DataFrame)
+        df = pd.read_hdf(h5_path, "df_with_missing")
 
-        # DLC format: row 0 = scorer, row 1 = bodyparts, row 2 = coords, row 3+ = data
-        if len(lines) < 4:
-            raise PoseError("Invalid DLC CSV format: insufficient rows")
+        # Extract scorer (should be consistent across all columns)
+        scorer = df.columns.get_level_values(0)[0]
 
-        bodyparts_row = lines[1]
-        coords_row = lines[2]
+        # Get unique bodyparts
+        bodyparts = df.columns.get_level_values(1).unique()
 
-        # Extract unique bodyparts (every 3 columns: x, y, likelihood)
-        bodyparts = []
-        for i in range(1, len(bodyparts_row), 3):
-            if i < len(bodyparts_row):
-                bodyparts.append(bodyparts_row[i])
-
-        # Parse data rows
         frames = []
-        for row_idx, row in enumerate(lines[3:]):
-            if not row or len(row) < 2:
-                continue
+        for frame_idx in df.index:
+            # Fetch entire row once for performance (avoid nested df.loc calls)
+            frame_data = df.loc[frame_idx]
 
-            frame_index = int(row[0])
             keypoints = []
+            for bp in bodyparts:
+                try:
+                    x = frame_data[(scorer, bp, "x")]
+                    y = frame_data[(scorer, bp, "y")]
+                    likelihood = frame_data[(scorer, bp, "likelihood")]
 
-            for bp_idx, bodypart in enumerate(bodyparts):
-                col_start = 1 + bp_idx * 3
-                if col_start + 2 < len(row):
-                    x = float(row[col_start])
-                    y = float(row[col_start + 1])
-                    confidence = float(row[col_start + 2])
+                    # Skip NaN values
+                    if pd.isna(x) or pd.isna(y) or pd.isna(likelihood):
+                        continue
 
-                    keypoints.append({"name": bodypart, "x": x, "y": y, "confidence": confidence})
+                    keypoints.append({"name": bp, "x": float(x), "y": float(y), "confidence": float(likelihood)})
+                except (KeyError, ValueError):
+                    # Skip if coordinate missing or invalid
+                    continue
 
-            frames.append({"frame_index": frame_index, "keypoints": KeypointsDict({kp["name"]: kp for kp in keypoints})})
+            frames.append({"frame_index": int(frame_idx), "keypoints": KeypointsDict({kp["name"]: kp for kp in keypoints})})
 
         return frames
 
     except Exception as e:
-        raise PoseError(f"Failed to parse DLC CSV: {e}")
+        raise PoseError(f"Failed to parse DLC H5: {e}")
 
 
 def import_sleap_pose(h5_path: Path) -> List[Dict]:
-    """Import SLEAP H5/JSON pose data.
+    """Import SLEAP H5 pose data.
+
+    SLEAP stores data as HDF5 with 4D arrays:
+    - points: (frames, instances, nodes, 2) for xy coordinates
+    - point_scores: (frames, instances, nodes) for confidence scores
+    - node_names: list of keypoint names
+
+    Currently supports single-animal tracking (first instance only).
 
     Args:
-        h5_path: Path to SLEAP output file
+        h5_path: Path to SLEAP H5 output file
 
     Returns:
         List of frame dictionaries with keypoints and confidence scores
 
     Raises:
         PoseError: If file doesn't exist or format is invalid
+
+    Example:
+        >>> data = import_sleap_pose(Path("analysis.h5"))
+        >>> print(f"Loaded {len(data)} frames")
+        >>> print(f"Keypoints: {list(data[0]['keypoints'].keys())}")
     """
     if not h5_path.exists():
-        raise PoseError(f"SLEAP file not found: {h5_path}")
+        raise PoseError(f"SLEAP H5 file not found: {h5_path}")
 
     try:
-        # For now, assume JSON format (mock)
-        with open(h5_path, "r") as f:
-            data = json.load(f)
+        with h5py.File(h5_path, "r") as f:
+            # Read datasets
+            node_names_raw = f["node_names"][:]
+            # Decode bytes to strings if necessary
+            node_names = [name.decode("utf-8") if isinstance(name, bytes) else str(name) for name in node_names_raw]
+
+            points = f["instances/points"][:]  # (frames, instances, nodes, 2)
+            scores = f["instances/point_scores"][:]  # (frames, instances, nodes)
 
         frames = []
-        for frame_data in data.get("frames", []):
-            frame_index = frame_data["frame_idx"]
+        n_frames, n_instances, n_nodes, _ = points.shape
+
+        for frame_idx in range(n_frames):
             keypoints = []
 
-            for instance in frame_data.get("instances", []):
-                for node in instance.get("nodes", []):
-                    name = node["name"]
-                    keypoints.append({"name": name, "x": node["x"], "y": node["y"], "confidence": node.get("confidence", 1.0)})
+            # Handle first instance only (single animal)
+            # For multi-animal support, would need to iterate over instances
+            for node_idx, node_name in enumerate(node_names):
+                x = points[frame_idx, 0, node_idx, 0]
+                y = points[frame_idx, 0, node_idx, 1]
+                confidence = scores[frame_idx, 0, node_idx]
 
-            frames.append({"frame_index": frame_index, "keypoints": KeypointsDict({kp["name"]: kp for kp in keypoints})})
+                # Skip invalid points (NaN or zero score)
+                if np.isnan(x) or np.isnan(y) or confidence == 0:
+                    continue
+
+                keypoints.append({"name": node_name, "x": float(x), "y": float(y), "confidence": float(confidence)})
+
+            frames.append({"frame_index": frame_idx, "keypoints": KeypointsDict({kp["name"]: kp for kp in keypoints})})
 
         return frames
 
     except Exception as e:
-        raise PoseError(f"Failed to parse SLEAP file: {e}")
+        raise PoseError(f"Failed to parse SLEAP H5: {e}")
 
 
 def harmonize_dlc_to_canonical(data: List[Dict], mapping: Dict[str, str]) -> List[Dict]:
