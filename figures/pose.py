@@ -1,0 +1,106 @@
+"""Plotting helpers for pose analysis examples.
+
+These functions are intentionally lightweight, with graceful fallbacks
+if matplotlib is not installed (the example remains runnable without plots).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import List, Optional
+
+try:  # Optional dependency for examples
+    import matplotlib.pyplot as plt  # type: ignore
+except Exception:  # pragma: no cover - optional
+    plt = None  # type: ignore
+
+
+def _ensure_parent(path: Path) -> Path:
+    """Ensure parent directory exists for the given path."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def plot_ttl_detection_from_pose(
+    h5_path: Path,
+    bodypart: str,
+    threshold: float,
+    timestamps: List[float],
+    *,
+    fps: float = 30.0,
+    transition_type: str = "rising",
+    min_duration: int = 1,
+    out_path: Path,
+) -> Optional[Path]:
+    """Generate visualization of DLC likelihood and detected TTL events.
+
+    Args:
+        h5_path: Path to DeepLabCut H5 file
+        bodypart: Name of body part to analyze
+        threshold: Likelihood threshold for detection
+        timestamps: List of detected TTL event timestamps (seconds)
+        fps: Frames per second for time axis conversion
+        transition_type: Type of transition detected ('rising', 'falling', or 'both')
+        min_duration: Minimum duration in frames for valid events
+        out_path: Path where plot should be saved
+
+    Returns:
+        Path to saved plot, or None if matplotlib is unavailable
+    """
+    if plt is None:  # pragma: no cover
+        return None
+
+    # Import here to avoid hard dependency
+    from w2t_bkin.pose.ttl_mock import load_dlc_likelihood_series
+
+    _ensure_parent(out_path)
+
+    # Load data
+    likelihood = load_dlc_likelihood_series(h5_path, bodypart)
+    signal = likelihood >= threshold
+    time_axis = likelihood.index / fps
+
+    # Create figure
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+
+    # Plot 1: Likelihood time series
+    ax1.plot(time_axis, likelihood, label="Likelihood", alpha=0.7, linewidth=1)
+    ax1.axhline(threshold, color="r", linestyle="--", label=f"Threshold ({threshold})", alpha=0.7)
+    ax1.fill_between(time_axis, 0, 1, where=signal, alpha=0.2, color="green", label="Above threshold")
+    ax1.set_ylabel("Likelihood", fontsize=11)
+    ax1.set_title(f"TTL Detection from DLC Pose: {bodypart}", fontsize=13, fontweight="bold")
+    ax1.legend(loc="upper right", framealpha=0.9)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim(-0.05, 1.05)
+
+    # Plot 2: Detected events
+    ax2.fill_between(time_axis, 0, signal.astype(int), alpha=0.3, color="blue", label="Signal ON")
+    for i, ts in enumerate(timestamps):
+        color = "red" if transition_type == "rising" else "orange"
+        alpha = 0.8 if i < 10 else 0.4  # Fade later events for clarity
+        ax2.axvline(ts, color=color, alpha=alpha, linewidth=2, linestyle="-")
+
+    ax2.set_xlabel("Time (s)", fontsize=11)
+    ax2.set_ylabel("Signal State", fontsize=11)
+    ax2.set_title(f"Detected Events (n={len(timestamps)})", fontsize=12)
+    ax2.set_ylim(-0.1, 1.2)
+    ax2.grid(True, alpha=0.3)
+
+    # Add text annotation
+    ax2.text(
+        0.02,
+        0.95,
+        f"Transition: {transition_type}\nMin duration: {min_duration} frames\nFPS: {fps} Hz",
+        transform=ax2.transAxes,
+        fontsize=9,
+        verticalalignment="top",
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+    )
+
+    plt.tight_layout()
+
+    # Save figure
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    return out_path
