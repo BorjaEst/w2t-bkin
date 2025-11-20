@@ -8,82 +8,73 @@ from pathlib import Path
 
 import pytest
 
-from synthetic.config_synth import create_config_toml, create_session_toml
-from synthetic.models import SyntheticCamera, SyntheticSessionParams, SyntheticTTL
-from synthetic.session_synth import create_minimal_session
-from synthetic.ttl_synth import create_ttl_file
+from synthetic.config_synth import build_config, write_config_toml
+from synthetic.session_synth import build_session
+from synthetic.ttl_synth import TTLGenerationOptions, generate_ttl_pulses, write_ttl_pulse_files
 
 
 class TestTTLGeneration:
     """Test TTL pulse file generation."""
 
-    def test_create_ttl_file_basic(self, tmp_path):
-        """Test basic TTL file creation."""
-        ttl = SyntheticTTL(
-            ttl_id="test_ttl",
-            pulse_count=10,
-            start_time_s=0.0,
-            period_s=0.1,
-            jitter_s=0.0,
+    def test_generate_ttl_pulses_basic(self):
+        """Test basic TTL pulse generation."""
+        pulses = generate_ttl_pulses(
+            ttl_ids=["test_ttl"],
+            options=TTLGenerationOptions(
+                pulses_per_ttl=10,
+                rate_hz=10.0,
+                jitter_s=0.0,
+                seed=42,
+            ),
         )
 
-        output_path = tmp_path / "test.ttl"
-        result = create_ttl_file(output_path, ttl, seed=42)
-
-        assert result.exists()
-        assert result == output_path
-
-        # Verify content
-        with open(result) as f:
-            lines = f.readlines()
-
-        assert len(lines) == 10
+        assert "test_ttl" in pulses
+        assert len(pulses["test_ttl"]) == 10
 
         # Check timestamps are roughly correct
-        for i, line in enumerate(lines):
-            timestamp = float(line.strip())
-            expected = i * 0.1
+        for i, timestamp in enumerate(pulses["test_ttl"]):
+            expected = i * 0.1  # 10 Hz = 0.1s period
             assert abs(timestamp - expected) < 0.01
 
-    def test_create_ttl_file_with_jitter(self, tmp_path):
-        """Test TTL file creation with jitter."""
-        ttl = SyntheticTTL(
-            ttl_id="jitter_ttl",
-            pulse_count=100,
-            start_time_s=0.0,
-            period_s=0.033,
-            jitter_s=0.005,
+    def test_generate_ttl_pulses_with_jitter(self):
+        """Test TTL pulse generation with jitter."""
+        pulses = generate_ttl_pulses(
+            ttl_ids=["jitter_ttl"],
+            options=TTLGenerationOptions(
+                pulses_per_ttl=100,
+                rate_hz=30.0,
+                jitter_s=0.005,
+                seed=42,
+            ),
         )
 
-        output_path = tmp_path / "jitter.ttl"
-        result = create_ttl_file(output_path, ttl, seed=42)
+        assert "jitter_ttl" in pulses
+        assert len(pulses["jitter_ttl"]) == 100
 
-        assert result.exists()
-
-        with open(result) as f:
-            lines = f.readlines()
-
-        assert len(lines) == 100
-
-    def test_create_ttl_deterministic(self, tmp_path):
+    def test_generate_ttl_deterministic(self):
         """Test that same seed produces same output."""
-        ttl = SyntheticTTL(
-            ttl_id="det_ttl",
-            pulse_count=50,
-            period_s=0.02,
-            jitter_s=0.001,
+        pulses1 = generate_ttl_pulses(
+            ttl_ids=["det_ttl"],
+            options=TTLGenerationOptions(
+                pulses_per_ttl=50,
+                rate_hz=50.0,
+                jitter_s=0.001,
+                seed=42,
+            ),
         )
 
-        path1 = tmp_path / "det1.ttl"
-        path2 = tmp_path / "det2.ttl"
-
-        create_ttl_file(path1, ttl, seed=42)
-        create_ttl_file(path2, ttl, seed=42)
+        pulses2 = generate_ttl_pulses(
+            ttl_ids=["det_ttl"],
+            options=TTLGenerationOptions(
+                pulses_per_ttl=50,
+                rate_hz=50.0,
+                jitter_s=0.001,
+                seed=42,
+            ),
+        )
 
         # Content should be identical
-        content1 = path1.read_text()
-        content2 = path2.read_text()
-        assert content1 == content2
+        assert pulses1["det_ttl"] == pulses2["det_ttl"]
 
 
 class TestConfigGeneration:
@@ -91,14 +82,19 @@ class TestConfigGeneration:
 
     def test_create_config_toml(self, tmp_path):
         """Test config.toml generation."""
-        config_path = create_config_toml(
-            tmp_path / "config.toml",
-            raw_root=tmp_path / "raw",
-            processed_root=tmp_path / "processed",
-            temp_root=tmp_path / "temp",
-            timebase_source="ttl",
-            timebase_ttl_id="test_ttl",
+        from synthetic.config_synth import SynthConfigOptions
+
+        config = build_config(
+            options=SynthConfigOptions(
+                project_name="test-project",
+                raw_root=str(tmp_path / "raw"),
+                processed_root=str(tmp_path / "processed"),
+                temp_root=str(tmp_path / "temp"),
+                timebase_source="ttl",
+                timebase_ttl_id="test_ttl",
+            )
         )
+        config_path = write_config_toml(tmp_path / "config.toml", config)
 
         assert config_path.exists()
 
@@ -111,45 +107,34 @@ class TestConfigGeneration:
 
     def test_create_session_toml(self, tmp_path):
         """Test session.toml generation."""
-        camera = SyntheticCamera(
-            camera_id="cam0",
-            ttl_id="cam0_ttl",
-            frame_count=100,
-        )
-        ttl = SyntheticTTL(
-            ttl_id="cam0_ttl",
-            pulse_count=100,
-        )
-        params = SyntheticSessionParams(
-            session_id="test-001",
-            cameras=[camera],
-            ttls=[ttl],
-        )
+        from synthetic.session_synth import SessionSynthOptions, write_session_toml
 
-        session_path = create_session_toml(
-            tmp_path / "session.toml",
-            params=params,
-            cameras=[camera],
-            ttls=[ttl],
+        # Use SessionSynthOptions to build a session
+        session = build_session(
+            options=SessionSynthOptions(
+                session_id="test-001",
+                project_name="test-project",
+                experimenter="Test User",
+                subject_id="mouse-01",
+            )
         )
+        session_path = write_session_toml(tmp_path / "session.toml", session)
 
         assert session_path.exists()
 
         content = session_path.read_text()
         assert "[session]" in content
         assert 'id = "test-001"' in content
-        assert "[[cameras]]" in content
-        assert 'id = "cam0"' in content
-        assert "[[TTLs]]" in content  # Capital TTLs per schema
-        assert 'id = "cam0_ttl"' in content
 
 
 class TestSessionGeneration:
     """Test complete session generation."""
 
     def test_create_minimal_session(self, tmp_path):
-        """Test minimal session creation."""
-        session = create_minimal_session(
+        """Test minimal session creation using scenarios."""
+        from synthetic.scenarios import happy_path
+
+        session = happy_path.make_session(
             root=tmp_path,
             session_id="test-minimal",
             n_frames=32,

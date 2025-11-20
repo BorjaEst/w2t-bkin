@@ -100,7 +100,7 @@ from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, Manifes
 from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera, Session, SessionMetadata
 
 # Events/Trial models (Phase 3) - Re-exported from events.models
-from w2t_bkin.events.models import BehavioralEvents, Trial, TrialOutcome, TrialSummary
+from w2t_bkin.events.models import BehavioralEvents, Trial, TrialEvent, TrialOutcome, TrialSummary
 
 # Exception hierarchy
 from w2t_bkin.exceptions import (
@@ -222,6 +222,7 @@ __all__ = [
     "TranscodedVideo",
     # Events/Trial models
     "Trial",
+    "TrialEvent",
     "TrialOutcome",
     "TrialSummary",
     "BehavioralEvents",
