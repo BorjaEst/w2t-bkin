@@ -9,12 +9,14 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from ..exceptions import BpodParseError
-from ..utils import convert_matlab_struct, is_nan_or_none
+from ..utils import convert_matlab_struct, is_nan_or_none, to_scalar, validate_against_whitelist
 from .bpod import validate_bpod_structure
-from .helpers import to_scalar, validate_outcome
 from .models import Trial, TrialOutcome
 
 logger = logging.getLogger(__name__)
+
+# Constants
+VALID_OUTCOMES = frozenset(["hit", "miss", "correct_rejection", "false_alarm", "unknown"])
 
 
 # =============================================================================
@@ -167,12 +169,12 @@ def infer_outcome(states: Dict[str, Any]) -> str:
     """
     # Check states in priority order
     if "HIT" in states and is_state_visited(states["HIT"]):
-        return validate_outcome("hit")
+        return validate_against_whitelist("hit", VALID_OUTCOMES, default="unknown", warn=True)
     if "Miss" in states and is_state_visited(states["Miss"]):
-        return validate_outcome("miss")
+        return validate_against_whitelist("miss", VALID_OUTCOMES, default="unknown", warn=True)
     if "CorrectReject" in states and is_state_visited(states["CorrectReject"]):
-        return validate_outcome("correct_rejection")
+        return validate_against_whitelist("correct_rejection", VALID_OUTCOMES, default="unknown", warn=True)
     if "FalseAlarm" in states and is_state_visited(states["FalseAlarm"]):
-        return validate_outcome("false_alarm")
+        return validate_against_whitelist("false_alarm", VALID_OUTCOMES, default="unknown", warn=True)
 
-    return validate_outcome("unknown")
+    return validate_against_whitelist("unknown", VALID_OUTCOMES, default="unknown", warn=True)

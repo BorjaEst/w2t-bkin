@@ -17,10 +17,37 @@ except ImportError:
     savemat = None
 
 from ..exceptions import BpodParseError, BpodValidationError
-from ..utils import convert_matlab_struct, discover_files, sort_files
-from .helpers import validate_bpod_path
+from ..utils import convert_matlab_struct, discover_files, sanitize_string, sort_files, validate_against_whitelist, validate_file_exists, validate_file_size
 
 logger = logging.getLogger(__name__)
+
+# Constants
+MAX_BPOD_FILE_SIZE_MB = 100
+
+
+def validate_bpod_path(path: Path) -> None:
+    """Validate Bpod file path and size.
+
+    Args:
+        path: Path to .mat file
+
+    Raises:
+        BpodValidationError: Invalid path or file too large
+    """
+    # Validate file exists
+    validate_file_exists(path, BpodValidationError, "Bpod file not found")
+
+    # Check file extension
+    if path.suffix.lower() not in [".mat"]:
+        raise BpodValidationError(f"Invalid file extension: {path.suffix}", file_path=str(path))
+
+    # Check file size (prevent memory exhaustion)
+    try:
+        file_size_mb = validate_file_size(path, max_size_mb=MAX_BPOD_FILE_SIZE_MB)
+        logger.debug(f"Validated Bpod file: {path.name} ({file_size_mb:.2f}MB)")
+    except ValueError as e:
+        # Re-raise as BpodValidationError for consistent error handling
+        raise BpodValidationError(str(e), file_path=str(path))
 
 
 def parse_bpod(session_dir: Path, pattern: str, order: str, continuous_time: bool = True) -> Dict[str, Any]:

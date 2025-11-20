@@ -9,9 +9,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from ..utils import convert_matlab_struct, is_nan_or_none
+from ..utils import convert_matlab_struct, is_nan_or_none, sanitize_string, to_list, to_scalar
 from .bpod import validate_bpod_structure
-from .helpers import sanitize_event_type, to_list, to_scalar
 from .models import TrialEvent
 
 logger = logging.getLogger(__name__)
@@ -95,7 +94,7 @@ def extract_behavioral_events(
 
         for event_type, timestamps in trial_events.items():
             # Sanitize event type from external data
-            safe_event_type = sanitize_event_type(event_type)
+            safe_event_type = sanitize_string(event_type, max_length=100, allowed_pattern="printable", default="unknown_event")
 
             # Convert to list if numpy array or scalar
             if isinstance(timestamps, np.ndarray):

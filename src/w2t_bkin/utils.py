@@ -674,6 +674,58 @@ def run_ffprobe(video_path: Path, timeout: int = 30) -> int:
         raise VideoAnalysisError(f"Unexpected error running ffprobe: {e}")
 
 
+# =============================================================================
+# Events Helper Functions (Numpy Array Handling)
+# =============================================================================
+
+
+def to_scalar(value: Union[Any, "np.ndarray"], index: int) -> Any:
+    """Extract scalar from array or list.
+
+    Args:
+        value: Array, list, tuple, or scalar
+        index: Index to extract
+
+    Returns:
+        Scalar value at index
+
+    Raises:
+        IndexError: Index out of bounds
+    """
+    import numpy as np
+
+    if isinstance(value, np.ndarray):
+        # Handle numpy arrays (including 0-d arrays)
+        if value.ndim == 0:
+            return value.item()
+        return value[index].item() if hasattr(value[index], "item") else value[index]
+    elif isinstance(value, (list, tuple)):
+        return value[index]
+    else:
+        # Assume it's already a scalar
+        return value
+
+
+def to_list(value: Union[Any, "np.ndarray"]) -> List[Any]:
+    """Convert array or scalar to Python list.
+
+    Args:
+        value: Array, list, tuple, or scalar
+
+    Returns:
+        Python list
+    """
+    import numpy as np
+
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    elif isinstance(value, (list, tuple)):
+        return list(value)
+    else:
+        # Scalar value
+        return [value]
+
+
 if __name__ == "__main__":
     """Usage examples for utils module."""
     import tempfile
