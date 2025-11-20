@@ -1,25 +1,18 @@
-"""Timebase provider abstraction and implementations.
+"""Timebase providers for temporal synchronization.
 
-Provides multiple timebase sources for temporal synchronization:
-- **Nominal Rate**: Synthetic timestamps from constant frame rate
-- **TTL**: Hardware sync signals from acquisition system
-- **Neuropixels**: Neural recording stream timestamps
+Provides nominal rate, TTL, and Neuropixels timebase sources.
 
 Example:
     >>> from w2t_bkin.sync import create_timebase_provider
-    >>> from w2t_bkin.config import load_config
-    >>>
-    >>> config = load_config("config.toml")
-    >>> provider = create_timebase_provider(config, manifest=None)
-    >>> timestamps = provider.get_timestamps(n_samples=1000)
+    >>> provider = create_timebase_provider(source="nominal_rate", rate=30.0)
+    >>> timestamps = provider.get_timestamps(n_samples=100)
 """
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from ..domain import Config, Manifest
-from .exceptions import SyncError
+from ..exceptions import SyncError
 
 __all__ = [
     "TimebaseProvider",
@@ -27,6 +20,7 @@ __all__ = [
     "TTLProvider",
     "NeuropixelsProvider",
     "create_timebase_provider",
+    "create_timebase_provider_from_config",
 ]
 
 
@@ -36,10 +30,9 @@ __all__ = [
 
 
 class TimebaseProvider(ABC):
-    """Abstract base class for timebase providers.
+    """Base class for timebase providers.
 
-    All timebase providers must implement get_timestamps() to return
-    a list of timestamps in seconds.
+    Subclasses must implement get_timestamps().
     """
 
     def __init__(self, source: str, offset_s: float = 0.0):
@@ -66,16 +59,11 @@ class TimebaseProvider(ABC):
 
 
 class NominalRateProvider(TimebaseProvider):
-    """Nominal rate timebase provider (synthetic timestamps).
-
-    Generates evenly-spaced timestamps assuming a constant sample rate.
-    Useful for video cameras with stable frame rates or as a fallback.
+    """Generate timestamps from constant sample rate.
 
     Example:
-        >>> provider = NominalRateProvider(rate=30.0, offset_s=0.0)
+        >>> provider = NominalRateProvider(rate=30.0)
         >>> timestamps = provider.get_timestamps(n_samples=100)
-        >>> print(f"First frame: {timestamps[0]:.3f}s")
-        >>> print(f"100th frame: {timestamps[99]:.3f}s")
     """
 
     def __init__(self, rate: float, offset_s: float = 0.0):
@@ -108,17 +96,10 @@ class NominalRateProvider(TimebaseProvider):
 
 
 class TTLProvider(TimebaseProvider):
-    """TTL-based timebase provider (load from hardware sync files).
-
-    Loads actual hardware synchronization pulses from TTL files.
-    Each TTL file should contain one timestamp per line.
+    """Load timestamps from TTL hardware sync files.
 
     Example:
-        >>> provider = TTLProvider(
-        ...     ttl_id="camera_sync",
-        ...     ttl_files=["session/TTLs/cam0.txt"],
-        ...     offset_s=0.0
-        ... )
+        >>> provider = TTLProvider(ttl_id="camera_sync", ttl_files=["TTLs/cam0.txt"])
         >>> timestamps = provider.get_timestamps()
     """
 
@@ -177,10 +158,9 @@ class TTLProvider(TimebaseProvider):
 
 
 class NeuropixelsProvider(TimebaseProvider):
-    """Neuropixels timebase provider (stub for Phase 2).
+    """Load timestamps from Neuropixels recordings (stub).
 
-    Future: Will load timestamps from Neuropixels neural recording streams.
-    Currently generates synthetic 30 kHz timestamps as a placeholder.
+    Currently generates synthetic 30 kHz timestamps.
     """
 
     def __init__(self, stream: str, offset_s: float = 0.0):
@@ -216,26 +196,80 @@ class NeuropixelsProvider(TimebaseProvider):
 # =============================================================================
 
 
-def create_timebase_provider(config: Config, manifest: Optional[Manifest] = None) -> TimebaseProvider:
-    """Create timebase provider from configuration.
+def create_timebase_provider(
+    source: str,
+    offset_s: float = 0.0,
+    rate: Optional[float] = None,
+    ttl_id: Optional[str] = None,
+    ttl_files: Optional[List[str]] = None,
+    neuropixels_stream: Optional[str] = None,
+) -> TimebaseProvider:
+    """Create timebase provider.
 
-    Factory function that instantiates the appropriate TimebaseProvider
-    subclass based on config.timebase.source.
+    Args:
+        source: "nominal_rate", "ttl", or "neuropixels"
+        offset_s: Time offset in seconds
+        rate: Sample rate (required for nominal_rate)
+        ttl_id: TTL channel ID (required for ttl)
+        ttl_files: TTL file paths (required for ttl)
+        neuropixels_stream: Stream ID (required for neuropixels)
+
+    Returns:
+        TimebaseProvider instance
+
+    Raises:
+        SyncError: Invalid source or missing parameters
+
+    Example:
+        >>> provider = create_timebase_provider(source="nominal_rate", rate=30.0)
+        >>> timestamps = provider.get_timestamps(n_samples=100)
+    """
+    if source == "nominal_rate":
+        if rate is None:
+            raise SyncError("rate required when source='nominal_rate'")
+        return NominalRateProvider(rate=rate, offset_s=offset_s)
+
+    elif source == "ttl":
+        if ttl_id is None:
+            raise SyncError("ttl_id required when source='ttl'")
+        if ttl_files is None:
+            raise SyncError("ttl_files required when source='ttl'")
+        return TTLProvider(ttl_id=ttl_id, ttl_files=ttl_files, offset_s=offset_s)
+
+    elif source == "neuropixels":
+        if neuropixels_stream is None:
+            raise SyncError("neuropixels_stream required when source='neuropixels'")
+        return NeuropixelsProvider(stream=neuropixels_stream, offset_s=offset_s)
+
+    else:
+        raise SyncError(f"Invalid timebase source: {source}")
+
+
+def create_timebase_provider_from_config(config, manifest: Optional[Any] = None) -> TimebaseProvider:
+    """Create timebase provider from Config and Manifest (high-level wrapper).
+
+    Convenience wrapper that extracts primitive arguments from Config/Manifest
+    and delegates to the low-level create_timebase_provider() function.
 
     Args:
         config: Pipeline configuration with timebase settings
         manifest: Session manifest (required for TTL provider)
 
     Returns:
-        TimebaseProvider instance (NominalRateProvider, TTLProvider, or NeuropixelsProvider)
+        TimebaseProvider instance
 
     Raises:
         SyncError: If invalid source or missing required data
 
     Example:
         >>> from w2t_bkin.config import load_config
+        >>> from w2t_bkin.ingest import build_and_count_manifest
+        >>>
         >>> config = load_config("config.toml")
-        >>> provider = create_timebase_provider(config, manifest=None)
+        >>> session = load_session("session.toml")
+        >>> manifest = build_and_count_manifest(config, session)
+        >>>
+        >>> provider = create_timebase_provider_from_config(config, manifest)
         >>> timestamps = provider.get_timestamps(n_samples=1000)
     """
     source = config.timebase.source
@@ -244,7 +278,7 @@ def create_timebase_provider(config: Config, manifest: Optional[Manifest] = None
     if source == "nominal_rate":
         # Default to 30 Hz for cameras
         rate = 30.0
-        return NominalRateProvider(rate=rate, offset_s=offset_s)
+        return create_timebase_provider(source="nominal_rate", rate=rate, offset_s=offset_s)
 
     elif source == "ttl":
         if manifest is None:
@@ -264,14 +298,14 @@ def create_timebase_provider(config: Config, manifest: Optional[Manifest] = None
         if not ttl_files:
             raise SyncError(f"TTL {ttl_id} not found in manifest")
 
-        return TTLProvider(ttl_id=ttl_id, ttl_files=ttl_files, offset_s=offset_s)
+        return create_timebase_provider(source="ttl", ttl_id=ttl_id, ttl_files=ttl_files, offset_s=offset_s)
 
     elif source == "neuropixels":
         stream = config.timebase.neuropixels_stream
         if not stream:
             raise SyncError("timebase.neuropixels_stream required when source='neuropixels'")
 
-        return NeuropixelsProvider(stream=stream, offset_s=offset_s)
+        return create_timebase_provider(source="neuropixels", neuropixels_stream=stream, offset_s=offset_s)
 
     else:
         raise SyncError(f"Invalid timebase source: {source}")

@@ -1,19 +1,10 @@
-"""Mapping strategies and alignment algorithms.
+"""Sample alignment strategies and jitter computation.
 
-Provides sample-to-reference alignment using:
-- Nearest neighbor mapping
-- Linear interpolation
-- Jitter statistics computation
-- Budget enforcement
+Provides nearest neighbor and linear interpolation mapping with jitter
+statistics and budget enforcement.
 
 Example:
-    >>> from w2t_bkin.sync import align_samples
-    >>> result = align_samples(
-    ...     sample_times=[0.1, 0.5, 1.2],
-    ...     reference_times=[0.0, 0.5, 1.0, 1.5],
-    ...     config=timebase_config
-    ... )
-    >>> print(f"Max jitter: {result['jitter_stats']['max_jitter_s']:.4f}s")
+    >>> result = align_samples(sample_times, reference_times, config)
 """
 
 from typing import Dict, List, Tuple
@@ -21,8 +12,8 @@ import warnings
 
 import numpy as np
 
-from ..domain import TimebaseConfig
-from .exceptions import JitterBudgetExceeded, SyncError
+from ..exceptions import JitterBudgetExceeded, SyncError
+from .protocols import TimebaseConfigProtocol
 
 __all__ = [
     "map_nearest",
@@ -39,30 +30,20 @@ __all__ = [
 
 
 def map_nearest(sample_times: List[float], reference_times: List[float]) -> List[int]:
-    """Map sample times to nearest reference times using nearest-neighbor.
-
-    For each sample time, finds the closest reference timestamp and returns
-    its index. This is the simplest alignment strategy but may introduce
-    jitter up to half the reference timebase interval.
+    """Map samples to nearest reference timestamps.
 
     Args:
-        sample_times: Times to align (e.g., camera frame times)
-        reference_times: Reference timebase (must be sorted)
+        sample_times: Times to align
+        reference_times: Reference timebase (sorted)
 
     Returns:
-        List of indices into reference_times (one per sample)
+        List of indices into reference_times
 
     Raises:
-        SyncError: If reference is empty or not monotonic
-
-    Warnings:
-        Issues UserWarning if sample time is >1s from nearest reference
+        SyncError: Empty or non-monotonic reference
 
     Example:
-        >>> reference = [0.0, 1.0, 2.0, 3.0]
-        >>> samples = [0.3, 1.7, 2.9]
-        >>> indices = map_nearest(samples, reference)
-        >>> print(indices)  # [0, 2, 3]
+        >>> indices = map_nearest([0.3, 1.7], [0.0, 1.0, 2.0])
     """
     if not reference_times:
         raise SyncError("Cannot map to empty reference timebase")
@@ -92,33 +73,21 @@ def map_nearest(sample_times: List[float], reference_times: List[float]) -> List
 
 
 def map_linear(sample_times: List[float], reference_times: List[float]) -> Tuple[List[Tuple[int, int]], List[Tuple[float, float]]]:
-    """Map sample times using linear interpolation between reference points.
-
-    For each sample time, finds the bracketing reference timestamps and
-    computes interpolation weights. This produces smoother alignment with
-    lower jitter than nearest-neighbor mapping.
+    """Map samples using linear interpolation.
 
     Args:
         sample_times: Times to align
-        reference_times: Reference timebase (must be sorted)
+        reference_times: Reference timebase (sorted)
 
     Returns:
-        Tuple of (indices, weights) where:
-        - indices: List of (idx0, idx1) tuples for interpolation
-        - weights: List of (w0, w1) tuples for interpolation weights
-
-        To reconstruct interpolated value:
-            value = w0 * reference[idx0] + w1 * reference[idx1]
+        (indices, weights) where indices are (idx0, idx1) pairs and
+        weights are (w0, w1) for interpolation
 
     Raises:
-        SyncError: If reference is empty or not monotonic
+        SyncError: Empty or non-monotonic reference
 
     Example:
-        >>> reference = [0.0, 1.0, 2.0]
-        >>> samples = [0.5, 1.5]
-        >>> indices, weights = map_linear(samples, reference)
-        >>> print(indices)   # [(0, 1), (1, 2)]
-        >>> print(weights)   # [(0.5, 0.5), (0.5, 0.5)]
+        >>> indices, weights = map_linear([0.5], [0.0, 1.0])
     """
     if not reference_times:
         raise SyncError("Cannot map to empty reference timebase")
@@ -174,27 +143,18 @@ def map_linear(sample_times: List[float], reference_times: List[float]) -> Tuple
 
 
 def compute_jitter_stats(sample_times: List[float], reference_times: List[float], indices: List[int]) -> Dict[str, float]:
-    """Compute jitter statistics for nearest-neighbor alignment.
-
-    Jitter is the absolute time difference between each sample and its
-    aligned reference timestamp. This quantifies alignment quality.
+    """Compute jitter statistics.
 
     Args:
         sample_times: Original sample times
         reference_times: Reference timebase
-        indices: Mapping indices from map_nearest()
+        indices: Mapping indices
 
     Returns:
-        Dictionary with:
-        - max_jitter_s: Maximum jitter across all samples
-        - p95_jitter_s: 95th percentile jitter
+        Dict with max_jitter_s and p95_jitter_s
 
     Example:
-        >>> samples = [0.1, 0.9, 1.8]
-        >>> reference = [0.0, 1.0, 2.0]
-        >>> indices = map_nearest(samples, reference)
         >>> stats = compute_jitter_stats(samples, reference, indices)
-        >>> print(f"Max jitter: {stats['max_jitter_s']:.3f}s")
     """
     if not sample_times or not indices:
         return {"max_jitter_s": 0.0, "p95_jitter_s": 0.0}
@@ -253,7 +213,7 @@ def enforce_jitter_budget(max_jitter: float, p95_jitter: float, budget: float) -
 # =============================================================================
 
 
-def align_samples(sample_times: List[float], reference_times: List[float], config: TimebaseConfig, enforce_budget: bool = False) -> Dict:
+def align_samples(sample_times: List[float], reference_times: List[float], config: TimebaseConfigProtocol, enforce_budget: bool = False) -> Dict:
     """Align samples to reference timebase using configured strategy.
 
     High-level function that performs alignment according to config.mapping

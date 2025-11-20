@@ -1,28 +1,17 @@
-"""Pose estimation synchronization utilities.
-
-Provides high-level API for aligning pose estimation outputs (DeepLabCut,
-SLEAP, etc.) to a reference timebase. Handles both video-frame-aligned
-and independent pose timestamps.
+"""Align pose estimation data to reference timebase.
 
 Example:
-    >>> from w2t_bkin.sync import sync_pose_to_timebase
-    >>>
-    >>> # DeepLabCut outputs at video frame rate
-    >>> pose_times = video_frame_times  # Typically same as video
     >>> result = sync_pose_to_timebase(
     ...     pose_times=pose_times,
-    ...     reference_times=reference_timebase,
-    ...     config=timebase_config
+    ...     reference_times=reference,
+    ...     config=config
     ... )
-    >>>
-    >>> # Use aligned times for NWB pose data
-    >>> nwb_pose_timestamps = result["pose_times_aligned"]
 """
 
 from typing import Dict, List
 
-from ..domain import TimebaseConfig
 from .mapping import align_samples
+from .protocols import TimebaseConfigProtocol
 
 __all__ = ["sync_pose_to_timebase"]
 
@@ -30,57 +19,29 @@ __all__ = ["sync_pose_to_timebase"]
 def sync_pose_to_timebase(
     pose_times: List[float],
     reference_times: List[float],
-    config: TimebaseConfig,
+    config: TimebaseConfigProtocol,
     enforce_budget: bool = False,
 ) -> Dict[str, any]:
-    """Align pose keypoint timestamps to reference timebase.
-
-    Synchronizes pose estimation outputs (e.g., from DeepLabCut, SLEAP) to
-    a reference timebase for integration with other modalities in NWB.
-
-    Pose data is typically video-frame-aligned (one pose per frame), but
-    this function supports any timestamp source including sparse detections.
+    """Align pose timestamps to reference timebase.
 
     Args:
-        pose_times: Pose sample timestamps (typically per video frame or detection)
-        reference_times: Reference timebase (from TimebaseProvider)
-        config: Timebase configuration with mapping strategy and jitter budget
-        enforce_budget: Whether to enforce jitter budget (raises on exceed)
+        pose_times: Pose sample timestamps
+        reference_times: Reference timebase
+        config: Timebase configuration
+        enforce_budget: Enforce jitter budget
 
     Returns:
-        Dictionary with:
-        - indices: List[int] - alignment indices into reference_times
-        - pose_times_aligned: List[float] - aligned pose timestamps
-        - jitter_stats: Dict - max_jitter_s and p95_jitter_s
-        - mapping: str - strategy used ("nearest" or "linear")
+        Dict with indices, pose_times_aligned, jitter_stats, and mapping
 
     Raises:
-        JitterBudgetExceeded: If enforce_budget=True and jitter exceeds budget
-        SyncError: If alignment fails
+        JitterBudgetExceeded: Jitter exceeds budget
+        SyncError: Alignment failed
 
     Example:
-        >>> # DeepLabCut pose output
-        >>> dlc_df = pd.read_hdf("pose_dlc.h5")
-        >>> n_frames = len(dlc_df)
-        >>> pose_times = [i / 30.0 for i in range(n_frames)]
-        >>>
-        >>> # Sync to reference timebase
         >>> result = sync_pose_to_timebase(
-        ...     pose_times=pose_times,
-        ...     reference_times=ttl_reference,
-        ...     config=timebase_config
-        ... )
-        >>>
-        >>> # Extract keypoints and timestamps for NWB
-        >>> nose_x = dlc_df["nose"]["x"].values
-        >>> nose_y = dlc_df["nose"]["y"].values
-        >>> timestamps = result["pose_times_aligned"]
-        >>>
-        >>> # Store in NWB PoseEstimation module
-        >>> nwb_pose.add_spatial_series(
-        ...     name="nose_position",
-        ...     data=np.column_stack([nose_x, nose_y]),
-        ...     timestamps=timestamps
+        ...     pose_times=[i/30.0 for i in range(100)],
+        ...     reference_times=reference,
+        ...     config=config
         ... )
     """
     # Perform alignment using generic strategy

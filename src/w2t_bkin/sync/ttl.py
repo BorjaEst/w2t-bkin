@@ -1,28 +1,20 @@
-"""Generic TTL pulse loading utilities.
+"""Load TTL pulse timestamps from text files.
 
-These utilities are hardware-agnostic and can be used for:
-- Video camera synchronization TTLs
-- Behavioral synchronization TTLs (Bpod, etc.)
-- Neural recording synchronization TTLs
-- Any other hardware sync signals
+Provides hardware-agnostic TTL pulse loading for cameras, behavioral
+equipment, and neural recordings.
 
 Example:
-    >>> from w2t_bkin.sync import get_ttl_pulses
-    >>> from w2t_bkin.config import load_session
-    >>>
-    >>> session = load_session("data/session.toml")
-    >>> ttl_pulses = get_ttl_pulses(session)
-    >>> print(f"Camera TTL: {len(ttl_pulses['ttl_camera'])} pulses")
-    >>> print(f"Bpod TTL: {len(ttl_pulses['ttl_bpod'])} pulses")
+    >>> from pathlib import Path
+    >>> ttl_patterns = {"ttl_camera": "TTLs/cam*.txt"}
+    >>> ttl_pulses = get_ttl_pulses(ttl_patterns, Path("data/session"))
 """
 
 import glob
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from ..domain import Session
-from .exceptions import SyncError
+from ..exceptions import SyncError
 
 __all__ = ["get_ttl_pulses", "load_ttl_file"]
 
@@ -30,24 +22,18 @@ logger = logging.getLogger(__name__)
 
 
 def load_ttl_file(path: Path) -> List[float]:
-    """Load TTL pulse timestamps from a single file.
+    """Load TTL timestamps from a file.
 
-    TTL files should contain one timestamp per line (in seconds).
-    Empty lines and parsing errors are logged but don't stop processing.
+    Expects one timestamp per line in seconds.
 
     Args:
         path: Path to TTL file
 
     Returns:
-        List of timestamps (unsorted)
+        List of timestamps
 
     Raises:
-        SyncError: If file cannot be read
-
-    Example:
-        >>> from pathlib import Path
-        >>> timestamps = load_ttl_file(Path("data/ttl_camera.txt"))
-        >>> print(f"Loaded {len(timestamps)} TTL pulses")
+        SyncError: File not found or read error
     """
     if not path.exists():
         raise SyncError(f"TTL file not found: {path}")
@@ -71,58 +57,34 @@ def load_ttl_file(path: Path) -> List[float]:
     return timestamps
 
 
-def get_ttl_pulses(session: Session, session_dir: Optional[Path] = None) -> Dict[str, List[float]]:
-    """Load TTL pulse timestamps from session configuration (generic).
-
-    This function is hardware-agnostic and can load TTL pulses for any
-    modality: video cameras, behavioral equipment (Bpod), neural recordings,
-    or any other synchronized hardware.
-
-    Discovers TTL files matching glob patterns in session.TTLs and parses
-    timestamps from each file. Returns a dictionary mapping TTL channel IDs
-    to sorted lists of absolute timestamps.
+def get_ttl_pulses(ttl_patterns: Dict[str, str], session_dir: Path) -> Dict[str, List[float]]:
+    """Load TTL pulses from multiple files using glob patterns.
 
     Args:
-        session: Session configuration with TTL definitions
-        session_dir: Base directory for resolving TTL glob patterns.
-                    If None, uses session.session_dir.
+        ttl_patterns: Dict mapping TTL ID to glob pattern
+        session_dir: Base directory for patterns
 
     Returns:
-        Dictionary mapping TTL ID to list of absolute timestamps (sorted).
-        Empty list if no files found for a TTL channel.
+        Dict mapping TTL ID to sorted timestamp list
 
     Raises:
-        SyncError: If TTL files cannot be parsed
+        SyncError: Parse failed
 
     Example:
-        >>> from w2t_bkin.config import load_session
-        >>> session = load_session("data/raw/Session-001/session.toml")
-        >>>
-        >>> # Load all TTL channels
-        >>> ttl_pulses = get_ttl_pulses(session)
-        >>>
-        >>> # Access specific channels
-        >>> camera_ttls = ttl_pulses.get("ttl_camera", [])
-        >>> bpod_ttls = ttl_pulses.get("ttl_bpod", [])
-        >>>
-        >>> print(f"Camera: {len(camera_ttls)} pulses")
-        >>> print(f"Bpod: {len(bpod_ttls)} pulses")
+        >>> ttl_patterns = {"ttl_camera": "TTLs/cam*.txt"}
+        >>> ttl_pulses = get_ttl_pulses(ttl_patterns, Path("data/session"))
     """
-    if session_dir is None:
-        session_dir = Path(session.session_dir)
-    else:
-        session_dir = Path(session_dir)
-
+    session_dir = Path(session_dir)
     ttl_pulses = {}
 
-    for ttl_config in session.TTLs:
+    for ttl_id, pattern_str in ttl_patterns.items():
         # Resolve glob pattern
-        pattern = str(session_dir / ttl_config.paths)
+        pattern = str(session_dir / pattern_str)
         ttl_files = sorted(glob.glob(pattern))
 
         if not ttl_files:
-            logger.warning(f"No TTL files found for '{ttl_config.id}' with pattern: {pattern}")
-            ttl_pulses[ttl_config.id] = []
+            logger.warning(f"No TTL files found for '{ttl_id}' with pattern: {pattern}")
+            ttl_pulses[ttl_id] = []
             continue
 
         # Load and merge timestamps from all files
@@ -133,7 +95,7 @@ def get_ttl_pulses(session: Session, session_dir: Optional[Path] = None) -> Dict
             timestamps.extend(file_timestamps)
 
         # Sort timestamps and store
-        ttl_pulses[ttl_config.id] = sorted(timestamps)
-        logger.debug(f"Loaded {len(timestamps)} TTL pulses for '{ttl_config.id}' from {len(ttl_files)} file(s)")
+        ttl_pulses[ttl_id] = sorted(timestamps)
+        logger.debug(f"Loaded {len(timestamps)} TTL pulses for '{ttl_id}' from {len(ttl_files)} file(s)")
 
     return ttl_pulses

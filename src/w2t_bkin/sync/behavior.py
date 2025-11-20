@@ -1,24 +1,12 @@
-"""Behavioral data synchronization (Bpod-TTL alignment).
+"""Align Bpod behavioral data to TTL sync signals.
 
-Provides Bpod-specific temporal alignment using hardware TTL sync signals.
 Converts Bpod relative timestamps to absolute time by matching per-trial
-sync events to corresponding TTL pulses.
+sync events to TTL pulses.
 
 Example:
-    >>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
-    >>> from w2t_bkin.config import load_session
-    >>> from w2t_bkin.events import parse_bpod_session, extract_trials
-    >>>
-    >>> # Load session and Bpod data
-    >>> session = load_session("data/Session-001/session.toml")
-    >>> bpod_data = parse_bpod_session(session)
-    >>>
-    >>> # Get TTL pulses and compute alignment
-    >>> ttl_pulses = get_ttl_pulses(session)
-    >>> trial_offsets, warnings = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
-    >>>
-    >>> # Use offsets to extract trials with absolute timestamps
-    >>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
+    >>> from w2t_bkin.sync import align_bpod_trials_to_ttl
+    >>> trial_configs = [{"trial_type": 1, "sync_signal": "W2L_Audio", "sync_ttl": "ttl_bpod"}]
+    >>> trial_offsets, warnings = align_bpod_trials_to_ttl(trial_configs, bpod_data, ttl_pulses)
 """
 
 import logging
@@ -26,8 +14,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ..domain import Session
-from .exceptions import SyncError
+from ..domain.session import BpodTrialType
+from ..exceptions import SyncError
 
 __all__ = [
     "get_sync_time_from_bpod_trial",
@@ -38,23 +26,17 @@ logger = logging.getLogger(__name__)
 
 
 def get_sync_time_from_bpod_trial(trial_data: Dict, sync_signal: str) -> Optional[float]:
-    """Extract synchronization signal timing from Bpod trial data.
-
-    Looks for a specific state visit (e.g., "W2L_Audio", "A2L_Audio") in the
-    trial's States structure and returns its start time relative to trial start.
+    """Extract sync signal start time from Bpod trial.
 
     Args:
-        trial_data: Raw trial data from Bpod containing States
-        sync_signal: State name to use for sync (e.g., "W2L_Audio", "A2L_Audio")
+        trial_data: Trial data with States structure
+        sync_signal: State name (e.g. "W2L_Audio")
 
     Returns:
-        Start time of sync signal (relative to trial start), or None if not found/visited
+        Start time relative to trial start, or None if not found
 
     Example:
-        >>> trial = bpod_data["SessionData"]["RawEvents"]["Trial"][0]
         >>> sync_time = get_sync_time_from_bpod_trial(trial, "W2L_Audio")
-        >>> if sync_time is not None:
-        ...     print(f"Sync signal occurred at {sync_time:.3f}s into trial")
     """
     from ..utils import convert_matlab_struct, is_nan_or_none
 
@@ -83,11 +65,11 @@ def get_sync_time_from_bpod_trial(trial_data: Dict, sync_signal: str) -> Optiona
 
 
 def align_bpod_trials_to_ttl(
-    session: Session,
+    trial_type_configs: List[BpodTrialTypeProtocol],
     bpod_data: Dict,
     ttl_pulses: Dict[str, List[float]],
 ) -> Tuple[Dict[int, float], List[str]]:
-    """Align Bpod trials to absolute time using TTL sync signals.
+    """Align Bpod trials to absolute time using TTL sync signals (low-level, Session-free).
 
     Converts Bpod relative timestamps to absolute time by matching per-trial
     sync signals to corresponding TTL pulses. Returns per-trial offsets that
@@ -97,7 +79,7 @@ def align_bpod_trials_to_ttl(
     Algorithm:
     ----------
     1. For each trial, determine trial_type from Bpod TrialTypes array
-    2. Lookup sync configuration from session.bpod.trial_types
+    2. Lookup sync configuration from trial_type_configs list
     3. Extract sync_signal start time (relative to trial start) from States
     4. Match to next available TTL pulse from corresponding channel
     5. Compute offset accounting for TrialStartTimestamp:
@@ -112,8 +94,9 @@ def align_bpod_trials_to_ttl(
     - Jitter: Allow small timing differences, log debug info
 
     Args:
-        session: Session config with trial_type sync mappings in session.bpod.trial_types
-        bpod_data: Parsed Bpod data (SessionData structure from events.parse_bpod_session)
+        trial_type_configs: List of trial type sync configurations
+                           (from session.bpod.trial_types)
+        bpod_data: Parsed Bpod data (SessionData structure from events.parse_bpod)
         ttl_pulses: Dict mapping TTL channel ID to sorted list of absolute timestamps
                     (typically from sync.get_ttl_pulses)
 
@@ -127,25 +110,29 @@ def align_bpod_trials_to_ttl(
 
     Example:
         >>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
-        >>> from w2t_bkin.config import load_session
-        >>> from w2t_bkin.events import parse_bpod_session, extract_trials
+        >>> from w2t_bkin.events import parse_bpod
+        >>> from pathlib import Path
         >>>
-        >>> # Load and parse
-        >>> session = load_session("data/Session-001/session.toml")
-        >>> bpod_data = parse_bpod_session(session)
-        >>> ttl_pulses = get_ttl_pulses(session)
+        >>> # Low-level approach with primitives
+        >>> session_dir = Path("data/Session-001")
+        >>> bpod_data = parse_bpod(session_dir, "Bpod/*.mat", "name_asc")
+        >>> ttl_patterns = {"ttl_bpod": "TTLs/bpod*.txt"}
+        >>> ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
+        >>>
+        >>> # Define trial type configs
+        >>> from w2t_bkin.domain.session import BpodTrialType
+        >>> trial_configs = [
+        ...     BpodTrialType(trial_type=1, sync_signal="W2L_Audio",
+        ...                  sync_ttl="ttl_bpod", description="W2L")
+        ... ]
         >>>
         >>> # Compute alignment offsets
         >>> trial_offsets, warnings = align_bpod_trials_to_ttl(
-        ...     session, bpod_data, ttl_pulses
+        ...     trial_configs, bpod_data, ttl_pulses
         ... )
-        >>>
-        >>> if warnings:
-        ...     print(f"Alignment warnings: {warnings}")
-        >>>
-        >>> # Extract trials with absolute timestamps
-        >>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
-        >>> print(f"Trial 1 start: {trials[0].start_time:.3f}s (absolute)")
+
+    Note:
+        High-level wrapper available: align_bpod_trials_to_ttl_from_session(session, bpod_data, ttl_pulses)
     """
     from ..utils import convert_matlab_struct
 
@@ -162,7 +149,7 @@ def align_bpod_trials_to_ttl(
 
     # Build trial_type → sync config mapping
     trial_type_map = {}
-    for tt_config in session.bpod.trial_types:
+    for tt_config in trial_type_configs:
         trial_type_map[tt_config.trial_type] = {
             "sync_signal": tt_config.sync_signal,
             "sync_ttl": tt_config.sync_ttl,
@@ -170,7 +157,7 @@ def align_bpod_trials_to_ttl(
         }
 
     if not trial_type_map:
-        raise SyncError("No trial_type sync configuration found in session.bpod.trial_types")
+        raise SyncError("No trial_type sync configuration provided in trial_type_configs")
 
     # Prepare TTL pulse pointers (track consumption per channel)
     ttl_pointers = {ttl_id: 0 for ttl_id in ttl_pulses.keys()}
@@ -179,8 +166,8 @@ def align_bpod_trials_to_ttl(
     raw_events = convert_matlab_struct(session_data["RawEvents"])
     trial_data_list = raw_events["Trial"]
 
-    # Extract TrialTypes if available (use helper from events.helpers)
-    from ..events.helpers import to_scalar
+    # Extract TrialTypes if available
+    from ..utils import to_scalar
 
     trial_types_array = session_data.get("TrialTypes")
     if trial_types_array is None:
