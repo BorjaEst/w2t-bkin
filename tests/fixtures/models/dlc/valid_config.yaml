@@ -1,0 +1,20 @@
+# DLC Project Configuration (Valid Minimal Fixture)
+
+Task: BA_W2T_test
+date: 2024-01-01
+bodyparts:
+  - nose
+  - left_ear
+  - right_ear
+  - tail_base
+  - trial_light
+
+# Optional fields for more realistic config
+net_type: resnet50
+TrainingFraction:
+  - 0.95
+iteration: 0
+snapshotindex: 150000
+
+# Project structure
+project_path: .

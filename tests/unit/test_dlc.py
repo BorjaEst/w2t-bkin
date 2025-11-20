@@ -100,23 +100,89 @@ class TestModuleStructure:
 class TestModelValidation:
     """Test DLC model validation (T2)."""
 
-    @pytest.mark.skip(reason="T2: Not yet implemented")
     def test_Should_ValidateModel_When_ConfigYamlExists(self):
         """Should validate DLC model and extract metadata."""
-        # TODO: Implement after T2
-        pass
+        config_path = Path("tests/fixtures/models/dlc/valid_config.yaml")
 
-    @pytest.mark.skip(reason="T2: Not yet implemented")
+        model_info = validate_dlc_model(config_path)
+
+        assert model_info.config_path == config_path
+        assert model_info.project_path == config_path.parent
+        assert model_info.task == "BA_W2T_test"
+        assert model_info.date == "2024-01-01"
+        assert len(model_info.bodyparts) == 5
+        assert "nose" in model_info.bodyparts
+        assert "trial_light" in model_info.bodyparts
+        assert model_info.num_outputs == 15  # 5 bodyparts × 3 (x, y, likelihood)
+        assert "DLC" in model_info.scorer
+        assert "BA_W2T_test" in model_info.scorer
+
     def test_Should_RaiseError_When_ConfigYamlMissing(self):
         """Should raise DLCInferenceError when config.yaml missing."""
-        # TODO: Implement after T2
-        pass
+        nonexistent_path = Path("tests/fixtures/models/dlc/nonexistent.yaml")
 
-    @pytest.mark.skip(reason="T2: Not yet implemented")
+        with pytest.raises(DLCInferenceError) as exc_info:
+            validate_dlc_model(nonexistent_path)
+
+        assert "not found" in str(exc_info.value).lower()
+
     def test_Should_RaiseError_When_ConfigYamlInvalid(self):
         """Should raise DLCInferenceError when config.yaml invalid."""
-        # TODO: Implement after T2
-        pass
+        # Test with empty YAML
+        empty_path = Path("tests/fixtures/models/dlc/invalid_empty.yaml")
+
+        with pytest.raises(DLCInferenceError) as exc_info:
+            validate_dlc_model(empty_path)
+
+        assert "missing required fields" in str(exc_info.value).lower()
+
+    def test_Should_RaiseError_When_ConfigIsNotDict(self):
+        """Should raise DLCInferenceError when config.yaml is not a dictionary."""
+        not_dict_path = Path("tests/fixtures/models/dlc/invalid_not_dict.yaml")
+
+        with pytest.raises(DLCInferenceError) as exc_info:
+            validate_dlc_model(not_dict_path)
+
+        assert "must contain a yaml dictionary" in str(exc_info.value).lower()
+
+    def test_Should_RaiseError_When_MissingTaskField(self):
+        """Should raise DLCInferenceError when 'Task' field missing."""
+        missing_task_path = Path("tests/fixtures/models/dlc/missing_task.yaml")
+
+        with pytest.raises(DLCInferenceError) as exc_info:
+            validate_dlc_model(missing_task_path)
+
+        assert "missing required fields" in str(exc_info.value).lower()
+        assert "Task" in str(exc_info.value)
+
+    def test_Should_RaiseError_When_MissingBodypartsField(self):
+        """Should raise DLCInferenceError when 'bodyparts' field missing."""
+        missing_bodyparts_path = Path("tests/fixtures/models/dlc/missing_bodyparts.yaml")
+
+        with pytest.raises(DLCInferenceError) as exc_info:
+            validate_dlc_model(missing_bodyparts_path)
+
+        assert "missing required fields" in str(exc_info.value).lower()
+        assert "bodyparts" in str(exc_info.value)
+
+    def test_Should_RaiseError_When_BodypartsEmpty(self):
+        """Should raise DLCInferenceError when bodyparts list is empty."""
+        empty_bodyparts_path = Path("tests/fixtures/models/dlc/empty_bodyparts.yaml")
+
+        with pytest.raises(DLCInferenceError) as exc_info:
+            validate_dlc_model(empty_bodyparts_path)
+
+        assert "bodyparts" in str(exc_info.value).lower()
+        assert "empty" in str(exc_info.value).lower()
+
+    def test_Should_RaiseError_When_ConfigIsDirectory(self):
+        """Should raise DLCInferenceError when path is a directory."""
+        dir_path = Path("tests/fixtures/models/dlc")
+
+        with pytest.raises(DLCInferenceError) as exc_info:
+            validate_dlc_model(dir_path)
+
+        assert "must be a file" in str(exc_info.value).lower()
 
 
 class TestOutputPaths:

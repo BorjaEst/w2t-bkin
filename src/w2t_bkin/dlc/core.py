@@ -21,6 +21,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import yaml
+
 from w2t_bkin.dlc.models import DLCInferenceOptions, DLCInferenceResult, DLCModelInfo
 
 logger = logging.getLogger(__name__)
@@ -65,8 +67,84 @@ def validate_dlc_model(config_path: Path) -> DLCModelInfo:
         >>> print(f"Scorer: {model_info.scorer}")
         >>> print(f"Bodyparts: {model_info.bodyparts}")
     """
-    # TODO: Implement model validation (T2)
-    raise NotImplementedError("Model validation not yet implemented (T2)")
+    # Check config.yaml exists
+    if not config_path.exists():
+        raise DLCInferenceError(f"DLC config.yaml not found: {config_path}")
+
+    if not config_path.is_file():
+        raise DLCInferenceError(f"DLC config path must be a file: {config_path}")
+
+    # Parse YAML
+    try:
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise DLCInferenceError(f"Failed to parse DLC config.yaml: {e}")
+    except Exception as e:
+        raise DLCInferenceError(f"Failed to read DLC config.yaml: {e}")
+
+    if not isinstance(config, dict):
+        raise DLCInferenceError(f"DLC config.yaml must contain a YAML dictionary, got {type(config).__name__}")
+
+    # Extract and validate required fields
+    required_fields = ["Task", "bodyparts"]
+    missing = [f for f in required_fields if f not in config]
+    if missing:
+        raise DLCInferenceError(f"DLC config.yaml missing required fields: {missing}")
+
+    # Extract bodyparts
+    bodyparts = config["bodyparts"]
+    if not isinstance(bodyparts, list):
+        raise DLCInferenceError(f"DLC config 'bodyparts' must be a list, got {type(bodyparts).__name__}")
+    if not bodyparts:
+        raise DLCInferenceError("DLC config 'bodyparts' list is empty")
+
+    # Determine project_path (parent of config.yaml)
+    project_path = config_path.parent
+
+    # Build scorer name if available, otherwise use a default pattern
+    # DLC scorer format: DLC_<network>_<Task><date>shuffle<N>_<iteration>
+    # We'll try to extract from config, but it might not be fully specified
+    task = config["Task"]
+    date = config.get("date", "unknown")
+
+    # Try to construct scorer from snapshot info or use a simplified version
+    scorer_parts = ["DLC"]
+
+    # Add network if available
+    if "net_type" in config:
+        scorer_parts.append(config["net_type"])
+
+    # Add task
+    scorer_parts.append(task)
+
+    # Add date if available and not 'unknown'
+    if date != "unknown":
+        scorer_parts.append(date.replace("-", ""))
+
+    # Add shuffle info
+    shuffle = config.get("TrainingFraction", [1])[0] if "TrainingFraction" in config else 1
+    scorer_parts.append(f"shuffle{shuffle}")
+
+    # Add iteration if available
+    iteration = config.get("iteration", 0)
+    if "snapshotindex" in config:
+        scorer_parts.append(str(config["snapshotindex"]))
+
+    scorer = "_".join(scorer_parts)
+
+    # Log validation success
+    logger.debug(f"Validated DLC model: task='{task}', bodyparts={len(bodyparts)}, scorer='{scorer}'")
+
+    return DLCModelInfo(
+        config_path=config_path,
+        project_path=project_path,
+        scorer=scorer,
+        bodyparts=bodyparts,
+        num_outputs=len(bodyparts) * 3,  # x, y, likelihood per bodypart
+        task=task,
+        date=date,
+    )
 
 
 def predict_output_paths(
