@@ -61,12 +61,11 @@ from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offs
 from synthetic import build_raw_folder
 from w2t_bkin import config as cfg_module
 from w2t_bkin import ingest
-from w2t_bkin.events import discover_bpod_files, extract_behavioral_events, extract_trials, parse_bpod_mat, parse_bpod_session
-from w2t_bkin.events.helpers import to_scalar
+from w2t_bkin.events import discover_bpod_files, extract_behavioral_events, extract_trials, parse_bpod, parse_bpod_mat
 from w2t_bkin.events.summary import create_event_summary
-from w2t_bkin.sync import align_bpod_trials_to_ttl, create_timebase_provider, get_ttl_pulses
+from w2t_bkin.sync import align_bpod_trials_to_ttl, create_timebase_provider_from_config, get_ttl_pulses
 from w2t_bkin.sync.behavior import get_sync_time_from_bpod_trial
-from w2t_bkin.utils import convert_matlab_struct
+from w2t_bkin.utils import convert_matlab_struct, to_scalar
 
 
 class ExampleSettings(BaseSettings):
@@ -206,9 +205,9 @@ def run_pipeline(settings: ExampleSettings) -> dict:
             print(f"\nExample Bpod file:")
             print(f"  - nTrials:   {session_data_raw['nTrials']}")
 
-    # Parse complete Bpod session
+    # Parse complete Bpod session using low-level API
     print("\nParsing complete Bpod session (all Bpod files)...")
-    bpod_data_raw = parse_bpod_session(session_cfg)
+    bpod_data_raw = parse_bpod(session_dir=session_dir, pattern=session_cfg.bpod.path, order=session_cfg.bpod.order, continuous_time=session_cfg.bpod.continuous_time)
 
     # ---------------------------------------------------------------------
     # PHASE 4: Load TTL pulses and compute per-trial offsets
@@ -217,8 +216,10 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print("PHASE 4: TTL Pulses + Per-Trial Offsets")
     print("=" * 80)
 
-    print("\nStep 4.1: Load TTL pulses from disk")
-    ttl_pulses = get_ttl_pulses(session_cfg, session_dir=session_dir)
+    print("\nStep 4.1: Load TTL pulses from disk (Phase 2 pattern)")
+    # Extract primitives from session
+    ttl_patterns = {ttl.id: ttl.paths for ttl in session_cfg.TTLs}
+    ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
 
     print("\nTTL channels (absolute times):")
     for ttl_id, timestamps in ttl_pulses.items():
@@ -227,15 +228,17 @@ def run_pipeline(settings: ExampleSettings) -> dict:
         else:
             print(f"  - {ttl_id}: (no pulses)")
 
-    print("\nStep 4.2: Compute per-trial offsets (Bpod → TTL)")
+    print("\nStep 4.2: Compute per-trial offsets (Bpod → TTL) [Phase 2 pattern]")
     print("  For each trial, align Bpod sync state to next TTL pulse.")
     # Get sync signal and TTL from session config (first trial type as example)
     print(f"  - sync_signal '{session_cfg.bpod.trial_types[0].sync_signal}' is a Bpod state that triggers a TTL output")
     print(f"  - sync_ttl '{session_cfg.bpod.trial_types[0].sync_ttl}' is the TTL channel that records those pulses")
     print("  offset_trial = T_ttl_sync - (TrialStartTimestamp + sync_time_rel)")
 
+    # Extract trial type configs from session (Phase 2 pattern)
+    trial_type_configs = session_cfg.bpod.trial_types
     trial_offsets, warnings = align_bpod_trials_to_ttl(
-        session=session_cfg,
+        trial_type_configs=trial_type_configs,
         bpod_data=bpod_data_raw,
         ttl_pulses=ttl_pulses,
     )
