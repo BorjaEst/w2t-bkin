@@ -1,35 +1,26 @@
-"""Events module for W2T-BKIN pipeline (Phase 3 - Behavioral Data).
+"""Behavioral data parsing and extraction from Bpod .mat files.
 
-This package provides behavioral data parsing and extraction utilities organized by functional area:
+Provides low-level operations for:
+- Parsing and merging Bpod .mat files
+- Extracting trials with outcome inference
+- Extracting behavioral events
+- Creating QC summaries
 
-- **exceptions**: Error types (EventsError, BpodParseError, BpodValidationError)
-- **bpod**: Bpod file I/O (parse, discover, merge, validate, index, write)
-- **trials**: Trial extraction and outcome inference
-- **behavior**: Behavioral event extraction
-- **summary**: QC summary creation and persistence
-
-Public API:
------------
-All public functions are re-exported at the package level for convenience:
-
-    from w2t_bkin.events import (
-        parse_bpod_mat,
-        extract_trials,
-        extract_behavioral_events,
-        create_event_summary,
-    )
-
-See individual modules for detailed documentation.
+Example:
+    >>> from pathlib import Path
+    >>> from w2t_bkin.events import parse_bpod_mat, extract_trials
+    >>> bpod_data = parse_bpod_mat(Path("data/session.mat"))
+    >>> trials = extract_trials(bpod_data)
 """
+
+# Exceptions
+from ..exceptions import BpodParseError, BpodValidationError, EventsError
 
 # Behavioral events
 from .behavior import extract_behavioral_events
 
 # Bpod file operations
 from .bpod import index_bpod_data, merge_bpod_sessions, parse_bpod, parse_bpod_from_files, parse_bpod_mat, split_bpod_data, validate_bpod_structure, write_bpod_mat
-
-# Exceptions
-from .exceptions import BpodParseError, BpodValidationError, EventsError
 
 # QC summary
 from .summary import create_event_summary, write_event_summary

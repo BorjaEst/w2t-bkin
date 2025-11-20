@@ -1,7 +1,6 @@
-"""Helper utilities for events module.
+"""Internal utilities for events module.
 
-Provides low-level utilities for numpy array handling, validation, and sanitization.
-These are internal helpers used across the events submodules.
+Provides array handling, validation, and sanitization helpers.
 """
 
 import logging
@@ -10,8 +9,8 @@ from typing import Any, List, Union
 
 import numpy as np
 
+from ..exceptions import BpodValidationError
 from ..utils import is_nan_or_none, sanitize_string, validate_against_whitelist, validate_file_exists, validate_file_size
-from .exceptions import BpodValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +25,17 @@ MAX_BPOD_FILE_SIZE_MB = 100
 
 
 def to_scalar(value: Union[Any, np.ndarray], index: int) -> Any:
-    """Safely extract scalar value from numpy array or list.
-
-    Handles both numpy arrays and regular Python lists/tuples.
+    """Extract scalar from array or list.
 
     Args:
-        value: Value to extract from (ndarray, list, tuple, or scalar)
+        value: Array, list, tuple, or scalar
         index: Index to extract
 
     Returns:
         Scalar value at index
 
     Raises:
-        IndexError: If index is out of bounds
+        IndexError: Index out of bounds
     """
     if isinstance(value, np.ndarray):
         # Handle numpy arrays (including 0-d arrays)
@@ -53,10 +50,10 @@ def to_scalar(value: Union[Any, np.ndarray], index: int) -> Any:
 
 
 def to_list(value: Union[Any, np.ndarray]) -> List[Any]:
-    """Convert numpy array or scalar to Python list.
+    """Convert array or scalar to Python list.
 
     Args:
-        value: Value to convert (ndarray, list, tuple, or scalar)
+        value: Array, list, tuple, or scalar
 
     Returns:
         Python list
@@ -76,13 +73,13 @@ def to_list(value: Union[Any, np.ndarray]) -> List[Any]:
 
 
 def validate_bpod_path(path: Path) -> None:
-    """Validate Bpod file path for security.
+    """Validate Bpod file path and size.
 
     Args:
-        path: Path to Bpod .mat file
+        path: Path to .mat file
 
     Raises:
-        BpodValidationError: If path is invalid or file too large
+        BpodValidationError: Invalid path or file too large
     """
     # Validate file exists
     validate_file_exists(path, BpodValidationError, "Bpod file not found")
@@ -101,15 +98,13 @@ def validate_bpod_path(path: Path) -> None:
 
 
 def sanitize_event_type(event_type: str) -> str:
-    """Sanitize event type string from external data.
-
-    Removes potentially dangerous characters and limits length.
+    """Sanitize event type string.
 
     Args:
-        event_type: Raw event type string from .mat file
+        event_type: Raw event type from .mat file
 
     Returns:
-        Sanitized event type string
+        Sanitized event type
     """
     return sanitize_string(event_type, max_length=100, allowed_pattern="printable", default="unknown_event")
 
@@ -118,9 +113,9 @@ def validate_outcome(outcome: str) -> str:
     """Validate trial outcome against whitelist.
 
     Args:
-        outcome: Inferred outcome string
+        outcome: Outcome string
 
     Returns:
-        Validated outcome (defaults to 'unknown' if invalid)
+        Validated outcome (defaults to 'unknown')
     """
     return validate_against_whitelist(outcome, VALID_OUTCOMES, default="unknown", warn=True)

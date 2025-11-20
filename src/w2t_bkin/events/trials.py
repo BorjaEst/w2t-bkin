@@ -1,7 +1,6 @@
-"""Trial extraction and outcome inference.
+"""Extract trials and infer outcomes from Bpod data.
 
-Extracts Trial domain objects from Bpod data with outcome inference from state visits.
-Supports both relative and absolute timestamps via trial offsets.
+Provides trial extraction with outcome inference based on visited states.
 """
 
 import logging
@@ -9,9 +8,9 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from ..exceptions import BpodParseError
 from ..utils import convert_matlab_struct, is_nan_or_none
 from .bpod import validate_bpod_structure
-from .exceptions import BpodParseError
 from .helpers import to_scalar, validate_outcome
 from .models import Trial, TrialOutcome
 
@@ -24,44 +23,24 @@ logger = logging.getLogger(__name__)
 
 
 def extract_trials(bpod_data: Dict[str, Any], trial_offsets: Optional[Dict[int, float]] = None) -> List[Trial]:
-    """Extract trial data from parsed Bpod data dictionary.
+    """Extract trials from Bpod data with outcome inference.
 
-    Extracts trials with relative timestamps by default. If trial_offsets are provided
-    (from sync.align_bpod_trials_to_ttl), converts to absolute timestamps.
-
-    Warnings about failed trial extraction are logged automatically.
+    Returns trials with relative timestamps by default. If trial_offsets are
+    provided, converts to absolute timestamps.
 
     Args:
-        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod)
-        trial_offsets: Optional dict mapping trial_number → absolute time offset.
-                      If provided, converts relative timestamps to absolute.
-                      Use sync.align_bpod_trials_to_ttl() to compute offsets.
+        bpod_data: Bpod data dictionary
+        trial_offsets: Dict mapping trial_number → absolute time offset
 
     Returns:
-        List[Trial]: Trial objects with absolute (if offsets) or relative timestamps
+        List of Trial objects
 
     Raises:
-        BpodParseError: If structure is invalid or extraction fails
+        BpodParseError: Invalid structure or extraction failed
 
-    Examples:
-        >>> # Parse and extract (relative timestamps)
-        >>> from pathlib import Path
-        >>> from w2t_bkin.events import parse_bpod_mat, extract_trials
-        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
+    Example:
+        >>> bpod_data = parse_bpod_mat(Path("data/session.mat"))
         >>> trials = extract_trials(bpod_data)
-        >>>
-        >>> # With Session configuration
-        >>> from w2t_bkin.config import load_session
-        >>> from w2t_bkin.events import parse_bpod_session, extract_trials
-        >>> session = load_session("data/Session-001/session.toml")
-        >>> bpod_data = parse_bpod_session(session)
-        >>> trials = extract_trials(bpod_data)
-        >>>
-        >>> # With TTL alignment (absolute timestamps)
-        >>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
-        >>> ttl_pulses = get_ttl_pulses(session)
-        >>> trial_offsets, _ = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
-        >>> trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
     """
     # Validate Bpod data structure
     if not validate_bpod_structure(bpod_data):
@@ -153,15 +132,13 @@ def extract_trials(bpod_data: Dict[str, Any], trial_offsets: Optional[Dict[int, 
 
 
 def is_state_visited(state_times: Any) -> bool:
-    """Check if a state was visited (not NaN).
-
-    A state is considered visited if it has valid (non-NaN) start time.
+    """Check if a state was visited.
 
     Args:
-        state_times: State time array/list from Bpod data (can be ndarray, list, or tuple)
+        state_times: State time array/list from Bpod data
 
     Returns:
-        True if state was visited, False otherwise
+        True if state has valid (non-NaN) start time
     """
     # Handle numpy arrays
     if isinstance(state_times, np.ndarray):
@@ -182,13 +159,11 @@ def is_state_visited(state_times: Any) -> bool:
 def infer_outcome(states: Dict[str, Any]) -> str:
     """Infer trial outcome from visited states.
 
-    Checks outcome-determining states in priority order.
-
     Args:
-        states: Dictionary of state names to timing arrays
+        states: Dict of state names to timing arrays
 
     Returns:
-        Validated outcome string from VALID_OUTCOMES
+        Outcome string (hit, miss, correct_rejection, false_alarm, or unknown)
     """
     # Check states in priority order
     if "HIT" in states and is_state_visited(states["HIT"]):

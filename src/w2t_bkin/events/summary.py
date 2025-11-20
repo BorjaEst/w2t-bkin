@@ -1,7 +1,7 @@
-"""QC summary creation and persistence.
+"""Create QC summaries from trial and event data.
 
-Generates TrialSummary objects for quality control reporting, including
-trial counts, outcome distributions, event categories, and alignment statistics.
+Provides functions to generate and persist TrialSummary objects for quality
+control reporting.
 """
 
 from datetime import datetime
@@ -28,23 +28,18 @@ def create_event_summary(
     n_total_trials: Optional[int] = None,
     alignment_warnings: Optional[List[str]] = None,
 ) -> TrialSummary:
-    """Create event summary for QC report from extracted data.
-
-    This low-level API is Session-free. Callers must pass the resolved
-    ``session_id`` and list of Bpod file paths explicitly. High-level code
-    (e.g. ingest/orchestration) is responsible for deriving these values
-    from `config.toml` / `session.toml`.
+    """Create QC summary from trials and events.
 
     Args:
-        session_id: Identifier for the session (e.g. "Session-000001")
-        trials: List of extracted trials
-        events: List of extracted behavioral events
-        bpod_files: List of Bpod file paths associated with the session
-        n_total_trials: Total trials before alignment (for computing n_dropped)
-        alignment_warnings: List of alignment warnings (if alignment was performed)
+        session_id: Session identifier
+        trials: Extracted trials
+        events: Extracted behavioral events
+        bpod_files: List of Bpod file paths
+        n_total_trials: Total trials before alignment
+        alignment_warnings: Alignment warnings if applicable
 
     Returns:
-        TrialSummary object for QC reporting
+        TrialSummary object
     """
     if bpod_files is None:
         bpod_files = []
@@ -105,11 +100,11 @@ def create_event_summary(
 
 
 def write_event_summary(summary: TrialSummary, output_path: Path) -> None:
-    """Write event summary to JSON file.
+    """Write summary to JSON file.
 
     Args:
-        summary: TrialSummary object to write
-        output_path: Destination path for JSON file
+        summary: TrialSummary object
+        output_path: Output JSON path
     """
     data = summary.model_dump()
     write_json(data, output_path)

@@ -1,7 +1,6 @@
-"""Bpod file I/O operations.
+"""Low-level Bpod .mat file I/O operations.
 
-Handles parsing, discovery, merging, validation, and manipulation of Bpod .mat files.
-This module provides all low-level Bpod data operations.
+Provides functions to parse, merge, validate, index, and write Bpod data files.
 """
 
 import copy
@@ -17,61 +16,52 @@ except ImportError:
     loadmat = None
     savemat = None
 
+from ..exceptions import BpodParseError, BpodValidationError
 from ..utils import convert_matlab_struct, discover_files, sort_files
-from .exceptions import BpodParseError, BpodValidationError
 from .helpers import validate_bpod_path
 
 logger = logging.getLogger(__name__)
 
 
 def parse_bpod(session_dir: Path, pattern: str, order: str, continuous_time: bool = True) -> Dict[str, Any]:
-    """Parse Bpod data from a session directory, glob pattern, and ordering.
+    """Parse Bpod files matching a glob pattern.
 
-    This is the central low-level entrypoint for Bpod parsing. It performs
-    file discovery using a glob pattern and sort order, then parses and
-    optionally merges the resulting files. It does **not** depend on
-    Session or any other high-level configuration objects.
-
-    High-level code (e.g. ingest/manifest builders) SHOULD compute
-    ``session_dir``, ``pattern``, and ``order`` from `session.toml` and call
-    this function.
+    Discovers files using glob pattern, sorts them, then parses and merges.
 
     Args:
-        session_dir: Base directory for the session
-        pattern: Glob pattern for Bpod files relative to ``session_dir``
-        order: Sorting strategy (e.g. ``"name_asc"``)
-        continuous_time: If True, offset timestamps to create a continuous
-            timeline across files. If False, preserve original per-file
-            timestamps.
+        session_dir: Base directory for resolving glob pattern
+        pattern: Glob pattern for Bpod files (e.g. "Bpod/*.mat")
+        order: Sort order (e.g. "name_asc", "modified_desc")
+        continuous_time: Offset timestamps for continuous timeline
 
     Returns:
-        Unified Bpod data dictionary (single or merged)
+        Merged Bpod data dictionary
 
     Raises:
-        BpodValidationError: If no files found
-        BpodParseError: If parsing/merging fails
+        BpodValidationError: No files found
+        BpodParseError: Parse/merge failed
+
+    Example:
+        >>> from pathlib import Path
+        >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
     """
     file_paths = discover_bpod_files_from_pattern(session_dir=session_dir, pattern=pattern, order=order)
     return parse_bpod_from_files(file_paths=file_paths, continuous_time=continuous_time)
 
 
 def discover_bpod_files_from_pattern(session_dir: Path, pattern: str, order: str) -> List[Path]:
-    """Discover Bpod .mat files from a glob pattern and ordering.
-
-    This helper is the low-level building block used by :func:`parse_bpod`.
-    It does **not** depend on Session and works purely from a base directory
-    plus a glob pattern and ordering strategy.
+    """Discover and sort Bpod .mat files using a glob pattern.
 
     Args:
-        session_dir: Base directory for resolving glob patterns
-        pattern: Glob pattern for Bpod files (e.g. ``"Bpod/*.mat"``)
-        order: Sorting strategy (e.g. ``"name_asc"``)
+        session_dir: Base directory for glob pattern
+        pattern: Glob pattern (e.g. "Bpod/*.mat")
+        order: Sort order (e.g. "name_asc")
 
     Returns:
-        Sorted list of Bpod file paths
+        Sorted list of file paths
 
     Raises:
-        BpodValidationError: If no files found or pattern invalid
+        BpodValidationError: No files found
     """
     file_paths = discover_files(session_dir, pattern, sort=False)
 
@@ -85,35 +75,37 @@ def discover_bpod_files_from_pattern(session_dir: Path, pattern: str, order: str
 
 
 def parse_bpod_from_files(file_paths: Sequence[Path], continuous_time: bool = True) -> Dict[str, Any]:
-    """Parse and optionally merge Bpod files from explicit paths.
+    """Parse and merge Bpod files from explicit paths.
 
     Args:
-        file_paths: Ordered sequence of Bpod .mat file paths
-        continuous_time: If True, offset timestamps to create a continuous
-            timeline across files. If False, preserve original per-file
-            timestamps.
+        file_paths: Ordered paths to .mat files
+        continuous_time: Offset timestamps for continuous timeline
 
     Returns:
-        Unified Bpod data dictionary (single or merged)
+        Merged Bpod data dictionary
 
     Raises:
-        BpodParseError: If parsing/merging fails
+        BpodParseError: Parse/merge failed
     """
     return merge_bpod_sessions(list(file_paths), continuous_time=continuous_time)
 
 
 def parse_bpod_mat(path: Path) -> Dict[str, Any]:
-    """Parse Bpod MATLAB .mat file with security validation.
+    """Parse a single Bpod .mat file.
 
     Args:
         path: Path to .mat file
 
     Returns:
-        Dictionary with parsed Bpod data
+        Bpod data dictionary
 
     Raises:
-        BpodValidationError: If file validation fails
-        BpodParseError: If file cannot be parsed
+        BpodValidationError: File validation failed
+        BpodParseError: Parse failed
+
+    Example:
+        >>> from pathlib import Path
+        >>> bpod_data = parse_bpod_mat(Path("data/session.mat"))
     """
     # Validate path and file size
     validate_bpod_path(path)
@@ -131,13 +123,13 @@ def parse_bpod_mat(path: Path) -> Dict[str, Any]:
 
 
 def validate_bpod_structure(data: Dict[str, Any]) -> bool:
-    """Validate Bpod data structure has required fields.
+    """Validate Bpod data has required fields.
 
     Args:
-        data: Parsed Bpod data
+        data: Bpod data dictionary
 
     Returns:
-        True if structure is valid, False otherwise
+        True if valid
     """
     if "SessionData" not in data:
         logger.warning("Missing 'SessionData' in Bpod file")
@@ -168,21 +160,20 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
 
 
 def merge_bpod_sessions(file_paths: List[Path], continuous_time: bool = True) -> Dict[str, Any]:
-    """Merge multiple Bpod .mat files into unified session data.
+    """Merge multiple Bpod .mat files into one.
 
-    Combines trials from multiple Bpod files in order, updating trial numbers
-    and optionally offsetting timestamps to create a continuous session timeline.
+    Combines trials from files in order. With continuous_time=True, offsets
+    timestamps so each file continues from the previous file's end time.
 
     Args:
-        file_paths: Ordered list of Bpod .mat file paths
-        continuous_time: If True (default), offset timestamps to create continuous timeline.
-                        If False, preserve original per-file timestamps (concatenate mode).
+        file_paths: Ordered list of .mat file paths
+        continuous_time: Offset timestamps for continuous timeline
 
     Returns:
-        Merged Bpod data dictionary with combined trials
+        Merged Bpod data dictionary
 
     Raises:
-        BpodParseError: If files cannot be parsed or merged
+        BpodParseError: Parse/merge failed
     """
     if not file_paths:
         raise BpodParseError("No Bpod files to merge")
@@ -333,35 +324,22 @@ def merge_bpod_sessions(file_paths: List[Path], continuous_time: bool = True) ->
 
 
 def index_bpod_data(bpod_data: Dict[str, Any], trial_indices: List[int]) -> Dict[str, Any]:
-    """Index Bpod data to keep only specified trials.
-
-    Creates a new Bpod data dictionary containing only the trials specified by
-    their indices (0-based). All trial-related arrays (timestamps, events, settings,
-    types) are filtered consistently.
+    """Filter Bpod data to keep only specified trials.
 
     Args:
-        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod)
-        trial_indices: List of 0-based trial indices to keep (e.g., [0, 1, 2] for first 3 trials)
+        bpod_data: Bpod data dictionary
+        trial_indices: 0-based indices of trials to keep
 
     Returns:
-        New Bpod data dictionary with filtered trials
+        New Bpod data with filtered trials
 
     Raises:
-        BpodParseError: If structure is invalid
-        IndexError: If trial indices are out of bounds
+        BpodParseError: Invalid structure
+        IndexError: Indices out of bounds
 
-    Examples:
-        >>> from pathlib import Path
-        >>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat
-        >>>
-        >>> # Load Bpod data
-        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
-        >>>
-        >>> # Keep only first 3 trials
-        >>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])
-        >>>
-        >>> # Save filtered data
-        >>> write_bpod_mat(filtered_data, Path("data/Bpod/session_first3.mat"))
+    Example:
+        >>> bpod_data = parse_bpod_mat(Path("data/session.mat"))
+        >>> filtered = index_bpod_data(bpod_data, [0, 1, 2])  # First 3 trials
     """
     # Validate structure
     if not validate_bpod_structure(bpod_data):
@@ -429,39 +407,26 @@ def index_bpod_data(bpod_data: Dict[str, Any], trial_indices: List[int]) -> Dict
 
 
 def split_bpod_data(bpod_data: Dict[str, Any], splits: Sequence[Sequence[int]]) -> List[Dict[str, Any]]:
-    """Split Bpod data into multiple Bpod data dictionaries.
+    """Split Bpod data into multiple chunks by trial indices.
 
-    This is the inverse of ``merge_bpod_sessions`` for the use case where a
-    single Bpod session is exported into several .mat files that are later
-    merged back into a continuous timeline.
-
-    **Key properties**
-
-    - Each returned chunk is a valid Bpod data dict (passes
-      :func:`validate_bpod_structure`) and can be written using
-      :func:`write_bpod_mat`.
-    - Trial start/end timestamps and trial structure are preserved exactly as
-      they appear in ``bpod_data`` for the selected indices (no additional
-      offsets are introduced at split time).
-    - When the resulting files are later merged with
-      :func:`merge_bpod_sessions`, the timestamps are concatenated into a
-      continuous timeline using the merge logic (second file offset by the
-      last end time of the previous file, etc.).
+    Each output chunk is a valid Bpod data dictionary that can be written
+    with write_bpod_mat and later re-merged with merge_bpod_sessions.
 
     Args:
-        bpod_data: Parsed Bpod data dictionary (from :func:`parse_bpod_mat` or
-            :func:`parse_bpod`).
-        splits: Sequence of trial index sequences, each containing **0-based**
-            trial indices that should go into one output chunk, in the order
-            they should appear in that chunk.
+        bpod_data: Bpod data dictionary
+        splits: Sequences of 0-based trial indices for each chunk
 
     Returns:
-        List of Bpod data dictionaries, one per entry in ``splits``.
+        List of Bpod data dictionaries
 
     Raises:
-        BpodParseError: If the input structure is invalid.
-        IndexError: If any index is out of bounds.
-        ValueError: If a split is empty.
+        BpodParseError: Invalid structure
+        IndexError: Indices out of bounds
+        ValueError: Empty split
+
+    Example:
+        >>> bpod_data = parse_bpod_mat(Path("data/session.mat"))
+        >>> chunks = split_bpod_data(bpod_data, [[0, 1], [2, 3], [4, 5]])
     """
 
     # Validate structure first
@@ -493,27 +458,20 @@ def split_bpod_data(bpod_data: Dict[str, Any], splits: Sequence[Sequence[int]]) 
 
 
 def write_bpod_mat(bpod_data: Dict[str, Any], output_path: Path) -> None:
-    """Write Bpod data dictionary back to MATLAB .mat file.
-
-    Saves Bpod data structure to a .mat file compatible with Bpod software.
-    Can be used after filtering with index_bpod_data() or manual modifications.
+    """Write Bpod data to a .mat file.
 
     Args:
-        bpod_data: Bpod data dictionary (from parse_bpod_mat or index_bpod_data)
-        output_path: Path where to save the .mat file
+        bpod_data: Bpod data dictionary
+        output_path: Output .mat file path
 
     Raises:
-        BpodParseError: If scipy is not available or write fails
-        BpodValidationError: If data structure is invalid
+        BpodParseError: Write failed or scipy not available
+        BpodValidationError: Invalid structure
 
-    Examples:
-        >>> from pathlib import Path
-        >>> from w2t_bkin.events import parse_bpod_mat, index_bpod_data, write_bpod_mat
-        >>>
-        >>> # Load, filter, and save
-        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
-        >>> filtered_data = index_bpod_data(bpod_data, [0, 1, 2])
-        >>> write_bpod_mat(filtered_data, Path("data/Bpod/session_filtered.mat"))
+    Example:
+        >>> bpod_data = parse_bpod_mat(Path("data/session.mat"))
+        >>> filtered = index_bpod_data(bpod_data, [0, 1, 2])
+        >>> write_bpod_mat(filtered, Path("data/filtered.mat"))
     """
     # Validate structure before writing
     if not validate_bpod_structure(bpod_data):

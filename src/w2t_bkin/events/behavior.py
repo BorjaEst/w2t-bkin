@@ -1,7 +1,7 @@
-"""Behavioral event extraction.
+"""Extract behavioral events from Bpod data.
 
-Extracts TrialEvent domain objects from Bpod data representing behavioral events
-like port pokes, state entries/exits, and stimulus presentations.
+Extracts TrialEvent objects representing port pokes, state entries/exits,
+and stimulus presentations.
 """
 
 import logging
@@ -28,48 +28,24 @@ def extract_behavioral_events(
     *,
     bpod_absolute: bool = True,
 ) -> List[TrialEvent]:
-    """Extract behavioral events from parsed Bpod data dictionary.
+    """Extract behavioral events from Bpod data.
 
-        Produces timestamps suitable for NWB:
-        - If `trial_offsets` are provided (from `sync.align_bpod_trials_to_ttl`),
-            events are returned in TTL-aligned absolute time.
-        - Else, events default to Bpod session-absolute time computed as
-            `TrialStartTimestamp + event_rel`.
-        - Back-compat: you can force trial-relative timestamps by passing
-            `bpod_absolute=False`.
+    Returns events with timestamps computed as:
+    - With trial_offsets: offset + (TrialStartTimestamp + event_rel)
+    - Without offsets, bpod_absolute=True: TrialStartTimestamp + event_rel
+    - Without offsets, bpod_absolute=False: event_rel (trial-relative)
 
     Args:
-        bpod_data: Parsed Bpod data dictionary (from `parse_bpod_mat` or `parse_bpod`).
-        trial_offsets: Optional dict mapping trial_number → absolute time offset Δt, such that
-            absolute_time = offset + (TrialStartTimestamp + event_rel). Use
-            `sync.align_bpod_trials_to_ttl()` to compute offsets.
-        bpod_absolute: When no offsets are provided, controls whether to return
-            Bpod session-absolute timestamps (`True`, default) or trial-relative
-            timestamps (`False`).
+        bpod_data: Bpod data dictionary
+        trial_offsets: Dict mapping trial_number → absolute time offset
+        bpod_absolute: Use session-absolute timestamps when no offsets given
 
     Returns:
-        List of `TrialEvent` objects in TTL-aligned absolute (if offsets), or
-        Bpod-absolute (default), or trial-relative time when `bpod_absolute=False`.
+        List of TrialEvent objects
 
-    Examples:
-        >>> # Parse and extract (relative timestamps)
-        >>> from pathlib import Path
-        >>> from w2t_bkin.events import parse_bpod_mat, extract_behavioral_events
-        >>> bpod_data = parse_bpod_mat(Path("data/Bpod/session.mat"))
+    Example:
+        >>> bpod_data = parse_bpod_mat(Path("data/session.mat"))
         >>> events = extract_behavioral_events(bpod_data)
-        >>>
-        >>> # With Session configuration
-        >>> from w2t_bkin.config import load_session
-        >>> from w2t_bkin.events import parse_bpod_session, extract_behavioral_events
-        >>> session = load_session("data/Session-001/session.toml")
-        >>> bpod_data = parse_bpod_session(session)
-        >>> events = extract_behavioral_events(bpod_data)
-        >>>
-        >>> # With TTL alignment (absolute timestamps)
-        >>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
-        >>> ttl_pulses = get_ttl_pulses(session)
-        >>> trial_offsets, _ = align_bpod_trials_to_ttl(session, bpod_data, ttl_pulses)
-        >>> events = extract_behavioral_events(bpod_data, trial_offsets=trial_offsets)
     """
     # Validate Bpod data structure
     if not validate_bpod_structure(bpod_data):
