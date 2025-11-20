@@ -69,7 +69,7 @@ This document tracks how the current implementation compares to the target archi
 **Remaining Phase 2 Work:**
 
 - ⏳ Create high-level example using pipeline API (`examples/pipeline_simple.py`)
-- ⏳ Update `examples/bpod_camera_sync.py` completely (partially done - needs missing import fixes)
+- ✅ Update `examples/bpod_camera_sync.py` completely (import fixes applied)
 - ⏳ Convert `test_synthetic_integration.py` to use `run_session()` API (file-by-file strategy)
 - ⏳ Low-level composition example deferred to Phase 3
 

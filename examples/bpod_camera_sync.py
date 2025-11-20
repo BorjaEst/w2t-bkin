@@ -61,7 +61,8 @@ from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offs
 from synthetic import build_raw_folder
 from w2t_bkin import config as cfg_module
 from w2t_bkin import ingest
-from w2t_bkin.events import discover_bpod_files, extract_behavioral_events, extract_trials, parse_bpod, parse_bpod_mat
+from w2t_bkin.events import extract_behavioral_events, extract_trials, parse_bpod, parse_bpod_mat
+from w2t_bkin.events.bpod import discover_bpod_files_from_pattern
 from w2t_bkin.events.summary import create_event_summary
 from w2t_bkin.sync import align_bpod_trials_to_ttl, create_timebase_provider_from_config, get_ttl_pulses
 from w2t_bkin.sync.behavior import get_sync_time_from_bpod_trial
@@ -189,12 +190,16 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print("=" * 80)
 
     session_dir = Path(session_cfg.session_dir)
-    bpod_files = discover_bpod_files(session_cfg.bpod, session_dir)
-    print(f"\nFound {len(bpod_files)} Bpod file(s):")
+    # Use parse_bpod directly instead of discover_bpod_files
+    print(f"\nParsing Bpod files from pattern: {session_cfg.bpod.path}")
+
+    # Peek into first Bpod file to show structure (if exists)
+    bpod_files = discover_bpod_files_from_pattern(session_dir=session_dir, pattern=session_cfg.bpod.path, order=session_cfg.bpod.order)
+    print(f"Found {len(bpod_files)} Bpod file(s):")
     for bf in bpod_files:
         print(f"  - {bf.name}")
 
-    # Peek into first Bpod file to show structure
+    # Peek into first file
     bpod_raw_example = parse_bpod_mat(bpod_files[0])
     if "SessionData" in bpod_raw_example:
         session_data_raw = bpod_raw_example["SessionData"]
@@ -240,7 +245,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     trial_offsets, warnings = align_bpod_trials_to_ttl(
         trial_type_configs=trial_type_configs,
         bpod_data=bpod_data_raw,
-        ttl_pulses=ttl_pulses,
+        ttl_pulses=ttl_pulses,  # Pass full dict - function matches channels per trial_type
     )
 
     if warnings:
@@ -382,7 +387,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     trial_summary = create_event_summary(
-        session=session_cfg,
+        session_id=session_cfg.session.id,
         trials=trials,
         events=events,
     )
