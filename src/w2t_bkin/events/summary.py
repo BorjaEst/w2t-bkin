@@ -7,12 +7,10 @@ trial counts, outcome distributions, event categories, and alignment statistics.
 from datetime import datetime
 import logging
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
-from ..domain import Trial, TrialEvent, TrialSummary
-from ..domain.session import Session
+from ..events.models import Trial, TrialEvent, TrialSummary
 from ..utils import write_json
-from .bpod import discover_bpod_files
 
 logger = logging.getLogger(__name__)
 
@@ -23,57 +21,33 @@ logger = logging.getLogger(__name__)
 
 
 def create_event_summary(
-    session: Union[Session, str],
+    session_id: str,
     trials: List[Trial],
     events: List[TrialEvent],
     bpod_files: Optional[List[str]] = None,
     n_total_trials: Optional[int] = None,
     alignment_warnings: Optional[List[str]] = None,
 ) -> TrialSummary:
-    """Create event summary for QC report from Session and extracted data.
+    """Create event summary for QC report from extracted data.
 
-    Simplified API that accepts either:
-    - Session: Automatically extracts session_id and bpod_files from Session object
-    - str: Session ID (backwards compatible, requires bpod_files parameter)
+    This low-level API is Session-free. Callers must pass the resolved
+    ``session_id`` and list of Bpod file paths explicitly. High-level code
+    (e.g. ingest/orchestration) is responsible for deriving these values
+    from `config.toml` / `session.toml`.
 
     Args:
-        session: Session configuration OR session ID string
+        session_id: Identifier for the session (e.g. "Session-000001")
         trials: List of extracted trials
         events: List of extracted behavioral events
-        bpod_files: List of Bpod file paths (required if session is str, ignored if Session)
+        bpod_files: List of Bpod file paths associated with the session
         n_total_trials: Total trials before alignment (for computing n_dropped)
         alignment_warnings: List of alignment warnings (if alignment was performed)
 
     Returns:
         TrialSummary object for QC reporting
-
-    Examples:
-        >>> # Recommended: Session-based
-        >>> from w2t_bkin.config import load_session
-        >>> from w2t_bkin.events import parse_bpod_session, extract_trials, extract_behavioral_events
-        >>> session = load_session("data/Session-001/session.toml")
-        >>> bpod_data = parse_bpod_session(session)
-        >>> trials = extract_trials(bpod_data)
-        >>> events = extract_behavioral_events(bpod_data)
-        >>> summary = create_event_summary(session, trials, events)
-        >>>
-        >>> # Backwards compatible: session_id string
-        >>> summary = create_event_summary("session-001", trials, events, bpod_files=["/path/to/bpod.mat"])
     """
-    # Check if Session object or session_id string
-    if isinstance(session, Session):
-        # Extract session ID from Session
-        session_id = session.session.id
-
-        # Extract Bpod file paths from Session
-        session_dir = Path(session.session_dir)
-        bpod_files_paths = discover_bpod_files(session.bpod, session_dir)
-        bpod_files = [str(p) for p in bpod_files_paths]
-    else:
-        # Backwards compatible: treat as session_id string
-        session_id = session
-        if bpod_files is None:
-            raise ValueError("bpod_files parameter required when session is a string")
+    if bpod_files is None:
+        bpod_files = []
 
     # Count outcomes
     outcome_counts = {}

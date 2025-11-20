@@ -340,7 +340,7 @@ def index_bpod_data(bpod_data: Dict[str, Any], trial_indices: List[int]) -> Dict
     types) are filtered consistently.
 
     Args:
-        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod_session)
+        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod)
         trial_indices: List of 0-based trial indices to keep (e.g., [0, 1, 2] for first 3 trials)
 
     Returns:
@@ -450,7 +450,7 @@ def split_bpod_data(bpod_data: Dict[str, Any], splits: Sequence[Sequence[int]]) 
 
     Args:
         bpod_data: Parsed Bpod data dictionary (from :func:`parse_bpod_mat` or
-            :func:`parse_bpod_session`).
+            :func:`parse_bpod`).
         splits: Sequence of trial index sequences, each containing **0-based**
             trial indices that should go into one output chunk, in the order
             they should appear in that chunk.

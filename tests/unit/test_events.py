@@ -17,9 +17,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from w2t_bkin.domain import Session, Trial, TrialEvent, TrialSummary
-from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, SessionMetadata
-from w2t_bkin.domain.trials import TrialOutcome
+from w2t_bkin.domain import Session, SessionMetadata
+from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType
 from w2t_bkin.events import (
     BpodParseError,
     BpodValidationError,
@@ -33,6 +32,8 @@ from w2t_bkin.events import (
     validate_bpod_structure,
     write_event_summary,
 )
+from w2t_bkin.events.bpod import discover_bpod_files_from_pattern, parse_bpod, parse_bpod_from_files
+from w2t_bkin.events.models import Trial, TrialEvent, TrialOutcome, TrialSummary
 from w2t_bkin.sync import SyncError, align_bpod_trials_to_ttl, get_ttl_pulses
 
 # =============================================================================
@@ -101,6 +102,67 @@ class TestBpodMatParsing:
         assert "TrialEndTimestamp" in session_data
         assert "RawEvents" in session_data
         assert "Trial" in session_data["RawEvents"]
+
+
+class TestBpodRawFileAPIs:
+    """Test raw-file based Bpod helpers (no Session dependency)."""
+
+    def test_Should_DiscoverFilesFromPattern_When_ValidDirAndPattern(self, fixture_session_path):
+        """discover_bpod_files_from_pattern should honor pattern and order."""
+        pattern = "Bpod/*.mat"
+        order = "name_asc"
+
+        files = discover_bpod_files_from_pattern(fixture_session_path, pattern, order)
+
+        assert len(files) >= 1
+        # Ensure paths are within the session directory
+        assert all(str(path).startswith(str(fixture_session_path)) for path in files)
+
+    def test_Should_ParseFromFiles_When_SingleFileProvided(self, parsed_bpod_data, tmp_path, monkeypatch):
+        """parse_bpod_from_files should behave like merge_bpod_sessions for one file."""
+
+        # Re-use valid_bpod_file-like behavior via monkeypatch on loadmat
+        bpod_file = tmp_path / "single.mat"
+        bpod_file.write_text("")
+
+        def mock_loadmat(path, squeeze_me=True, struct_as_record=False):  # noqa: D401
+            return parsed_bpod_data
+
+        from w2t_bkin.events import bpod
+
+        monkeypatch.setattr(bpod, "loadmat", mock_loadmat)
+
+        result = parse_bpod_from_files([bpod_file], continuous_time=True)
+
+        assert validate_bpod_structure(result) is True
+        assert result["SessionData"]["nTrials"] == parsed_bpod_data["SessionData"]["nTrials"]
+
+    def test_Should_ParseBpod_When_PatternAndOrderProvided(self, parsed_bpod_data, fixture_session_path, tmp_path, monkeypatch):
+        """parse_bpod should discover files from pattern and merge them."""
+
+        # Create a fake Bpod file under the expected pattern path
+        bpod_dir = fixture_session_path / "Bpod"
+        bpod_dir.mkdir(parents=True, exist_ok=True)
+        bpod_file = bpod_dir / "session_01.mat"
+        bpod_file.write_text("")
+
+        # Monkeypatch loadmat to return known parsed data
+        from w2t_bkin.events import bpod as bpod_module
+
+        def mock_loadmat(path, squeeze_me=True, struct_as_record=False):  # noqa: D401
+            return parsed_bpod_data
+
+        monkeypatch.setattr(bpod_module, "loadmat", mock_loadmat)
+
+        result = parse_bpod(
+            session_dir=fixture_session_path,
+            pattern="Bpod/*.mat",
+            order="name_asc",
+            continuous_time=True,
+        )
+
+        assert validate_bpod_structure(result) is True
+        assert result["SessionData"]["nTrials"] == parsed_bpod_data["SessionData"]["nTrials"]
 
 
 class TestTrialExtraction:
@@ -209,13 +271,12 @@ class TestEdgeCasesAndErrorHandling:
         """States with [NaN, NaN] indicate state was not visited in that trial."""
         trials = extract_trials(parsed_bpod_data)
 
-        # Trial 1 has Miss state as NaN (not visited) → should be "hit"
-        from w2t_bkin.domain.trials import TrialOutcome
+        # Trial 1 has Miss state as NaN (not visited)  should be "hit"
+        trials = extract_trials(parsed_bpod_data)
+
+        from w2t_bkin.events.models import TrialOutcome
 
         assert trials[0].outcome == TrialOutcome.HIT
-
-    def test_Should_SkipNaNStates_When_InferringOutcome(self):
-        """Only non-NaN states should be considered for outcome inference."""
         data_with_nans = {
             "SessionData": {
                 "nTrials": 1,
@@ -226,7 +287,7 @@ class TestEdgeCasesAndErrorHandling:
         }
 
         trials = extract_trials(data_with_nans)
-        from w2t_bkin.domain.trials import TrialOutcome
+        from w2t_bkin.events.models import TrialOutcome
 
         assert trials[0].outcome == TrialOutcome.MISS
 
@@ -327,7 +388,7 @@ class TestSecurityAndValidation:
 
         trials = extract_trials(data)
         # Should get a valid outcome from Trial TrialOutcome enum
-        from w2t_bkin.domain.trials import TrialOutcome
+        from w2t_bkin.events.models import TrialOutcome
 
         assert trials[0].outcome in [TrialOutcome.HIT, TrialOutcome.MISS, TrialOutcome.CORRECT_REJECTION, TrialOutcome.FALSE_ALARM]
 
@@ -367,7 +428,7 @@ class TestTTLAlignment:
 
     def test_Should_LoadTTLPulses_When_ValidSession(self, mock_session_with_ttl):
         """Should load TTL pulses from session TTL files."""
-        ttl_pulses = get_ttl_pulses(mock_session_with_ttl)
+        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
 
         assert "ttl_cue" in ttl_pulses
         assert len(ttl_pulses["ttl_cue"]) == 3
@@ -392,15 +453,15 @@ class TestTTLAlignment:
             session_dir=str(tmp_path),
         )
 
-        ttl_pulses = get_ttl_pulses(session)
+        ttl_pulses = get_ttl_pulses_from_session(session)
         assert "missing" in ttl_pulses
         assert ttl_pulses["missing"] == []
 
     def test_Should_AlignTrials_When_ValidSync(self, mock_session_with_ttl, bpod_data_with_sync):
         """Should align all trials when sync signals match TTL pulses."""
-        ttl_pulses = get_ttl_pulses(mock_session_with_ttl)
+        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
 
-        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
+        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
 
         assert len(trial_offsets) == 3
         assert len(warnings) == 0
@@ -443,8 +504,8 @@ class TestTTLAlignment:
             }
         }
 
-        ttl_pulses = get_ttl_pulses(mock_session_with_ttl)
-        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
+        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
 
         # Extract trials with offsets (only trial 1 should have offset)
         aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
@@ -467,8 +528,8 @@ class TestTTLAlignment:
             }
         }
 
-        ttl_pulses = get_ttl_pulses(mock_session_with_ttl)  # Only 3 pulses
-        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)  # Only 3 pulses
+        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
 
         # Extract trials - should get all 5 trials, but only 3 will have absolute timestamps
         aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
@@ -491,8 +552,8 @@ class TestTTLAlignment:
             }
         }
 
-        ttl_pulses = get_ttl_pulses(mock_session_with_ttl)  # 3 pulses
-        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)  # 3 pulses
+        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
 
         # Extract trial with offset
         aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
@@ -520,7 +581,7 @@ class TestTTLAlignment:
         )
 
         with pytest.raises(SyncError, match="No trial_type sync configuration"):
-            align_bpod_trials_to_ttl(session, bpod_data_with_sync, {})
+            align_bpod_trials_to_ttl_from_session(session, bpod_data_with_sync, {})
 
     def test_Should_AlignMergedBpod_When_NonZeroTrialStartTimestamp(self, mock_session_with_ttl):
         """Should correctly align merged Bpod files with non-zero TrialStartTimestamp."""
@@ -553,7 +614,7 @@ class TestTTLAlignment:
             "ttl_cue": [10.0, 110.0, 210.0],  # All sync signals use ttl_cue channel
         }
 
-        trial_offsets, warnings = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data, ttl_pulses)
+        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
 
         assert len(trial_offsets) == 3
         assert len(warnings) == 0
@@ -597,8 +658,8 @@ class TestExtractTrialsWithAlignment:
     def test_Should_UseAlignment_When_OffsetsProvided(self, mock_session_with_ttl, bpod_data_with_sync):
         """Should use TTL alignment when trial_offsets provided."""
         # Get TTL pulses and compute offsets
-        ttl_pulses = get_ttl_pulses(mock_session_with_ttl)
-        trial_offsets, _ = align_bpod_trials_to_ttl(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
+        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
+        trial_offsets, _ = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
 
         # Extract trials with absolute timestamps
         trials = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
@@ -875,7 +936,7 @@ class TestBpodDataManipulation:
         This test reproduces the issue where write_bpod_mat creates files with
         mat_struct objects that aren't properly handled during merge.
         """
-        from w2t_bkin.events import merge_bpod_sessions, parse_bpod_session, write_bpod_mat
+        from w2t_bkin.events import merge_bpod_sessions, write_bpod_mat
 
         # Create filtered datasets
         filtered_data1 = index_bpod_data(sample_bpod_data, [0, 1])

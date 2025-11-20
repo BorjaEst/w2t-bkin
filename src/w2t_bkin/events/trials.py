@@ -9,12 +9,11 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from ..domain import Trial
-from ..domain.trials import TrialOutcome
 from ..utils import convert_matlab_struct, is_nan_or_none
 from .bpod import validate_bpod_structure
 from .exceptions import BpodParseError
 from .helpers import to_scalar, validate_outcome
+from .models import Trial, TrialOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ def extract_trials(bpod_data: Dict[str, Any], trial_offsets: Optional[Dict[int, 
     Warnings about failed trial extraction are logged automatically.
 
     Args:
-        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod_session)
+        bpod_data: Parsed Bpod data dictionary (from parse_bpod_mat or parse_bpod)
         trial_offsets: Optional dict mapping trial_number → absolute time offset.
                       If provided, converts relative timestamps to absolute.
                       Use sync.align_bpod_trials_to_ttl() to compute offsets.

@@ -72,24 +72,6 @@ Example:
 # Alignment and provenance models (Phase 2)
 from w2t_bkin.domain.alignment import AlignmentStats, Provenance
 
-# Bpod file parsing models (Phase 3 - Optional, Low-level)
-from w2t_bkin.domain.bpod import (
-    AnalogData,
-    AnalogInfo,
-    BpodMatFile,
-    CircuitRevision,
-    FirmwareInfo,
-    ModulesInfo,
-    PCSetup,
-    RawData,
-    RawEvents,
-    RawTrial,
-    SessionData,
-    SessionInfo,
-    StateTimings,
-    TrialEvents,
-)
-
 # Configuration models (Phase 0)
 from w2t_bkin.domain.config import (
     AcquisitionConfig,
@@ -157,9 +139,6 @@ from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera, Ses
 # Transcoding models (Phase 3 - Optional)
 from w2t_bkin.domain.transcode import TranscodedVideo, TranscodeOptions
 
-# Trial domain models (Phase 3 - Optional, High-level)
-from w2t_bkin.domain.trials import BehavioralEvents, Trial, TrialEvent, TrialOutcome, TrialSummary
-
 # Public API (alphabetically ordered within categories)
 __all__ = [
     # Exceptions
@@ -225,27 +204,6 @@ __all__ = [
     # Alignment models
     "AlignmentStats",
     "Provenance",
-    # Bpod file parsing models (low-level)
-    "BpodMatFile",
-    "SessionData",
-    "SessionInfo",
-    "AnalogData",
-    "AnalogInfo",
-    "FirmwareInfo",
-    "CircuitRevision",
-    "ModulesInfo",
-    "PCSetup",
-    "RawEvents",
-    "RawTrial",
-    "StateTimings",
-    "TrialEvents",
-    "RawData",
-    # Trial domain models (high-level)
-    "BehavioralEvents",  # NWB-compatible behavioral events
-    "Trial",
-    "TrialEvent",
-    "TrialOutcome",
-    "TrialSummary",
     # Pose models
     "PoseBundle",
     "PoseFrame",
