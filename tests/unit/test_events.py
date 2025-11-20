@@ -137,12 +137,14 @@ class TestBpodRawFileAPIs:
         assert validate_bpod_structure(result) is True
         assert result["SessionData"]["nTrials"] == parsed_bpod_data["SessionData"]["nTrials"]
 
-    def test_Should_ParseBpod_When_PatternAndOrderProvided(self, parsed_bpod_data, fixture_session_path, tmp_path, monkeypatch):
+    def test_Should_ParseBpod_When_PatternAndOrderProvided(self, parsed_bpod_data, tmp_path, monkeypatch):
         """parse_bpod should discover files from pattern and merge them."""
 
-        # Create a fake Bpod file under the expected pattern path
-        bpod_dir = fixture_session_path / "Bpod"
-        bpod_dir.mkdir(parents=True, exist_ok=True)
+        # Create a fake Bpod file in temporary directory
+        test_session_dir = tmp_path / "test_session"
+        test_session_dir.mkdir()
+        bpod_dir = test_session_dir / "Bpod"
+        bpod_dir.mkdir(parents=True)
         bpod_file = bpod_dir / "session_01.mat"
         bpod_file.write_text("")
 
@@ -155,7 +157,7 @@ class TestBpodRawFileAPIs:
         monkeypatch.setattr(bpod_module, "loadmat", mock_loadmat)
 
         result = parse_bpod(
-            session_dir=fixture_session_path,
+            session_dir=test_session_dir,
             pattern="Bpod/*.mat",
             order="name_asc",
             continuous_time=True,
