@@ -182,3 +182,7 @@ class FacemapBundle(BaseModel):
             if signal.roi_name not in roi_names:
                 raise ValueError(f"Signal references undefined ROI: {signal.roi_name}. " f"Defined ROIs: {roi_names}")
         return self
+
+
+# NOTE: These models are now defined in facemap.models for module-local ownership.
+# This file is kept for backward compatibility. Import from facemap.models instead.

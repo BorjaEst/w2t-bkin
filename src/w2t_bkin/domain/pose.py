@@ -164,3 +164,7 @@ class PoseBundle(BaseModel):
     alignment_method: Literal["nearest", "linear"] = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
     mean_confidence: float = Field(..., description="Mean confidence across all keypoints and frames", ge=0.0, le=1.0)
     generated_at: str = Field(..., description="ISO 8601 timestamp of pose bundle generation")
+
+
+# NOTE: These models are now defined in pose.models for module-local ownership.
+# This file is kept for backward compatibility. Import from pose.models instead.

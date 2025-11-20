@@ -77,7 +77,8 @@ from pynwb import NWBHDF5IO, NWBFile
 from pynwb.device import Device
 from pynwb.image import ImageSeries
 
-from .domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Provenance, TrialSummary
+from .domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Provenance
+from .events.models import TrialSummary
 from .utils import ensure_directory, sanitize_string
 
 logger = logging.getLogger(__name__)

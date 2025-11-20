@@ -70,7 +70,8 @@ Example:
 """
 
 # Alignment and provenance models (Phase 2)
-from w2t_bkin.domain.alignment import AlignmentStats, Provenance
+# Alignment and provenance (AlignmentStats moved to sync.models, re-exported for compatibility)
+from w2t_bkin.domain.alignment import Provenance
 
 # Configuration models (Phase 0)
 from w2t_bkin.domain.config import (
@@ -92,8 +93,17 @@ from w2t_bkin.domain.config import (
     VideoConfig,
 )
 
+# Manifest and verification models (Phase 1)
+from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, ManifestCamera, ManifestTTL, VerificationResult, VerificationSummary
+
+# Session models (Phase 0)
+from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera, Session, SessionMetadata
+
+# Events/Trial models (Phase 3) - Re-exported from events.models
+from w2t_bkin.events.models import BehavioralEvents, Trial, TrialOutcome, TrialSummary
+
 # Exception hierarchy
-from w2t_bkin.domain.exceptions import (
+from w2t_bkin.exceptions import (
     AlignmentError,
     BpodParseError,
     BpodValidationError,
@@ -124,20 +134,15 @@ from w2t_bkin.domain.exceptions import (
     W2TError,
 )
 
-# Facemap models (Phase 3 - Optional)
-from w2t_bkin.domain.facemap import FacemapBundle, FacemapROI, FacemapSignal
+# Facemap models (Phase 3 - Optional) - Re-exported from facemap.models
+from w2t_bkin.facemap.models import FacemapBundle, FacemapROI, FacemapSignal
 
-# Manifest and verification models (Phase 1)
-from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, ManifestCamera, ManifestTTL, VerificationResult, VerificationSummary
+# Pose estimation models (Phase 3 - Optional) - Re-exported from pose.models
+from w2t_bkin.pose.models import PoseBundle, PoseFrame, PoseKeypoint
+from w2t_bkin.sync.models import AlignmentStats
 
-# Pose estimation models (Phase 3 - Optional)
-from w2t_bkin.domain.pose import PoseBundle, PoseFrame, PoseKeypoint
-
-# Session models (Phase 0)
-from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera, Session, SessionMetadata
-
-# Transcoding models (Phase 3 - Optional)
-from w2t_bkin.domain.transcode import TranscodedVideo, TranscodeOptions
+# Transcoding models (Phase 3 - Optional) - Re-exported from transcode.models
+from w2t_bkin.transcode.models import TranscodedVideo, TranscodeOptions
 
 # Public API (alphabetically ordered within categories)
 __all__ = [
@@ -215,4 +220,9 @@ __all__ = [
     # Transcode models
     "TranscodeOptions",
     "TranscodedVideo",
+    # Events/Trial models
+    "Trial",
+    "TrialOutcome",
+    "TrialSummary",
+    "BehavioralEvents",
 ]

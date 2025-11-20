@@ -1,13 +1,12 @@
 """Alignment and provenance domain models (Phase 2).
 
-This module defines models for timebase alignment statistics and
-provenance tracking. These models capture alignment quality metrics
-and configuration hashes for reproducibility.
+This module contains Provenance model for configuration tracking.
+AlignmentStats has been moved to sync.models (module-local ownership).
 
 Model Hierarchy:
 ---------------
-- AlignmentStats: Jitter metrics and alignment summary
 - Provenance: Config/session hashes for reproducibility
+- AlignmentStats: Moved to sync.models (re-exported from domain for compatibility)
 
 Key Features:
 -------------
@@ -29,7 +28,8 @@ Acceptance Criteria:
 
 Usage:
 ------
->>> from w2t_bkin.domain.alignment import AlignmentStats
+>>> # AlignmentStats now in sync.models
+>>> from w2t_bkin.sync.models import AlignmentStats
 >>> stats = AlignmentStats(
 ...     timebase_source="ttl",
 ...     mapping="nearest",
@@ -54,50 +54,6 @@ See Also:
 from typing import Literal
 
 from pydantic import BaseModel, Field
-
-
-class AlignmentStats(BaseModel):
-    """Alignment statistics for timebase synchronization (Phase 2).
-
-    Captures metrics about the quality of alignment between the reference
-    timebase and derived data streams (pose, facemap, etc). Jitter metrics
-    are compared against the configured jitter_budget_s threshold.
-
-    Attributes:
-        timebase_source: Source of reference timebase ("nominal_rate"|"ttl"|"neuropixels")
-        mapping: Alignment mapping strategy ("nearest"|"linear")
-        offset_s: Time offset applied to timebase (seconds)
-        max_jitter_s: Maximum jitter observed (seconds)
-        p95_jitter_s: 95th percentile jitter (seconds)
-        aligned_samples: Number of samples successfully aligned
-
-    Requirements:
-        - FR-TB-1..6: Timebase alignment strategy
-        - FR-17: Provenance of timebase choice
-        - A17: Jitter budget enforcement before NWB
-
-    Example:
-        >>> stats = AlignmentStats(
-        ...     timebase_source="ttl",
-        ...     mapping="nearest",
-        ...     offset_s=0.0,
-        ...     max_jitter_s=0.0001,
-        ...     p95_jitter_s=0.00005,
-        ...     aligned_samples=8580
-        ... )
-        >>> # Check against budget
-        >>> if stats.max_jitter_s > budget:
-        ...     raise JitterExceedsBudgetError(...)
-    """
-
-    model_config = {"frozen": True, "extra": "forbid"}
-
-    timebase_source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(..., description="Source of reference timebase: 'nominal_rate' | 'ttl' | 'neuropixels'")
-    mapping: Literal["nearest", "linear"] = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
-    offset_s: float = Field(..., description="Time offset applied to timebase in seconds")
-    max_jitter_s: float = Field(..., description="Maximum jitter observed in seconds", ge=0)
-    p95_jitter_s: float = Field(..., description="95th percentile jitter in seconds", ge=0)
-    aligned_samples: int = Field(..., description="Number of samples successfully aligned", ge=0)
 
 
 class Provenance(BaseModel):

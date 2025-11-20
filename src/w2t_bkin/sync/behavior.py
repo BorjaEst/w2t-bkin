@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ..domain.session import BpodTrialType
+from .protocols import BpodTrialTypeProtocol
 from ..exceptions import SyncError
 
 __all__ = [

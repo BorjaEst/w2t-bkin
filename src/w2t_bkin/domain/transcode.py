@@ -134,3 +134,7 @@ class TranscodedVideo(BaseModel):
     codec: Literal["libx264", "libx265", "libvpx-vp9", "libaom-av1"] = Field(..., description="Video codec used for transcoding")
     checksum: str = Field(..., description="Content-addressed hash (e.g., SHA256) for idempotent operations")
     frame_count: int = Field(..., description="Total frame count for verification", ge=0)
+
+
+# NOTE: These models are now defined in transcode.models for module-local ownership.
+# This file is kept for backward compatibility. Import from transcode.models instead.
