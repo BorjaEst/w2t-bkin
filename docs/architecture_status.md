@@ -39,6 +39,40 @@ This document tracks how the current implementation compares to the target archi
 - Public API exposed via `{module}/__init__.py`
 - Domain models deprecated in place with clear migration notes
 
+## 🚧 Phase 2 In Progress (2025-01-20)
+
+**Pipeline Orchestration Module Created:**
+
+- ✅ `pipeline.py` module implements high-level orchestration API
+- ✅ `run_session()` function orchestrates all pipeline stages
+- ✅ Config/Session owned exclusively by orchestration layer
+- ✅ Low-level tools called with primitives (paths, dicts, lists) derived from Session/Config
+- ✅ Structured `RunResult` with manifest, alignment_stats, events_summary, provenance
+- ✅ Integration test framework created (`test_pipeline.py`)
+
+**Orchestration Pattern:**
+
+- Pipeline module is ONLY layer that touches Config/Session
+- Extracts primitives from Session: file patterns, order specs, trial type configs
+- Calls low-level APIs: `parse_bpod()`, `get_ttl_pulses()`, `extract_trials()`
+- Coordinates phases: config load → ingest → events → sync → optional modalities → NWB
+- Returns structured results with full provenance tracking
+
+**Phase 2 Completion (2025-11-20):**
+
+- ✅ Created `synthetic.scenarios` module with test fixtures (happy_path, mismatch_counts, no_ttl, multi_camera)
+- ✅ Removed `get_ttl_pulses_from_session()` from `sync/ttl.py` - all call sites updated to extract primitives
+- ✅ Removed `align_bpod_trials_to_ttl_from_session()` from `sync/behavior.py` - all call sites updated to extract primitives
+- ✅ Updated 20+ test files to use primitive extraction pattern (Phase 2 architecture)
+- ✅ Integration tests unblocked: 5/7 passing in `test_pipeline.py`, all scenarios working
+
+**Remaining Phase 2 Work:**
+
+- ⏳ Create high-level example using pipeline API (`examples/pipeline_simple.py`)
+- ⏳ Update `examples/bpod_camera_sync.py` completely (partially done - needs missing import fixes)
+- ⏳ Convert `test_synthetic_integration.py` to use `run_session()` API (file-by-file strategy)
+- ⏳ Low-level composition example deferred to Phase 3
+
 ## Known Remaining Work
 
 - `events.bpod` exposes a Session-free low-level entrypoint (`parse_bpod(session_dir, pattern, order, continuous_time)`), but some high-level helpers elsewhere in the codebase may still call Bpod logic with `Session` rather than primitives. Those call sites SHOULD be migrated to compute `session_dir`, `pattern`, and `order` from `Session` and then delegate to `parse_bpod`.
