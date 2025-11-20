@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "w2t_bkin"
-version = "0.0.1"
+version = "0.0.2"
 description = "Mouse wiskers body kinematics and behaviour"
 authors = [{ name = "Larkum Lab" }]
 license = { text = "Apache-2.0" }
