@@ -103,13 +103,13 @@ def validate_dlc_model(config_path: Path) -> DLCModelInfo:
     project_path = config_path.parent
 
     # Build scorer name if available, otherwise use a default pattern
-    # DLC scorer format: DLC_<network>_<Task><date>shuffle<N>_<iteration>
-    # We'll try to extract from config, but it might not be fully specified
+    # DLC scorer format for filenames: <network>_<Task><date>shuffle<N>_<iteration>
+    # Note: "DLC_" prefix is added in the filename, not in the scorer itself
     task = config["Task"]
     date = config.get("date", "unknown")
 
     # Try to construct scorer from snapshot info or use a simplified version
-    scorer_parts = ["DLC"]
+    scorer_parts = []
 
     # Add network if available
     if "net_type" in config:
@@ -120,7 +120,9 @@ def validate_dlc_model(config_path: Path) -> DLCModelInfo:
 
     # Add date if available and not 'unknown'
     if date != "unknown":
-        scorer_parts.append(date.replace("-", ""))
+        # Convert to string in case YAML parsed it as a date object
+        date_str = str(date).replace("-", "")
+        scorer_parts.append(date_str)
 
     # Add shuffle info
     shuffle = config.get("TrainingFraction", [1])[0] if "TrainingFraction" in config else 1
@@ -143,7 +145,7 @@ def validate_dlc_model(config_path: Path) -> DLCModelInfo:
         bodyparts=bodyparts,
         num_outputs=len(bodyparts) * 3,  # x, y, likelihood per bodypart
         task=task,
-        date=date,
+        date=str(date) if date != "unknown" else date,
     )
 
 
@@ -181,8 +183,23 @@ def predict_output_paths(
         >>> paths['h5']
         PosixPath('output/videoDLC_scorer.h5')
     """
-    # TODO: Implement output path prediction (T3)
-    raise NotImplementedError("Output path prediction not yet implemented (T3)")
+    # Extract video stem (filename without extension)
+    video_stem = video_path.stem
+
+    # Build output filename following DLC naming convention
+    # Format: {video_stem}DLC_{scorer}.h5
+    base_name = f"{video_stem}DLC_{model_info.scorer}"
+
+    # Build output paths
+    result = {"h5": output_dir / f"{base_name}.h5"}
+
+    # Add CSV path if requested
+    if save_csv:
+        result["csv"] = output_dir / f"{base_name}.csv"
+
+    logger.debug(f"Predicted output paths for '{video_path.name}': h5={result['h5'].name}")
+
+    return result
 
 
 def auto_detect_gpu() -> Optional[int]:
@@ -204,8 +221,28 @@ def auto_detect_gpu() -> Optional[int]:
         ... else:
         ...     print("Using CPU")
     """
-    # TODO: Implement GPU auto-detection (T4)
-    raise NotImplementedError("GPU auto-detection not yet implemented (T4)")
+    try:
+        # Attempt to import TensorFlow
+        import tensorflow as tf
+
+        # Get list of physical GPU devices
+        gpus = tf.config.list_physical_devices("GPU")
+
+        if gpus:
+            logger.debug(f"Auto-detected {len(gpus)} GPU(s), using GPU 0")
+            return 0
+        else:
+            logger.debug("No GPUs detected, will use CPU")
+            return None
+
+    except ImportError:
+        # TensorFlow not available, fall back to CPU
+        logger.debug("TensorFlow not available for GPU detection, will use CPU")
+        return None
+    except Exception as e:
+        # Any other error in GPU detection, fall back to CPU
+        logger.warning(f"GPU detection failed: {e}, will use CPU")
+        return None
 
 
 def run_dlc_inference_batch(
@@ -256,5 +293,133 @@ def run_dlc_inference_batch(
         >>> success_count = sum(1 for r in results if r.success)
         >>> print(f"{success_count}/{len(results)} videos succeeded")
     """
-    # TODO: Implement batch inference (T5)
-    raise NotImplementedError("Batch inference not yet implemented (T5)")
+    import time
+
+    # Initialize options with defaults if not provided
+    if options is None:
+        options = DLCInferenceOptions()
+
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Step 1: Validate model
+    logger.info(f"Validating DLC model: {model_config_path}")
+    try:
+        model_info = validate_dlc_model(model_config_path)
+    except DLCInferenceError as e:
+        # Model validation failed - critical error, cannot proceed
+        logger.error(f"Model validation failed: {e}")
+        raise
+
+    # Step 2: Resolve GPU selection
+    gpu_to_use = options.gputouse
+    if gpu_to_use is None:
+        gpu_to_use = auto_detect_gpu()
+        logger.info(f"GPU auto-detection: {gpu_to_use if gpu_to_use is not None else 'CPU'}")
+    else:
+        logger.info(f"Using specified GPU: {gpu_to_use}")
+
+    # Step 3: Prepare for batch inference
+    logger.info(f"Starting DLC inference for {len(video_paths)} video(s)")
+    logger.debug(f"Output directory: {output_dir}")
+    logger.debug(f"Model scorer: {model_info.scorer}")
+    logger.debug(f"Save CSV: {options.save_as_csv}")
+
+    # Initialize results list
+    results = []
+
+    # Process each video (DLC analyze_videos handles batch internally)
+    for video_path in video_paths:
+        start_time = time.time()
+
+        try:
+            # Import deeplabcut
+            try:
+                import deeplabcut
+            except ImportError as e:
+                raise DLCInferenceError(f"DeepLabCut not available: {e}")
+
+            # Predict output paths
+            predicted_paths = predict_output_paths(
+                video_path=video_path,
+                model_info=model_info,
+                output_dir=output_dir,
+                save_csv=options.save_as_csv,
+            )
+
+            logger.info(f"Processing video: {video_path.name}")
+
+            # Call DLC inference
+            # Note: analyze_videos processes one video at a time but can be called in sequence
+            deeplabcut.analyze_videos(
+                config=str(model_config_path),
+                videos=[str(video_path)],
+                destfolder=str(output_dir),
+                gputouse=gpu_to_use,
+                save_as_csv=options.save_as_csv,
+                allow_growth=options.allow_growth,
+            )
+
+            # Calculate elapsed time
+            elapsed_time = time.time() - start_time
+
+            # Verify output file exists
+            h5_output = predicted_paths["h5"]
+            if not h5_output.exists():
+                raise DLCInferenceError(f"Expected output H5 file not found: {h5_output}")
+
+            # Get frame count from H5 file
+            try:
+                import pandas as pd
+
+                df = pd.read_hdf(h5_output)
+                frame_count = len(df)
+            except Exception as e:
+                logger.warning(f"Could not read frame count from H5: {e}")
+                frame_count = 0
+
+            # Create success result
+            result = DLCInferenceResult(
+                video_path=video_path,
+                h5_output_path=h5_output,
+                csv_output_path=predicted_paths.get("csv"),
+                model_config_path=model_config_path,
+                frame_count=frame_count,
+                inference_time_s=elapsed_time,
+                gpu_used=gpu_to_use,
+                success=True,
+                error_message=None,
+            )
+
+            logger.info(f"✓ Completed {video_path.name} in {elapsed_time:.1f}s ({frame_count} frames)")
+            results.append(result)
+
+        except Exception as e:
+            # Individual video failure - log and continue
+            elapsed_time = time.time() - start_time
+            error_msg = str(e)
+
+            logger.error(f"✗ Failed {video_path.name}: {error_msg}")
+
+            # Create failure result
+            result = DLCInferenceResult(
+                video_path=video_path,
+                h5_output_path=None,
+                csv_output_path=None,
+                model_config_path=model_config_path,
+                frame_count=0,
+                inference_time_s=elapsed_time,
+                gpu_used=gpu_to_use,
+                success=False,
+                error_message=error_msg,
+            )
+            results.append(result)
+
+            # Continue to next video (graceful partial failure handling)
+            continue
+
+    # Summary
+    success_count = sum(1 for r in results if r.success)
+    logger.info(f"Batch inference complete: {success_count}/{len(results)} videos succeeded")
+
+    return results

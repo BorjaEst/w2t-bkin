@@ -23,9 +23,13 @@ All public functions and models are re-exported at the package level:
         harmonize_sleap_to_canonical,
         align_pose_to_timebase,
         validate_pose_confidence,
+        # TTL mock generation
+        TTLMockOptions,
+        generate_ttl_from_dlc_likelihood,
+        generate_and_write_ttl_from_pose,
     )
 
-See core and models modules for detailed documentation.
+See core, models, and ttl_mock modules for detailed documentation.
 """
 
 # Re-export core functions
@@ -43,6 +47,16 @@ from .core import (
 # Re-export models
 from .models import PoseBundle, PoseFrame, PoseKeypoint
 
+# Re-export TTL mock utilities
+from .ttl_mock import (
+    TTLMockOptions,
+    generate_and_write_ttl_from_pose,
+    generate_ttl_from_custom_predicate,
+    generate_ttl_from_dlc_likelihood,
+    load_dlc_likelihood_series,
+    write_ttl_timestamps,
+)
+
 __all__ = [
     # Models
     "PoseBundle",
@@ -58,4 +72,11 @@ __all__ = [
     "harmonize_sleap_to_canonical",
     "align_pose_to_timebase",
     "validate_pose_confidence",
+    # TTL mock generation
+    "TTLMockOptions",
+    "generate_ttl_from_dlc_likelihood",
+    "generate_ttl_from_custom_predicate",
+    "generate_and_write_ttl_from_pose",
+    "load_dlc_likelihood_series",
+    "write_ttl_timestamps",
 ]
