@@ -71,4 +71,46 @@ This document tracks how the current implementation compares to the target archi
 - ✅ Cleaned up duplicate model files - replaced with deprecation stubs (`domain/pose.py`, `domain/facemap.py`, `domain/transcode.py`)
 - ✅ Backward compatibility maintained via `domain/__init__.py` re-exports
 
-## Phase 3 Planning
+## 🚧 Phase 3 In Progress (2025-11-20)
+
+**DLC Inference Module:**
+
+- 🚧 New `dlc/` module for DeepLabCut model inference (batch processing)
+- 🚧 Low-level API: `run_dlc_inference_batch(video_paths, model_config_path, output_dir, options)`
+- 🚧 Module-local models: `DLCInferenceOptions`, `DLCInferenceResult`, `DLCModelInfo`
+- 🚧 GPU handling: Auto-detection with optional override (config.toml or function arg)
+- 🚧 Batch optimization: Single `deeplabcut.analyze_videos()` call for all cameras
+- 🚧 Error handling: Graceful partial failures, GPU OOM fallback to CPU
+- 🚧 Integration: Pipeline extracts primitives, calls low-level API before pose import
+
+**Phase 3 Implementation Plan:**
+
+See `docs/tasks.md` for detailed task breakdown (12 tasks, ~5 days estimated).
+
+Key architectural features:
+
+- ✅ Requirements documented (`docs/requirements_dlc_inference.md`)
+- ✅ Design documented (`docs/design_dlc_inference.md`)
+- ✅ Tasks planned (`docs/tasks.md`)
+- ⏳ Module structure creation
+- ⏳ Core inference implementation
+- ⏳ Pipeline integration
+- ⏳ Test coverage (unit + integration)
+- ⏳ Documentation updates
+
+**Batch Processing Strategy:**
+
+- **Optimization**: Process all camera videos in single DLC call (vs sequential per-camera)
+- **Expected speedup**: 2-3x for 5-camera setups
+- **Memory**: ~3-5GB VRAM for 5 × 720p videos
+- **Idempotency**: Content-addressed outputs, skip inference if unchanged
+
+**GPU Configuration Pattern:**
+
+Priority order for GPU selection:
+
+1. Function argument `options.gputouse` (highest priority)
+2. Config TOML `config.labels.dlc.gputouse` (medium priority)
+3. Auto-detection via TensorFlow (lowest priority, default)
+
+Values: `0, 1, ...` (GPU index), `-1` (force CPU), `None` (auto-detect)

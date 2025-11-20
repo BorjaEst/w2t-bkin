@@ -54,6 +54,7 @@ Low-level modules operate on raw files and simple arguments (e.g., glob patterns
 | utils           | primitives, file paths                                    | hashing, path safety, subprocess wrappers, logging | NFR-1/2/3              |
 | events.bpod     | Bpod `.mat` file paths, `order`, trial-type specs         | raw Bpod data, parsed trial structures             | FR-11                  |
 | events.trials   | parsed Bpod data, trial-type specs                        | events-specific trial models                       | FR-11/14               |
+| dlc             | video file paths, model config path, GPU selection        | H5 pose files, inference results, batch processing | FR-5, NFR-1/2          |
 | pose            | pose result file paths, skeleton maps, frame/idx ranges   | pose traces, pose bundle models                    | FR-5                   |
 | facemap         | video file paths, ROI specs, frame/idx ranges             | facemap traces, facemap bundle models              | FR-6                   |
 | transcode       | input video file paths, codec/format options              | transcoded/mezzanine video file paths              | FR-4, NFR-2            |
