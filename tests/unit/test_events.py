@@ -186,7 +186,7 @@ class TestTrialExtraction:
         trials = extract_trials(parsed_bpod_data)
 
         # Trial 0: HIT state is valid (not NaN) → hit
-        from w2t_bkin.domain.trials import TrialOutcome
+        from w2t_bkin.events.models import TrialOutcome
 
         assert trials[0].outcome == TrialOutcome.HIT
 
@@ -428,7 +428,10 @@ class TestTTLAlignment:
 
     def test_Should_LoadTTLPulses_When_ValidSession(self, mock_session_with_ttl):
         """Should load TTL pulses from session TTL files."""
-        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
+        # Extract primitives from Session (Phase 2 pattern)
+        ttl_patterns = {ttl.id: ttl.paths for ttl in mock_session_with_ttl.TTLs}
+        session_dir = Path(mock_session_with_ttl.session_dir)
+        ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
 
         assert "ttl_cue" in ttl_pulses
         assert len(ttl_pulses["ttl_cue"]) == 3
@@ -453,15 +456,23 @@ class TestTTLAlignment:
             session_dir=str(tmp_path),
         )
 
-        ttl_pulses = get_ttl_pulses_from_session(session)
+        # Extract primitives from Session (Phase 2 pattern)
+        ttl_patterns = {ttl.id: ttl.paths for ttl in session.TTLs}
+        session_dir = Path(session.session_dir)
+        ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
         assert "missing" in ttl_pulses
         assert ttl_pulses["missing"] == []
 
     def test_Should_AlignTrials_When_ValidSync(self, mock_session_with_ttl, bpod_data_with_sync):
         """Should align all trials when sync signals match TTL pulses."""
-        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
+        # Extract primitives from Session (Phase 2 pattern)
+        ttl_patterns = {ttl.id: ttl.paths for ttl in mock_session_with_ttl.TTLs}
+        session_dir = Path(mock_session_with_ttl.session_dir)
+        ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
 
-        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
+        # Extract trial type configs and call primitive API (Phase 2 pattern)
+        trial_type_configs = mock_session_with_ttl.bpod.trial_types
+        trial_offsets, warnings = align_bpod_trials_to_ttl(trial_type_configs, bpod_data_with_sync, ttl_pulses)
 
         assert len(trial_offsets) == 3
         assert len(warnings) == 0
@@ -504,8 +515,13 @@ class TestTTLAlignment:
             }
         }
 
-        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
-        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
+        # Extract primitives from Session (Phase 2 pattern)
+        ttl_patterns = {ttl.id: ttl.paths for ttl in mock_session_with_ttl.TTLs}
+        session_dir = Path(mock_session_with_ttl.session_dir)
+        ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
+        # Extract trial type configs (Phase 2 pattern)
+        trial_type_configs = mock_session_with_ttl.bpod.trial_types
+        trial_offsets, warnings = align_bpod_trials_to_ttl(trial_type_configs, bpod_data, ttl_pulses)
 
         # Extract trials with offsets (only trial 1 should have offset)
         aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
@@ -528,8 +544,13 @@ class TestTTLAlignment:
             }
         }
 
-        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)  # Only 3 pulses
-        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
+        # Extract primitives from Session (Phase 2 pattern)
+        ttl_patterns = {ttl.id: ttl.paths for ttl in mock_session_with_ttl.TTLs}
+        session_dir = Path(mock_session_with_ttl.session_dir)
+        ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)  # Only 3 pulses
+        # Extract trial type configs (Phase 2 pattern)
+        trial_type_configs = mock_session_with_ttl.bpod.trial_types
+        trial_offsets, warnings = align_bpod_trials_to_ttl(trial_type_configs, bpod_data, ttl_pulses)
 
         # Extract trials - should get all 5 trials, but only 3 will have absolute timestamps
         aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
@@ -552,8 +573,13 @@ class TestTTLAlignment:
             }
         }
 
-        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)  # 3 pulses
-        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
+        # Extract primitives from Session (Phase 2 pattern)
+        ttl_patterns = {ttl.id: ttl.paths for ttl in mock_session_with_ttl.TTLs}
+        session_dir = Path(mock_session_with_ttl.session_dir)
+        ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)  # 3 pulses
+        # Extract trial type configs (Phase 2 pattern)
+        trial_type_configs = mock_session_with_ttl.bpod.trial_types
+        trial_offsets, warnings = align_bpod_trials_to_ttl(trial_type_configs, bpod_data, ttl_pulses)
 
         # Extract trial with offset
         aligned_trials = extract_trials(bpod_data, trial_offsets=trial_offsets)
@@ -580,8 +606,10 @@ class TestTTLAlignment:
             session_dir=str(tmp_path),
         )
 
+        # Extract trial type configs (Phase 2 pattern) - empty list should raise error
+        trial_type_configs = session.bpod.trial_types
         with pytest.raises(SyncError, match="No trial_type sync configuration"):
-            align_bpod_trials_to_ttl_from_session(session, bpod_data_with_sync, {})
+            align_bpod_trials_to_ttl(trial_type_configs, bpod_data_with_sync, {})
 
     def test_Should_AlignMergedBpod_When_NonZeroTrialStartTimestamp(self, mock_session_with_ttl):
         """Should correctly align merged Bpod files with non-zero TrialStartTimestamp."""
@@ -614,7 +642,9 @@ class TestTTLAlignment:
             "ttl_cue": [10.0, 110.0, 210.0],  # All sync signals use ttl_cue channel
         }
 
-        trial_offsets, warnings = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data, ttl_pulses)
+        # Extract trial type configs (Phase 2 pattern)
+        trial_type_configs = mock_session_with_ttl.bpod.trial_types
+        trial_offsets, warnings = align_bpod_trials_to_ttl(trial_type_configs, bpod_data, ttl_pulses)
 
         assert len(trial_offsets) == 3
         assert len(warnings) == 0
@@ -657,9 +687,13 @@ class TestExtractTrialsWithAlignment:
 
     def test_Should_UseAlignment_When_OffsetsProvided(self, mock_session_with_ttl, bpod_data_with_sync):
         """Should use TTL alignment when trial_offsets provided."""
-        # Get TTL pulses and compute offsets
-        ttl_pulses = get_ttl_pulses_from_session(mock_session_with_ttl)
-        trial_offsets, _ = align_bpod_trials_to_ttl_from_session(mock_session_with_ttl, bpod_data_with_sync, ttl_pulses)
+        # Get TTL pulses and compute offsets (Phase 2 pattern)
+        ttl_patterns = {ttl.id: ttl.paths for ttl in mock_session_with_ttl.TTLs}
+        session_dir = Path(mock_session_with_ttl.session_dir)
+        ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
+        # Extract trial type configs (Phase 2 pattern)
+        trial_type_configs = mock_session_with_ttl.bpod.trial_types
+        trial_offsets, _ = align_bpod_trials_to_ttl(trial_type_configs, bpod_data_with_sync, ttl_pulses)
 
         # Extract trials with absolute timestamps
         trials = extract_trials(bpod_data_with_sync, trial_offsets=trial_offsets)
@@ -839,8 +873,8 @@ class TestBpodDataManipulation:
 
     def test_Should_RaiseBpodValidationError_When_WritingInvalidStructure(self, tmp_path):
         """Should raise BpodValidationError when writing invalid data."""
-        from w2t_bkin.domain.exceptions import BpodValidationError
         from w2t_bkin.events import write_bpod_mat
+        from w2t_bkin.exceptions import BpodValidationError
 
         invalid_data = {"SessionData": {"nTrials": 5}}
         output_path = tmp_path / "invalid.mat"

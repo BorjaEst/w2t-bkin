@@ -25,6 +25,7 @@ from w2t_bkin.sync import (
     compute_jitter_stats,
     create_alignment_stats,
     create_timebase_provider,
+    create_timebase_provider_from_config,
     enforce_jitter_budget,
     map_linear,
     map_nearest,
@@ -92,14 +93,14 @@ class TestTimebaseProviderCreation:
         """FR-TB-4: Create nominal rate provider from config."""
         config = valid_config
 
-        provider = create_timebase_provider(config, manifest=None)
+        provider = create_timebase_provider_from_config(config, manifest=None)
 
         assert isinstance(provider, NominalRateProvider)
         assert provider.source == "nominal_rate"
 
     def test_Should_CreateTTLProvider_When_SourceIsTTL(self, ttl_config: Config, ttl_manifest):
         """FR-TB-3: Create TTL provider when source='ttl'."""
-        provider = create_timebase_provider(ttl_config, manifest=ttl_manifest)
+        provider = create_timebase_provider_from_config(ttl_config, manifest=ttl_manifest)
 
         assert isinstance(provider, TTLProvider)
         assert provider.source == "ttl"
@@ -107,7 +108,7 @@ class TestTimebaseProviderCreation:
 
     def test_Should_CreateNeuropixelsProvider_When_SourceIsNeuropixels(self, neuropixels_config: Config):
         """FR-TB-2: Create Neuropixels provider when source='neuropixels'."""
-        provider = create_timebase_provider(neuropixels_config, manifest=None)
+        provider = create_timebase_provider_from_config(neuropixels_config, manifest=None)
 
         assert isinstance(provider, NeuropixelsProvider)
         assert provider.source == "neuropixels"
@@ -117,7 +118,7 @@ class TestTimebaseProviderCreation:
         """FR-TB-5: Provider should respect configured offset_s."""
         offset = valid_config.timebase.offset_s
 
-        provider = create_timebase_provider(valid_config, manifest=None)
+        provider = create_timebase_provider_from_config(valid_config, manifest=None)
         timestamps = provider.get_timestamps(n_samples=STANDARD_SAMPLE_COUNT)
 
         assert timestamps[0] == offset

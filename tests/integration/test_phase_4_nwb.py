@@ -321,7 +321,7 @@ class TestEndToEndPipeline:
         from w2t_bkin.config import load_session
         from w2t_bkin.ingest import build_and_count_manifest
         from w2t_bkin.nwb import assemble_nwb
-        from w2t_bkin.sync import create_timebase_provider
+        from w2t_bkin.sync import create_timebase_provider_from_config
 
         # Phase 0: Config
         config_dict = minimal_config_dict.copy()
@@ -333,7 +333,7 @@ class TestEndToEndPipeline:
         manifest = build_and_count_manifest(config, session)
 
         # Phase 2: Sync
-        provider = create_timebase_provider(config, manifest=None)
+        provider = create_timebase_provider_from_config(config, manifest=None)
 
         # Phase 4: NWB Assembly
         output_dir = tmp_work_dir / "processed" / "Session-000001"

@@ -681,7 +681,7 @@ def parsed_bpod_data():
 @pytest.fixture
 def trial_list():
     """List of Trial objects for testing event summary creation."""
-    from w2t_bkin.domain import Trial, TrialOutcome
+    from w2t_bkin.events.models import Trial, TrialOutcome
 
     return [
         Trial(trial_number=1, trial_type=1, start_time=0.0, stop_time=9.0, outcome=TrialOutcome.HIT),
@@ -693,7 +693,7 @@ def trial_list():
 @pytest.fixture
 def event_list():
     """List of TrialEvent objects for testing event summary creation."""
-    from w2t_bkin.domain import TrialEvent
+    from w2t_bkin.events.models import TrialEvent
 
     return [
         TrialEvent(event_type="Flex1Trig2", timestamp=0.0001, metadata={"trial_number": 1.0}),
