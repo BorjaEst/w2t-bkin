@@ -14,8 +14,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .protocols import BpodTrialTypeProtocol
 from ..exceptions import SyncError
+from .protocols import BpodTrialTypeProtocol
 
 __all__ = [
     "get_sync_time_from_bpod_trial",
