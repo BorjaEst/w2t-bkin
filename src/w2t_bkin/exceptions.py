@@ -410,3 +410,18 @@ class QCError(W2TError):
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="QC_ERROR", message=message, context=context, hint=hint, stage="qc")
+
+
+# OTHER TO SORT AND COMPLETE
+
+
+class SyncError(Exception):
+    """Error during synchronization/alignment."""
+
+    pass
+
+
+class JitterBudgetExceeded(SyncError):
+    """Jitter exceeds configured budget."""
+
+    pass
