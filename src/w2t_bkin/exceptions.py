@@ -1,8 +1,11 @@
-"""Exception hierarchy for W2T-BKIN pipeline.
+"""Structured exception hierarchy for W2T-BKIN pipeline.
 
-This module defines a structured exception hierarchy for all pipeline stages.
-Each exception includes structured fields (error_code, message, context, hint, stage)
-to support detailed error reporting and debugging.
+All exceptions inherit from W2TError and include structured metadata:
+- error_code: Stable identifier for programmatic handling
+- message: Human-readable description
+- context: Machine-readable error details (dict)
+- hint: Actionable resolution suggestion
+- stage: Pipeline stage where error occurred
 
 Exception Hierarchy:
 -------------------
@@ -17,6 +20,7 @@ W2TError (base)
 │   └── SessionValidationError
 ├── IngestError
 │   ├── FileNotFoundError
+│   ├── CameraUnverifiableError
 │   └── VerificationError
 │       └── MismatchExceedsToleranceError
 ├── SyncError
@@ -24,59 +28,47 @@ W2TError (base)
 │   ├── JitterExceedsBudgetError
 │   └── AlignmentError
 ├── EventsError
-│   └── BpodParseError
+│   ├── BpodParseError
+│   └── BpodValidationError
 ├── TranscodeError
 ├── PoseError
 ├── FacemapError
 ├── NWBError
 │   └── ExternalToolError
-├── ValidationError (nwbinspector)
+├── ValidationError
 └── QCError
 
-Design Principles:
------------------
-1. **Structured Context**: All exceptions carry machine-readable context
-2. **User Hints**: Actionable suggestions for resolution
-3. **Stage Tracking**: Clear indication of where error occurred
-4. **Taxonomy Codes**: Stable error codes for programmatic handling
-
-Requirements:
--------------
-- Design: Error Taxonomy section
-- NFR-3: Observability through structured error reporting
-
 Example:
---------
->>> from w2t_bkin.domain.exceptions import MismatchExceedsToleranceError
->>>
->>> try:
-...     raise MismatchExceedsToleranceError(
-...         camera_id="cam0",
-...         expected=8580,
-...         actual=8578,
-...         tolerance=1
-...     )
-... except W2TError as e:
-...     print(e.error_code)  # MISMATCH_EXCEEDS_TOLERANCE
-...     print(e.context)     # {'camera_id': 'cam0', ...}
-...     print(e.hint)        # "Check TTL files for gaps..."
+    >>> from w2t_bkin.exceptions import MismatchExceedsToleranceError
+    >>> try:
+    ...     raise MismatchExceedsToleranceError(
+    ...         camera_id="cam0",
+    ...         frame_count=8580,
+    ...         ttl_count=8578,
+    ...         mismatch=2,
+    ...         tolerance=1
+    ...     )
+    ... except W2TError as e:
+    ...     print(e.error_code)  # MISMATCH_EXCEEDS_TOLERANCE
+    ...     print(e.context)     # {'camera_id': 'cam0', ...}
+    ...     print(e.hint)        # "Check TTL files..."
 """
 
 from typing import Any, Dict, Optional
 
 
 class W2TError(Exception):
-    """Base exception for all W2T-BKIN pipeline errors.
+    """Base exception for W2T-BKIN pipeline errors.
 
-    All pipeline exceptions inherit from this class and include structured
-    metadata for debugging and reporting.
+    All exceptions inherit from this base and include structured metadata
+    for debugging, logging, and programmatic error handling.
 
     Attributes:
-        error_code: Stable error code for programmatic handling
-        message: Human-readable error description
-        context: Machine-readable error context (dict)
-        hint: Actionable suggestion for resolution
-        stage: Pipeline stage where error occurred
+        error_code: Stable identifier (e.g., "CONFIG_MISSING_KEY")
+        message: Human-readable description
+        context: Machine-readable details as dict
+        hint: Actionable resolution suggestion
+        stage: Pipeline stage (config, ingest, sync, etc.)
     """
 
     def __init__(
@@ -95,7 +87,7 @@ class W2TError(Exception):
         super().__init__(self._format_message())
 
     def _format_message(self) -> str:
-        """Format structured error message."""
+        """Format error with all structured fields."""
         parts = [f"[{self.error_code}]", self.message]
         if self.stage:
             parts.insert(1, f"(stage: {self.stage})")
@@ -106,18 +98,20 @@ class W2TError(Exception):
         return " ".join(parts)
 
 
+# =============================================================================
 # Configuration Errors
+# =============================================================================
 
 
 class ConfigError(W2TError):
-    """Configuration-related errors."""
+    """Base for configuration errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="CONFIG_ERROR", message=message, context=context, hint=hint, stage="config")
 
 
 class ConfigMissingKeyError(ConfigError):
-    """Required configuration key is missing."""
+    """Required configuration key not found."""
 
     def __init__(self, key: str, file_path: str):
         super().__init__(
@@ -141,7 +135,7 @@ class ConfigExtraKeyError(ConfigError):
 
 
 class ConfigValidationError(ConfigError):
-    """Configuration value validation failed."""
+    """Configuration value failed validation."""
 
     def __init__(self, key: str, value: Any, expected: str):
         super().__init__(
@@ -152,18 +146,20 @@ class ConfigValidationError(ConfigError):
         self.error_code = "CONFIG_VALIDATION_ERROR"
 
 
+# =============================================================================
 # Session Errors
+# =============================================================================
 
 
 class SessionError(W2TError):
-    """Session configuration errors."""
+    """Base for session configuration errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="SESSION_ERROR", message=message, context=context, hint=hint, stage="session")
 
 
 class SessionMissingKeyError(SessionError):
-    """Required session key is missing."""
+    """Required session key not found."""
 
     def __init__(self, key: str, file_path: str):
         super().__init__(
@@ -187,7 +183,7 @@ class SessionExtraKeyError(SessionError):
 
 
 class SessionValidationError(SessionError):
-    """Session value validation failed."""
+    """Session value failed validation."""
 
     def __init__(self, key: str, value: Any, expected: str):
         super().__init__(
@@ -198,11 +194,13 @@ class SessionValidationError(SessionError):
         self.error_code = "SESSION_VALIDATION_ERROR"
 
 
+# =============================================================================
 # Ingest Errors
+# =============================================================================
 
 
 class IngestError(W2TError):
-    """File discovery and ingestion errors."""
+    """Base for file discovery and ingestion errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="INGEST_ERROR", message=message, context=context, hint=hint, stage="ingest")
@@ -220,8 +218,20 @@ class FileNotFoundError(IngestError):
         self.error_code = "FILE_NOT_FOUND"
 
 
+class CameraUnverifiableError(IngestError):
+    """Camera references unknown TTL channel."""
+
+    def __init__(self, camera_id: str, ttl_id: str):
+        super().__init__(
+            message=f"Camera '{camera_id}' references unknown TTL '{ttl_id}'",
+            context={"camera_id": camera_id, "ttl_id": ttl_id},
+            hint=f"Add TTL entry for '{ttl_id}' to session.toml or correct camera.ttl_id",
+        )
+        self.error_code = "CAMERA_UNVERIFIABLE"
+
+
 class VerificationError(IngestError):
-    """Frame/TTL verification errors."""
+    """Base for frame/TTL verification errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(message=message, context=context, hint=hint)
@@ -229,7 +239,7 @@ class VerificationError(IngestError):
 
 
 class MismatchExceedsToleranceError(VerificationError):
-    """Frame/TTL mismatch exceeds configured tolerance."""
+    """Frame count vs TTL count mismatch exceeds tolerance."""
 
     def __init__(self, camera_id: str, frame_count: int, ttl_count: int, mismatch: int, tolerance: int):
         super().__init__(
@@ -241,28 +251,18 @@ class MismatchExceedsToleranceError(VerificationError):
                 "mismatch": mismatch,
                 "tolerance": tolerance,
             },
-            hint="Check TTL files for missing pulses or video file corruption. " "Increase verification.mismatch_tolerance_frames if acceptable.",
+            hint="Check TTL files for missing pulses or video corruption. " "Increase verification.mismatch_tolerance_frames if acceptable.",
         )
         self.error_code = "MISMATCH_EXCEEDS_TOLERANCE"
 
 
-class CameraUnverifiableError(IngestError):
-    """Camera cannot be verified (missing TTL reference)."""
-
-    def __init__(self, camera_id: str, ttl_id: str):
-        super().__init__(
-            message=f"Camera '{camera_id}' references unknown TTL '{ttl_id}'",
-            context={"camera_id": camera_id, "ttl_id": ttl_id},
-            hint=f"Add TTL entry for '{ttl_id}' to session.toml or correct camera.ttl_id",
-        )
-        self.error_code = "CAMERA_UNVERIFIABLE"
-
-
+# =============================================================================
 # Sync Errors
+# =============================================================================
 
 
 class SyncError(W2TError):
-    """Timebase synchronization errors."""
+    """Base for timebase synchronization errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="SYNC_ERROR", message=message, context=context, hint=hint, stage="sync")
@@ -287,7 +287,7 @@ class JitterExceedsBudgetError(SyncError):
         super().__init__(
             message=f"Alignment jitter (max={max_jitter_s:.6f}s, p95={p95_jitter_s:.6f}s) exceeds budget ({budget_s}s)",
             context={"max_jitter_s": max_jitter_s, "p95_jitter_s": p95_jitter_s, "budget_s": budget_s},
-            hint="Increase timebase.jitter_budget_s or investigate timing quality. " "Check TTL pulse spacing and video frame rate stability.",
+            hint="Increase timebase.jitter_budget_s or investigate timing quality. " "Check TTL pulse spacing and video framerate stability.",
         )
         self.error_code = "JITTER_EXCEEDS_BUDGET"
 
@@ -300,18 +300,20 @@ class AlignmentError(SyncError):
         self.error_code = "ALIGNMENT_ERROR"
 
 
+# =============================================================================
 # Events Errors
+# =============================================================================
 
 
 class EventsError(W2TError):
-    """Behavioral events parsing errors."""
+    """Base for behavioral events parsing errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="EVENTS_ERROR", message=message, context=context, hint=hint, stage="events")
 
 
 class BpodParseError(EventsError):
-    """Bpod MATLAB file parsing failed."""
+    """Bpod .mat file parsing failed."""
 
     def __init__(self, reason: str, file_path: Optional[str] = None):
         context = {"reason": reason}
@@ -320,7 +322,7 @@ class BpodParseError(EventsError):
         super().__init__(
             message=f"Failed to parse Bpod file: {reason}",
             context=context,
-            hint="Check that file is a valid Bpod .mat file and not corrupted",
+            hint="Check that file is valid Bpod .mat format and not corrupted",
         )
         self.error_code = "BPOD_PARSE_ERROR"
 
@@ -340,41 +342,49 @@ class BpodValidationError(EventsError):
         self.error_code = "BPOD_VALIDATION_ERROR"
 
 
+# =============================================================================
 # Transcode Errors
+# =============================================================================
 
 
 class TranscodeError(W2TError):
-    """Video transcoding errors."""
+    """Base for video transcoding errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="TRANSCODE_ERROR", message=message, context=context, hint=hint, stage="transcode")
 
 
+# =============================================================================
 # Pose Errors
+# =============================================================================
 
 
 class PoseError(W2TError):
-    """Pose estimation errors."""
+    """Base for pose estimation errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="POSE_ERROR", message=message, context=context, hint=hint, stage="pose")
 
 
+# =============================================================================
 # Facemap Errors
+# =============================================================================
 
 
 class FacemapError(W2TError):
-    """Facemap processing errors."""
+    """Base for facemap processing errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="FACEMAP_ERROR", message=message, context=context, hint=hint, stage="facemap")
 
 
+# =============================================================================
 # NWB Errors
+# =============================================================================
 
 
 class NWBError(W2TError):
-    """NWB assembly errors."""
+    """Base for NWB assembly errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="NWB_ERROR", message=message, context=context, hint=hint, stage="nwb")
@@ -392,36 +402,25 @@ class ExternalToolError(NWBError):
         self.error_code = "EXTERNAL_TOOL_ERROR"
 
 
+# =============================================================================
 # Validation Errors
+# =============================================================================
 
 
 class ValidationError(W2TError):
-    """NWB validation errors (nwbinspector)."""
+    """Base for NWB validation errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="VALIDATION_ERROR", message=message, context=context, hint=hint, stage="validation")
 
 
+# =============================================================================
 # QC Errors
+# =============================================================================
 
 
 class QCError(W2TError):
-    """QC report generation errors."""
+    """Base for QC report generation errors."""
 
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None, hint: Optional[str] = None):
         super().__init__(error_code="QC_ERROR", message=message, context=context, hint=hint, stage="qc")
-
-
-# OTHER TO SORT AND COMPLETE
-
-
-class SyncError(Exception):
-    """Error during synchronization/alignment."""
-
-    pass
-
-
-class JitterBudgetExceeded(SyncError):
-    """Jitter exceeds configured budget."""
-
-    pass
