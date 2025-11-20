@@ -17,7 +17,6 @@ except ImportError:
     loadmat = None
     savemat = None
 
-from ..domain.session import BpodSession, Session
 from ..utils import convert_matlab_struct, discover_files, sort_files
 from .exceptions import BpodParseError, BpodValidationError
 from .helpers import validate_bpod_path
@@ -25,9 +24,82 @@ from .helpers import validate_bpod_path
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# Bpod .mat File Parsing
-# =============================================================================
+def parse_bpod(session_dir: Path, pattern: str, order: str, continuous_time: bool = True) -> Dict[str, Any]:
+    """Parse Bpod data from a session directory, glob pattern, and ordering.
+
+    This is the central low-level entrypoint for Bpod parsing. It performs
+    file discovery using a glob pattern and sort order, then parses and
+    optionally merges the resulting files. It does **not** depend on
+    Session or any other high-level configuration objects.
+
+    High-level code (e.g. ingest/manifest builders) SHOULD compute
+    ``session_dir``, ``pattern``, and ``order`` from `session.toml` and call
+    this function.
+
+    Args:
+        session_dir: Base directory for the session
+        pattern: Glob pattern for Bpod files relative to ``session_dir``
+        order: Sorting strategy (e.g. ``"name_asc"``)
+        continuous_time: If True, offset timestamps to create a continuous
+            timeline across files. If False, preserve original per-file
+            timestamps.
+
+    Returns:
+        Unified Bpod data dictionary (single or merged)
+
+    Raises:
+        BpodValidationError: If no files found
+        BpodParseError: If parsing/merging fails
+    """
+    file_paths = discover_bpod_files_from_pattern(session_dir=session_dir, pattern=pattern, order=order)
+    return parse_bpod_from_files(file_paths=file_paths, continuous_time=continuous_time)
+
+
+def discover_bpod_files_from_pattern(session_dir: Path, pattern: str, order: str) -> List[Path]:
+    """Discover Bpod .mat files from a glob pattern and ordering.
+
+    This helper is the low-level building block used by :func:`parse_bpod`.
+    It does **not** depend on Session and works purely from a base directory
+    plus a glob pattern and ordering strategy.
+
+    Args:
+        session_dir: Base directory for resolving glob patterns
+        pattern: Glob pattern for Bpod files (e.g. ``"Bpod/*.mat"``)
+        order: Sorting strategy (e.g. ``"name_asc"``)
+
+    Returns:
+        Sorted list of Bpod file paths
+
+    Raises:
+        BpodValidationError: If no files found or pattern invalid
+    """
+    file_paths = discover_files(session_dir, pattern, sort=False)
+
+    if not file_paths:
+        raise BpodValidationError(f"No Bpod files found matching pattern: {pattern}")
+
+    file_paths = sort_files(file_paths, order)
+
+    logger.info("Discovered %d Bpod files with order '%s'", len(file_paths), order)
+    return file_paths
+
+
+def parse_bpod_from_files(file_paths: Sequence[Path], continuous_time: bool = True) -> Dict[str, Any]:
+    """Parse and optionally merge Bpod files from explicit paths.
+
+    Args:
+        file_paths: Ordered sequence of Bpod .mat file paths
+        continuous_time: If True, offset timestamps to create a continuous
+            timeline across files. If False, preserve original per-file
+            timestamps.
+
+    Returns:
+        Unified Bpod data dictionary (single or merged)
+
+    Raises:
+        BpodParseError: If parsing/merging fails
+    """
+    return merge_bpod_sessions(list(file_paths), continuous_time=continuous_time)
 
 
 def parse_bpod_mat(path: Path) -> Dict[str, Any]:
@@ -56,32 +128,6 @@ def parse_bpod_mat(path: Path) -> Dict[str, Any]:
     except Exception as e:
         # Avoid leaking full path in error message
         raise BpodParseError(f"Failed to parse Bpod file: {type(e).__name__}")
-
-
-def discover_bpod_files(bpod_session: BpodSession, session_dir: Path) -> List[Path]:
-    """Discover Bpod .mat files from session configuration.
-
-    Args:
-        bpod_session: BpodSession configuration with path pattern and ordering
-        session_dir: Base directory for resolving glob patterns
-
-    Returns:
-        Sorted list of Bpod file paths
-
-    Raises:
-        BpodValidationError: If no files found or pattern invalid
-    """
-    # Discover files matching pattern
-    file_paths = discover_files(session_dir, bpod_session.path, sort=False)
-
-    if not file_paths:
-        raise BpodValidationError(f"No Bpod files found matching pattern: {bpod_session.path}")
-
-    # Sort according to ordering strategy
-    file_paths = sort_files(file_paths, bpod_session.order)
-
-    logger.info(f"Discovered {len(file_paths)} Bpod files with order '{bpod_session.order}'")
-    return file_paths
 
 
 def validate_bpod_structure(data: Dict[str, Any]) -> bool:
@@ -119,11 +165,6 @@ def validate_bpod_structure(data: Dict[str, Any]) -> bool:
 
     logger.debug("Bpod structure validation passed")
     return True
-
-
-# =============================================================================
-# Bpod Session Merging
-# =============================================================================
 
 
 def merge_bpod_sessions(file_paths: List[Path], continuous_time: bool = True) -> Dict[str, Any]:
@@ -289,45 +330,6 @@ def merge_bpod_sessions(file_paths: List[Path], continuous_time: bool = True) ->
 
     logger.info(f"Merged {len(file_paths)} Bpod files into {len(all_trials)} total trials")
     return merged_data
-
-
-def parse_bpod_session(session: Session) -> Dict[str, Any]:
-    """Parse Bpod session from configuration with file discovery and merging.
-
-    High-level function that:
-    1. Discovers files from glob pattern
-    2. Orders files according to strategy
-    3. Merges multiple files if needed, respecting continuous_time setting
-
-    Args:
-        session: Full Session object containing Bpod configuration and session_dir
-
-    Returns:
-        Unified Bpod data dictionary (single or merged)
-
-    Raises:
-        BpodValidationError: If no files found
-        BpodParseError: If parsing/merging fails
-
-    Examples:
-        >>> from w2t_bkin.config import load_session
-        >>> session = load_session("data/Session-001/session.toml")
-        >>> data = parse_bpod_session(session)
-    """
-    session_dir = Path(session.session_dir)
-
-    # Discover files
-    file_paths = discover_bpod_files(session.bpod, session_dir)
-
-    # Merge if multiple files, using continuous_time setting from session config
-    merged_data = merge_bpod_sessions(file_paths, continuous_time=session.bpod.continuous_time)
-
-    return merged_data
-
-
-# =============================================================================
-# Bpod Data Manipulation
-# =============================================================================
 
 
 def index_bpod_data(bpod_data: Dict[str, Any], trial_indices: List[int]) -> Dict[str, Any]:
