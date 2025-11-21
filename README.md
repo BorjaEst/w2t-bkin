@@ -26,6 +26,7 @@ optional pose/facial/event logs into a validated NWB dataset with QC and provena
 
 - Explicit per-frame timestamps from hardware sync (TTL or counters)
 - Optional mezzanine transcoding (idempotent)
+- **DeepLabCut inference**: Batch pose inference with GPU optimization (Phase 3 ✅)
 - Pose harmonization (DLC/SLEAP) with skeleton mapping and confidence retention
 - Facemap facial metric integration
 - Bpod behavioral data parsing with multi-file session support (glob patterns, ordering, merging)
@@ -48,6 +49,7 @@ ingest → sync → (transcode) → pose / facemap / events → nwb → validate
 | ingest    | Discover assets, produce manifest     | ✅ Complete |
 | sync      | Generate timestamps, drift/drop stats | ✅ Complete |
 | transcode | Optional stable mezzanine videos      | ✅ Complete |
+| dlc       | DeepLabCut batch inference (GPU)      | ✅ Complete |
 | pose      | Import/harmonize pose outputs         | ✅ Complete |
 | facemap   | Import/compute facial metrics         | ✅ Complete |
 | events    | Normalize NDJSON → trials/events      | ✅ Complete |
@@ -77,6 +79,11 @@ pattern = "cam{index}.mp4"
 [sync]
 primary_clock = "cam0"
 tolerance_ms = 2.0
+
+[labels.dlc]
+run_inference = true
+model = "BA_W2T_v1"
+gputouse = 0  # GPU index, -1 for CPU, None for auto-detect
 
 [nwb]
 link_external_video = true
@@ -142,6 +149,12 @@ pytest -q
 - [x] Timebase synchronization and alignment (Phase 2)
 - [x] Behavioral events from Bpod .mat files (Phase 3)
 - [x] Video transcoding to mezzanine format (Phase 3)
+- [x] **DeepLabCut batch inference** (Phase 3) ✨ NEW
+  - GPU-optimized batch processing (2-3x speedup)
+  - Auto-detection with manual override
+  - Graceful error handling and CPU fallback
+  - Integration with pipeline Phase 4.1
+  - 35 tests (25 unit + 10 integration)
 - [x] Pose import and harmonization (DLC/SLEAP) (Phase 3)
 - [x] Facemap facial metrics computation (Phase 3)
 - [x] **NWB file assembly with pynwb** (Phase 4)
