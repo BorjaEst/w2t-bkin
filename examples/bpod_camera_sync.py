@@ -87,8 +87,9 @@ class ExampleSettings(BaseSettings):
     bpod_sync_delay_s: float = Field(default=1.0, description="Delay of sync signal within each Bpod trial (relative to trial start)")
 
 
-def run_pipeline(settings: ExampleSettings) -> dict:
+if __name__ == "__main__":
     """Run the Bpod–camera synchronization demo."""
+    settings = ExampleSettings()
 
     print("=" * 80)
     print("Example 04: Bpod Camera Synchronization (simplified)")
@@ -135,7 +136,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print("\nSynthetic artifacts:")
     print(f"  - Config:               {session.config_path}")
     print(f"  - Session:              {session.session_path}")
-    print(f"  - Camera video files:   {len(session.camera_video_paths)}")
+    print(f"  - Video files:          {len(session.video_paths)}")
     print(f"  - TTL files:            {len(session.ttl_paths)}")
     print(f"  - Bpod .mat files:      {len(session.bpod_paths)}")
 
@@ -409,10 +410,7 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     if trial_offsets:
         alignment_results = {
             "trial_offsets": {str(k): v for k, v in trial_offsets.items()},
-            "statistics": {
-                "n_trials_total": len(trials),
-                "n_trials_aligned": len(trial_offsets),
-            },
+            "statistics": {"n_trials_total": len(trials), "n_trials_aligned": len(trial_offsets)},
             "warnings": warnings,
         }
         with open(alignment_stats_path, "w") as f:
@@ -467,21 +465,3 @@ def run_pipeline(settings: ExampleSettings) -> dict:
     print("  - extract_trials(..., trial_offsets=...) yields trials in TTL absolute time")
 
     print("\nDone.")
-
-    return {
-        "config_path": session.config_path,
-        "session_path": session.session_path,
-        "manifest": manifest,
-        "verification": verification,
-        "trials": trials,
-        "events": events,
-        "trial_summary": trial_summary,
-        "trial_summary_path": trial_summary_path,
-        "trial_offsets": trial_offsets,
-        "alignment_stats_path": alignment_stats_path if trial_offsets else None,
-    }
-
-
-if __name__ == "__main__":
-    settings = ExampleSettings()
-    run_pipeline(settings)

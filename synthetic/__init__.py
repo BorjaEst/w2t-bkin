@@ -6,6 +6,7 @@ Public API to generate minimal, valid synthetic inputs:
 - TTL pulse files (ttl_synth)
 - Video files (video_synth)
 - High-level `build_raw_folder` to assemble a complete raw session folder
+- High-level `build_interim_pose` to generate interim pose data
 
 These utilities are intended for demos, tests, and quick E2E exercises.
 """
@@ -18,6 +19,7 @@ from typing import Dict, List, Optional, Union
 
 from .bpod_synth import BpodSynthOptions, write_bpod_mat_files_for_session
 from .config_synth import SynthConfigOptions, build_config, write_config_toml
+from .pose_synth import PoseH5Params, create_dlc_pose_h5
 from .session_synth import SessionSynthOptions, build_session, write_session_toml
 from .ttl_synth import TTLGenerationOptions, generate_and_write_ttls_for_session, generate_ttl_pulses, write_ttl_pulse_files
 from .video_synth import VideoGenerationOptions, generate_video_files_for_session
@@ -39,36 +41,75 @@ __all__ = [
     # Videos
     "VideoGenerationOptions",
     "generate_video_files_for_session",
+    # Pose
+    "PoseH5Params",
+    "create_dlc_pose_h5",
     # Bpod
     "BpodSynthOptions",
     "write_bpod_mat_files_for_session",
-    # High-level builder
+    # Result objects
+    "RawSessionResult",
+    "InterimPoseResult",
+    # High-level builders
     "build_raw_folder",
+    "build_interim_pose",
 ]
 
 
 @dataclass(frozen=True)
-class RawSessionBuildResult:
-    """Summary of generated synthetic raw session artifacts.
+class RawSessionResult:
+    """Result object for raw session folder generation.
+
+    Contains paths to all raw data artifacts (videos, TTLs, Bpod files).
+    Raw data represents unprocessed sensor outputs and experimental metadata.
 
     Attributes
     ----------
-    root_dir: Base output directory provided by the user.
-    session_dir: Directory containing `session.toml` and raw artifacts.
-    config_path: Path to generated `config.toml`.
-    session_path: Path to generated `session.toml`.
-    camera_video_paths: List of generated video files (all cameras).
-    ttl_paths: List of generated TTL files across TTL channels.
-    bpod_paths: List of (placeholder) Bpod .mat files.
+    root_dir : Path
+        Base output directory (e.g., "output/raw").
+    session_dir : Path
+        Session-specific directory containing all raw artifacts.
+    config_path : Path
+        Path to generated `config.toml`.
+    session_path : Path
+        Path to generated `session.toml` with session metadata.
+    video_paths : List[Path]
+        Paths to generated video files (all cameras, all segments).
+    ttl_paths : List[Path]
+        Paths to TTL timestamp files (all channels).
+    bpod_paths : List[Path]
+        Paths to Bpod .mat files with trial data.
     """
 
     root_dir: Path
     session_dir: Path
     config_path: Path
     session_path: Path
-    camera_video_paths: List[Path]
+    video_paths: List[Path]
     ttl_paths: List[Path]
     bpod_paths: List[Path]
+
+
+@dataclass(frozen=True)
+class InterimPoseResult:
+    """Result object for interim pose estimation data generation.
+
+    Contains paths to processed pose estimation outputs (DLC/SLEAP H5 files).
+    Interim data represents processed outputs derived from raw data.
+
+    Attributes
+    ----------
+    root_dir : Path
+        Base interim directory (e.g., "output/interim").
+    session_dir : Path
+        Session-specific directory for interim artifacts.
+    pose_paths : List[Path]
+        Paths to generated pose H5 files (one per camera).
+    """
+
+    root_dir: Path
+    session_dir: Path
+    pose_paths: List[Path]
 
 
 def build_raw_folder(
@@ -88,7 +129,7 @@ def build_raw_folder(
     bpod_sync_delay_s: float = 0.0,
     bpod_clock_jitter_ppm: float = 0.0,
     seed: int = 42,
-) -> RawSessionBuildResult:
+) -> RawSessionResult:
     """Build a complete raw session folder with videos, TTLs, and Bpod files.
 
     Creates:
@@ -107,7 +148,19 @@ def build_raw_folder(
       Simulates Bpod internal clock running slightly faster/slower than TTL reference clock.
       Drift accumulates over time, causing offsets to change across session.
 
-    Returns a `RawSessionBuildResult` with paths for convenience.
+    Returns
+    -------
+    RawSessionResult
+        Object containing paths to all generated raw artifacts.
+
+    See Also
+    --------
+    build_interim_pose : Generate interim pose estimation data.
+
+    Notes
+    -----
+    For interim data (pose estimation), use `build_interim_pose()` separately.
+    This maintains proper separation between raw (videos) and interim (processed) data.
     """
 
     out_root = Path(out_root)
@@ -151,7 +204,7 @@ def build_raw_folder(
         seed=seed,
     )
     videos_map = generate_video_files_for_session(session_model, session_dir, options=vid_opts)
-    camera_video_paths = [p for files in videos_map.values() for p in files]
+    video_paths = [p for files in videos_map.values() for p in files]
 
     # 4) TTLs (one pulse per frame for camera TTL; one pulse per trial for Bpod sync TTL)
     ttl_rate = ttl_rate_hz if ttl_rate_hz is not None else fps
@@ -205,12 +258,90 @@ def build_raw_folder(
     )
     bpod_paths = write_bpod_mat_files_for_session(session_model, session_dir, options=bpod_opts)
 
-    return RawSessionBuildResult(
+    return RawSessionResult(
         root_dir=out_root.resolve(),
         session_dir=session_dir.resolve(),
-        config_path=config_path,
-        session_path=session_path,
-        camera_video_paths=[p.resolve() for p in camera_video_paths],
+        config_path=config_path.resolve(),
+        session_path=session_path.resolve(),
+        video_paths=[p.resolve() for p in video_paths],
         ttl_paths=[p.resolve() for p in ttl_paths],
         bpod_paths=[p.resolve() for p in bpod_paths],
+    )
+
+
+def build_interim_pose(
+    interim_root: Union[str, Path],
+    *,
+    session_id: str,
+    camera_ids: List[str],
+    n_frames: int = 300,
+    fps: float = 30.0,
+    keypoints: Optional[List[str]] = None,
+    confidence_mean: float = 0.95,
+    confidence_std: float = 0.05,
+    dropout_rate: float = 0.02,
+    seed: int = 42,
+) -> InterimPoseResult:
+    """Build interim pose estimation data (DLC/SLEAP H5 files) for a synthetic session.
+
+    Generates processed pose estimation outputs that would typically be produced
+    by running DLC or SLEAP on raw video files. This simulates the interim data
+    layer in the processing pipeline: raw → interim → output.
+
+    Directory structure:
+        <interim_root>/
+        └── <session_id>/
+            └── Pose/
+                └── <camera_id>/
+                    └── pose.h5
+
+    Parameters
+    ----------
+    interim_root: Base directory for interim data (e.g., "output/interim")
+    session_id: Session identifier (must match session in raw folder)
+    camera_ids: List of camera IDs to generate pose data for
+    n_frames: Number of frames (should match video frame count)
+    fps: Frame rate (should match video fps)
+    keypoints: List of keypoint names (default: ["nose", "left_ear", "right_ear"])
+    confidence_mean: Mean confidence for synthetic pose data
+    confidence_std: Standard deviation for confidence values
+    dropout_rate: Fraction of keypoints to drop (simulates tracking failures)
+    seed: Random seed for reproducible generation
+
+    Returns
+    -------
+    List[Path]: Paths to generated H5 files (one per camera)
+    """
+
+    interim_root = Path(interim_root)
+    session_dir = interim_root / session_id
+    pose_dir = session_dir / "Pose"
+    pose_paths = []
+
+    keypoints = keypoints or ["nose", "left_ear", "right_ear"]
+
+    for cam_id in camera_ids:
+        cam_pose_dir = pose_dir / cam_id
+        cam_pose_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use per-camera seed for variation across cameras
+        cam_seed = seed + hash(cam_id) % 1000
+
+        pose_params = PoseH5Params(
+            keypoints=keypoints,
+            n_frames=n_frames,
+            fps=fps,
+            confidence_mean=confidence_mean,
+            confidence_std=confidence_std,
+            dropout_rate=dropout_rate,
+            seed=cam_seed,
+        )
+
+        h5_path = create_dlc_pose_h5(cam_pose_dir / "pose.h5", pose_params)
+        pose_paths.append(h5_path)
+
+    return InterimPoseResult(
+        root_dir=interim_root.resolve(),
+        session_dir=session_dir.resolve(),
+        pose_paths=[p.resolve() for p in pose_paths],
     )

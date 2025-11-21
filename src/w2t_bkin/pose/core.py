@@ -296,13 +296,14 @@ def harmonize_sleap_to_canonical(data: List[Dict], mapping: Dict[str, str]) -> L
     return harmonized
 
 
-def align_pose_to_timebase(data: List[Dict], reference_times: List[float], mapping: str = "nearest") -> List:
+def align_pose_to_timebase(data: List[Dict], reference_times: List[float], mapping: str = "nearest", source: str = "dlc") -> List:
     """Align pose frame indices to reference timebase timestamps.
 
     Args:
         data: Harmonized pose data
         reference_times: Reference timestamps from sync
         mapping: Alignment strategy ("nearest" or "linear")
+        source: Source of pose data ("dlc" or "sleap")
 
     Returns:
         List of dicts or PoseFrame objects with aligned timestamps
@@ -349,7 +350,7 @@ def align_pose_to_timebase(data: List[Dict], reference_times: List[float], mappi
             # Convert keypoints dict to list of PoseKeypoint objects
             keypoints = [PoseKeypoint(name=kp["name"], x=kp["x"], y=kp["y"], confidence=kp["confidence"]) for kp in frame_data["keypoints"].values()]
 
-            pose_frame = PoseFrame(frame_index=frame_idx, timestamp=timestamp, keypoints=keypoints, source="aligned")
+            pose_frame = PoseFrame(frame_index=frame_idx, timestamp=timestamp, keypoints=keypoints, source=source)
 
             aligned_frames.append(pose_frame)
 
