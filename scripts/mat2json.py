@@ -13,14 +13,14 @@ Original MATLAB loading logic credit: Nora
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
+import sys
 from typing import Any, Dict
 
 import numpy as np
-import scipy.io
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import scipy.io
 from scipy.io.matlab import mat_struct
 
 
@@ -34,13 +34,7 @@ class ConverterSettings(BaseSettings):
         verbose: Enable verbose output during conversion
     """
 
-    model_config = SettingsConfigDict(
-        env_prefix="MAT2JSON_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        cli_parse_args=True,
-        cli_prog_name="mat2json",
-    )
+    model_config = SettingsConfigDict(cli_parse_args=True)
 
     input_file: Path = Field(..., description="Path to the input .mat file")
     output_file: Path | None = Field(None, description="Path to the output JSON file")
