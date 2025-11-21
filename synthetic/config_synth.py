@@ -103,6 +103,7 @@ class SynthConfigOptions(BaseModel):
     # Labels/Facemap
     dlc_run_inference: bool = Field(default=False)
     dlc_model: str = Field(default="models/dlc/model.yaml")
+    dlc_gputouse: Optional[int] = Field(default=None)
     sleap_run_inference: bool = Field(default=False)
     sleap_model: str = Field(default="models/sleap/model.slp")
     facemap_run_inference: bool = Field(default=False)
@@ -178,7 +179,11 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
     logging = LoggingConfig(level=base.logging_level, structured=base.logging_structured)
 
     labels = LabelsConfig(
-        dlc=DLCConfig(run_inference=base.dlc_run_inference, model=base.dlc_model),
+        dlc=DLCConfig(
+            run_inference=base.dlc_run_inference,
+            model=base.dlc_model,
+            gputouse=base.dlc_gputouse,
+        ),
         sleap=SLEAPConfig(run_inference=base.sleap_run_inference, model=base.sleap_model),
     )
 
@@ -302,6 +307,8 @@ def config_to_toml(config: ConfigModel) -> str:
     lines.append("[labels.dlc]\n")
     lines.append(_toml_kv("run_inference", config.labels.dlc.run_inference))
     lines.append(_toml_kv("model", config.labels.dlc.model))
+    if config.labels.dlc.gputouse is not None:
+        lines.append(_toml_kv("gputouse", config.labels.dlc.gputouse))
     lines.append("\n")
 
     # [labels.sleap]

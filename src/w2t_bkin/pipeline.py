@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
 from w2t_bkin.config import load_config, load_session
+from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
 from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Session, TranscodedVideo
 from w2t_bkin.events import extract_trials, parse_bpod
 from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
@@ -89,6 +90,7 @@ class RunResult(TypedDict, total=False):
         manifest: File discovery manifest with frame/TTL counts
         alignment_stats: Timebase alignment quality metrics (optional)
         events_summary: Behavioral events summary dict (optional)
+        dlc_inference_results: DLC inference results for each camera (optional)
         pose_bundle: Harmonized pose data (optional)
         facemap_bundle: Facial motion signals (optional)
         transcoded_videos: List of transcoded videos (optional)
@@ -99,6 +101,7 @@ class RunResult(TypedDict, total=False):
     manifest: Manifest
     alignment_stats: Optional[AlignmentStats]
     events_summary: Optional[Dict[str, Any]]
+    dlc_inference_results: Optional[List[DLCInferenceResult]]
     pose_bundle: Optional[PoseBundle]
     facemap_bundle: Optional[FacemapBundle]
     transcoded_videos: Optional[List[TranscodedVideo]]
@@ -138,10 +141,11 @@ def run_session(
     1. Load Config and Session
     2. Build and verify Manifest
     3. Parse events (if Bpod files present)
-    4. Import pose/facemap (if available)
-    5. Transcode videos (if enabled)
-    6. Create timebase and compute alignment
-    7. Assemble NWB file (if not skipped)
+    4. Run DLC inference (if enabled in config)
+    5. Import pose/facemap (if available)
+    6. Transcode videos (if enabled)
+    7. Create timebase and compute alignment
+    8. Assemble NWB file (if not skipped)
 
     This function owns Config/Session and translates them into primitive
     arguments for all low-level tools.
@@ -307,14 +311,86 @@ def run_session(
         logger.info("  ✓ Alignment stats created (nominal rate)")
 
     # -------------------------------------------------------------------------
-    # Phase 4: Optional Modalities (Pose, Facemap, Transcode)
+    # Phase 4: Optional Modalities (DLC Inference, Pose, Facemap, Transcode)
     # -------------------------------------------------------------------------
+    dlc_inference_results: Optional[List[DLCInferenceResult]] = None
     pose_bundle: Optional[PoseBundle] = None
     facemap_bundle: Optional[FacemapBundle] = None
     transcoded_videos: Optional[List[TranscodedVideo]] = None
 
-    # Pose import (placeholder)
     logger.info("\n[Phase 4] Checking for optional modalities...")
+
+    # DLC Inference (if enabled)
+    if config.labels.dlc.run_inference:
+        logger.info("\n[Phase 4.1] Running DLC inference...")
+
+        try:
+            # Extract primitives from Config/Session
+            model_dir_name = config.labels.dlc.model
+            model_config_path = Path(config.paths.models_root) / model_dir_name / "config.yaml"
+
+            # Collect all camera video paths from manifest
+            video_paths = []
+            for camera in manifest.cameras:
+                # Each camera may have multiple video files (concatenated later)
+                if camera.video_file_paths:
+                    video_paths.extend(camera.video_file_paths)
+
+            if not video_paths:
+                logger.warning("  ⚠ No video files found in manifest - skipping DLC inference")
+            elif not model_config_path.exists():
+                logger.error(f"  ✗ DLC model config not found: {model_config_path}")
+                raise FileNotFoundError(f"DLC model config.yaml not found: {model_config_path}")
+            else:
+                # Create output directory
+                output_dir = Path(config.paths.intermediate_root) / session_id / "dlc"
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                # Create options from config
+                options = DLCInferenceOptions(
+                    gputouse=config.labels.dlc.gputouse,
+                    save_as_csv=False,
+                    allow_growth=True,
+                    allow_fallback=True,
+                )
+
+                logger.info(f"  → Model: {model_dir_name}")
+                logger.info(f"  → Videos: {len(video_paths)} files")
+                logger.info(f"  → GPU: {options.gputouse if options.gputouse is not None else 'auto-detect'}")
+                logger.info(f"  → Output: {output_dir}")
+
+                # Run batch inference (low-level API with primitives only)
+                dlc_inference_results = run_dlc_inference_batch(
+                    video_paths=video_paths,
+                    model_config_path=model_config_path,
+                    output_dir=output_dir,
+                    options=options,
+                )
+
+                # Report results
+                success_count = sum(1 for r in dlc_inference_results if r.success)
+                total_time = sum(r.inference_time_s for r in dlc_inference_results)
+                total_frames = sum(r.frame_count for r in dlc_inference_results if r.success)
+
+                logger.info(f"  ✓ DLC inference complete: {success_count}/{len(dlc_inference_results)} videos succeeded")
+                logger.info(f"  ✓ Total time: {total_time:.1f}s ({total_frames} frames)")
+
+                # Log any failures
+                for result in dlc_inference_results:
+                    if not result.success:
+                        logger.warning(f"    ⚠ Failed: {result.video_path.name} - {result.error_message}")
+
+                # TODO: Update manifest with H5 paths for downstream pose import
+                # This would map each result.h5_output_path back to the corresponding camera
+
+        except Exception as e:
+            logger.error(f"  ✗ DLC inference failed: {e}")
+            raise
+
+    else:
+        logger.info("  ⊘ DLC inference: Disabled in config")
+
+    # Pose import (placeholder)
     logger.info("  ⊘ Pose import: Not implemented")
     logger.info("  ⊘ Facemap computation: Not implemented")
 
@@ -360,12 +436,20 @@ def run_session(
             "mapping": config.timebase.mapping,
             "offset_s": config.timebase.offset_s,
         },
+        "dlc_inference": {
+            "enabled": config.labels.dlc.run_inference,
+            "model": config.labels.dlc.model if config.labels.dlc.run_inference else None,
+            "gputouse": config.labels.dlc.gputouse if config.labels.dlc.run_inference else None,
+            "results": len(dlc_inference_results) if dlc_inference_results else 0,
+            "success_count": sum(1 for r in dlc_inference_results if r.success) if dlc_inference_results else 0,
+        },
     }
 
     result: RunResult = {
         "manifest": manifest,
         "alignment_stats": alignment_stats,
         "events_summary": events_summary,
+        "dlc_inference_results": dlc_inference_results,
         "pose_bundle": pose_bundle,
         "facemap_bundle": facemap_bundle,
         "transcoded_videos": transcoded_videos,

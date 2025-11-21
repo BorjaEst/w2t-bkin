@@ -1,20 +1,55 @@
-# DLC Project Configuration (Valid Minimal Fixture)
-
+    # Project definitions (do not edit)
 Task: BA_W2T_test
-date: 2024-01-01
+scorer:
+date: "2024-01-01"
+multianimalproject:
+identity:
+
+    # Project path (change when moving around)
+project_path: /home/borja/w2t-bkin/tests/fixtures/models/dlc
+
+    # Annotation data set configuration (and individual video cropping parameters)
+video_sets:
 bodyparts:
-  - nose
-  - left_ear
-  - right_ear
-  - tail_base
-  - trial_light
+- nose
+- left_ear
+- right_ear
+- tail_base
+- trial_light
 
 # Optional fields for more realistic config
-net_type: resnet50
-TrainingFraction:
-  - 0.95
-iteration: 0
-snapshotindex: 150000
 
-# Project structure
-project_path: .
+    # Fraction of video to start/stop when extracting frames for labeling/refinement
+start:
+stop:
+numframes2pick:
+
+    # Plotting configuration
+skeleton: []
+skeleton_color: black
+pcutoff:
+dotsize:
+alphavalue:
+colormap:
+
+    # Training,Evaluation and Analysis configuration
+TrainingFraction:
+- 0.95
+iteration: 0
+default_net_type:
+default_augmenter:
+snapshotindex: 150000
+batch_size:
+
+    # Cropping Parameters (for analysis and outlier frame detection)
+cropping:
+    #if cropping is true for analysis, then set the values here:
+x1:
+x2:
+y1:
+y2:
+
+    # Refinement configuration (parameters from annotation dataset configuration also relevant in this stage)
+corner2move2:
+move2corner:
+net_type: resnet50

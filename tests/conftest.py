@@ -751,3 +751,36 @@ def bpod_data_with_sync():
             },
         }
     }
+
+
+# ============================================================================
+# DLC Fixtures
+# ============================================================================
+
+
+@pytest.fixture(scope="session")
+def dlc_test_videos(fixtures_root: Path) -> list[Path]:
+    """List of DLC test video paths.
+
+    Returns three synthetic test videos (320x240, 15 frames each, ~15KB).
+    """
+    videos_dir = fixtures_root / "videos"
+    return [
+        videos_dir / "dlc_test_cam1.mp4",
+        videos_dir / "dlc_test_cam2.mp4",
+        videos_dir / "dlc_test_cam3.mp4",
+    ]
+
+
+@pytest.fixture(scope="session")
+def dlc_model_config(fixtures_root: Path) -> Path:
+    """Path to valid DLC model config YAML."""
+    return fixtures_root / "models" / "dlc" / "valid_config.yaml"
+
+
+@pytest.fixture
+def dlc_output_dir(tmp_work_dir: Path) -> Path:
+    """Temporary directory for DLC inference outputs."""
+    output_dir = tmp_work_dir / "dlc_outputs"
+    output_dir.mkdir()
+    return output_dir

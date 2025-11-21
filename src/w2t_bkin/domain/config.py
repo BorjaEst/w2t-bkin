@@ -228,12 +228,18 @@ class DLCConfig(BaseModel):
 
     Requirements:
         - FR-5: Optional pose estimation
+        - REQ-DLC-16: Optional GPU configuration
     """
 
     model_config = {"frozen": True, "extra": "forbid"}
 
     run_inference: bool = Field(..., description="Enable DeepLabCut pose inference")
-    model: str = Field(..., description="Path to DeepLabCut model")
+    model: str = Field(..., description="DLC model directory name (contains config.yaml)")
+    gputouse: Optional[int] = Field(
+        None,
+        description="GPU index (0, 1, ...), -1 for CPU, None for auto-detect",
+        ge=-1,
+    )
 
 
 class SLEAPConfig(BaseModel):

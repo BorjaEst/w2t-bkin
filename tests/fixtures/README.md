@@ -41,4 +41,19 @@ post_date: "2025-11-08"
 
 ### Videos (`videos/`)
 
-- (Directory exists for future video fixtures)
+- `test_video.avi` - Generic test video (111KB)
+- `empty_video.avi` - Empty video file for edge case testing
+- `dlc_test_cam1.mp4` - Synthetic DLC test video 1 (320x240, 15 frames, ~15KB)
+- `dlc_test_cam2.mp4` - Synthetic DLC test video 2 (320x240, 15 frames, ~15KB)
+- `dlc_test_cam3.mp4` - Synthetic DLC test video 3 (320x240, 15 frames, ~15KB)
+
+### Models (`models/`)
+
+#### DLC (`models/dlc/`)
+
+- `valid_config.yaml` - Complete valid DLC model config with 5 bodyparts
+- `empty_bodyparts.yaml` - DLC config with empty bodyparts list
+- `missing_bodyparts.yaml` - DLC config missing bodyparts field
+- `missing_task.yaml` - DLC config missing Task field
+- `invalid_empty.yaml` - Empty YAML file
+- `invalid_not_dict.yaml` - YAML that is not a dictionary
