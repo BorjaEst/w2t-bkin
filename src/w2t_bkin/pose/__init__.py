@@ -2,26 +2,35 @@
 
 Ingests pose tracking data from DeepLabCut (DLC) or SLEAP H5 files, harmonizes
 diverse skeleton definitions to a canonical W2T model, and aligns pose frames to
-the reference timebase for integration into NWB files.
+the reference timebase for integration into NWB files using ndx-pose.
 
 Supported Formats:
 ------------------
 - DeepLabCut: H5 files (pandas DataFrame with MultiIndex)
 - SLEAP: H5 files (HDF5 with 4D numpy arrays)
 
+NWB-First Architecture:
+-----------------------
+This module produces ndx-pose PoseEstimation objects directly, eliminating
+intermediate models. Import functions return List[Dict], which are then
+converted to PoseEstimation via build_pose_estimation() or align_pose_to_timebase().
+
 Public API:
 -----------
-All public functions and models are re-exported at the package level:
+All public functions and NWB models are re-exported at the package level:
 
     from w2t_bkin.pose import (
-        PoseBundle,
-        PoseFrame,
-        PoseKeypoint,
+        # NWB-native models (from ndx_pose)
+        PoseEstimation,
+        PoseEstimationSeries,
+        Skeleton,
+        # Import and processing functions
         import_dlc_pose,
         import_sleap_pose,
         harmonize_dlc_to_canonical,
         harmonize_sleap_to_canonical,
         align_pose_to_timebase,
+        build_pose_estimation,
         validate_pose_confidence,
         # TTL mock generation
         TTLMockOptions,
@@ -45,8 +54,8 @@ from .core import (
     validate_pose_confidence,
 )
 
-# Re-export models
-from .models import PoseBundle, PoseFrame, PoseKeypoint
+# Re-export NWB-native models (from ndx_pose via models.py)
+from .models import PoseEstimation, PoseEstimationSeries, Skeleton
 
 # Re-export TTL mock utilities
 from .ttl_mock import (
@@ -59,10 +68,10 @@ from .ttl_mock import (
 )
 
 __all__ = [
-    # Models
-    "PoseBundle",
-    "PoseFrame",
-    "PoseKeypoint",
+    # NWB-native models (from ndx_pose)
+    "PoseEstimation",
+    "PoseEstimationSeries",
+    "Skeleton",
     # Exceptions
     "PoseError",
     # Core functions

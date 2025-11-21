@@ -2,7 +2,7 @@
 
 Ingests pose tracking data from DeepLabCut (DLC) or SLEAP H5 files, harmonizes
 diverse skeleton definitions to a canonical W2T model, and aligns pose frames to
-the reference timebase for integration into NWB files.
+the reference timebase for integration into NWB files using ndx-pose.
 
 Key Features:
 -------------
@@ -11,15 +11,16 @@ Key Features:
 - **Confidence Filtering**: Excludes low-confidence keypoints
 - **Multi-Animal Handling**: Supports single-animal tracking (SLEAP first instance)
 - **Temporal Alignment**: Maps pose frames to reference timebase
-- **NWB Integration**: Produces PoseBundle for NWB PoseEstimation module
+- **NWB-First**: Produces ndx-pose PoseEstimation objects directly
 
 Main Functions:
 ---------------
-- import_dlc_pose: Import DeepLabCut H5 outputs
-- import_sleap_pose: Import SLEAP H5 outputs
+- import_dlc_pose: Import DeepLabCut H5 outputs → List[Dict]
+- import_sleap_pose: Import SLEAP H5 outputs → List[Dict]
 - harmonize_dlc_to_canonical: Map DLC keypoints to canonical skeleton
 - harmonize_sleap_to_canonical: Map SLEAP keypoints to canonical skeleton
-- align_pose_to_timebase: Sync pose frames to reference timestamps
+- build_pose_estimation: Convert harmonized data → PoseEstimation (NWB)
+- align_pose_to_timebase: Sync pose frames to reference → PoseEstimation (NWB)
 - validate_pose_confidence: Check pose quality
 
 Requirements:
@@ -34,19 +35,22 @@ Acceptance Criteria:
 - A-POSE-1: Parse DLC H5 files
 - A-POSE-2: Map keypoints to canonical skeleton
 - A-POSE-3: Align pose frames to reference timebase
-- A-POSE-4: Create PoseBundle for NWB
+- A-POSE-4: Create PoseEstimation (ndx-pose) for NWB
 
 Data Flow:
 ----------
-1. import_dlc_pose / import_sleap_pose → Raw pose data
-2. harmonize_*_to_canonical → Canonical keypoint names
-3. align_pose_to_timebase → Sync to reference
-4. PoseBundle → Package for NWB
+1. import_dlc_pose / import_sleap_pose → List[Dict] (raw pose data)
+2. harmonize_*_to_canonical → List[Dict] (canonical keypoint names)
+3. align_pose_to_timebase → PoseEstimation (NWB-ready)
+4. Add PoseEstimation to NWB file
 
 Example:
 --------
->>> from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical
->>> from w2t_bkin.sync import create_timebase_provider
+>>> from w2t_bkin.pose import (
+...     import_dlc_pose,
+...     harmonize_dlc_to_canonical,
+...     align_pose_to_timebase
+... )
 >>>
 >>> # Import DeepLabCut H5 output
 >>> pose_data = import_dlc_pose(Path("pose.h5"))
@@ -56,12 +60,16 @@ Example:
 >>> skeleton_map = {"nose": "snout", "left_ear": "ear_left", ...}
 >>> harmonized = harmonize_dlc_to_canonical(pose_data, skeleton_map)
 >>>
->>> # Align to reference timebase
->>> from w2t_bkin.pose import align_pose_to_timebase
->>> aligned = align_pose_to_timebase(
-...     harmonized,
-...     reference_times=timebase_provider.get_timestamps(len(harmonized))
+>>> # Align to reference timebase (NWB-first)
+>>> pose_estimation = align_pose_to_timebase(
+...     data=harmonized,
+...     reference_times=timestamps,
+...     camera_id="cam0",
+...     bodyparts=["snout", "ear_left", "ear_right"],
+...     source="dlc",
+...     model_name="dlc_mouse_v1"
 ... )
+>>> # pose_estimation is ready to add to NWB
 """
 
 import logging
@@ -72,8 +80,6 @@ import h5py
 from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton
 import numpy as np
 import pandas as pd
-
-from .models import PoseBundle, PoseFrame, PoseKeypoint
 
 logger = logging.getLogger(__name__)
 
@@ -457,53 +463,47 @@ def build_pose_estimation(
 def align_pose_to_timebase(
     data: List[Dict],
     reference_times: List[float],
+    camera_id: str,
+    bodyparts: List[str],
     mapping: str = "nearest",
     source: str = "dlc",
-    camera_id: Optional[str] = None,
-    bodyparts: Optional[List[str]] = None,
     skeleton_edges: Optional[List[List[int]]] = None,
     model_name: Optional[str] = None,
-) -> List:
+) -> PoseEstimation:
     """Align pose frame indices to reference timebase timestamps.
 
-    This function supports two modes:
-    1. Legacy mode (camera_id=None): Returns List[PoseFrame] - DEPRECATED
-    2. NWB-first mode (camera_id provided): Returns PoseEstimation directly
+    Creates an ndx-pose PoseEstimation object with timestamps aligned to the
+    reference timebase. This is the NWB-first approach where pose data flows
+    directly into NWB-native structures.
 
     Args:
         data: Harmonized pose data (List of dicts with frame_index, keypoints)
         reference_times: Reference timestamps from sync
+        camera_id: Camera identifier (e.g., "cam0_top")
+        bodyparts: List of bodypart names in canonical order
         mapping: Alignment strategy ("nearest" or "linear")
         source: Source of pose data ("dlc" or "sleap")
-        camera_id: Camera identifier (e.g., "cam0_top"). If provided, returns PoseEstimation.
-        bodyparts: List of bodypart names (required if camera_id provided)
-        skeleton_edges: Optional skeleton connectivity for PoseEstimation
+        skeleton_edges: Optional skeleton connectivity [[node1, node2], ...]
         model_name: Model identifier for PoseEstimation scorer field
 
     Returns:
-        - If camera_id is None: List[PoseFrame] (legacy, deprecated)
-        - If camera_id provided: PoseEstimation (NWB-first)
+        PoseEstimation object ready to add to NWB file
 
     Raises:
         PoseError: If alignment fails or frame index out of bounds
-        ValueError: If camera_id provided but bodyparts is None
 
-    Example (NWB-first mode):
+    Example:
         >>> harmonized = harmonize_dlc_to_canonical(raw_data, mapping)
         >>> pose_est = align_pose_to_timebase(
         ...     data=harmonized,
         ...     reference_times=timestamps,
         ...     camera_id="cam0",
-        ...     bodyparts=["nose", "ear_left"],
+        ...     bodyparts=["nose", "ear_left", "ear_right"],
         ...     source="dlc",
         ...     model_name="dlc_mouse_v1"
         ... )
         >>> # pose_est is ready to add to NWB
     """
-    # Validate NWB-first mode parameters
-    if camera_id is not None and bodyparts is None:
-        raise ValueError("bodyparts parameter required when camera_id is provided (NWB-first mode)")
-
     aligned_frames = []
 
     for frame_data in data:
@@ -538,56 +538,47 @@ def align_pose_to_timebase(
 
         # Update frame data with timestamp
         frame_data["timestamp"] = timestamp
+        aligned_frames.append(frame_data)
 
-        # Legacy mode: convert to PoseFrame objects
-        if camera_id is None:
-            if not frame_data["keypoints"]:
-                aligned_frames.append({"frame_index": frame_idx, "timestamp": timestamp, "keypoints": {}})
-            else:
-                # Convert keypoints dict to list of PoseKeypoint objects
-                keypoints = [PoseKeypoint(name=kp["name"], x=kp["x"], y=kp["y"], confidence=kp["confidence"]) for kp in frame_data["keypoints"].values()]
-                pose_frame = PoseFrame(frame_index=frame_idx, timestamp=timestamp, keypoints=keypoints, source=source)
-                aligned_frames.append(pose_frame)
-        else:
-            # NWB-first mode: collect timestamped data
-            aligned_frames.append(frame_data)
+    # Build PoseEstimation using aligned timestamps
+    timestamps = [frame["timestamp"] for frame in aligned_frames]
 
-    # NWB-first mode: build PoseEstimation
-    if camera_id is not None:
-        # Extract timestamps in frame order
-        timestamps = [frame["timestamp"] for frame in aligned_frames]
-
-        return build_pose_estimation(
-            data=aligned_frames,
-            reference_times=timestamps,
-            camera_id=camera_id,
-            bodyparts=bodyparts,
-            skeleton_edges=skeleton_edges,
-            source=source,
-            model_name=model_name or f"{source}_model",
-        )
-
-    # Legacy mode: return PoseFrame list
-    return aligned_frames
+    return build_pose_estimation(
+        data=aligned_frames,
+        reference_times=timestamps,
+        camera_id=camera_id,
+        bodyparts=bodyparts,
+        skeleton_edges=skeleton_edges,
+        source=source,
+        model_name=model_name or f"{source}_model",
+    )
 
 
-def validate_pose_confidence(frames: List[PoseFrame], threshold: float = 0.8) -> float:
+def validate_pose_confidence(data: List[Dict], threshold: float = 0.8) -> float:
     """Validate pose confidence scores and return mean confidence.
 
     Args:
-        frames: List of PoseFrame objects
+        data: List of pose frame dictionaries with keypoints
         threshold: Minimum acceptable mean confidence
 
     Returns:
         Mean confidence score across all keypoints
     """
-    if not frames:
+    if not data:
         return 1.0
 
     all_confidences = []
-    for frame in frames:
-        for kp in frame.keypoints:
-            all_confidences.append(kp.confidence)
+    for frame in data:
+        keypoints = frame.get("keypoints", {})
+        if isinstance(keypoints, dict):
+            for kp in keypoints.values():
+                if "confidence" in kp:
+                    all_confidences.append(kp["confidence"])
+        else:
+            # Handle list of keypoint dicts
+            for kp in keypoints:
+                if "confidence" in kp:
+                    all_confidences.append(kp["confidence"])
 
     if not all_confidences:
         return 1.0
@@ -602,23 +593,19 @@ def validate_pose_confidence(frames: List[PoseFrame], threshold: float = 0.8) ->
 
 if __name__ == "__main__":
     """Usage examples for pose module."""
-    from pathlib import Path
-
-    import numpy as np
-
     print("=" * 70)
-    print("W2T-BKIN Pose Module - Usage Examples")
+    print("W2T-BKIN Pose Module - Usage Examples (NWB-First)")
     print("=" * 70)
     print()
 
-    print("Example 1: Pose Data Structures")
+    print("Example 1: Pose Data Flow (NWB-First)")
     print("-" * 50)
-    print("PoseKeypoint: name, x, y, confidence")
-    print("PoseFrame: frame_index, timestamp, keypoints, source")
-    print("PoseBundle: session_id, camera_id, skeleton, frames")
+    print("1. import_dlc_pose / import_sleap_pose → List[Dict]")
+    print("2. harmonize_*_to_canonical → List[Dict] (canonical names)")
+    print("3. align_pose_to_timebase → PoseEstimation (ndx-pose)")
+    print("4. Add PoseEstimation to NWB file")
     print()
 
-    # Example 2: Skeleton mapping for harmonization
     print("Example 2: Skeleton Mapping (DLC to Canonical)")
     print("-" * 50)
 
@@ -633,33 +620,33 @@ if __name__ == "__main__":
     print(f"Mapping: {mapping}")
     print()
 
-    # Example 3: Import and harmonization workflow
-    print("Example 3: Import and Harmonization Workflow")
+    print("Example 3: Complete Workflow (NWB-First)")
     print("-" * 50)
-
-    print("Step 1: Import pose data from DLC or SLEAP")
-    print("  import_dlc_pose('pose.csv') → List[Dict]")
-    print("  import_sleap_pose('pose.h5') → List[Dict]")
+    print("from w2t_bkin.pose import (")
+    print("    import_dlc_pose,")
+    print("    harmonize_dlc_to_canonical,")
+    print("    align_pose_to_timebase")
+    print(")")
     print()
-
-    print("Step 2: Harmonize to canonical skeleton")
-    print("  harmonize_dlc_to_canonical(data, mapping) → List[Dict]")
-    print("  harmonize_sleap_to_canonical(data, mapping) → List[Dict]")
+    print("# Step 1: Import")
+    print("pose_data = import_dlc_pose('pose.h5')")
     print()
-
-    print("Step 3: Align to reference timebase")
-    print("  align_pose_to_timebase(data, ref_times, 'nearest') → List")
+    print("# Step 2: Harmonize")
+    print("mapping = {'snout': 'nose', 'ear_l': 'ear_left', ...}")
+    print("harmonized = harmonize_dlc_to_canonical(pose_data, mapping)")
     print()
-
-    print("Step 4: Validate confidence")
-    print("  mean_conf = validate_pose_confidence(frames, threshold=0.8)")
+    print("# Step 3: Align to timebase (returns PoseEstimation)")
+    print("pose_estimation = align_pose_to_timebase(")
+    print("    data=harmonized,")
+    print("    reference_times=timestamps,")
+    print("    camera_id='cam0',")
+    print("    bodyparts=['nose', 'ear_left', 'ear_right'],")
+    print("    source='dlc',")
+    print("    model_name='dlc_mouse_v1'")
+    print(")")
     print()
-
-    print("Production usage:")
-    print("  from w2t_bkin.pose import import_dlc_pose, harmonize_dlc_to_canonical")
-    print("  pose_data = import_dlc_pose('pose.csv')")
-    print("  mapping = {'snout': 'nose', 'ear_l': 'ear_left', ...}")
-    print("  harmonized = harmonize_dlc_to_canonical(pose_data, mapping)")
+    print("# Step 4: Add to NWB")
+    print("nwbfile.processing['behavior'].add(pose_estimation)")
     print()
 
     print("=" * 70)

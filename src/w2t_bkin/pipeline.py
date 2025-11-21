@@ -26,7 +26,6 @@ RunResult contains:
 - manifest: File discovery and counts
 - alignment_stats: Timebase alignment quality metrics (if computed)
 - events_summary: Behavioral events summary (if Bpod files present)
-- pose_bundle: Harmonized pose data (if available)
 - facemap_bundle: Facial motion signals (if computed)
 - transcoded_videos: Mezzanine format videos (if transcoding enabled)
 - nwb_path: Path to assembled NWB file (if assembly completes)
@@ -66,7 +65,7 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 
 from w2t_bkin.config import load_config, load_session
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
-from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Session, TranscodedVideo
+from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, Session, TranscodedVideo
 from w2t_bkin.events import extract_trials, parse_bpod
 from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
 from w2t_bkin.sync import create_timebase_provider_from_config, get_ttl_pulses
@@ -91,7 +90,6 @@ class RunResult(TypedDict, total=False):
         alignment_stats: Timebase alignment quality metrics (optional)
         events_summary: Behavioral events summary dict (optional)
         dlc_inference_results: DLC inference results for each camera (optional)
-        pose_bundle: Harmonized pose data (optional)
         facemap_bundle: Facial motion signals (optional)
         transcoded_videos: List of transcoded videos (optional)
         nwb_path: Path to assembled NWB file (optional)
@@ -102,7 +100,6 @@ class RunResult(TypedDict, total=False):
     alignment_stats: Optional[AlignmentStats]
     events_summary: Optional[Dict[str, Any]]
     dlc_inference_results: Optional[List[DLCInferenceResult]]
-    pose_bundle: Optional[PoseBundle]
     facemap_bundle: Optional[FacemapBundle]
     transcoded_videos: Optional[List[TranscodedVideo]]
     nwb_path: Optional[Path]
@@ -311,10 +308,9 @@ def run_session(
         logger.info("  ✓ Alignment stats created (nominal rate)")
 
     # -------------------------------------------------------------------------
-    # Phase 4: Optional Modalities (DLC Inference, Pose, Facemap, Transcode)
+    # Phase 4: Optional Modalities (DLC Inference, Facemap, Transcode)
     # -------------------------------------------------------------------------
     dlc_inference_results: Optional[List[DLCInferenceResult]] = None
-    pose_bundle: Optional[PoseBundle] = None
     facemap_bundle: Optional[FacemapBundle] = None
     transcoded_videos: Optional[List[TranscodedVideo]] = None
 
@@ -450,7 +446,6 @@ def run_session(
         "alignment_stats": alignment_stats,
         "events_summary": events_summary,
         "dlc_inference_results": dlc_inference_results,
-        "pose_bundle": pose_bundle,
         "facemap_bundle": facemap_bundle,
         "transcoded_videos": transcoded_videos,
         "nwb_path": nwb_path,

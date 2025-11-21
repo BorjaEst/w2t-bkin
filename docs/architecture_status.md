@@ -21,14 +21,13 @@ Migration from intermediate models to NWB-native data structures across all proc
 - [x] Create architecture_status.md tracking document
 - [x] Create tasks.md implementation checklist
 
-### Phase 1: Pose Module ✅ (Stable - Dual Mode)
+### Phase 1: Pose Module 🟡 (In Progress - Complete Migration)
 
-**Target**: Support both legacy PoseBundle and NWB-first workflows during transition
+**Target**: Complete removal of PoseBundle/PoseFrame/PoseKeypoint; NWB-first only
 
-**Status**: ✅ Stable (dual-mode support complete, both patterns fully functional)
+**Status**: 🟡 In Progress - Executing complete migration (removing all legacy code)
 
 - [x] Add ndx-pose integration to nwb.py
-- [x] Create \_pose_bundle_to_ndx_pose() conversion function (legacy path)
 - [x] Add DLCModelInfo.skeleton field
 - [x] Parse skeleton edges from DLC config
 - [x] Integration test passes
@@ -37,42 +36,41 @@ Migration from intermediate models to NWB-native data structures across all proc
 - [x] **COMPLETED**: Add comprehensive tests for new functions (27 tests pass)
 - [x] **COMPLETED**: Add deprecation warnings to PoseBundle/PoseFrame/PoseKeypoint
 - [x] **COMPLETED**: Create MIGRATION.md guide with examples and troubleshooting
-- [x] **COMPLETED**: Update architecture_status.md to reflect stable dual-mode state
 - [x] **COMPLETED**: End-to-end NWB-first example verified (pose_camera_nwb.py)
-- [ ] **DEFERRED**: Update import_dlc_pose() to build PoseEstimationSeries directly
-- [ ] **DEFERRED**: Update import_sleap_pose() to build PoseEstimationSeries directly
-- [ ] **DEFERRED**: Update harmonization to work on PoseEstimationSeries
-- [ ] **DEFERRED**: Remove PoseBundle from pose/models.py (after full migration)
-- [ ] **DEFERRED**: Delete \_pose_bundle_to_ndx_pose() from nwb.py (after all consumers updated)
+- [ ] **IN PROGRESS**: Update import_dlc_pose() to return PoseEstimationSeries directly
+- [ ] **IN PROGRESS**: Update import_sleap_pose() to return PoseEstimationSeries directly
+- [ ] **IN PROGRESS**: Update harmonization to work on PoseEstimationSeries
+- [ ] **IN PROGRESS**: Remove PoseBundle from pose/models.py completely
+- [ ] **IN PROGRESS**: Delete \_pose_bundle_to_ndx_pose() from nwb.py
+- [ ] **IN PROGRESS**: Migrate pipeline.py to NWB-first
+- [ ] **IN PROGRESS**: Update integration tests to NWB-first
+- [ ] **IN PROGRESS**: Remove domain exports of legacy models
 
-**Completion Summary (2025-11-21)**:
+**Current Progress (2025-11-21)**:
 
-Phase 1 is now **stable** with full dual-mode support:
+Phase 1 is transitioning from **dual-mode to NWB-first only**:
+
+**Completed Foundation:**
 
 - ✅ NWB-first workflow: `build_pose_estimation()` → `assemble_nwb(pose_estimations=[...])`
-- ✅ Legacy workflow: `PoseBundle` → `assemble_nwb(pose_bundles=[...])`
-- ✅ Deprecation warnings guide users toward NWB-first
-- ✅ Comprehensive documentation in MIGRATION.md
 - ✅ Working example in examples/pose_camera_nwb.py
-- ✅ 27 unit tests cover both paths (25 pass, 2 skipped for SLEAP)
+- ✅ 27 unit tests cover NWB-first path (25 pass, 2 skipped for SLEAP)
+- ✅ Comprehensive documentation in MIGRATION.md
 
-**Implementation Details**:
+**In Progress (Complete Migration):**
 
-- `build_pose_estimation()`: 170 lines, creates ndx_pose.PoseEstimation from harmonized data
-- `align_pose_to_timebase()`: Dual-mode support via optional `camera_id` parameter
-- `assemble_nwb()`: Accepts both `pose_estimations` (NWB-first) and `pose_bundles` (legacy)
-- Deprecation: All PoseBundle/PoseFrame/PoseKeypoint classes emit DeprecationWarning on instantiation
+- 🟡 Removing all legacy models (PoseBundle, PoseFrame, PoseKeypoint)
+- 🟡 Updating import functions to return PoseEstimationSeries
+- 🟡 Updating harmonization to work on PoseEstimationSeries
+- 🟡 Removing conversion function from nwb.py
+- 🟡 Migrating pipeline.py to NWB-first
+- 🟡 Updating all integration tests
+- 🟡 Removing domain exports of legacy models
 
-**Migration Path**:
+**Decision**: Changed from incremental dual-mode strategy to complete migration. All legacy code will be removed in this phase.
 
-Users can migrate incrementally:
-
-1. New code: Use NWB-first from start (see MIGRATION.md examples)
-2. Existing code: Continue using legacy path (will work indefinitely)
-3. Gradual migration: Update code section-by-section as needed
-
-**Blockers**: None (phase complete)  
-**Next Phase**: Phase 2 (Events Module) can proceed using pose module as reference pattern
+**Blockers**: None  
+**Next Phase**: Phase 2 (Events Module) will begin after Phase 1 complete removal
 
 ### Phase 2: Events Module 🔲
 

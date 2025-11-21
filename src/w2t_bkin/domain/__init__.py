@@ -13,7 +13,6 @@ Package Structure:
 - alignment: Alignment and provenance models (AlignmentStats, Provenance)
 - bpod: Bpod file parsing models (BpodMatFile, SessionData, RawTrial, etc.)
 - trials: Trial domain models (Trial, BehavioralEvents, TrialOutcome, TrialSummary)
-- pose: Pose estimation models (PoseBundle, PoseFrame, PoseKeypoint)
 - facemap: Facemap models (FacemapBundle, FacemapROI, FacemapSignal)
 - transcode: Transcoding models (TranscodeOptions, TranscodedVideo)
 
@@ -137,8 +136,7 @@ from w2t_bkin.exceptions import (
 # Facemap models (Phase 3 - Optional) - Re-exported from facemap.models
 from w2t_bkin.facemap.models import FacemapBundle, FacemapROI, FacemapSignal
 
-# Pose estimation models (Phase 3 - Optional) - Re-exported from pose.models
-from w2t_bkin.pose.models import PoseBundle, PoseFrame, PoseKeypoint
+# Alignment stats - Re-exported from sync.models
 from w2t_bkin.sync.models import AlignmentStats
 
 # Transcoding models (Phase 3 - Optional) - Re-exported from transcode.models
@@ -209,10 +207,6 @@ __all__ = [
     # Alignment models
     "AlignmentStats",
     "Provenance",
-    # Pose models
-    "PoseBundle",
-    "PoseFrame",
-    "PoseKeypoint",
     # Facemap models
     "FacemapBundle",
     "FacemapROI",

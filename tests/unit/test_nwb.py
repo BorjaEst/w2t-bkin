@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 from pynwb import NWBHDF5IO
 import pytest
 
-from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Provenance, TrialSummary
+from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, Provenance, TrialSummary
 
 
 class TestDeviceCreation:

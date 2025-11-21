@@ -1,7 +1,7 @@
-"""Unit tests for pose module (Phase 3 - Red Phase).
+"""Unit tests for pose module (NWB-first).
 
 Tests pose import, harmonization, confidence preservation, and alignment
-for both DeepLabCut and SLEAP formats.
+for both DeepLabCut and SLEAP formats. All tests use ndx-pose native types.
 
 Requirements: FR-5
 Acceptance: A1, A3
@@ -16,7 +16,6 @@ from ndx_pose import PoseEstimation
 import numpy as np
 import pytest
 
-from w2t_bkin.domain import PoseBundle, PoseFrame, PoseKeypoint
 from w2t_bkin.pose import (
     PoseError,
     align_pose_to_timebase,
@@ -219,54 +218,6 @@ class TestConfidenceValidation:
 
         assert mean_conf < 0.8
         assert "low confidence" in caplog.text.lower()
-
-
-class TestPoseBundleCreation:
-    """Test creation of PoseBundle artifacts."""
-
-    def test_Should_CreatePoseBundle_When_AllDataProvided(self):
-        """Should create valid PoseBundle with all required fields."""
-        frames = [
-            PoseFrame(
-                frame_index=0,
-                timestamp=0.0,
-                keypoints=[
-                    PoseKeypoint(name="nose", x=100.0, y=200.0, confidence=0.95),
-                ],
-                source="dlc",
-            )
-        ]
-
-        bundle = PoseBundle(
-            session_id="Session-000001",
-            camera_id="cam0",
-            model_name="DLC_model_v1",
-            skeleton="canonical_mouse",
-            frames=frames,
-            alignment_method="nearest",
-            mean_confidence=0.95,
-            generated_at="2025-11-12T12:00:00Z",
-        )
-
-        assert bundle.session_id == "Session-000001"
-        assert len(bundle.frames) == 1
-        assert bundle.mean_confidence == 0.95
-
-    def test_Should_EnforceFrozen_When_PoseBundleCreated(self):
-        """PoseBundle should be immutable (NFR-7)."""
-        bundle = PoseBundle(
-            session_id="Session-000001",
-            camera_id="cam0",
-            model_name="DLC_model_v1",
-            skeleton="canonical_mouse",
-            frames=[],
-            alignment_method="nearest",
-            mean_confidence=0.95,
-            generated_at="2025-11-12T12:00:00Z",
-        )
-
-        with pytest.raises(Exception):  # Pydantic frozen model error
-            bundle.session_id = "modified"
 
 
 class TestBuildPoseEstimation:
@@ -476,11 +427,11 @@ class TestBuildPoseEstimation:
         assert pe.pose_estimation_series[bodyparts[0]].data.shape[0] == len(harmonized)
 
 
-class TestAlignPoseToTimebaseNWBFirst:
-    """Test NWB-first mode of align_pose_to_timebase (Step 2 of migration)."""
+class TestAlignPoseToTimebase:
+    """Test NWB-first align_pose_to_timebase (NWB-native only)."""
 
-    def test_Should_ReturnPoseEstimation_When_CameraIdProvided(self):
-        """Should return PoseEstimation instead of List[PoseFrame] when camera_id provided."""
+    def test_Should_ReturnPoseEstimation_When_ValidDataProvided(self):
+        """Should return PoseEstimation with required parameters."""
         # Arrange: harmonized data
         data = [
             {
@@ -498,7 +449,7 @@ class TestAlignPoseToTimebaseNWBFirst:
         ]
         reference_times = [0.0, 0.033]
 
-        # Act: NWB-first mode
+        # Act: NWB-first mode (camera_id and bodyparts required)
         result = align_pose_to_timebase(
             data=data,
             reference_times=reference_times,
@@ -514,38 +465,31 @@ class TestAlignPoseToTimebaseNWBFirst:
         assert "nose" in result.pose_estimation_series
         assert result.pose_estimation_series["nose"].data.shape[0] == 2
 
-    def test_Should_PreserveBackwardCompatibility_When_CameraIdNotProvided(self):
-        """Should return List[PoseFrame] for backward compatibility when camera_id is None."""
-        data = [
-            {
-                "frame_index": 0,
-                "keypoints": {
-                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
-                },
-            },
-        ]
+    def test_Should_RaiseError_When_CameraIdMissing(self):
+        """Should raise TypeError when camera_id is not provided (required parameter)."""
+        data = [{"frame_index": 0, "keypoints": {"nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95}}}]
         reference_times = [0.0]
 
-        # Act: Legacy mode (no camera_id)
-        result = align_pose_to_timebase(data=data, reference_times=reference_times, source="dlc")
+        with pytest.raises(TypeError):
+            align_pose_to_timebase(
+                data=data,
+                reference_times=reference_times,
+                # camera_id missing (required)
+                bodyparts=["nose"],
+                source="dlc",
+            )
 
-        # Assert: Returns list of PoseFrame
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert isinstance(result[0], PoseFrame)
-        assert result[0].timestamp == pytest.approx(0.0)
-
-    def test_Should_RaiseError_When_CameraIdProvidedButBodypartsMissing(self):
-        """Should raise ValueError if camera_id provided without bodyparts."""
+    def test_Should_RaiseError_When_BodypartsMissing(self):
+        """Should raise TypeError when bodyparts is not provided (required parameter)."""
         data = [{"frame_index": 0, "keypoints": {}}]
         reference_times = [0.0]
 
-        with pytest.raises(ValueError, match="bodyparts parameter required"):
+        with pytest.raises(TypeError):
             align_pose_to_timebase(
                 data=data,
                 reference_times=reference_times,
                 camera_id="cam0",
-                # bodyparts missing
+                # bodyparts missing (required)
                 source="dlc",
             )
 
