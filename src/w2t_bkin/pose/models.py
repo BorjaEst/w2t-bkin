@@ -6,17 +6,49 @@ skeleton format and aligned to the session reference timebase.
 
 Model ownership follows the target architecture where each module owns
 its own models rather than sharing through a central domain package.
+
+DEPRECATION NOTICE
+------------------
+The PoseBundle, PoseFrame, and PoseKeypoint models are DEPRECATED and will be
+removed in a future release. These intermediate models are being phased out in
+favor of the NWB-first architecture pattern.
+
+For new code, use the NWB-first workflow:
+    1. Use build_pose_estimation() to create ndx_pose.PoseEstimation objects directly
+    2. Pass PoseEstimation objects to assemble_nwb(pose_estimations=[...])
+    3. Avoid creating PoseBundle, PoseFrame, or PoseKeypoint instances
+
+See MIGRATION.md for detailed migration guidance and examples.
+
+Legacy code using PoseBundle will continue to work during the transition period,
+but should be updated to the NWB-first pattern when possible.
 """
 
 from typing import List, Literal
+import warnings
 
 from pydantic import BaseModel, Field
 
 __all__ = ["PoseKeypoint", "PoseFrame", "PoseBundle"]
 
 
+def _emit_deprecation_warning(model_name: str) -> None:
+    """Emit deprecation warning for legacy pose models."""
+    warnings.warn(
+        f"{model_name} is deprecated and will be removed in a future release. "
+        f"Use the NWB-first workflow instead: build_pose_estimation() → assemble_nwb(pose_estimations=[...]). "
+        f"See MIGRATION.md for guidance.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
 class PoseKeypoint(BaseModel):
     """Single keypoint in pose estimation.
+
+    .. deprecated::
+        PoseKeypoint is deprecated. Use build_pose_estimation() to create
+        ndx_pose.PoseEstimation objects directly instead.
 
     Represents a 2D keypoint location with confidence score.
 
@@ -37,9 +69,17 @@ class PoseKeypoint(BaseModel):
     y: float = Field(..., description="Y coordinate in pixels")
     confidence: float = Field(..., description="Confidence score (0.0-1.0)", ge=0.0, le=1.0)
 
+    def __init__(self, **data):
+        _emit_deprecation_warning("PoseKeypoint")
+        super().__init__(**data)
+
 
 class PoseFrame(BaseModel):
     """Pose data for a single frame.
+
+    .. deprecated::
+        PoseFrame is deprecated. Use build_pose_estimation() to create
+        ndx_pose.PoseEstimation objects directly instead.
 
     Contains all keypoints for one video frame with aligned timestamp.
 
@@ -66,9 +106,17 @@ class PoseFrame(BaseModel):
     keypoints: List[PoseKeypoint] = Field(..., description="List of keypoints for this frame")
     source: Literal["dlc", "sleap"] = Field(..., description="Pose estimation source: 'dlc' (DeepLabCut) | 'sleap' (SLEAP)")
 
+    def __init__(self, **data):
+        _emit_deprecation_warning("PoseFrame")
+        super().__init__(**data)
+
 
 class PoseBundle(BaseModel):
     """Harmonized pose data bundle aligned to reference timebase.
+
+    .. deprecated::
+        PoseBundle is deprecated. Use build_pose_estimation() to create
+        ndx_pose.PoseEstimation objects directly instead.
 
     Complete pose dataset for one camera, harmonized to canonical
     skeleton and aligned to the session reference timebase.
@@ -89,7 +137,7 @@ class PoseBundle(BaseModel):
         - A1: Include in NWB
         - A3: Include in QC report
 
-    Example:
+    Example (DEPRECATED - use build_pose_estimation() instead):
         >>> from w2t_bkin.pose.models import PoseBundle
         >>> bundle = PoseBundle(
         ...     session_id="Session-001",
@@ -113,3 +161,7 @@ class PoseBundle(BaseModel):
     alignment_method: Literal["nearest", "linear"] = Field(..., description="Timebase alignment method: 'nearest' | 'linear'")
     mean_confidence: float = Field(..., description="Mean confidence across all keypoints and frames", ge=0.0, le=1.0)
     generated_at: str = Field(..., description="ISO 8601 timestamp of pose bundle generation")
+
+    def __init__(self, **data):
+        _emit_deprecation_warning("PoseBundle")
+        super().__init__(**data)
