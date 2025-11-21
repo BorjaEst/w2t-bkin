@@ -12,10 +12,21 @@ import json
 from pathlib import Path
 from typing import List
 
+from ndx_pose import PoseEstimation
+import numpy as np
 import pytest
 
 from w2t_bkin.domain import PoseBundle, PoseFrame, PoseKeypoint
-from w2t_bkin.pose import PoseError, align_pose_to_timebase, harmonize_dlc_to_canonical, harmonize_sleap_to_canonical, import_dlc_pose, import_sleap_pose, validate_pose_confidence
+from w2t_bkin.pose import (
+    PoseError,
+    align_pose_to_timebase,
+    build_pose_estimation,
+    harmonize_dlc_to_canonical,
+    harmonize_sleap_to_canonical,
+    import_dlc_pose,
+    import_sleap_pose,
+    validate_pose_confidence,
+)
 
 
 class TestDLCImport:
@@ -256,3 +267,331 @@ class TestPoseBundleCreation:
 
         with pytest.raises(Exception):  # Pydantic frozen model error
             bundle.session_id = "modified"
+
+
+class TestBuildPoseEstimation:
+    """Test NWB-first pose estimation building (Step 1 of migration)."""
+
+    def test_Should_BuildPoseEstimation_When_ValidDataProvided(self):
+        """Should create ndx-pose PoseEstimation from harmonized data."""
+        # Arrange: harmonized pose data (frame-major)
+        data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                    "ear_left": {"name": "ear_left", "x": 80.0, "y": 180.0, "confidence": 0.90},
+                },
+            },
+            {
+                "frame_index": 1,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 102.0, "y": 201.0, "confidence": 0.93},
+                    "ear_left": {"name": "ear_left", "x": 81.0, "y": 181.0, "confidence": 0.88},
+                },
+            },
+        ]
+        reference_times = [0.0, 0.033]
+        bodyparts = ["nose", "ear_left"]
+
+        # Act
+        pe = build_pose_estimation(
+            data=data,
+            reference_times=reference_times,
+            camera_id="cam0",
+            bodyparts=bodyparts,
+            skeleton_edges=[[0, 1]],
+            source="dlc",
+            model_name="test_model",
+        )
+
+        # Assert: PoseEstimation structure
+        assert isinstance(pe, PoseEstimation)
+        assert pe.name == "PoseEstimation_cam0"
+        assert pe.scorer == "test_model"
+        assert pe.source_software == "DeepLabCut"
+        assert len(pe.pose_estimation_series) == 2
+
+        # Assert: Skeleton
+        assert pe.skeleton.nodes == bodyparts
+        assert len(pe.skeleton.edges) == 1
+        assert list(pe.skeleton.edges[0]) == [0, 1]
+
+        # Assert: PoseEstimationSeries data (keypoint-major)
+        nose_series = pe.pose_estimation_series["nose"]
+        assert nose_series.name == "nose"
+        assert nose_series.data.shape == (2, 2)  # (num_frames, 2) for x,y
+        assert nose_series.data[0, 0] == pytest.approx(100.0)
+        assert nose_series.data[0, 1] == pytest.approx(200.0)
+        assert nose_series.confidence[0] == pytest.approx(0.95)
+
+        # Assert: Timestamps (first series has timestamps, second links to it)
+        assert nose_series.timestamps is not None
+        assert len(nose_series.timestamps) == 2
+        ear_series = pe.pose_estimation_series["ear_left"]
+        # Linked series should have equal timestamps (ndx-pose handles the linking internally)
+        assert np.array_equal(ear_series.timestamps, nose_series.timestamps)
+
+    def test_Should_HandleMissingKeypoints_When_DataIncomplete(self):
+        """Should use NaN for missing keypoints."""
+        data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                    # ear_left missing
+                },
+            },
+        ]
+        reference_times = [0.0]
+        bodyparts = ["nose", "ear_left"]
+
+        pe = build_pose_estimation(
+            data=data,
+            reference_times=reference_times,
+            camera_id="cam0",
+            bodyparts=bodyparts,
+            source="dlc",
+            model_name="test_model",
+        )
+
+        # Nose should have valid data
+        nose_series = pe.pose_estimation_series["nose"]
+        assert nose_series.data[0, 0] == pytest.approx(100.0)
+
+        # Ear should have NaN
+        ear_series = pe.pose_estimation_series["ear_left"]
+        assert np.isnan(ear_series.data[0, 0])
+        assert np.isnan(ear_series.confidence[0])
+
+    def test_Should_RaiseError_When_TimestampMismatch(self):
+        """Should raise PoseError when timestamp count mismatches frame count."""
+        data = [
+            {"frame_index": 0, "keypoints": {}},
+            {"frame_index": 1, "keypoints": {}},
+        ]
+        reference_times = [0.0]  # Only 1 timestamp for 2 frames
+
+        with pytest.raises(PoseError, match="Timestamp count mismatch"):
+            build_pose_estimation(
+                data=data,
+                reference_times=reference_times,
+                camera_id="cam0",
+                bodyparts=["nose"],
+                source="dlc",
+                model_name="test_model",
+            )
+
+    def test_Should_RaiseError_When_EmptyData(self):
+        """Should raise PoseError for empty data."""
+        with pytest.raises(PoseError, match="empty data"):
+            build_pose_estimation(
+                data=[],
+                reference_times=[],
+                camera_id="cam0",
+                bodyparts=["nose"],
+                source="dlc",
+                model_name="test_model",
+            )
+
+    def test_Should_CreateEmptyEdges_When_SkeletonEdgesNone(self):
+        """Should handle None skeleton_edges gracefully."""
+        data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                },
+            },
+        ]
+        reference_times = [0.0]
+
+        pe = build_pose_estimation(
+            data=data,
+            reference_times=reference_times,
+            camera_id="cam0",
+            bodyparts=["nose"],
+            skeleton_edges=None,
+            source="dlc",
+            model_name="test_model",
+        )
+
+        assert pe.skeleton.edges.shape == (0, 2)
+
+    def test_Should_SetSLEAPSource_When_SourceIsSLEAP(self):
+        """Should set source_software to SLEAP when source is sleap."""
+        data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                },
+            },
+        ]
+        reference_times = [0.0]
+
+        pe = build_pose_estimation(
+            data=data,
+            reference_times=reference_times,
+            camera_id="cam0",
+            bodyparts=["nose"],
+            source="sleap",
+            model_name="sleap_model",
+        )
+
+        assert pe.source_software == "SLEAP"
+        assert pe.source_software_version == "1.3.x"
+
+    def test_Should_IntegrateWithHarmonization_When_ChainedWithDLC(self):
+        """Integration: harmonize DLC → build PoseEstimation."""
+        # Import real DLC data
+        h5_path = Path("tests/fixtures/pose/dlc/pose_sample.h5")
+        raw_data = import_dlc_pose(h5_path)
+
+        # Create simple mapping (first bodypart from DLC data)
+        # In real usage, this comes from config or mapping file
+        first_frame = raw_data[0]
+        bodypart_name = list(first_frame["keypoints"].keys())[0]
+        mapping = {bodypart_name: bodypart_name}  # Identity mapping for simplicity
+
+        # Harmonize
+        harmonized = harmonize_dlc_to_canonical(raw_data, mapping)
+
+        # Build PoseEstimation
+        bodyparts = list(mapping.values())
+        reference_times = [i * 0.033 for i in range(len(harmonized))]
+
+        pe = build_pose_estimation(
+            data=harmonized,
+            reference_times=reference_times,
+            camera_id="cam0",
+            bodyparts=bodyparts,
+            source="dlc",
+            model_name="dlc_integration_test",
+        )
+
+        # Verify structure
+        assert isinstance(pe, PoseEstimation)
+        assert len(pe.pose_estimation_series) == len(bodyparts)
+        assert pe.pose_estimation_series[bodyparts[0]].data.shape[0] == len(harmonized)
+
+
+class TestAlignPoseToTimebaseNWBFirst:
+    """Test NWB-first mode of align_pose_to_timebase (Step 2 of migration)."""
+
+    def test_Should_ReturnPoseEstimation_When_CameraIdProvided(self):
+        """Should return PoseEstimation instead of List[PoseFrame] when camera_id provided."""
+        # Arrange: harmonized data
+        data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                },
+            },
+            {
+                "frame_index": 1,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 102.0, "y": 201.0, "confidence": 0.93},
+                },
+            },
+        ]
+        reference_times = [0.0, 0.033]
+
+        # Act: NWB-first mode
+        result = align_pose_to_timebase(
+            data=data,
+            reference_times=reference_times,
+            camera_id="cam0",
+            bodyparts=["nose"],
+            source="dlc",
+            model_name="test_model",
+        )
+
+        # Assert: Returns PoseEstimation
+        assert isinstance(result, PoseEstimation)
+        assert result.name == "PoseEstimation_cam0"
+        assert "nose" in result.pose_estimation_series
+        assert result.pose_estimation_series["nose"].data.shape[0] == 2
+
+    def test_Should_PreserveBackwardCompatibility_When_CameraIdNotProvided(self):
+        """Should return List[PoseFrame] for backward compatibility when camera_id is None."""
+        data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                },
+            },
+        ]
+        reference_times = [0.0]
+
+        # Act: Legacy mode (no camera_id)
+        result = align_pose_to_timebase(data=data, reference_times=reference_times, source="dlc")
+
+        # Assert: Returns list of PoseFrame
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], PoseFrame)
+        assert result[0].timestamp == pytest.approx(0.0)
+
+    def test_Should_RaiseError_When_CameraIdProvidedButBodypartsMissing(self):
+        """Should raise ValueError if camera_id provided without bodyparts."""
+        data = [{"frame_index": 0, "keypoints": {}}]
+        reference_times = [0.0]
+
+        with pytest.raises(ValueError, match="bodyparts parameter required"):
+            align_pose_to_timebase(
+                data=data,
+                reference_times=reference_times,
+                camera_id="cam0",
+                # bodyparts missing
+                source="dlc",
+            )
+
+    def test_Should_HandleSkeletonEdges_When_Provided(self):
+        """Should pass skeleton edges to PoseEstimation."""
+        data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                    "ear": {"name": "ear", "x": 80.0, "y": 180.0, "confidence": 0.90},
+                },
+            },
+        ]
+        reference_times = [0.0]
+
+        result = align_pose_to_timebase(
+            data=data,
+            reference_times=reference_times,
+            camera_id="cam0",
+            bodyparts=["nose", "ear"],
+            skeleton_edges=[[0, 1]],
+            source="dlc",
+        )
+
+        assert isinstance(result, PoseEstimation)
+        assert len(result.skeleton.edges) == 1
+
+    def test_Should_UseLinearMapping_When_MappingIsLinear(self):
+        """Should support linear mapping in NWB-first mode."""
+        data = [
+            {"frame_index": 0, "keypoints": {"nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95}}},
+            {"frame_index": 1, "keypoints": {"nose": {"name": "nose", "x": 102.0, "y": 201.0, "confidence": 0.93}}},
+        ]
+        reference_times = [0.0, 0.033]
+
+        result = align_pose_to_timebase(
+            data=data,
+            reference_times=reference_times,
+            mapping="linear",
+            camera_id="cam0",
+            bodyparts=["nose"],
+            source="dlc",
+        )
+
+        assert isinstance(result, PoseEstimation)
+        # Verify timestamps are used
+        nose_series = result.pose_estimation_series["nose"]
+        assert len(nose_series.timestamps) == 2

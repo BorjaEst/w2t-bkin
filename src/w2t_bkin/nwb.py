@@ -73,10 +73,14 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
+import numpy as np
 from pynwb import NWBHDF5IO, NWBFile
 from pynwb.device import Device
+from pynwb.file import Subject
 from pynwb.image import ImageSeries
 
+from .dlc.models import DLCModelInfo
 from .domain import AlignmentStats, Config, FacemapBundle, Manifest, PoseBundle, Provenance
 from .events.models import TrialSummary
 from .utils import ensure_directory, sanitize_string
@@ -250,6 +254,122 @@ def _validate_video_files(cameras: List[Dict[str, Any]]) -> None:
                 raise NWBError(f"Video file not found: {filename}")
 
 
+def _pose_bundle_to_ndx_pose(
+    bundle: PoseBundle,
+    model_info: DLCModelInfo,
+    device: Optional[Device] = None,
+) -> PoseEstimation:
+    """Convert PoseBundle to ndx-pose PoseEstimation object.
+
+    Transforms frame-major pose data (one PoseFrame per timestep with all keypoints)
+    into keypoint-major format (one PoseEstimationSeries per bodypart) following
+    the DLC2NWB standard approach.
+
+    Args:
+        bundle: Internal PoseBundle from pose module
+        model_info: DLC model metadata with bodyparts and skeleton edges
+        device: Optional pynwb Device for camera link
+
+    Returns:
+        PoseEstimation object ready to add to NWB processing module
+
+    Implementation follows DeepLabCut DLC2NWB standard:
+    - One PoseEstimationSeries per bodypart
+    - Timestamps linked to first series (avoids duplication)
+    - Skeleton edges from DLC config (optional, empty if not defined)
+    - Confidence definition documents DLC softmax output
+    - Reference frame describes coordinate system
+
+    Requirements:
+        - FR-5: Write pose estimation to NWB
+        - A1: Include pose in behavior processing module
+    """
+    # Validate bundle contains data
+    if not bundle.frames:
+        raise ValueError(f"PoseBundle for {bundle.camera_id} contains no frames")
+
+    # Extract timestamps and validate consistency
+    timestamps = np.array([frame.timestamp for frame in bundle.frames], dtype=np.float64)
+    num_frames = len(timestamps)
+
+    # Build keypoint-major data structure
+    # Map bodypart name -> (data, confidence) where data is (num_frames, 2) for x,y
+    bodypart_data: Dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    for bodypart in model_info.bodyparts:
+        data = []
+        confidence = []
+
+        for frame in bundle.frames:
+            # Find keypoint for this bodypart in this frame
+            kp = next((k for k in frame.keypoints if k.name == bodypart), None)
+            if kp:
+                data.append([kp.x, kp.y])
+                confidence.append(kp.confidence)
+            else:
+                # Missing keypoint - use NaN
+                data.append([np.nan, np.nan])
+                confidence.append(np.nan)
+
+        bodypart_data[bodypart] = (np.array(data, dtype=np.float32), np.array(confidence, dtype=np.float32))
+
+    # Create PoseEstimationSeries for each bodypart
+    pose_estimation_series = []
+    first_series_timestamps = None
+
+    for bodypart in model_info.bodyparts:
+        data, confidence = bodypart_data[bodypart]
+
+        # First series stores timestamps, subsequent series link to it
+        if first_series_timestamps is None:
+            pes = PoseEstimationSeries(
+                name=bodypart,
+                description=f"Keypoint {bodypart} from camera {bundle.camera_id}.",
+                data=data,
+                unit="pixels",
+                reference_frame="(0,0) corresponds to the bottom left corner of the video.",
+                timestamps=timestamps,
+                confidence=confidence,
+                confidence_definition="Softmax output of the deep neural network.",
+            )
+            first_series_timestamps = pes
+        else:
+            # Link timestamps to first series (avoids duplication per DLC2NWB pattern)
+            pes = PoseEstimationSeries(
+                name=bodypart,
+                description=f"Keypoint {bodypart} from camera {bundle.camera_id}.",
+                data=data,
+                unit="pixels",
+                reference_frame="(0,0) corresponds to the bottom left corner of the video.",
+                timestamps=first_series_timestamps,
+                confidence=confidence,
+                confidence_definition="Softmax output of the deep neural network.",
+            )
+
+        pose_estimation_series.append(pes)
+
+    # Create Skeleton with nodes and edges from DLC model (proper non-deprecated approach)
+    skeleton = Skeleton(
+        name=f"{bundle.camera_id}_skeleton",
+        nodes=model_info.bodyparts,
+        edges=np.array(model_info.skeleton, dtype="uint8") if model_info.skeleton else np.array([], dtype="uint8").reshape(0, 2),
+    )
+
+    # Create PoseEstimation container referencing the skeleton
+    pe = PoseEstimation(
+        name=f"PoseEstimation_{bundle.camera_id}",
+        pose_estimation_series=pose_estimation_series,
+        description=f"2D keypoint coordinates for {bundle.camera_id} estimated using DeepLabCut.",
+        scorer=model_info.scorer,
+        source_software="DeepLabCut",
+        source_software_version="2.3.x",  # Version from bundle source
+        skeleton=skeleton,
+    )
+
+    logger.debug(f"Converted PoseBundle to PoseEstimation: {bundle.camera_id}, {num_frames} frames, {len(model_info.bodyparts)} bodyparts")
+    return pe, skeleton
+
+
 def _merge_session_metadata(session_metadata: Optional[Dict[str, Any]], manifest: Dict[str, Any]) -> Dict[str, Any]:
     """Merge session metadata from parameter and manifest.
 
@@ -276,6 +396,7 @@ def _build_nwb_file(
     config: Dict[str, Any],
     final_session_metadata: Dict[str, Any],
     pose_bundles: Optional[List[PoseBundle]],
+    pose_estimations: Optional[List],  # List[PoseEstimation]
     facemap_bundles: Optional[List[FacemapBundle]],
     bpod_summary: Optional[TrialSummary],
     manifest: Dict[str, Any],
@@ -307,6 +428,13 @@ def _build_nwb_file(
     nwb_config = config.get("nwb", {}) if isinstance(config, dict) else {}
     session_description = nwb_config.get("session_description", f"Session {session_id}")
 
+    # Create Subject (required for ndx-pose skeleton linking)
+    subject = Subject(
+        subject_id=session_id,
+        species="Mus musculus",  # Default to mouse
+        description=f"Subject for {session_id}",
+    )
+
     # Create NWBFile
     nwbfile = NWBFile(
         session_description=session_description,
@@ -315,7 +443,7 @@ def _build_nwb_file(
         lab=nwb_config.get("lab", ""),
         institution=nwb_config.get("institution", ""),
         experimenter=nwb_config.get("experimenter", []),
-        subject=None,  # Will add later if session_metadata has subject info
+        subject=subject,
     )
 
     # Add devices
@@ -336,13 +464,66 @@ def _build_nwb_file(
             nwbfile.notes = f"Provenance:\n{provenance_json}"
         logger.debug("Embedded provenance metadata")
 
+    # Include pose estimation data if present
+    if pose_bundles or pose_estimations:
+        # Create behavior processing module
+        if "behavior" not in nwbfile.processing:
+            behavior_pm = nwbfile.create_processing_module(name="behavior", description="Processed behavioral data including pose estimation")
+        else:
+            behavior_pm = nwbfile.processing["behavior"]
+
+        skeletons_list = []
+        pose_est_list = []
+
+        # NWB-first mode: pose_estimations provided directly
+        if pose_estimations:
+            logger.debug(f"Using NWB-first mode: {len(pose_estimations)} PoseEstimation object(s)")
+            for pose_est in pose_estimations:
+                skeletons_list.append(pose_est.skeleton)
+                pose_est_list.append(pose_est)
+
+        # Legacy mode: convert from PoseBundle
+        elif pose_bundles:
+            logger.debug(f"Using legacy mode: converting {len(pose_bundles)} PoseBundle(s)")
+            # Convert PoseEstimation for each camera
+            for bundle in pose_bundles:
+                # Find corresponding device for this camera
+                device = next((d for d in devices if d.name == bundle.camera_id), None)
+
+                # Get DLC model info from manifest (must be passed from orchestration)
+                # For now, create minimal model info from bundle data
+                # TODO: Pass actual DLCModelInfo from orchestration layer
+                from .dlc.models import DLCModelInfo
+
+                model_info = DLCModelInfo(
+                    config_path=Path("unknown"),
+                    project_path=Path("unknown"),
+                    scorer=bundle.model_name,
+                    bodyparts=[kp.name for kp in bundle.frames[0].keypoints] if bundle.frames else [],
+                    num_outputs=len(bundle.frames[0].keypoints) * 3 if bundle.frames else 0,
+                    skeleton=[],  # Empty for now, will be populated when passed from orchestration
+                    task="unknown",
+                    date="unknown",
+                )
+
+                pose_estimation, skeleton = _pose_bundle_to_ndx_pose(bundle, model_info, device)
+                skeletons_list.append(skeleton)
+                pose_est_list.append(pose_estimation)
+
+        # Add Skeletons container first (so skeletons have a parent)
+        skeletons_container = Skeletons(skeletons=skeletons_list)
+        behavior_pm.add(skeletons_container)
+        logger.debug(f"Added Skeletons container with {len(skeletons_list)} skeletons")
+
+        # Then add PoseEstimation objects
+        for pose_estimation in pose_est_list:
+            behavior_pm.add(pose_estimation)
+            logger.debug(f"Added PoseEstimation for {pose_estimation.name}")
+
     # Include optional modalities if present in manifest
     if "events" in manifest:
         logger.debug("Including events data in NWB")
         # TODO: Add TrialEvents when events module is complete
-    if "pose" in manifest:
-        logger.debug("Including pose data in NWB")
-        # TODO: Add PoseEstimation when pose module is complete
     if "facemap" in manifest:
         logger.debug("Including facemap data in NWB")
         # TODO: Add BehavioralTimeSeries when facemap module is complete
@@ -374,6 +555,7 @@ def assemble_nwb(
     provenance: Dict[str, Any],
     output_dir: Path,
     pose_bundles: Optional[List[PoseBundle]] = None,
+    pose_estimations: Optional[List] = None,  # List[PoseEstimation] - NWB-first mode
     facemap_bundles: Optional[List[FacemapBundle]] = None,
     bpod_summary: Optional[TrialSummary] = None,
     session_metadata: Optional[Dict[str, Any]] = None,
@@ -396,7 +578,8 @@ def assemble_nwb(
         config: Pipeline configuration (dict or Config object)
         provenance: Provenance metadata
         output_dir: Output directory for NWB file
-        pose_bundles: Optional pose data bundles
+        pose_bundles: Optional pose data bundles (DEPRECATED - use pose_estimations)
+        pose_estimations: Optional list of ndx-pose PoseEstimation objects (NWB-first)
         facemap_bundles: Optional facemap data bundles
         bpod_summary: Optional Bpod trial/event summary
         session_metadata: Optional session metadata
@@ -407,10 +590,12 @@ def assemble_nwb(
     Raises:
         NWBError: If required fields missing or assembly fails
 
-    Example:
+    Example (NWB-first):
+        >>> pose_est = align_pose_to_timebase(..., camera_id="cam0", bodyparts=[...])
         >>> manifest = {"session_id": "Session-001", "cameras": [...]}
         >>> config = {"nwb": {"file_name_template": "{session_id}.nwb"}}
-        >>> nwb_path = assemble_nwb(manifest, config, {}, Path("/output"))
+        >>> nwb_path = assemble_nwb(manifest, config, {}, Path("/output"),
+        ...                         pose_estimations=[pose_est])
     """
     # Validate inputs
     if manifest is None:
@@ -473,6 +658,7 @@ def assemble_nwb(
         config=config_dict,
         final_session_metadata=final_session_metadata,
         pose_bundles=pose_bundles,
+        pose_estimations=pose_estimations,
         facemap_bundles=facemap_bundles,
         bpod_summary=bpod_summary,
         manifest=manifest_dict,

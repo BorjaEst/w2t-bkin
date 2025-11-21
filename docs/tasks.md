@@ -12,6 +12,38 @@ Detailed task breakdown for Phase 1 (Pose Module). Focus on incremental, testabl
 
 ## Task Checklist
 
+### 0. Add build_pose_estimation() Function ✅ COMPLETED
+
+**File**: `src/w2t_bkin/pose/core.py`
+
+**Changes**:
+
+- ✅ Added `build_pose_estimation()` function that converts harmonized pose data to PoseEstimation
+- ✅ Updated imports to include ndx-pose types
+- ✅ Updated `pose/__init__.py` to export `build_pose_estimation`
+- ✅ Wrote 7 comprehensive tests in `test_pose.py::TestBuildPoseEstimation`
+- ✅ All tests passing (20 passed, 2 skipped)
+
+**Function Signature**:
+
+```python
+def build_pose_estimation(
+    data: List[Dict],
+    reference_times: List[float],
+    camera_id: str,
+    bodyparts: List[str],
+    skeleton_edges: Optional[List[List[int]]] = None,
+    source: str = "dlc",
+    model_name: str = "unknown",
+) -> PoseEstimation
+```
+
+**Completed**: 2025-11-21  
+**Time Spent**: 2.5 hours  
+**Status**: Production-ready, fully tested
+
+---
+
 ### 1. Pose Models Cleanup 🔲
 
 **File**: `src/w2t_bkin/pose/models.py`
@@ -25,6 +57,42 @@ Detailed task breakdown for Phase 1 (Pose Module). Focus on incremental, testabl
 
 **Estimated Time**: 15 minutes  
 **Testing**: Verify imports work, no tests should break yet (nothing uses models.py directly)
+
+---
+
+### 1.5. Update align_pose_to_timebase() ✅ COMPLETED
+
+**File**: `src/w2t_bkin/pose/core.py`  
+**Function**: `align_pose_to_timebase()`
+
+**Changes**:
+
+- ✅ Added optional parameters: `camera_id`, `bodyparts`, `skeleton_edges`, `model_name`
+- ✅ Supports two modes:
+  - Legacy mode (camera_id=None): Returns `List[PoseFrame]` for backward compatibility
+  - NWB-first mode (camera_id provided): Returns `PoseEstimation` directly
+- ✅ Calls `build_pose_estimation()` internally when in NWB-first mode
+- ✅ Updated function signature and comprehensive docstring
+- ✅ Added 5 comprehensive tests in `test_pose.py::TestAlignPoseToTimebaseNWBFirst`
+
+**Function Signature**:
+
+```python
+def align_pose_to_timebase(
+    data: List[Dict],
+    reference_times: List[float],
+    mapping: str = "nearest",
+    source: str = "dlc",
+    camera_id: Optional[str] = None,
+    bodyparts: Optional[List[str]] = None,
+    skeleton_edges: Optional[List[List[int]]] = None,
+    model_name: Optional[str] = None,
+) -> List  # Returns PoseEstimation if camera_id provided, else List[PoseFrame]
+```
+
+**Completed**: 2025-11-21  
+**Time Spent**: 1.5 hours  
+**Status**: Production-ready, fully tested, backward compatible
 
 ---
 

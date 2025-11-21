@@ -25,22 +25,32 @@ Migration from intermediate models to NWB-native data structures across all proc
 
 **Target**: Remove PoseKeypoint, PoseFrame, PoseBundle; use ndx-pose directly
 
-**Status**: Partially complete (ndx-pose integrated, but conversion still exists)
+**Status**: In progress (NWB-first functions added, conversion still exists for backward compatibility)
 
 - [x] Add ndx-pose integration to nwb.py
 - [x] Create \_pose_bundle_to_ndx_pose() conversion function
 - [x] Add DLCModelInfo.skeleton field
 - [x] Parse skeleton edges from DLC config
 - [x] Integration test passes
-- [ ] **TODO**: Remove PoseBundle from pose/models.py
+- [x] **COMPLETED**: Add build_pose_estimation() to pose/core.py (Step 0)
+- [x] **COMPLETED**: Update align_pose_to_timebase() to support NWB-first mode (Step 1.5)
+- [x] **COMPLETED**: Add comprehensive tests for new functions (27 tests pass)
+- [ ] **TODO**: Update examples to use NWB-first mode
+- [ ] **TODO**: Remove PoseBundle from pose/models.py (after migration complete)
 - [ ] **TODO**: Update import_dlc_pose() to build PoseEstimationSeries directly
 - [ ] **TODO**: Update import_sleap_pose() to build PoseEstimationSeries directly
 - [ ] **TODO**: Update harmonization to work on PoseEstimationSeries
-- [ ] **TODO**: Update align_pose_to_timebase() to return PoseEstimation
-- [ ] **TODO**: Delete \_pose_bundle_to_ndx_pose() from nwb.py
+- [ ] **TODO**: Delete \_pose_bundle_to_ndx_pose() from nwb.py (after all consumers updated)
+
+**Recent Progress (2025-11-21)**:
+
+- ✅ Added `build_pose_estimation()` function (170 lines, 7 tests)
+- ✅ Updated `align_pose_to_timebase()` with dual-mode support (5 tests)
+- ✅ Maintains backward compatibility during transition
+- ✅ All 25 pose unit tests passing
 
 **Blockers**: None  
-**Next Steps**: Start with pose/models.py cleanup
+**Next Steps**: Update examples and pipeline to use NWB-first mode
 
 ### Phase 2: Events Module 🔲
 

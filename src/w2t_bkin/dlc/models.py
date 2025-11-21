@@ -95,6 +95,7 @@ class DLCModelInfo:
         scorer: DLC scorer name from config
         bodyparts: List of bodypart names from config
         num_outputs: Number of output values (len(bodyparts) * 3 for x, y, likelihood)
+        skeleton: Skeleton edge pairs from config (list of [node_idx, node_idx] pairs)
         task: DLC task name from config
         date: DLC project date from config
 
@@ -105,6 +106,7 @@ class DLCModelInfo:
         ...     scorer="DLC_resnet50_BA_W2T_cam0shuffle1_150000",
         ...     bodyparts=["nose", "left_ear", "right_ear"],
         ...     num_outputs=9,
+        ...     skeleton=[[0, 1], [1, 2]],
         ...     task="BA_W2T_cam0",
         ...     date="2024-01-01",
         ... )
@@ -117,5 +119,6 @@ class DLCModelInfo:
     scorer: str
     bodyparts: List[str]
     num_outputs: int
+    skeleton: List[List[int]]
     task: str
     date: str

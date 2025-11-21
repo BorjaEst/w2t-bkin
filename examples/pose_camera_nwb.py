@@ -66,7 +66,7 @@ from w2t_bkin.domain.session import BpodSession, Camera
 from w2t_bkin.domain.session import Session as SessionModel
 from w2t_bkin.domain.session import SessionMetadata
 from w2t_bkin.nwb import assemble_nwb
-from w2t_bkin.pose import PoseBundle, align_pose_to_timebase, import_dlc_pose
+from w2t_bkin.pose import align_pose_to_timebase, harmonize_dlc_to_canonical, import_dlc_pose
 
 
 class ExampleSettings(BaseSettings):
@@ -194,10 +194,10 @@ if __name__ == "__main__":
             print(f"  ... and {len(first_frame['keypoints']) - 2} more keypoints")
 
     # ---------------------------------------------------------------------
-    # PHASE 2: Create Nominal Timebase and Align
+    # PHASE 2: Create Nominal Timebase and Align (NWB-First)
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 2: Create Nominal Timebase and Align")
+    print("PHASE 2: Create Nominal Timebase and Align (NWB-First)")
     print("=" * 80)
 
     print("\nStep 2.1: Create nominal timebase")
@@ -214,58 +214,61 @@ if __name__ == "__main__":
         if i < len(reference_times):
             print(f"  - Frame {i:3d} → t = {reference_times[i]:.3f} s")
 
-    print("\nStep 2.2: Align pose frames to timebase")
+    print("\nStep 2.2: Harmonize DLC keypoints to canonical schema")
+    print(f"  Using identity mapping (no skeleton conversion)")
+    # Create identity mapping for demonstration
+    identity_mapping = {kp: kp for kp in keypoints}
+    harmonized_pose = harmonize_dlc_to_canonical(pose_data, identity_mapping)
+    print(f"  ✓ Harmonized {len(harmonized_pose)} frames")
+
+    print("\nStep 2.3: Align pose frames and build PoseEstimation (NWB-native)")
     print(f"  Alignment method: nearest")
     print(f"  Source: dlc")
+    print(f"  Mode: NWB-first (returns PoseEstimation directly)")
 
-    aligned_pose = align_pose_to_timebase(pose_data, reference_times, mapping="nearest", source="dlc")
-
-    print(f"  ✓ Aligned {len(aligned_pose)} frames")
-
-    # Show alignment example for first frame
-    if aligned_pose:
-        first_aligned = aligned_pose[0]
-        print(f"\nAlignment example (first frame):")
-        print(f"  - Frame index:  {first_aligned.frame_index}")
-        print(f"  - Timestamp:    {first_aligned.timestamp:.3f} s")
-        print(f"  - Keypoints:    {len(first_aligned.keypoints)}")
-        print(f"  - Source:       {first_aligned.source}")
-
-    # ---------------------------------------------------------------------
-    # PHASE 3: Build PoseBundle
-    # ---------------------------------------------------------------------
-    print("\n" + "=" * 80)
-    print("PHASE 3: Build PoseBundle")
-    print("=" * 80)
-
-    print("\nStep 3.1: Compute mean confidence")
-    # Compute inline with simple loop
-    all_confidences = []
-    for frame in aligned_pose:
-        for keypoint in frame.keypoints:
-            all_confidences.append(keypoint.confidence)
-    mean_confidence = float(np.mean(all_confidences)) if all_confidences else 0.0
-    print(f"  Mean confidence: {mean_confidence:.3f}")
-
-    print("\nStep 3.2: Create PoseBundle")
-    bundle = PoseBundle(
-        session_id=settings.session_id,
+    # NEW: Use NWB-first mode to get PoseEstimation directly
+    pose_estimation = align_pose_to_timebase(
+        data=harmonized_pose,
+        reference_times=reference_times,
+        mapping="nearest",
+        source="dlc",
         camera_id=settings.camera_id,
+        bodyparts=keypoints,
+        skeleton_edges=None,  # Could provide skeleton connectivity here
         model_name=settings.model_name,
-        skeleton="dlc_keypoints",  # Generic, no harmonization
-        frames=aligned_pose,
-        alignment_method="nearest",
-        mean_confidence=mean_confidence,
-        generated_at=datetime.now().isoformat(),
     )
 
-    print(f"  ✓ Created PoseBundle")
-    print(f"    - Session ID:         {bundle.session_id}")
-    print(f"    - Camera ID:          {bundle.camera_id}")
-    print(f"    - Model:              {bundle.model_name}")
-    print(f"    - Frames:             {len(bundle.frames)}")
-    print(f"    - Mean confidence:    {bundle.mean_confidence:.3f}")
-    print(f"    - Alignment method:   {bundle.alignment_method}")
+    print(f"  ✓ Created PoseEstimation with {len(pose_estimation.pose_estimation_series)} keypoint series")
+
+    # Show PoseEstimation details
+    print(f"\nPoseEstimation structure:")
+    print(f"  - Name:             {pose_estimation.name}")
+    print(f"  - Scorer:           {pose_estimation.scorer}")
+    print(f"  - Source software:  {pose_estimation.source_software}")
+    print(f"  - Keypoints:        {len(pose_estimation.pose_estimation_series)}")
+    print(f"  - Skeleton nodes:   {len(pose_estimation.skeleton.nodes)}")
+
+    # Show example series
+    if pose_estimation.pose_estimation_series:
+        first_kp = list(pose_estimation.pose_estimation_series.keys())[0]
+        series = pose_estimation.pose_estimation_series[first_kp]
+        print(f"\nExample series ('{first_kp}'):")
+        print(f"  - Data shape:       {series.data.shape} (frames, xy)")
+        print(f"  - First position:   x={series.data[0, 0]:.1f}, y={series.data[0, 1]:.1f}")
+        print(f"  - Confidence:       {series.confidence[0]:.3f}")
+        print(f"  - Timestamps:       {len(series.timestamps)} frames")
+
+    # ---------------------------------------------------------------------
+    # PHASE 3: Build Session Manifest (Simplified - No PoseBundle)
+    # ---------------------------------------------------------------------
+    print("\n" + "=" * 80)
+    print("PHASE 3: Build Session Manifest (NWB-First)")
+    print("=" * 80)
+
+    print("\nStep 3.1: Create session manifest")
+    print(f"  Note: PoseEstimation is already in NWB format")
+    print(f"  No intermediate PoseBundle needed with NWB-first approach")
+    print(f"  ✓ PoseEstimation ready for direct inclusion in NWB file")
 
     # ---------------------------------------------------------------------
     # PHASE 4: Build Manifest and Config
@@ -290,13 +293,15 @@ if __name__ == "__main__":
     print(f"  Frame rate:      {camera_metadata['frame_rate']} Hz")
     print(f"  Frame count:     {camera_metadata['frame_count']}")
 
-    print("\nStep 4.2: Build manifest")
+    print("\nStep 4.2: Build manifest (NWB-first)")
     manifest = {
         "session_id": settings.session_id,
         "cameras": [camera_metadata],
+        "pose_estimations": [pose_estimation],  # Direct NWB objects
     }
     print(f"  Session ID:      {manifest['session_id']}")
     print(f"  Cameras:         {len(manifest['cameras'])}")
+    print(f"  Pose data:       {len(manifest['pose_estimations'])} PoseEstimation(s)")
 
     print("\nStep 4.3: Build config")
     config = {
@@ -338,23 +343,29 @@ if __name__ == "__main__":
         "generated_at": datetime.now().isoformat(),
     }
 
+    # NWB-first mode: extract PoseEstimation from manifest
+    pose_estimations_list = manifest.get("pose_estimations", [])
+
     nwb_path = assemble_nwb(
         manifest=manifest,
         config=config,
         provenance=provenance,
         output_dir=output_dir,
-        pose_bundles=[bundle],
+        pose_estimations=pose_estimations_list,  # NWB-first mode
     )
 
     nwb_size_kb = nwb_path.stat().st_size / 1024
 
+    # Get frame count from PoseEstimation
+    n_frames = len(pose_estimation.pose_estimation_series[keypoints[0]].data) if keypoints else 0
+
     print(f"\n  ✓ NWB file created: {nwb_path}")
     print(f"    Size:          {nwb_size_kb:.1f} KB")
     print(f"    Cameras:       1")
-    print(f"    Pose frames:   {len(bundle.frames)}")
+    print(f"    Pose frames:   {n_frames}")
 
     # ---------------------------------------------------------------------
-    # PHASE 6: Generate Visualizations
+    # PHASE 6: Generate Visualizations (TODO: Update for NWB-first mode)
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
     print("PHASE 6: Generate Visualizations")
@@ -365,19 +376,9 @@ if __name__ == "__main__":
 
     print(f"\nFigures directory: {figures_dir}")
 
-    # Generate pose keypoints grid
-    print("\nStep 6.1: Pose keypoints grid (3 frames)")
-    grid_path = figures_dir / f"{settings.session_id}_pose_grid.png"
-    result_path = plot_pose_keypoints_grid(
-        bundle=bundle,
-        video_path=video_path,
-        out_path=grid_path,
-    )
-
-    if result_path:
-        print(f"  ✓ Saved: {result_path}")
-    else:
-        print(f"  ⚠ matplotlib not available, skipping visualization")
+    # TODO: Update plot_pose_keypoints_grid to accept PoseEstimation instead of PoseBundle
+    print("\nStep 6.1: Pose keypoints grid (skipped - requires PoseBundle adaptation)")
+    print("  Note: Visualization functions will be updated in next iteration")
 
     # Create pose summary JSON
     print("\nStep 6.2: Pose summary JSON")
@@ -385,8 +386,8 @@ if __name__ == "__main__":
         "session_id": settings.session_id,
         "camera_id": settings.camera_id,
         "model_name": settings.model_name,
-        "total_frames": len(bundle.frames),
-        "mean_confidence": float(bundle.mean_confidence),
+        "total_frames": n_frames,
+        "mean_confidence": float(conf_array.mean()),
         "keypoints": keypoints,
         "fps": settings.fps,
         "duration_s": float(reference_times[-1]),
@@ -409,20 +410,18 @@ if __name__ == "__main__":
     print(f"\nGenerated artifacts:")
     print(f"  - NWB file:        {nwb_path}")
     print(f"  - Pose summary:    {summary_path}")
-    if result_path:
-        print(f"  - Visualization:   {result_path}")
 
     print(f"\nPose statistics:")
-    print(f"  - Total frames:    {len(bundle.frames)}")
-    print(f"  - Mean confidence: {bundle.mean_confidence:.3f}")
+    print(f"  - Total frames:    {n_frames}")
+    print(f"  - Mean confidence: {conf_array.mean():.3f}")
     print(f"  - Duration:        {reference_times[-1]:.3f} s")
     print(f"  - Keypoints:       {len(keypoints)}")
 
-    print(f"\nData flow summary:")
+    print(f"\nData flow summary (NWB-First):")
     print(f"  1. Synthetic session → raw/ (videos) + interim/ (DLC H5)")
     print(f"  2. DLC H5 → import_dlc_pose() → {len(pose_data)} frames")
-    print(f"  3. Nominal timebase (t = frame_idx / {settings.fps}) → alignment")
-    print(f"  4. PoseBundle → NWB assembly → {nwb_path.name}")
-    print(f"  5. Visualizations → figures/")
+    print(f"  3. Harmonize → align_pose_to_timebase() → PoseEstimation (NWB-native)")
+    print(f"  4. PoseEstimation → NWB assembly → {nwb_path.name}")
+    print(f"  5. No intermediate PoseBundle needed!")
 
     print("\nDone.")

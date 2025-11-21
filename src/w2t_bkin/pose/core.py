@@ -66,9 +66,10 @@ Example:
 
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import h5py
+from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton
 import numpy as np
 import pandas as pd
 
@@ -296,21 +297,213 @@ def harmonize_sleap_to_canonical(data: List[Dict], mapping: Dict[str, str]) -> L
     return harmonized
 
 
-def align_pose_to_timebase(data: List[Dict], reference_times: List[float], mapping: str = "nearest", source: str = "dlc") -> List:
-    """Align pose frame indices to reference timebase timestamps.
+def build_pose_estimation(
+    data: List[Dict],
+    reference_times: List[float],
+    camera_id: str,
+    bodyparts: List[str],
+    skeleton_edges: Optional[List[List[int]]] = None,
+    source: str = "dlc",
+    model_name: str = "unknown",
+) -> PoseEstimation:
+    """Build ndx-pose PoseEstimation from harmonized pose data.
+
+    Converts frame-major pose data (one dict per timestep with all keypoints)
+    into keypoint-major NWB format (one PoseEstimationSeries per bodypart).
+
+    This is the NWB-first approach that eliminates intermediate PoseBundle
+    models and produces standards-compliant NWB objects directly.
 
     Args:
-        data: Harmonized pose data
+        data: Harmonized pose data (List of dicts with frame_index, keypoints)
+        reference_times: Reference timestamps from sync (aligned to frames)
+        camera_id: Camera identifier (e.g., "cam0_top")
+        bodyparts: List of bodypart names in canonical order
+        skeleton_edges: Optional skeleton connectivity (list of [idx1, idx2] pairs)
+        source: Pose estimation source ("dlc" | "sleap")
+        model_name: Model identifier for scorer field
+
+    Returns:
+        PoseEstimation object ready to add to NWB processing module
+
+    Raises:
+        PoseError: If data is malformed or timestamp count mismatches
+
+    Requirements:
+        - FR-5: Create NWB-native pose structures
+        - NWB-First: Direct production of ndx-pose objects
+
+    Example:
+        >>> harmonized = harmonize_dlc_to_canonical(raw_data, mapping)
+        >>> pose_est = build_pose_estimation(
+        ...     data=harmonized,
+        ...     reference_times=timestamps,
+        ...     camera_id="cam0",
+        ...     bodyparts=["nose", "ear_left", "ear_right"],
+        ...     skeleton_edges=[[0, 1], [0, 2]],
+        ...     source="dlc",
+        ...     model_name="dlc_mouse_v1"
+        ... )
+        >>> # Add to NWB: behavior_module.add(pose_est)
+    """
+    if not data:
+        raise PoseError("Cannot build PoseEstimation from empty data")
+
+    num_frames = len(data)
+
+    if len(reference_times) != num_frames:
+        raise PoseError(f"Timestamp count mismatch: {len(reference_times)} timestamps " f"for {num_frames} frames")
+
+    # Convert timestamps to numpy array
+    timestamps = np.array(reference_times, dtype=np.float64)
+
+    # Build keypoint-major data structure
+    # Map bodypart name -> (data, confidence) where data is (num_frames, 2) for x,y
+    bodypart_data: Dict[str, tuple[np.ndarray, np.ndarray]] = {bp: ([], []) for bp in bodyparts}
+
+    for frame in data:
+        frame_keypoints = frame.get("keypoints", {})
+
+        # Handle both dict-of-dicts and dict with values as dicts
+        if isinstance(frame_keypoints, dict):
+            # If it's KeypointsDict or similar, iterate values
+            if hasattr(frame_keypoints, "__iter__") and not isinstance(next(iter(frame_keypoints.values()), {}), dict):
+                # Values are already keypoint dicts
+                kp_dict = {kp["name"]: kp for kp in frame_keypoints.values() if isinstance(kp, dict)}
+            else:
+                # Standard dict with name as key
+                kp_dict = frame_keypoints
+        else:
+            kp_dict = {}
+
+        # Extract data for each bodypart
+        for bodypart in bodyparts:
+            kp = kp_dict.get(bodypart)
+            if kp and isinstance(kp, dict):
+                bodypart_data[bodypart][0].append([kp["x"], kp["y"]])
+                bodypart_data[bodypart][1].append(kp["confidence"])
+            else:
+                # Missing keypoint - use NaN
+                bodypart_data[bodypart][0].append([np.nan, np.nan])
+                bodypart_data[bodypart][1].append(np.nan)
+
+    # Convert to numpy arrays
+    for bodypart in bodyparts:
+        bodypart_data[bodypart] = (
+            np.array(bodypart_data[bodypart][0], dtype=np.float32),
+            np.array(bodypart_data[bodypart][1], dtype=np.float32),
+        )
+
+    # Create PoseEstimationSeries for each bodypart
+    pose_estimation_series = []
+    first_series_timestamps = None
+
+    for bodypart in bodyparts:
+        data_array, confidence_array = bodypart_data[bodypart]
+
+        # First series stores timestamps, subsequent series link to it
+        # (avoids duplication per DLC2NWB pattern)
+        if first_series_timestamps is None:
+            pes = PoseEstimationSeries(
+                name=bodypart,
+                description=f"Keypoint {bodypart} from camera {camera_id}.",
+                data=data_array,
+                unit="pixels",
+                reference_frame="(0,0) corresponds to the top-left corner of the video.",
+                timestamps=timestamps,
+                confidence=confidence_array,
+                confidence_definition="Confidence score from pose estimation model (0.0-1.0).",
+            )
+            first_series_timestamps = pes
+        else:
+            # Link timestamps to first series
+            pes = PoseEstimationSeries(
+                name=bodypart,
+                description=f"Keypoint {bodypart} from camera {camera_id}.",
+                data=data_array,
+                unit="pixels",
+                reference_frame="(0,0) corresponds to the top-left corner of the video.",
+                timestamps=first_series_timestamps,
+                confidence=confidence_array,
+                confidence_definition="Confidence score from pose estimation model (0.0-1.0).",
+            )
+
+        pose_estimation_series.append(pes)
+
+    # Create Skeleton with nodes and edges
+    skeleton = Skeleton(
+        name=f"{camera_id}_skeleton",
+        nodes=bodyparts,
+        edges=np.array(skeleton_edges, dtype="uint8") if skeleton_edges else np.array([], dtype="uint8").reshape(0, 2),
+    )
+
+    # Create PoseEstimation container
+    source_software = "DeepLabCut" if source == "dlc" else "SLEAP"
+    pe = PoseEstimation(
+        name=f"PoseEstimation_{camera_id}",
+        pose_estimation_series=pose_estimation_series,
+        description=f"2D keypoint coordinates for {camera_id} estimated using {source_software}.",
+        scorer=model_name,
+        source_software=source_software,
+        source_software_version="2.3.x" if source == "dlc" else "1.3.x",
+        skeleton=skeleton,
+    )
+
+    logger.debug(f"Built PoseEstimation: {camera_id}, {num_frames} frames, " f"{len(bodyparts)} bodyparts")
+
+    return pe
+
+
+def align_pose_to_timebase(
+    data: List[Dict],
+    reference_times: List[float],
+    mapping: str = "nearest",
+    source: str = "dlc",
+    camera_id: Optional[str] = None,
+    bodyparts: Optional[List[str]] = None,
+    skeleton_edges: Optional[List[List[int]]] = None,
+    model_name: Optional[str] = None,
+) -> List:
+    """Align pose frame indices to reference timebase timestamps.
+
+    This function supports two modes:
+    1. Legacy mode (camera_id=None): Returns List[PoseFrame] - DEPRECATED
+    2. NWB-first mode (camera_id provided): Returns PoseEstimation directly
+
+    Args:
+        data: Harmonized pose data (List of dicts with frame_index, keypoints)
         reference_times: Reference timestamps from sync
         mapping: Alignment strategy ("nearest" or "linear")
         source: Source of pose data ("dlc" or "sleap")
+        camera_id: Camera identifier (e.g., "cam0_top"). If provided, returns PoseEstimation.
+        bodyparts: List of bodypart names (required if camera_id provided)
+        skeleton_edges: Optional skeleton connectivity for PoseEstimation
+        model_name: Model identifier for PoseEstimation scorer field
 
     Returns:
-        List of dicts or PoseFrame objects with aligned timestamps
+        - If camera_id is None: List[PoseFrame] (legacy, deprecated)
+        - If camera_id provided: PoseEstimation (NWB-first)
 
     Raises:
         PoseError: If alignment fails or frame index out of bounds
+        ValueError: If camera_id provided but bodyparts is None
+
+    Example (NWB-first mode):
+        >>> harmonized = harmonize_dlc_to_canonical(raw_data, mapping)
+        >>> pose_est = align_pose_to_timebase(
+        ...     data=harmonized,
+        ...     reference_times=timestamps,
+        ...     camera_id="cam0",
+        ...     bodyparts=["nose", "ear_left"],
+        ...     source="dlc",
+        ...     model_name="dlc_mouse_v1"
+        ... )
+        >>> # pose_est is ready to add to NWB
     """
+    # Validate NWB-first mode parameters
+    if camera_id is not None and bodyparts is None:
+        raise ValueError("bodyparts parameter required when camera_id is provided (NWB-first mode)")
+
     aligned_frames = []
 
     for frame_data in data:
@@ -343,17 +536,38 @@ def align_pose_to_timebase(data: List[Dict], reference_times: List[float], mappi
         else:
             raise PoseError(f"Unknown mapping strategy: {mapping}")
 
-        # If keypoints is empty (unit test case), return dict
-        if not frame_data["keypoints"]:
-            aligned_frames.append({"frame_index": frame_idx, "timestamp": timestamp, "keypoints": {}})
+        # Update frame data with timestamp
+        frame_data["timestamp"] = timestamp
+
+        # Legacy mode: convert to PoseFrame objects
+        if camera_id is None:
+            if not frame_data["keypoints"]:
+                aligned_frames.append({"frame_index": frame_idx, "timestamp": timestamp, "keypoints": {}})
+            else:
+                # Convert keypoints dict to list of PoseKeypoint objects
+                keypoints = [PoseKeypoint(name=kp["name"], x=kp["x"], y=kp["y"], confidence=kp["confidence"]) for kp in frame_data["keypoints"].values()]
+                pose_frame = PoseFrame(frame_index=frame_idx, timestamp=timestamp, keypoints=keypoints, source=source)
+                aligned_frames.append(pose_frame)
         else:
-            # Convert keypoints dict to list of PoseKeypoint objects
-            keypoints = [PoseKeypoint(name=kp["name"], x=kp["x"], y=kp["y"], confidence=kp["confidence"]) for kp in frame_data["keypoints"].values()]
+            # NWB-first mode: collect timestamped data
+            aligned_frames.append(frame_data)
 
-            pose_frame = PoseFrame(frame_index=frame_idx, timestamp=timestamp, keypoints=keypoints, source=source)
+    # NWB-first mode: build PoseEstimation
+    if camera_id is not None:
+        # Extract timestamps in frame order
+        timestamps = [frame["timestamp"] for frame in aligned_frames]
 
-            aligned_frames.append(pose_frame)
+        return build_pose_estimation(
+            data=aligned_frames,
+            reference_times=timestamps,
+            camera_id=camera_id,
+            bodyparts=bodyparts,
+            skeleton_edges=skeleton_edges,
+            source=source,
+            model_name=model_name or f"{source}_model",
+        )
 
+    # Legacy mode: return PoseFrame list
     return aligned_frames
 
 

@@ -135,8 +135,30 @@ def validate_dlc_model(config_path: Path) -> DLCModelInfo:
 
     scorer = "_".join(scorer_parts)
 
+    # Extract skeleton edges from config (optional)
+    skeleton = config.get("skeleton", [])
+    if skeleton and not isinstance(skeleton, list):
+        logger.warning(f"DLC config 'skeleton' is not a list, ignoring: {type(skeleton).__name__}")
+        skeleton = []
+
+    # Validate skeleton edges if present
+    skeleton_edges = []
+    if skeleton:
+        for edge in skeleton:
+            if isinstance(edge, (list, tuple)) and len(edge) == 2:
+                try:
+                    idx0, idx1 = int(edge[0]), int(edge[1])
+                    if 0 <= idx0 < len(bodyparts) and 0 <= idx1 < len(bodyparts):
+                        skeleton_edges.append([idx0, idx1])
+                    else:
+                        logger.warning(f"Skeleton edge indices out of range: {edge}")
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid skeleton edge format: {edge}")
+            else:
+                logger.warning(f"Skeleton edge must be a pair of indices: {edge}")
+
     # Log validation success
-    logger.debug(f"Validated DLC model: task='{task}', bodyparts={len(bodyparts)}, scorer='{scorer}'")
+    logger.debug(f"Validated DLC model: task='{task}', bodyparts={len(bodyparts)}, scorer='{scorer}', skeleton_edges={len(skeleton_edges)}")
 
     return DLCModelInfo(
         config_path=config_path,
@@ -144,6 +166,7 @@ def validate_dlc_model(config_path: Path) -> DLCModelInfo:
         scorer=scorer,
         bodyparts=bodyparts,
         num_outputs=len(bodyparts) * 3,  # x, y, likelihood per bodypart
+        skeleton=skeleton_edges,
         task=task,
         date=str(date) if date != "unknown" else date,
     )

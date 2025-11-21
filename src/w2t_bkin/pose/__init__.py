@@ -37,6 +37,7 @@ from .core import (
     KeypointsDict,
     PoseError,
     align_pose_to_timebase,
+    build_pose_estimation,
     harmonize_dlc_to_canonical,
     harmonize_sleap_to_canonical,
     import_dlc_pose,
@@ -71,6 +72,7 @@ __all__ = [
     "harmonize_dlc_to_canonical",
     "harmonize_sleap_to_canonical",
     "align_pose_to_timebase",
+    "build_pose_estimation",
     "validate_pose_confidence",
     # TTL mock generation
     "TTLMockOptions",

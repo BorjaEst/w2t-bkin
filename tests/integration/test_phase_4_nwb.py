@@ -191,31 +191,88 @@ class TestExternalFileLinks:
 class TestOptionalModalitiesIntegration:
     """Test integration of optional pose/facemap/bpod data."""
 
-    @pytest.mark.skip(reason="RED Phase: requires Phase 3 completion and NWB implementation")
     def test_Should_IncludePose_When_BundleProvided_Issue5(
         self,
         fixture_session_path,
         minimal_config_dict,
         tmp_work_dir,
     ):
-        """Should include ndx-pose containers when pose bundle provided (FR-7)."""
-        from w2t_bkin.nwb import assemble_nwb
+        """Should include ndx-pose PoseEstimation when pose bundle provided (FR-7, FR-5)."""
+        from pynwb import NWBHDF5IO
 
-        # Create mock pose bundle
-        pose_bundle = {
-            "session_id": "Session-000001",
-            "camera_id": "cam0_top",
-            "skeleton": ["nose", "ear_left", "ear_right"],
-            "frames": [],  # Pose data
-        }
+        from w2t_bkin.domain import PoseBundle
+        from w2t_bkin.nwb import assemble_nwb
+        from w2t_bkin.pose.models import PoseFrame, PoseKeypoint
+
+        # Create real pose bundle with test data
+        pose_bundle = PoseBundle(
+            session_id="Session-000001",
+            camera_id="cam0_top",
+            model_name="DLC_test_model",
+            skeleton="mouse_3pt",
+            frames=[
+                PoseFrame(
+                    frame_index=0,
+                    timestamp=0.0,
+                    keypoints=[
+                        PoseKeypoint(name="nose", x=100.0, y=200.0, confidence=0.95),
+                        PoseKeypoint(name="ear_left", x=90.0, y=190.0, confidence=0.92),
+                        PoseKeypoint(name="ear_right", x=110.0, y=190.0, confidence=0.93),
+                    ],
+                    source="dlc",
+                ),
+                PoseFrame(
+                    frame_index=1,
+                    timestamp=0.033,
+                    keypoints=[
+                        PoseKeypoint(name="nose", x=101.0, y=201.0, confidence=0.94),
+                        PoseKeypoint(name="ear_left", x=91.0, y=191.0, confidence=0.91),
+                        PoseKeypoint(name="ear_right", x=111.0, y=191.0, confidence=0.92),
+                    ],
+                    source="dlc",
+                ),
+            ],
+            alignment_method="nearest",
+            mean_confidence=0.93,
+            generated_at="2025-01-01T00:00:00Z",
+        )
 
         output_dir = tmp_work_dir / "processed" / "Session-000001"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        nwb_path = assemble_nwb(manifest={"session_id": "Session-000001"}, config=minimal_config_dict, provenance={}, pose_bundles=[pose_bundle], output_dir=output_dir)
+        nwb_path = assemble_nwb(
+            manifest={"session_id": "Session-000001"},
+            config=minimal_config_dict,
+            provenance={},
+            pose_bundles=[pose_bundle],
+            output_dir=output_dir,
+        )
 
-        # Verify pose included in NWB
+        # Verify pose included in NWB behavior processing module
         assert nwb_path.exists()
+
+        with NWBHDF5IO(str(nwb_path), "r", load_namespaces=True) as io:
+            nwbfile = io.read()
+
+            # Should have behavior processing module
+            assert "behavior" in nwbfile.processing
+            behavior_pm = nwbfile.processing["behavior"]
+
+            # Should have PoseEstimation object
+            pose_est_name = f"PoseEstimation_{pose_bundle.camera_id}"
+            assert pose_est_name in behavior_pm.data_interfaces
+            pose_estimation = behavior_pm.data_interfaces[pose_est_name]
+
+            # Verify PoseEstimationSeries for each bodypart
+            assert "nose" in pose_estimation.pose_estimation_series
+            assert "ear_left" in pose_estimation.pose_estimation_series
+            assert "ear_right" in pose_estimation.pose_estimation_series
+
+            # Verify data shape and timestamps
+            nose_series = pose_estimation.pose_estimation_series["nose"]
+            assert nose_series.data.shape == (2, 2)  # 2 frames, x,y
+            assert nose_series.confidence.shape == (2,)  # 2 frames
+            assert len(nose_series.timestamps) == 2
 
     @pytest.mark.skip(reason="RED Phase: requires Phase 3 completion and NWB implementation")
     def test_Should_IncludeFacemap_When_BundleProvided_Issue5(
