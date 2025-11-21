@@ -1,0 +1,3 @@
+[submodule "nwb-extensions/ndx-pose"]
+	path = nwb-extensions/ndx-pose
+	url = git@github.com:BorjaEst/ndx-pose.git
