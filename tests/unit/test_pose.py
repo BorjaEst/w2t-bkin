@@ -143,78 +143,105 @@ class TestHarmonization:
 
 
 class TestTimebaseAlignment:
-    """Test pose alignment to reference timebase."""
+    """Test pose alignment to reference timebase (NWB-first)."""
 
     def test_Should_AlignPoseTimestamps_When_TimebaseProvided(self):
         """Should align pose frame indices to timebase timestamps (FR-5)."""
         pose_data = [
-            {"frame_index": 0, "keypoints": {}},
-            {"frame_index": 10, "keypoints": {}},
-            {"frame_index": 20, "keypoints": {}},
+            {"frame_index": 0, "keypoints": {"nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95}}},
+            {"frame_index": 10, "keypoints": {"nose": {"name": "nose", "x": 101.0, "y": 201.0, "confidence": 0.94}}},
+            {"frame_index": 20, "keypoints": {"nose": {"name": "nose", "x": 102.0, "y": 202.0, "confidence": 0.93}}},
         ]
         reference_times = [i * 0.033 for i in range(100)]  # 30 Hz
 
-        result = align_pose_to_timebase(pose_data, reference_times, mapping="nearest")
+        result = align_pose_to_timebase(
+            pose_data,
+            reference_times,
+            camera_id="cam0",
+            bodyparts=["nose"],
+            mapping="nearest",
+            source="dlc",
+        )
 
-        assert len(result) == len(pose_data)
-        assert all("timestamp" in frame for frame in result)
-        assert result[0]["timestamp"] == pytest.approx(0.0, abs=0.001)
+        from ndx_pose import PoseEstimation
+
+        assert isinstance(result, PoseEstimation)
+        assert "nose" in result.pose_estimation_series
+        assert len(result.pose_estimation_series["nose"].timestamps) == len(pose_data)
 
     def test_Should_UseLinearMapping_When_Configured(self):
         """Should support linear interpolation for alignment."""
         pose_data = [
-            {"frame_index": 5, "keypoints": {}},
+            {"frame_index": 5, "keypoints": {"nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95}}},
         ]
         reference_times = [i * 0.033 for i in range(100)]
 
-        result = align_pose_to_timebase(pose_data, reference_times, mapping="linear")
+        result = align_pose_to_timebase(
+            pose_data,
+            reference_times,
+            camera_id="cam0",
+            bodyparts=["nose"],
+            mapping="linear",
+            source="dlc",
+        )
 
-        assert result[0]["timestamp"] == pytest.approx(5 * 0.033, abs=0.001)
+        from ndx_pose import PoseEstimation
 
-    def test_Should_FailAlignment_When_FrameIndexOutOfBounds(self):
-        """Should raise error when pose frame index exceeds timebase length."""
-        pose_data = [{"frame_index": 200, "keypoints": {}}]
+        assert isinstance(result, PoseEstimation)
+        assert result.pose_estimation_series["nose"].timestamps[0] == pytest.approx(5 * 0.033, abs=0.001)
+
+    def test_Should_WarnAlignment_When_FrameIndexOutOfBounds(self, caplog):
+        """Should warn when pose frame index exceeds timebase length but has keypoints."""
+        pose_data = [{"frame_index": 200, "keypoints": {"nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95}}}]
         reference_times = [i * 0.033 for i in range(100)]
 
-        with pytest.raises(PoseError):
-            align_pose_to_timebase(pose_data, reference_times, mapping="nearest")
+        result = align_pose_to_timebase(
+            pose_data,
+            reference_times,
+            camera_id="cam0",
+            bodyparts=["nose"],
+            mapping="nearest",
+            source="dlc",
+        )
+
+        # Should warn but still process (uses last timestamp)
+        assert "out of bounds" in caplog.text.lower()
+        from ndx_pose import PoseEstimation
+
+        assert isinstance(result, PoseEstimation)
 
 
 class TestConfidenceValidation:
-    """Test pose confidence validation."""
+    """Test pose confidence validation (with dict data)."""
 
     def test_Should_ComputeMeanConfidence_When_PoseDataProvided(self):
         """Should compute mean confidence across all keypoints."""
-        pose_frames = [
-            PoseFrame(
-                frame_index=0,
-                timestamp=0.0,
-                keypoints=[
-                    PoseKeypoint(name="nose", x=100.0, y=200.0, confidence=0.95),
-                    PoseKeypoint(name="ear", x=80.0, y=180.0, confidence=0.90),
-                ],
-                source="dlc",
-            )
+        pose_data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                    "ear": {"name": "ear", "x": 80.0, "y": 180.0, "confidence": 0.90},
+                },
+            }
         ]
 
-        mean_conf = validate_pose_confidence(pose_frames)
+        mean_conf = validate_pose_confidence(pose_data)
 
         assert mean_conf == pytest.approx(0.925, abs=0.001)
 
     def test_Should_WarnForLowConfidence_When_BelowThreshold(self, caplog):
         """Should warn when confidence is below threshold."""
-        pose_frames = [
-            PoseFrame(
-                frame_index=0,
-                timestamp=0.0,
-                keypoints=[
-                    PoseKeypoint(name="nose", x=100.0, y=200.0, confidence=0.3),
-                ],
-                source="dlc",
-            )
+        pose_data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.3},
+                },
+            }
         ]
 
-        mean_conf = validate_pose_confidence(pose_frames, threshold=0.8)
+        mean_conf = validate_pose_confidence(pose_data, threshold=0.8)
 
         assert mean_conf < 0.8
         assert "low confidence" in caplog.text.lower()

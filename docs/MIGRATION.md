@@ -1,16 +1,82 @@
-# Migration Guide: Legacy to NWB-First Architecture
+# Migration Guide: NWB-First Architecture (COMPLETE)
 
 ## Overview
 
-The w2t-bkin pipeline is transitioning from intermediate data models (PoseBundle, PoseFrame, PoseKeypoint) to an **NWB-first architecture** where processing modules produce NWB objects directly. This guide helps you migrate existing code to the new pattern.
+The w2t-bkin pipeline has **completed migration** from intermediate data models (PoseBundle, PoseFrame, PoseKeypoint) to an **NWB-first architecture** where processing modules produce NWB objects directly.
 
-## Status: Dual-Mode Support (Stable)
+## Status: Migration Complete ✅
 
-**Current State**: The pose module supports both legacy and NWB-first workflows during the transition period.
+**Current State**: The pose module now uses **NWB-first only**. Legacy code has been removed.
 
-- ✅ **Legacy path**: Still functional, uses PoseBundle → nwb.py conversion
-- ✅ **NWB-first path**: Preferred, creates ndx_pose.PoseEstimation directly
-- ⚠️ **Deprecation warnings**: PoseBundle/PoseFrame/PoseKeypoint emit warnings when instantiated
+- ❌ **Legacy path**: REMOVED - PoseBundle/PoseFrame/PoseKeypoint no longer exist
+- ✅ **NWB-first path**: ONLY path - creates ndx_pose.PoseEstimation directly
+- 🔴 **Breaking changes**: See below for required code updates
+
+## Breaking Changes
+
+### Removed Types
+
+The following types have been **permanently removed** from the codebase:
+
+- `PoseBundle` (was in `w2t_bkin.domain` and `w2t_bkin.pose.models`)
+- `PoseFrame` (was in `w2t_bkin.pose.models`)
+- `PoseKeypoint` (was in `w2t_bkin.pose.models`)
+
+Any code importing these types will fail with `ImportError`.
+
+### Updated Function Signatures
+
+#### `align_pose_to_timebase()` - Now Requires camera_id and bodyparts
+
+**Before (REMOVED):**
+
+```python
+# This no longer works
+result = align_pose_to_timebase(data, reference_times, mapping="nearest")
+# Returns: List[PoseFrame]
+```
+
+**After (REQUIRED):**
+
+```python
+# camera_id and bodyparts are now REQUIRED parameters
+result = align_pose_to_timebase(
+    data=data,
+    reference_times=reference_times,
+    camera_id="cam0",           # REQUIRED
+    bodyparts=["nose", "ear"],  # REQUIRED
+    mapping="nearest",
+    source="dlc",
+)
+# Returns: PoseEstimation (ndx-pose native)
+```
+
+#### `assemble_nwb()` - Removed pose_bundles Parameter
+
+**Before (REMOVED):**
+
+```python
+# This no longer works
+nwb_path = assemble_nwb(
+    manifest=manifest,
+    config=config,
+    provenance=provenance,
+    pose_bundles=[bundle],  # REMOVED
+    output_dir=output_dir,
+)
+```
+
+**After (REQUIRED):**
+
+````python
+# Use pose_estimations instead
+nwb_path = assemble_nwb(
+    manifest=manifest,
+    config=config,
+    provenance=provenance,
+    pose_estimations=[pose_est],  # PoseEstimation objects
+    output_dir=output_dir,
+)
 
 ## Why Migrate?
 
@@ -33,13 +99,34 @@ The w2t-bkin pipeline is transitioning from intermediate data models (PoseBundle
 
 ## Quick Migration Checklist
 
-For existing code using PoseBundle:
+For code previously using PoseBundle:
 
-- [ ] Replace `PoseBundle` creation with `build_pose_estimation()` calls
-- [ ] Update `align_pose_to_timebase()` calls to use NWB-first mode
-- [ ] Pass `PoseEstimation` objects to `assemble_nwb(pose_estimations=[...])`
-- [ ] Remove imports of `PoseBundle`, `PoseFrame`, `PoseKeypoint`
-- [ ] Test end-to-end workflow
+- [x] Replace `PoseBundle` creation with `build_pose_estimation()` calls
+- [x] Update `align_pose_to_timebase()` calls to include required `camera_id` and `bodyparts`
+- [x] Pass `PoseEstimation` objects to `assemble_nwb(pose_estimations=[...])`
+- [x] Remove imports of `PoseBundle`, `PoseFrame`, `PoseKeypoint` (they no longer exist)
+- [x] Update all tests to use NWB-first patterns
+
+**Migration is COMPLETE. All legacy code has been removed.**
+
+---
+
+## Why Migrate?
+
+### Benefits of NWB-First
+
+1. **Standards-compliant**: Uses ndx-pose (community standard for pose data in NWB)
+2. **Reduced complexity**: Eliminates intermediate models and conversion steps (~300 lines removed)
+3. **Better performance**: Direct NWB object creation is more efficient
+4. **Future-proof**: Aligns with NWB ecosystem and best practices
+5. **Cleaner architecture**: Each module produces NWB objects it owns
+
+### Legacy Pattern Problems (NOW RESOLVED)
+
+- ❌ Intermediate models (PoseBundle) duplicated NWB functionality → **REMOVED**
+- ❌ Conversion overhead: Dict → PoseBundle → NWB → **ELIMINATED**
+- ❌ Harder to maintain: Two representations of same data → **UNIFIED**
+- ❌ Not standards-aligned: Custom models vs community standards → **FIXED**
 
 ---
 
@@ -47,7 +134,7 @@ For existing code using PoseBundle:
 
 ### Example 1: Basic Pose Import and Alignment
 
-#### Legacy Pattern (DEPRECATED)
+#### OLD Pattern (NO LONGER WORKS)
 
 ```python
 from w2t_bkin.pose import (
@@ -81,7 +168,7 @@ nwb_file = assemble_nwb(
     devices=devices,
     cameras=cameras
 )
-```
+````
 
 #### NWB-First Pattern (PREFERRED)
 

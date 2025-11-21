@@ -197,44 +197,42 @@ class TestOptionalModalitiesIntegration:
         minimal_config_dict,
         tmp_work_dir,
     ):
-        """Should include ndx-pose PoseEstimation when pose bundle provided (FR-7, FR-5)."""
+        """Should include ndx-pose PoseEstimation when pose estimation provided (FR-7, FR-5)."""
+        import numpy as np
         from pynwb import NWBHDF5IO
 
-        from w2t_bkin.domain import PoseBundle
         from w2t_bkin.nwb import assemble_nwb
-        from w2t_bkin.pose.models import PoseFrame, PoseKeypoint
+        from w2t_bkin.pose import build_pose_estimation
 
-        # Create real pose bundle with test data
-        pose_bundle = PoseBundle(
-            session_id="Session-000001",
-            camera_id="cam0_top",
+        # Create harmonized pose data
+        harmonized_data = [
+            {
+                "frame_index": 0,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 100.0, "y": 200.0, "confidence": 0.95},
+                    "ear_left": {"name": "ear_left", "x": 90.0, "y": 190.0, "confidence": 0.92},
+                    "ear_right": {"name": "ear_right", "x": 110.0, "y": 190.0, "confidence": 0.93},
+                },
+            },
+            {
+                "frame_index": 1,
+                "keypoints": {
+                    "nose": {"name": "nose", "x": 101.0, "y": 201.0, "confidence": 0.94},
+                    "ear_left": {"name": "ear_left", "x": 91.0, "y": 191.0, "confidence": 0.91},
+                    "ear_right": {"name": "ear_right", "x": 111.0, "y": 191.0, "confidence": 0.92},
+                },
+            },
+        ]
+
+        # Build PoseEstimation using NWB-first approach
+        camera_id = "cam0_top"
+        pose_estimation = build_pose_estimation(
+            data=harmonized_data,
+            reference_times=np.array([0.0, 0.033]),
+            camera_id=camera_id,
+            bodyparts=["nose", "ear_left", "ear_right"],
+            source="dlc",
             model_name="DLC_test_model",
-            skeleton="mouse_3pt",
-            frames=[
-                PoseFrame(
-                    frame_index=0,
-                    timestamp=0.0,
-                    keypoints=[
-                        PoseKeypoint(name="nose", x=100.0, y=200.0, confidence=0.95),
-                        PoseKeypoint(name="ear_left", x=90.0, y=190.0, confidence=0.92),
-                        PoseKeypoint(name="ear_right", x=110.0, y=190.0, confidence=0.93),
-                    ],
-                    source="dlc",
-                ),
-                PoseFrame(
-                    frame_index=1,
-                    timestamp=0.033,
-                    keypoints=[
-                        PoseKeypoint(name="nose", x=101.0, y=201.0, confidence=0.94),
-                        PoseKeypoint(name="ear_left", x=91.0, y=191.0, confidence=0.91),
-                        PoseKeypoint(name="ear_right", x=111.0, y=191.0, confidence=0.92),
-                    ],
-                    source="dlc",
-                ),
-            ],
-            alignment_method="nearest",
-            mean_confidence=0.93,
-            generated_at="2025-01-01T00:00:00Z",
         )
 
         output_dir = tmp_work_dir / "processed" / "Session-000001"
@@ -244,7 +242,7 @@ class TestOptionalModalitiesIntegration:
             manifest={"session_id": "Session-000001"},
             config=minimal_config_dict,
             provenance={},
-            pose_bundles=[pose_bundle],
+            pose_estimations=[pose_estimation],
             output_dir=output_dir,
         )
 
@@ -259,17 +257,17 @@ class TestOptionalModalitiesIntegration:
             behavior_pm = nwbfile.processing["behavior"]
 
             # Should have PoseEstimation object
-            pose_est_name = f"PoseEstimation_{pose_bundle.camera_id}"
+            pose_est_name = f"PoseEstimation_{camera_id}"
             assert pose_est_name in behavior_pm.data_interfaces
-            pose_estimation = behavior_pm.data_interfaces[pose_est_name]
+            pose_estimation_read = behavior_pm.data_interfaces[pose_est_name]
 
             # Verify PoseEstimationSeries for each bodypart
-            assert "nose" in pose_estimation.pose_estimation_series
-            assert "ear_left" in pose_estimation.pose_estimation_series
-            assert "ear_right" in pose_estimation.pose_estimation_series
+            assert "nose" in pose_estimation_read.pose_estimation_series
+            assert "ear_left" in pose_estimation_read.pose_estimation_series
+            assert "ear_right" in pose_estimation_read.pose_estimation_series
 
             # Verify data shape and timestamps
-            nose_series = pose_estimation.pose_estimation_series["nose"]
+            nose_series = pose_estimation_read.pose_estimation_series["nose"]
             assert nose_series.data.shape == (2, 2)  # 2 frames, x,y
             assert nose_series.confidence.shape == (2,)  # 2 frames
             assert len(nose_series.timestamps) == 2

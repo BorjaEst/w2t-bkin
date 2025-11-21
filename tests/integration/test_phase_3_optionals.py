@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import FacemapBundle, PoseBundle, TranscodedVideo, Trial, TrialEvent, TrialSummary
+from w2t_bkin.domain import FacemapBundle, TranscodedVideo, Trial, TrialEvent, TrialSummary
 
 
 class TestEventsIntegration:
@@ -90,6 +90,8 @@ class TestPoseIntegration:
     @pytest.mark.skip(reason="Blocked: requires Phase 2 alignment implementation and test uses non-spec config keys")
     def test_Should_ImportDLCPose_When_FilesProvided_Issue4(self, minimal_config_dict):
         """Should import DLC pose and align to timebase (FR-5)."""
+        from ndx_pose import PoseEstimation
+
         from w2t_bkin.pose import align_pose_to_timebase, harmonize_dlc_to_canonical, import_dlc_pose
         from w2t_bkin.sync import load_alignment_manifest
 
@@ -104,28 +106,29 @@ class TestPoseIntegration:
         mapping = {"nose": "nose", "left_ear": "ear_left", "right_ear": "ear_right"}
         canonical_pose = harmonize_dlc_to_canonical(pose_data, mapping)
 
-        # Align to timebase
+        # Align to timebase (NWB-first)
         reference_times = alignment["cam0"]["timestamps"]
-        aligned_pose = align_pose_to_timebase(canonical_pose, reference_times, mapping="nearest")
-
-        # Create bundle
-        bundle = PoseBundle(
-            session_id="Session-000001",
+        bodyparts = list(mapping.values())
+        pose_estimation = align_pose_to_timebase(
+            canonical_pose,
+            reference_times,
             camera_id="cam0",
+            bodyparts=bodyparts,
+            mapping="nearest",
+            source="dlc",
             model_name="DLC-mouse-v1",
-            skeleton=list(mapping.values()),
-            frames=aligned_pose,
-            alignment_method="nearest",
-            mean_confidence=0.94,
         )
 
-        assert bundle.session_id == "Session-000001"
-        assert bundle.mean_confidence > 0.8
-        assert len(bundle.frames) == 5
+        # Verify NWB-native PoseEstimation
+        assert isinstance(pose_estimation, PoseEstimation)
+        assert pose_estimation.name == "PoseEstimation_cam0"
+        assert len(pose_estimation.pose_estimation_series) == len(bodyparts)
 
     @pytest.mark.skip(reason="Blocked: requires Phase 2 alignment implementation, test uses non-spec config keys, and missing pose_sample.json fixture")
     def test_Should_ImportSLEAPPose_When_FilesProvided_Issue4(self, minimal_config_dict):
         """Should import SLEAP pose and align to timebase (FR-5)."""
+        from ndx_pose import PoseEstimation
+
         from w2t_bkin.pose import align_pose_to_timebase, harmonize_sleap_to_canonical, import_sleap_pose
         from w2t_bkin.sync import load_alignment_manifest
 
@@ -140,23 +143,22 @@ class TestPoseIntegration:
         mapping = {"nose": "nose", "leftear": "ear_left", "rightear": "ear_right"}
         canonical_pose = harmonize_sleap_to_canonical(pose_data, mapping)
 
-        # Align to timebase
+        # Align to timebase (NWB-first)
         reference_times = alignment["cam0"]["timestamps"]
-        aligned_pose = align_pose_to_timebase(canonical_pose, reference_times, mapping="nearest")
-
-        # Create bundle
-        bundle = PoseBundle(
-            session_id="Session-000001",
+        bodyparts = list(mapping.values())
+        pose_estimation = align_pose_to_timebase(
+            canonical_pose,
+            reference_times,
             camera_id="cam0",
+            bodyparts=bodyparts,
+            mapping="nearest",
+            source="sleap",
             model_name="SLEAP-mouse-v1",
-            skeleton=list(mapping.values()),
-            frames=aligned_pose,
-            alignment_method="nearest",
-            mean_confidence=0.90,
         )
 
-        assert bundle.session_id == "Session-000001"
-        assert len(bundle.frames) > 0
+        # Verify NWB-native PoseEstimation
+        assert isinstance(pose_estimation, PoseEstimation)
+        assert len(pose_estimation.pose_estimation_series) > 0
 
 
 class TestFacemapIntegration:
