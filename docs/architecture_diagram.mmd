@@ -1,0 +1,148 @@
+---
+title: W2T Body Kinematics Pipeline Architecture
+---
+graph TD
+    %% ============================================================================
+    %% FOUNDATION LAYER (NWB-First)
+    %% External dependencies available to all layers
+    %% ============================================================================
+    subgraph Foundation["🔷 Foundation Layer (NWB-First)"]
+        direction LR
+        pynwb["pynwb~=3.1.0<br/>NWBFile, TimeSeries,<br/>TimeIntervals, ImageSeries"]
+        hdmf["hdmf~=4.1.0<br/>Hierarchical Data<br/>Modeling Framework"]
+        ndx_pose["ndx-pose~=0.2.0<br/>PoseEstimation,<br/>PoseEstimationSeries,<br/>Skeleton"]
+        ndx_events["ndx-events~=0.4.0<br/>Behavioral events"]
+        ndx_behavior["ndx-structured-behavior~=0.1.0<br/>Trial structure"]
+    end
+
+    %% ============================================================================
+    %% LOW-LEVEL LAYER
+    %% Raw files + primitives → NWB-native structures
+    %% NEVER imports config, Session, or Manifest
+    %% ============================================================================
+    subgraph LowLevel["🟢 Low-Level Tools (Primitives Only)"]
+        direction TB
+        
+        utils["utils<br/>━━━━━<br/>hashing, path safety,<br/>subprocess wrappers,<br/>logging, JSON I/O"]
+        
+        subgraph EventsModule["events"]
+            events_bpod["bpod<br/>Parse Bpod .mat → TimeIntervals"]
+            events_trials["trials<br/>Trial metadata → TimeIntervals"]
+        end
+        
+        dlc["dlc<br/>━━━━━<br/>GPU batch inference<br/>video paths → H5 pose files"]
+        
+        pose["pose<br/>━━━━━<br/>H5 files → PoseEstimation<br/>skeleton harmonization"]
+        
+        facemap["facemap<br/>━━━━━<br/>ROI specs → BehavioralTimeSeries<br/>motion energy computation"]
+        
+        transcode["transcode<br/>━━━━━<br/>FFmpeg video transcoding<br/>content addressing"]
+        
+        sync_primitives["sync.primitives<br/>━━━━━<br/>alignment algorithms<br/>nearest/linear mapping<br/>jitter computation"]
+    end
+
+    %% ============================================================================
+    %% MID-LEVEL LAYER
+    %% Composition + timebase, no TOML/filesystem knowledge
+    %% ============================================================================
+    subgraph MidLevel["🟡 Mid-Level Tools (Composition & Timebase)"]
+        direction LR
+        
+        sync["sync<br/>━━━━━<br/>Timebase providers<br/>(nominal, TTL, neuropixels)<br/>Alignment orchestration<br/>Jitter enforcement"]
+        
+        nwb["nwb<br/>━━━━━<br/>NWB assembly layer<br/>Aggregates pre-built NWB objects<br/>Adds provenance & metadata<br/>ImageSeries creation"]
+    end
+
+    %% ============================================================================
+    %% HIGH-LEVEL LAYER
+    %% Session-aware orchestration, owns Config/Session/filesystem
+    %% ============================================================================
+    subgraph HighLevel["🔴 High-Level Orchestration (Session-Aware)"]
+        direction TB
+        
+        domain["domain<br/>━━━━━<br/>Pydantic models<br/>Config, Session,<br/>Manifest, etc."]
+        
+        config["config<br/>━━━━━<br/>Load/validate TOML<br/>Deterministic hashing"]
+        
+        ingest["ingest<br/>━━━━━<br/>File discovery (fast)<br/>Frame/TTL counting (slow)<br/>Verification"]
+        
+        pipeline["pipeline/cli<br/>━━━━━<br/>Orchestration entrypoint<br/>Wires low/mid-level tools<br/>Serializes sidecars"]
+        
+        validate["validate<br/>━━━━━<br/>NWB validation<br/>(nwbinspector)"]
+        
+        qc["qc<br/>━━━━━<br/>QC HTML generation<br/>from NWB + sidecars"]
+    end
+
+    %% ============================================================================
+    %% SOLID ARROWS (→) - Direct module imports allowed
+    %% ============================================================================
+    
+    %% Foundation → All Layers (available everywhere)
+    Foundation -.->|"available to all layers"| LowLevel
+    Foundation -.->|"available to all layers"| MidLevel
+    Foundation -.->|"available to all layers"| HighLevel
+    
+    %% Low-level → Foundation + Utils
+    utils --> Foundation
+    events_bpod --> utils
+    events_trials --> utils
+    dlc --> Foundation
+    pose --> Foundation
+    facemap --> Foundation
+    
+    %% Mid-level → Low-level + Foundation
+    sync --> sync_primitives
+    sync --> Foundation
+    nwb --> Foundation
+    nwb --> domain
+    nwb --> utils
+    
+    %% High-level → Everything below
+    config --> domain
+    config --> utils
+    ingest --> domain
+    ingest --> utils
+    pipeline --> config
+    pipeline --> ingest
+    pipeline --> domain
+    pipeline --> utils
+    validate --> Foundation
+    qc --> Foundation
+
+    %% ============================================================================
+    %% DOTTED ARROWS (-.→) - Orchestration calls with primitives only
+    %% Pipeline calls low/mid-level with paths, strings, numbers (NO Session/Manifest)
+    %% ============================================================================
+    
+    pipeline -.->|"video paths,<br/>model config,<br/>GPU index"| dlc
+    pipeline -.->|"Bpod file paths,<br/>order string,<br/>trial specs"| EventsModule
+    pipeline -.->|"pose file paths,<br/>skeleton maps,<br/>frame ranges"| pose
+    pipeline -.->|"video paths,<br/>ROI specs,<br/>frame ranges"| facemap
+    pipeline -.->|"video paths,<br/>codec options"| transcode
+    pipeline -.->|"timestamps,<br/>indices,<br/>timebase config"| sync
+    pipeline -.->|"NWB objects,<br/>metadata primitives,<br/>provenance dict"| nwb
+
+    %% ============================================================================
+    %% DATA FLOW (NWB objects through system)
+    %% ============================================================================
+    
+    EventsModule -->|"TimeIntervals"| nwb
+    pose -->|"PoseEstimation"| nwb
+    facemap -->|"BehavioralTimeSeries"| nwb
+    sync -->|"alignment indices,<br/>AlignmentStats"| nwb
+    nwb -->|"NWBFile"| validate
+    nwb -->|"NWBFile"| qc
+
+    %% ============================================================================
+    %% STYLING
+    %% ============================================================================
+    
+    classDef foundationStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef lowLevelStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef midLevelStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef highLevelStyle fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    
+    class pynwb,hdmf,ndx_pose,ndx_events,ndx_behavior foundationStyle
+    class utils,events_bpod,events_trials,dlc,pose,facemap,transcode,sync_primitives lowLevelStyle
+    class sync,nwb midLevelStyle
+    class domain,config,ingest,pipeline,validate,qc highLevelStyle
