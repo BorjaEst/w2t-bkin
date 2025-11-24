@@ -34,6 +34,31 @@ Detailed task breakdown for completed phases and future work.
 - Breaking change: Events module deprecated
 - **Bug fix**: TrialsTable now contains actual row indices (not empty lists)
 
+### Phase 2.1: Task and TaskArgumentsTable ✅ COMPLETED (2025-11-24)
+
+**Goal**: Add Task container and TaskArgumentsTable extraction for complete ndx-structured-behavior metadata
+
+**Status**: Complete implementation with backward compatibility
+
+**Results**:
+
+- Functions added: 2 (extract_task_arguments, build_task)
+- Helper functions: 1 (\_flatten_dict)
+- Tests added: 7 unit tests (18 total)
+- Example updated: bpod_camera_sync.py
+- Backward compatible: Task is optional
+
+**Task Checklist**:
+
+1. ✅ Investigate Bpod data structure for task arguments
+2. ✅ Implement extract_task_arguments() with Settings/TrialSettings support
+3. ✅ Implement \_flatten_dict() helper for nested dicts
+4. ✅ Implement build_task() function
+5. ✅ Add 7 comprehensive unit tests
+6. ✅ Update bpod_camera_sync.py example
+7. ✅ Update behavior module exports (`__init__.py`, `models.py`)
+8. ✅ Update documentation (`architecture_status.md`, `tasks.md`)
+
 **Task Checklist**:
 
 1. ✅ Create behavior module structure

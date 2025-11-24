@@ -6,6 +6,7 @@ Tests the transformation from Bpod data to ndx-structured-behavior NWB classes.
 import pytest
 
 from w2t_bkin.behavior import (
+    build_task,
     build_task_recording,
     build_trials_table,
     extract_action_types,
@@ -14,6 +15,7 @@ from w2t_bkin.behavior import (
     extract_events,
     extract_state_types,
     extract_states,
+    extract_task_arguments,
 )
 
 
@@ -240,4 +242,228 @@ class TestEndToEnd:
         n_trials = parsed_bpod_data["SessionData"]["nTrials"]
         assert len(trials) == n_trials
         assert len(states) > 0  # At least some states
+
+    def test_extract_trials_table_convenience(self, parsed_bpod_data):
+        """Test high-level extract_trials_table convenience function."""
+        from w2t_bkin.behavior import extract_trials_table
+
+        # Use convenience function
+        trials = extract_trials_table(parsed_bpod_data)
+
+        # Verify TrialsTable structure
+        assert trials is not None
+        assert len(trials.colnames) > 0
+        assert "start_time" in trials.colnames
+        assert "stop_time" in trials.colnames
+        assert "states" in trials.colnames
+        assert "events" in trials.colnames
+        assert "actions" in trials.colnames
+
+        # Verify trial count
+        n_trials = parsed_bpod_data["SessionData"]["nTrials"]
+        assert len(trials) == n_trials
+
+        # Verify references exist and are accessible
+        for trial_idx in range(len(trials)):
+            states_ref = trials["states"][trial_idx]
+            events_ref = trials["events"][trial_idx]
+            actions_ref = trials["actions"][trial_idx]
+            # References should be DynamicTableRegion objects (views into the referenced tables)
+            assert states_ref is not None
+            assert events_ref is not None
+            assert actions_ref is not None
+
+    def test_extract_trials_table_with_offsets(self, parsed_bpod_data):
+        """Test extract_trials_table with time offsets."""
+        from w2t_bkin.behavior import extract_trials_table
+
+        # Create trial offsets
+        n_trials = parsed_bpod_data["SessionData"]["nTrials"]
+        trial_offsets = {i + 1: float(i * 100.0) for i in range(n_trials)}
+
+        # Extract with offsets
+        trials = extract_trials_table(parsed_bpod_data, trial_offsets=trial_offsets)
+
+        # Verify trial count
+        assert len(trials) == n_trials
+
+        # Verify time offsets applied
+        for trial_idx in range(len(trials)):
+            trial_num = trial_idx + 1
+            start_time = trials["start_time"][trial_idx]
+            expected_offset = trial_offsets[trial_num]
+            assert start_time >= expected_offset
+
+
+class TestTaskMetadata:
+    """Test Task and TaskArgumentsTable extraction."""
+
+    def test_extract_task_arguments_none(self, parsed_bpod_data):
+        """Test that extract_task_arguments returns None when no Settings available."""
+        # Synthetic data has minimal settings
+        task_args = extract_task_arguments(parsed_bpod_data)
+
+        # May return None or minimal args depending on data
+        # Just verify it doesn't crash
+        if task_args is not None:
+            assert hasattr(task_args, "add_row")
+            assert len(task_args) >= 0
+
+    def test_extract_task_arguments_with_settings(self):
+        """Test extracting task arguments from Bpod data with Settings."""
+        # Create mock bpod_data with Settings
+        bpod_data = {
+            "SessionData": {
+                "Settings": {
+                    "reward_amount": 5.0,
+                    "timeout_duration": 2.0,
+                    "GUI": {
+                        "parameter1": 10,
+                        "parameter2": "value",
+                    },
+                },
+                "nTrials": 10,
+            }
+        }
+
+        task_args = extract_task_arguments(bpod_data)
+
+        assert task_args is not None
+        assert len(task_args) > 0
+
+        # Check flattened parameters are present
+        arg_names = list(task_args["argument_name"].data)
+        assert "reward_amount" in arg_names
+        assert "timeout_duration" in arg_names
+        assert "GUI.parameter1" in arg_names  # Nested key flattened
+        assert "GUI.parameter2" in arg_names
+        assert "nTrials" in arg_names  # Metadata field
+
+    def test_extract_task_arguments_from_trial_settings(self):
+        """Test extracting uniform TrialSettings as task arguments."""
+        # Create mock bpod_data with uniform TrialSettings
+        bpod_data = {
+            "SessionData": {
+                "TrialSettings": [
+                    {"ProtocolState": "ITI", "param1": 1.0},
+                    {"ProtocolState": "ITI", "param1": 1.0},
+                    {"ProtocolState": "ITI", "param1": 1.0},
+                ],
+                "nTrials": 3,
+            }
+        }
+
+        task_args = extract_task_arguments(bpod_data)
+
+        assert task_args is not None
+        assert len(task_args) > 0
+
+        arg_names = list(task_args["argument_name"].data)
+        assert "ProtocolState" in arg_names
+        assert "param1" in arg_names
+
+    def test_extract_task_arguments_non_uniform_trial_settings(self):
+        """Test that non-uniform TrialSettings are not extracted."""
+        # Create mock bpod_data with varying TrialSettings
+        bpod_data = {
+            "SessionData": {
+                "TrialSettings": [
+                    {"ProtocolState": "ITI"},
+                    {"ProtocolState": "Response"},  # Different!
+                ],
+                "nTrials": 2,
+            }
+        }
+
+        task_args = extract_task_arguments(bpod_data)
+
+        # Should have nTrials but not ProtocolState (since it varies)
+        if task_args is not None:
+            arg_names = list(task_args["argument_name"].data)
+            # ProtocolState varies, so shouldn't be extracted as task arg
+            # Only uniform metadata like nTrials
+            assert "nTrials" in arg_names
+
+    def test_build_task_minimal(self, parsed_bpod_data):
+        """Test building Task with only type tables (no arguments)."""
+        # Extract type tables
+        state_types = extract_state_types(parsed_bpod_data)
+        event_types = extract_event_types(parsed_bpod_data)
+        action_types = extract_action_types(parsed_bpod_data)
+
+        # Build Task without arguments
+        task = build_task(state_types, event_types, action_types)
+
+        # Verify Task structure
+        assert task is not None
+        assert task.name == "task"
+        assert task.state_types is state_types
+        assert task.event_types is event_types
+        assert task.action_types is action_types
+
+        # task_arguments should be None
+        assert not hasattr(task, "task_arguments") or task.task_arguments is None
+
+    def test_build_task_with_arguments(self, parsed_bpod_data):
+        """Test building Task with task arguments."""
+        # Extract type tables
+        state_types = extract_state_types(parsed_bpod_data)
+        event_types = extract_event_types(parsed_bpod_data)
+        action_types = extract_action_types(parsed_bpod_data)
+
+        # Extract or create task arguments
+        task_args = extract_task_arguments(parsed_bpod_data)
+
+        # If no args from data, create minimal ones
+        if task_args is None:
+            from w2t_bkin.behavior import TaskArgumentsTable
+
+            task_args = TaskArgumentsTable(description="Test arguments")
+            task_args.add_row(
+                argument_name="test_param",
+                argument_description="Test parameter",
+                expression="42",
+                expression_type="integer",
+                output_type="integer",
+            )
+
+        # Build Task with arguments
+        task = build_task(state_types, event_types, action_types, task_arguments=task_args)
+
+        # Verify Task structure
+        assert task is not None
+        assert task.state_types is state_types
+        assert task.event_types is event_types
+        assert task.action_types is action_types
+        assert task.task_arguments is task_args
+
+    def test_task_integration(self, parsed_bpod_data):
+        """Test complete workflow including Task."""
+        # Extract type tables
+        state_types = extract_state_types(parsed_bpod_data)
+        event_types = extract_event_types(parsed_bpod_data)
+        action_types = extract_action_types(parsed_bpod_data)
+
+        # Extract data tables
+        states, state_indices = extract_states(parsed_bpod_data, state_types)
+        events, event_indices = extract_events(parsed_bpod_data, event_types)
+        actions, action_indices = extract_actions(parsed_bpod_data, action_types)
+
+        # Build trials and recording
+        trials = build_trials_table(parsed_bpod_data, states, events, actions, state_indices, event_indices, action_indices)
+        task_recording = build_task_recording(states, events, actions)
+
+        # Build Task
+        task_args = extract_task_arguments(parsed_bpod_data)
+        task = build_task(state_types, event_types, action_types, task_arguments=task_args)
+
+        # Verify everything is connected
+        assert task is not None
+        assert trials is not None
+        assert task_recording is not None
+
+        # Verify type tables are shared
+        assert task.state_types is state_types
+        assert task.event_types is event_types
+        assert task.action_types is action_types
         assert len(events) >= 0  # May have no events

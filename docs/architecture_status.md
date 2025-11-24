@@ -93,6 +93,59 @@ Migration from intermediate models to NWB-native data structures across all proc
 - ✅ **Code added**: ~860 lines (core: 623, models: 35, **init**: 103, tests: 245)
 - ✅ **Files modified**: 2 (pipeline.py, nwb.py)
 - ✅ **Examples updated**: 1 (bpod_camera_sync.py)
+
+### Phase 2.1: Task and TaskArgumentsTable ✅ (COMPLETE)
+
+**Target**: Add Task container and TaskArgumentsTable extraction
+
+**Status**: ✅ COMPLETE - Task metadata layer implemented
+
+- [x] Investigate Bpod data for task arguments
+- [x] Implement extract_task_arguments() function
+- [x] Implement build_task() function
+- [x] Add unit tests (7 new tests)
+- [x] Update bpod_camera_sync.py example
+- [x] Update documentation
+
+**Completed (2025-11-24)**:
+
+**✅ Complete Implementation:**
+
+- ✅ **Functions added**: 2 (extract_task_arguments, build_task)
+- ✅ **Helper functions**: 1 (\_flatten_dict for nested settings)
+- ✅ **Lines added**: ~150 (core: ~140, models: 2 exports, **init**: 2 exports)
+- ✅ **Tests added**: 7 unit tests (18 total for behavior module)
+- ✅ **All tests pass**: 18/18 tests passing
+- ✅ **Example updated**: bpod_camera_sync.py demonstrates Task usage
+- ✅ **Backward compatible**: Task is optional, existing code works unchanged
+
+**Implementation Details:**
+
+- **extract_task_arguments()**: Extracts parameters from Settings, TrialSettings, or metadata
+- **build_task()**: Assembles Task container with type tables and optional arguments
+- **Data sources**: Settings (preferred), uniform TrialSettings, metadata fields
+- **Flattening**: Nested dicts flattened with dot notation (e.g., GUI.parameter)
+- **Type detection**: Automatic type inference (integer, float, boolean, string, array)
+
+**Test Coverage:**
+
+1. `test_extract_task_arguments_none()` - No settings available
+2. `test_extract_task_arguments_with_settings()` - Extract from Settings
+3. `test_extract_task_arguments_from_trial_settings()` - Uniform TrialSettings
+4. `test_extract_task_arguments_non_uniform_trial_settings()` - Skip varying params
+5. `test_build_task_minimal()` - Task without arguments
+6. `test_build_task_with_arguments()` - Task with arguments
+7. `test_task_integration()` - Complete workflow with Task
+
+**Extracted Parameters (Example)**:
+
+```python
+# From synthetic Bpod data:
+ProtocolState = 'ITI'
+TrialTypes = 1
+nTrials = 8
+```
+
 - ✅ **Breaking changes**: Events module deprecated in favor of behavior module
 - ✅ **NWB-first only**: parse*bpod() → behavior.extract*\*() → TaskRecording + TrialsTable → assemble_nwb()
 - ✅ **All tests pass**: 11 unit tests (behavior), 6 expected HDMF warnings

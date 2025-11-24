@@ -20,7 +20,7 @@ import numpy as np
 
 from ..exceptions import BpodParseError
 from ..utils import convert_matlab_struct, is_nan_or_none, to_scalar
-from .models import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, TaskRecording, TrialsTable
+from .models import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
 
 logger = logging.getLogger(__name__)
 
@@ -587,6 +587,64 @@ def build_trials_table(
     return trials
 
 
+def extract_trials_table(
+    bpod_data: Dict[str, Any],
+    trial_offsets: Optional[Dict[int, float]] = None,
+) -> TrialsTable:
+    """Extract complete TrialsTable from Bpod data (convenience function).
+
+    High-level function that performs all extraction steps:
+    1. Extract type tables (states, events, actions)
+    2. Extract data tables (states, events, actions) with row indices
+    3. Build TrialsTable with references to data tables
+
+    This is a convenience wrapper around the individual extract_* and build_*
+    functions for simpler API usage when you just need the complete TrialsTable.
+
+    Args:
+        bpod_data: Parsed Bpod data dictionary
+        trial_offsets: Optional dict mapping trial_number → absolute time offset
+
+    Returns:
+        TrialsTable with complete trial structure
+
+    Example:
+        >>> from w2t_bkin.events.bpod import parse_bpod
+        >>> from w2t_bkin.behavior import extract_trials_table
+        >>>
+        >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
+        >>> trials = extract_trials_table(bpod_data)
+        >>> print(f"{len(trials)} trials extracted")
+
+    Note:
+        If you need access to the intermediate type tables or data tables,
+        use the individual extract_* functions instead.
+    """
+    # Step 1: Extract type tables
+    state_types = extract_state_types(bpod_data)
+    event_types = extract_event_types(bpod_data)
+    action_types = extract_action_types(bpod_data)
+
+    # Step 2: Extract data tables with indices
+    states, state_indices = extract_states(bpod_data, state_types)
+    events, event_indices = extract_events(bpod_data, event_types)
+    actions, action_indices = extract_actions(bpod_data, action_types)
+
+    # Step 3: Build TrialsTable
+    trials = build_trials_table(
+        bpod_data=bpod_data,
+        states=states,
+        events=events,
+        actions=actions,
+        state_indices=state_indices,
+        event_indices=event_indices,
+        action_indices=action_indices,
+        trial_offsets=trial_offsets,
+    )
+
+    return trials
+
+
 def build_task_recording(
     states: StatesTable,
     events: EventsTable,
@@ -617,3 +675,178 @@ def build_task_recording(
 
     logger.info("Built TaskRecording container")
     return task_recording
+
+
+# =============================================================================
+# Task Metadata (Top-level Container)
+# =============================================================================
+
+
+def _flatten_dict(d: Dict[str, Any], parent_key: str = "", sep: str = ".") -> List[tuple]:
+    """Recursively flatten nested dictionary into list of (key, value) tuples.
+
+    Args:
+        d: Dictionary to flatten
+        parent_key: Parent key prefix for nested keys
+        sep: Separator between parent and child keys
+
+    Returns:
+        List of (flattened_key, value) tuples
+
+    Example:
+        >>> _flatten_dict({'a': 1, 'b': {'c': 2, 'd': 3}})
+        [('a', 1), ('b.c', 2), ('b.d', 3)]
+    """
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(_flatten_dict(v, new_key, sep=sep))
+        else:
+            items.append((new_key, v))
+    return items
+
+
+def extract_task_arguments(bpod_data: Dict[str, Any]) -> Optional[TaskArgumentsTable]:
+    """Extract task arguments/parameters from Bpod data.
+
+    Attempts to extract task configuration parameters from:
+    1. SessionData.Settings (protocol parameters) - most common
+    2. SessionData.TrialSettings (per-trial parameters) - if uniform across trials
+    3. Top-level SessionData fields (metadata)
+
+    Args:
+        bpod_data: Parsed Bpod data dictionary from parse_bpod()
+
+    Returns:
+        TaskArgumentsTable if arguments found, None otherwise
+
+    Example:
+        >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
+        >>> task_args = extract_task_arguments(bpod_data)
+        >>> if task_args:
+        ...     print(f"{len(task_args)} parameters")
+    """
+    session_data = convert_matlab_struct(bpod_data.get("SessionData", {}))
+
+    # Try Settings first (most common location)
+    params = {}
+    if "Settings" in session_data:
+        settings = convert_matlab_struct(session_data["Settings"])
+        if isinstance(settings, dict) and len(settings) > 0:
+            params.update(dict(_flatten_dict(settings)))
+            logger.info(f"Found {len(params)} parameters in Settings")
+
+    # Try TrialSettings (check if uniform across trials)
+    if "TrialSettings" in session_data and len(params) == 0:
+        trial_settings = session_data["TrialSettings"]
+        if hasattr(trial_settings, "__len__") and len(trial_settings) > 0:
+            first_trial = convert_matlab_struct(trial_settings[0])
+            if isinstance(first_trial, dict):
+                # Check if all trials have same settings
+                uniform = True
+                for trial in trial_settings[1:]:
+                    trial_dict = convert_matlab_struct(trial)
+                    if trial_dict != first_trial:
+                        uniform = False
+                        break
+
+                if uniform:
+                    params.update(dict(_flatten_dict(first_trial)))
+                    logger.info(f"Found {len(params)} uniform parameters in TrialSettings")
+                else:
+                    logger.debug("TrialSettings vary across trials, not extracting as task arguments")
+
+    # Add useful metadata fields
+    metadata_fields = ["nTrials", "TrialTypes"]
+    for field in metadata_fields:
+        if field in session_data and field not in params:
+            value = session_data[field]
+            # Convert arrays to scalar if single value
+            if hasattr(value, "__len__") and not isinstance(value, str):
+                if len(set(value)) == 1:  # All same value
+                    value = value[0]
+                else:
+                    continue  # Skip non-uniform arrays
+            params[field] = value
+
+    if len(params) == 0:
+        logger.info("No task arguments found in Bpod data")
+        return None
+
+    # Create TaskArgumentsTable
+    task_args = TaskArgumentsTable(description="Task parameters from Bpod")
+
+    # Add each parameter as a row
+    for arg_name, arg_value in sorted(params.items()):
+        # Convert value to string for storage
+        if isinstance(arg_value, (np.ndarray, list)):
+            value_str = str(list(arg_value))
+            value_type = "array"
+        elif isinstance(arg_value, (int, np.integer)):
+            value_str = str(arg_value)
+            value_type = "integer"
+        elif isinstance(arg_value, (float, np.floating)):
+            value_str = str(arg_value)
+            value_type = "float"
+        elif isinstance(arg_value, bool):
+            value_str = str(arg_value)
+            value_type = "boolean"
+        else:
+            value_str = str(arg_value)
+            value_type = "string"
+
+        task_args.add_row(
+            argument_name=arg_name,
+            argument_description=f"Parameter from Bpod data",
+            expression=value_str,
+            expression_type=value_type,
+            output_type=value_type,
+        )
+
+    logger.info(f"Extracted {len(task_args)} task arguments")
+    return task_args
+
+
+def build_task(
+    state_types: StateTypesTable,
+    event_types: EventTypesTable,
+    action_types: ActionTypesTable,
+    task_arguments: Optional[TaskArgumentsTable] = None,
+) -> Task:
+    """Build Task container with type tables and metadata.
+
+    Assembles the top-level Task container that holds all behavioral
+    type tables (states, events, actions) and optional task metadata
+    (arguments). This Task object is added to /general/task in the NWBFile.
+
+    Args:
+        state_types: StateTypesTable with state definitions
+        event_types: EventTypesTable with event definitions
+        action_types: ActionTypesTable with action definitions
+        task_arguments: Optional task parameters/arguments
+
+    Returns:
+        Task container for /general/task in NWBFile
+
+    Example:
+        >>> task_args = extract_task_arguments(bpod_data)
+        >>> task = build_task(state_types, event_types, action_types,
+        ...                   task_arguments=task_args)
+        >>> nwbfile.add_lab_meta_data(task)
+    """
+    # Create Task container with required type tables
+    task = Task(
+        event_types=event_types,
+        state_types=state_types,
+        action_types=action_types,
+    )
+
+    # Add optional task arguments
+    if task_arguments is not None:
+        task.task_arguments = task_arguments
+        logger.info(f"Built Task with {len(task_arguments)} arguments")
+    else:
+        logger.info("Built Task without arguments")
+
+    return task

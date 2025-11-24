@@ -67,6 +67,7 @@ from synthetic import build_raw_folder
 from w2t_bkin import config as cfg_module
 from w2t_bkin import ingest
 from w2t_bkin.behavior import (
+    build_task,
     build_task_recording,
     build_trials_table,
     extract_action_types,
@@ -75,6 +76,7 @@ from w2t_bkin.behavior import (
     extract_events,
     extract_state_types,
     extract_states,
+    extract_task_arguments,
 )
 from w2t_bkin.events.bpod import discover_bpod_files_from_pattern, parse_bpod, parse_bpod_mat
 from w2t_bkin.sync import align_bpod_trials_to_ttl, get_ttl_pulses
@@ -388,6 +390,16 @@ if __name__ == "__main__":
 
     print(f"  - Trials table: {len(trials_table)} trials")
     print(f"  - Task recording: {task_recording.name}")
+
+    print("\nStep 5.4: Build Task container (optional metadata)")
+    task_arguments = extract_task_arguments(bpod_data_raw)
+    task = build_task(state_types, event_types, action_types, task_arguments=task_arguments)
+
+    if task_arguments is not None:
+        print(f"  - Task arguments: {len(task_arguments)} parameters")
+    else:
+        print(f"  - Task arguments: None (minimal synthetic data)")
+    print(f"  - Task container: {task.name}")
 
     # Show example trial (first trial from trials table)
     if len(trials_table) > 0:

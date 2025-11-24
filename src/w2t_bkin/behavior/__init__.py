@@ -17,7 +17,10 @@ Public API:
         - extract_action_types: Identify action states → ActionTypesTable
         - extract_actions: Convert action states → ActionsTable
         - build_trials_table: Combine states/events/actions → TrialsTable
+        - extract_trials_table: Complete extraction (convenience) → TrialsTable
         - build_task_recording: Package tables → TaskRecording
+        - extract_task_arguments: Extract task parameters → TaskArgumentsTable
+        - build_task: Assemble Task container with type tables
 
     Re-exported ndx-structured-behavior types:
         - StateTypesTable, StatesTable
@@ -25,6 +28,7 @@ Public API:
         - ActionTypesTable, ActionsTable
         - TrialsTable
         - TaskRecording
+        - Task, TaskArgumentsTable
 
 Example:
     >>> from pathlib import Path
@@ -53,10 +57,27 @@ Example:
     >>> trials = build_trials_table(bpod_data, states, events, actions,
     ...                             state_indices, event_indices, action_indices)
     >>> task_recording = build_task_recording(states, events, actions)
+    >>>
+    >>> # Build Task container (optional but recommended)
+    >>> task_arguments = extract_task_arguments(bpod_data)  # optional
+    >>> task = build_task(state_types, event_types, action_types,
+    ...                   task_arguments=task_arguments)
 """
 
-from .core import build_task_recording, build_trials_table, extract_action_types, extract_actions, extract_event_types, extract_events, extract_state_types, extract_states
-from .models import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, TaskRecording, TrialsTable
+from .core import (
+    build_task,
+    build_task_recording,
+    build_trials_table,
+    extract_action_types,
+    extract_actions,
+    extract_event_types,
+    extract_events,
+    extract_state_types,
+    extract_states,
+    extract_task_arguments,
+    extract_trials_table,
+)
+from .models import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
 
 __all__ = [
     # Core transformation functions
@@ -67,7 +88,10 @@ __all__ = [
     "extract_action_types",
     "extract_actions",
     "build_trials_table",
+    "extract_trials_table",
     "build_task_recording",
+    "extract_task_arguments",
+    "build_task",
     # Re-exported ndx-structured-behavior types
     "StateTypesTable",
     "StatesTable",
@@ -77,4 +101,6 @@ __all__ = [
     "ActionsTable",
     "TrialsTable",
     "TaskRecording",
+    "Task",
+    "TaskArgumentsTable",
 ]

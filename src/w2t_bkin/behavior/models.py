@@ -10,9 +10,11 @@ All behavioral data uses ndx-structured-behavior types directly:
     - ActionTypesTable, ActionsTable: Actions (rewards, stimuli)
     - TrialsTable: Trial structure with references to states/events/actions
     - TaskRecording: Container for states/events/actions tables
+    - Task: Top-level container for type tables and metadata
+    - TaskArgumentsTable: Task parameters/configuration
 """
 
-from ndx_structured_behavior import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, TaskRecording, TrialsTable
+from ndx_structured_behavior import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
 
 __all__ = [
     "StateTypesTable",
@@ -23,4 +25,6 @@ __all__ = [
     "ActionsTable",
     "TrialsTable",
     "TaskRecording",
+    "Task",
+    "TaskArgumentsTable",
 ]
