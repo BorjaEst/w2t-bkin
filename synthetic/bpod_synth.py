@@ -52,7 +52,8 @@ class BpodSynthOptions(BaseModel):
     clock_jitter_ppm: float = Field(0.0, description="Clock drift in parts per million (positive = Bpod clock runs fast, negative = slow)")
     seed: int = Field(1234, description="Random seed for deterministic jitter")
     include_states: bool = Field(True, description="Include minimal States with ITI timing")
-    include_events: bool = Field(True, description="Include Events struct (empty arrays by default)")
+    include_events: bool = Field(True, description="Include Events struct (with sample port events)")
+    include_reward_states: bool = Field(True, description="Include reward states (LeftReward/RightReward) to generate actions")
     sync_signal_name: str = Field("SyncSignal1", description="Name of the sync state (e.g., SyncSignal1)")
     sync_delay_s: float = Field(0.0, ge=0, description="Delay of sync signal within each trial (relative to trial start)")
 
@@ -84,6 +85,7 @@ def _build_sessiondata_dict(
     rng: random.Random,
     include_states: bool,
     include_events: bool,
+    include_reward_states: bool,
     trial_type_codes: Optional[List[int]] = None,
     sync_signal_name: str = "SyncSignal1",
     sync_delay_s: float = 0.0,
@@ -141,10 +143,22 @@ def _build_sessiondata_dict(
             sync_start_rel = sync_delay_s
             sync_end_rel = min(sync_start_rel + 0.1, trial_duration_s)  # 100ms sync pulse
             states_struct[sync_signal_name] = np.array([sync_start_rel, sync_end_rel], dtype=float)
+
+            # Add reward states (alternating left/right) to generate actions
+            if include_reward_states:
+                reward_time = min(sync_delay_s + 0.2, trial_duration_s - 0.15)
+                if i % 2 == 0:
+                    # Even trials: left reward
+                    states_struct["LeftReward"] = np.array([reward_time, reward_time + 0.1], dtype=float)
+                else:
+                    # Odd trials: right reward
+                    states_struct["RightReward"] = np.array([reward_time, reward_time + 0.1], dtype=float)
+
         if include_events:
-            # Empty arrays for optional event signals
-            events_struct["Port1In"] = np.array([], dtype=float)
-            events_struct["Port1Out"] = np.array([], dtype=float)
+            # Add sample port events (nose poke at ~0.5s, withdrawal at ~0.6s)
+            poke_time = min(0.5, trial_duration_s - 0.2)
+            events_struct["Port1In"] = np.array([poke_time], dtype=float)
+            events_struct["Port1Out"] = np.array([poke_time + 0.1], dtype=float)
 
         trial_struct: Dict[str, object] = {}
         if include_states:
@@ -227,6 +241,7 @@ def write_bpod_mat_files_for_session(
             rng=rng,
             include_states=base.include_states,
             include_events=base.include_events,
+            include_reward_states=base.include_reward_states,
             trial_type_codes=tt_codes,
             sync_signal_name=sync_signal,
             sync_delay_s=base.sync_delay_s,

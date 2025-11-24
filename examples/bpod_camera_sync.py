@@ -39,7 +39,7 @@ Then for *any* Bpod time in that trial:
 
 We use:
     - align_bpod_trials_to_ttl(...): compute per-trial offsets using TTL pulses
-    - extract_trials(..., trial_offsets=offsets): return trials in **absolute time**
+    - behavior.extract_*(..., trial_offsets=...): build NWB tables in **absolute time**
 
 Example usage
 -------------
@@ -52,19 +52,32 @@ With different timing:
 import json
 from pathlib import Path
 import shutil
+import warnings
 
 import numpy as np
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Suppress expected HDMF warnings about DynamicTableRegion parent relationships
+# These are expected when tables haven't been added to NWBFile yet
+warnings.filterwarnings("ignore", category=UserWarning, module="hdmf.container")
+
 from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offsets, plot_ttl_timeline
 from synthetic import build_raw_folder
 from w2t_bkin import config as cfg_module
 from w2t_bkin import ingest
-from w2t_bkin.events import extract_behavioral_events, extract_trials, parse_bpod, parse_bpod_mat
-from w2t_bkin.events.bpod import discover_bpod_files_from_pattern
-from w2t_bkin.events.summary import create_event_summary
-from w2t_bkin.sync import align_bpod_trials_to_ttl, create_timebase_provider_from_config, get_ttl_pulses
+from w2t_bkin.behavior import (
+    build_task_recording,
+    build_trials_table,
+    extract_action_types,
+    extract_actions,
+    extract_event_types,
+    extract_events,
+    extract_state_types,
+    extract_states,
+)
+from w2t_bkin.events.bpod import discover_bpod_files_from_pattern, parse_bpod, parse_bpod_mat
+from w2t_bkin.sync import align_bpod_trials_to_ttl, get_ttl_pulses
 from w2t_bkin.sync.behavior import get_sync_time_from_bpod_trial
 from w2t_bkin.utils import convert_matlab_struct, to_scalar
 
@@ -345,64 +358,79 @@ if __name__ == "__main__":
     )
 
     # ---------------------------------------------------------------------
-    # PHASE 5: Extract trials with offsets + behavioral events
+    # PHASE 5: Build NWB behavior tables (ndx-structured-behavior)
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 5: Extract Trials (in absolute time) + Events")
+    print("PHASE 5: Build NWB Behavior Tables (ndx-structured-behavior)")
     print("=" * 80)
 
-    print("\nExtracting trials with trial_offsets applied...")
-    trials = extract_trials(bpod_data_raw, trial_offsets=trial_offsets)
+    print("\nStep 5.1: Extract type tables (metadata)")
+    state_types = extract_state_types(bpod_data_raw)
+    event_types = extract_event_types(bpod_data_raw)
+    action_types = extract_action_types(bpod_data_raw)
 
-    print(f"  - Extracted {len(trials)} trials")
-    if trials:
-        t0 = trials[0]
-        print("\nExample Trial 1 after alignment:")
-        print(f"  - Trial type: {t0.trial_type}")
-        print(f"  - Start time (abs): {t0.start_time:.3f} s")
-        print(f"  - Stop time  (abs): {t0.stop_time:.3f} s")
-        print(f"  - Duration:        {t0.stop_time - t0.start_time:.3f} s")
+    print(f"  - State types:  {len(state_types)}")
+    print(f"  - Event types:  {len(event_types)}")
+    print(f"  - Action types: {len(action_types)}")
 
-    print("\nExtracting behavioral events (still Bpod-centric)...")
-    events = extract_behavioral_events(bpod_data_raw)
-    print(f"  - Extracted {len(events)} events")
+    print("\nStep 5.2: Extract data tables (temporal sequences with offsets)")
+    states, state_indices = extract_states(bpod_data_raw, state_types, trial_offsets=trial_offsets)
+    events, event_indices = extract_events(bpod_data_raw, event_types, trial_offsets=trial_offsets)
+    actions, action_indices = extract_actions(bpod_data_raw, action_types, trial_offsets=trial_offsets)
 
-    # Simple QC summary
-    event_categories = {}
-    for e in events:
-        event_categories.setdefault(e.event_type, 0)
-        event_categories[e.event_type] += 1
+    print(f"  - States:  {len(states)} entries")
+    print(f"  - Events:  {len(events)} entries")
+    print(f"  - Actions: {len(actions)} entries")
 
-    print("\nEvent counts by type:")
-    for etype, count in sorted(event_categories.items()):
-        print(f"  - {etype}: {count}")
+    print("\nStep 5.3: Build trials table and task recording")
+    trials_table = build_trials_table(bpod_data_raw, states, events, actions, state_indices, event_indices, action_indices, trial_offsets=trial_offsets)
+    task_recording = build_task_recording(states, events, actions)
+
+    print(f"  - Trials table: {len(trials_table)} trials")
+    print(f"  - Task recording: {task_recording.name}")
+
+    # Show example trial (first trial from trials table)
+    if len(trials_table) > 0:
+        print("\nExample Trial 1 (from trials_table):")
+        print(f"  - Start time (abs): {trials_table['start_time'][0]:.3f} s")
+        print(f"  - Stop time  (abs): {trials_table['stop_time'][0]:.3f} s")
+        print(f"  - Duration:         {trials_table['stop_time'][0] - trials_table['start_time'][0]:.3f} s")
 
     # ---------------------------------------------------------------------
-    # PHASE 6: Trial summary + small report
+    # PHASE 6: Summary statistics + small report
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 6: Trial Summary + Report")
+    print("PHASE 6: Summary Statistics + Report")
     print("=" * 80)
 
     output_dir = settings.output_root / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    trial_summary = create_event_summary(
-        session_id=session_cfg.session.id,
-        trials=trials,
-        events=events,
-    )
+    # Compute summary statistics from trials table
+    n_trials = len(trials_table)
+    trial_durations = np.array(trials_table["stop_time"][:]) - np.array(trials_table["start_time"][:])
+    mean_duration = float(np.mean(trial_durations))
+
+    trial_summary = {
+        "session_id": session_cfg.session.id,
+        "total_trials": n_trials,
+        "mean_trial_duration": mean_duration,
+        "n_states": len(states),
+        "n_events": len(events),
+        "n_actions": len(actions),
+    }
 
     trial_summary_path = output_dir / "trial_summary.json"
     with open(trial_summary_path, "w") as f:
-        json.dump(trial_summary.model_dump(), f, indent=2)
+        json.dump(trial_summary, f, indent=2)
 
     print("\nTrial summary:")
-    print(f"  - Session ID:            {trial_summary.session_id}")
-    print(f"  - Total trials:          {trial_summary.total_trials}")
-    print(f"  - Mean trial duration:   {trial_summary.mean_trial_duration:.3f} s")
-    if trial_summary.mean_response_latency is not None:
-        print(f"  - Mean response latency: {trial_summary.mean_response_latency:.3f} s")
+    print(f"  - Session ID:          {trial_summary['session_id']}")
+    print(f"  - Total trials:        {trial_summary['total_trials']}")
+    print(f"  - Mean trial duration: {trial_summary['mean_trial_duration']:.3f} s")
+    print(f"  - Total states:        {trial_summary['n_states']}")
+    print(f"  - Total events:        {trial_summary['n_events']}")
+    print(f"  - Total actions:       {trial_summary['n_actions']}")
 
     print("\nArtifacts written:")
     print(f"  - Trial summary JSON:    {trial_summary_path}")
@@ -410,7 +438,7 @@ if __name__ == "__main__":
     if trial_offsets:
         alignment_results = {
             "trial_offsets": {str(k): v for k, v in trial_offsets.items()},
-            "statistics": {"n_trials_total": len(trials), "n_trials_aligned": len(trial_offsets)},
+            "statistics": {"n_trials_total": len(trials_table), "n_trials_aligned": len(trial_offsets)},
             "warnings": warnings,
         }
         with open(alignment_stats_path, "w") as f:
@@ -462,6 +490,7 @@ if __name__ == "__main__":
     example_sync_ttl = session_cfg.bpod.trial_types[0].sync_ttl if session_cfg.bpod.trial_types else "sync_ttl"
     print(f"  - Bpod sync state '{example_sync_signal}' triggers TTL pulses on {example_sync_ttl} (one per trial)")
     print(f"  - align_bpod_trials_to_ttl() uses {example_sync_ttl} to compute per-trial offsets")
-    print("  - extract_trials(..., trial_offsets=...) yields trials in TTL absolute time")
+    print("  - behavior.extract_*(..., trial_offsets=...) yields NWB tables in TTL absolute time")
+    print("  - Result: TaskRecording + TrialsTable ready for NWB integration")
 
     print("\nDone.")

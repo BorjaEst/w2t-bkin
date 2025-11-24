@@ -281,7 +281,8 @@ def _build_nwb_file(
     final_session_metadata: Dict[str, Any],
     pose_estimations: Optional[List],  # List[PoseEstimation] from ndx_pose
     facemap_bundles: Optional[List[FacemapBundle]],
-    bpod_summary: Optional[TrialSummary],
+    task_recording: Optional[Any],  # TaskRecording from ndx-structured-behavior
+    trials_table: Optional[Any],  # TrialsTable from ndx-structured-behavior
     manifest: Dict[str, Any],
 ) -> NWBFile:
     """Build NWBFile from components (NWB-first only).
@@ -295,7 +296,8 @@ def _build_nwb_file(
         final_session_metadata: Merged session metadata
         pose_estimations: Optional ndx-pose PoseEstimation objects
         facemap_bundles: Optional facemap data bundles
-        bpod_summary: Optional Bpod trial/event summary
+        task_recording: Optional TaskRecording from ndx-structured-behavior
+        trials_table: Optional TrialsTable from ndx-structured-behavior
         manifest: Session manifest (for optional modalities)
 
     Returns:
@@ -373,10 +375,19 @@ def _build_nwb_file(
             behavior_pm.add(pose_estimation)
             logger.debug(f"Added PoseEstimation: {pose_estimation.name}")
 
+    # Include behavioral task recording if present (ndx-structured-behavior)
+    if task_recording:
+        logger.debug("Adding TaskRecording (ndx-structured-behavior) to NWB")
+        nwbfile.add_acquisition(task_recording)
+        logger.debug(f"Added TaskRecording with states, events, and actions")
+
+    # Include trials table if present (ndx-structured-behavior)
+    if trials_table:
+        logger.debug("Adding TrialsTable (ndx-structured-behavior) to NWB")
+        nwbfile.trials = trials_table
+        logger.debug(f"Added TrialsTable with {len(trials_table)} trials")
+
     # Include optional modalities if present in manifest
-    if "events" in manifest:
-        logger.debug("Including events data in NWB")
-        # TODO: Add TrialEvents when events module is complete
     if "facemap" in manifest:
         logger.debug("Including facemap data in NWB")
         # TODO: Add BehavioralTimeSeries when facemap module is complete
@@ -409,15 +420,16 @@ def assemble_nwb(
     output_dir: Path,
     pose_estimations: Optional[List] = None,  # List[PoseEstimation] from ndx_pose
     facemap_bundles: Optional[List[FacemapBundle]] = None,
-    bpod_summary: Optional[TrialSummary] = None,
+    task_recording: Optional[Any] = None,  # TaskRecording from ndx-structured-behavior
+    trials_table: Optional[Any] = None,  # TrialsTable from ndx-structured-behavior
     session_metadata: Optional[Dict[str, Any]] = None,
 ) -> Path:
-    """Assemble NWB file from manifest and pose/facemap/bpod data (NWB-first).
+    """Assemble NWB file from manifest and pose/facemap/behavior data (NWB-first).
 
     Creates NWB file with:
     - Devices for all cameras
     - ImageSeries with external links and rate-based timing
-    - Optional pose/facemap/bpod data
+    - Optional pose/facemap/behavior data (ndx-structured-behavior)
     - Embedded provenance metadata
 
     Requirements: FR-7, NFR-6, NFR-1, NFR-2, NFR-11
@@ -432,7 +444,8 @@ def assemble_nwb(
         output_dir: Output directory for NWB file
         pose_estimations: Optional list of ndx-pose PoseEstimation objects (NWB-first)
         facemap_bundles: Optional facemap data bundles
-        bpod_summary: Optional Bpod trial/event summary
+        task_recording: Optional TaskRecording from ndx-structured-behavior (NWB-first)
+        trials_table: Optional TrialsTable from ndx-structured-behavior (NWB-first)
         session_metadata: Optional session metadata
 
     Returns:
@@ -443,11 +456,13 @@ def assemble_nwb(
 
     Example (NWB-first):
         >>> from w2t_bkin.pose import align_pose_to_timebase
+        >>> from w2t_bkin.behavior import build_task_recording, build_trials_table
         >>> pose_est = align_pose_to_timebase(..., camera_id="cam0", bodyparts=[...])
+        >>> task_rec = build_task_recording(states, events, actions)
         >>> manifest = {"session_id": "Session-001", "cameras": [...]}
         >>> config = {"nwb": {"file_name_template": "{session_id}.nwb"}}
         >>> nwb_path = assemble_nwb(manifest, config, {}, Path("/output"),
-        ...                         pose_estimations=[pose_est])
+        ...                         pose_estimations=[pose_est], task_recording=task_rec)
     """
     # Validate inputs
     if manifest is None:
@@ -511,7 +526,8 @@ def assemble_nwb(
         final_session_metadata=final_session_metadata,
         pose_estimations=pose_estimations,
         facemap_bundles=facemap_bundles,
-        bpod_summary=bpod_summary,
+        task_recording=task_recording,
+        trials_table=trials_table,
         manifest=manifest_dict,
     )
 

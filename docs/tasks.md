@@ -1,16 +1,92 @@
 # Implementation Tasks: NWB-First Architecture Migration
 
-Detailed task breakdown for Phase 1 (Pose Module). Focus on incremental, testable changes.
+Detailed task breakdown for completed phases and future work.
 
-## Current Phase: Pose Module Migration
+## Completed Phases
+
+### Phase 1: Pose Module ✅ COMPLETED (2025-11-21)
 
 **Goal**: Eliminate PoseBundle intermediate model; use ndx-pose PoseEstimation throughout.
 
-**Strategy**: Work backwards from NWB assembly to data import, removing conversion at each step.
+**Status**: Complete migration from dual-mode to NWB-first only. All legacy code removed.
+
+**Results**:
+
+- Files modified: 8
+- Lines removed: ~300
+- Legacy types removed: 3 (PoseBundle, PoseFrame, PoseKeypoint)
+- Functions updated: 2 (align_pose_to_timebase, assemble_nwb)
+- Tests: 23 unit + 3 integration (all passing)
+
+### Phase 2: Behavior Module ✅ COMPLETED (2025-11-24)
+
+**Goal**: Implement ndx-structured-behavior integration for NWB-first behavior data.
+
+**Status**: Complete implementation with community-standard behavior module. **Bug fix applied (2025-11-24)**.
+
+**Results**:
+
+- Files created: 4 (behavior/`__init__`.py, models.py, core.py, test_behavior.py)
+- Files modified: 4 (pipeline.py, nwb.py, bpod_camera_sync.py, behavior/`__init__`.py)
+- Lines added: ~860
+- Community extension: ndx-structured-behavior~=0.2.0
+- Tests: 11 unit tests (all passing, including validation test)
+- Breaking change: Events module deprecated
+- **Bug fix**: TrialsTable now contains actual row indices (not empty lists)
+
+**Task Checklist**:
+
+1. ✅ Create behavior module structure
+2. ✅ Implement state extraction (types + data)
+3. ✅ Implement event extraction (types + data)
+4. ✅ Implement action extraction (types + data)
+5. ✅ Implement trials table builder
+6. ✅ Implement task recording container
+7. ✅ Update pipeline.py integration
+8. ✅ Update nwb.py assembly
+9. ✅ Write comprehensive tests
+10. ✅ Update examples (bpod_camera_sync.py)
+11. ✅ **BUG FIX**: Fix empty trial references (extract functions now return indices)
+12. ✅ Add validation test for non-empty trial references
+13. ✅ Update all call sites for new API (7 files)
+14. ✅ Update documentation (architecture_status.md, tasks.md)
+
+**Implementation Details**:
+
+**File**: `src/w2t_bkin/behavior/core.py` (623 lines)
+
+Core transformation functions:
+
+- `extract_state_types()` - Parse unique state names → StateTypesTable
+- `extract_states()` - Convert trial states → StatesTable
+- `extract_event_types()` - Parse unique event names → EventTypesTable
+- `extract_events()` - Convert hardware events → EventsTable
+- `extract_action_types()` - Identify action states → ActionTypesTable
+- `extract_actions()` - Convert action states → ActionsTable
+- `build_trials_table()` - Combine states/events/actions → TrialsTable
+- `build_task_recording()` - Package tables → TaskRecording
+
+**Architecture Pattern**:
+
+- Low-level: `events.bpod.parse_bpod()` → raw Bpod data dict
+- Mid-level: `behavior.extract_*()` → ndx-structured-behavior tables
+- High-level: `pipeline.py` orchestrates, `nwb.py` assembles
+
+**Breaking Changes**:
+
+- Events module deprecated (extract_trials, extract_behavioral_events)
+- Use behavior module workflow instead
+- Migration guide needed for users
+
+**Completed**: 2025-11-24  
+**Time Spent**: ~8 hours  
+**Status**: Production-ready, fully tested
 
 ---
 
-## Task Checklist
+## Current Phase: Documentation & Future Planning
+
+### Next Phases (Not Started)
 
 ### 0. Add build_pose_estimation() Function ✅ COMPLETED
 

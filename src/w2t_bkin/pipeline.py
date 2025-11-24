@@ -25,7 +25,8 @@ Result Structure:
 RunResult contains:
 - manifest: File discovery and counts
 - alignment_stats: Timebase alignment quality metrics (if computed)
-- events_summary: Behavioral events summary (if Bpod files present)
+- task_recording: Behavioral task recording with ndx-structured-behavior (if Bpod files present)
+- trials_table: Trials table with behavior data (if Bpod files present)
 - facemap_bundle: Facial motion signals (if computed)
 - transcoded_videos: Mezzanine format videos (if transcoding enabled)
 - nwb_path: Path to assembled NWB file (if assembly completes)
@@ -63,10 +64,21 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
+from w2t_bkin.behavior import (
+    TaskRecording,
+    build_task_recording,
+    build_trials_table,
+    extract_action_types,
+    extract_actions,
+    extract_event_types,
+    extract_events,
+    extract_state_types,
+    extract_states,
+)
 from w2t_bkin.config import load_config, load_session
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
 from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, Session, TranscodedVideo
-from w2t_bkin.events import extract_trials, parse_bpod
+from w2t_bkin.events import parse_bpod
 from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
 from w2t_bkin.sync import create_timebase_provider_from_config, get_ttl_pulses
 from w2t_bkin.utils import compute_hash, ensure_directory
@@ -88,7 +100,8 @@ class RunResult(TypedDict, total=False):
     Attributes:
         manifest: File discovery manifest with frame/TTL counts
         alignment_stats: Timebase alignment quality metrics (optional)
-        events_summary: Behavioral events summary dict (optional)
+        task_recording: Behavioral task recording with ndx-structured-behavior (optional)
+        trials_table: Trials table with behavior data (optional)
         dlc_inference_results: DLC inference results for each camera (optional)
         facemap_bundle: Facial motion signals (optional)
         transcoded_videos: List of transcoded videos (optional)
@@ -98,7 +111,8 @@ class RunResult(TypedDict, total=False):
 
     manifest: Manifest
     alignment_stats: Optional[AlignmentStats]
-    events_summary: Optional[Dict[str, Any]]
+    task_recording: Optional[TaskRecording]
+    trials_table: Optional[Any]  # TrialsTable from ndx-structured-behavior
     dlc_inference_results: Optional[List[DLCInferenceResult]]
     facemap_bundle: Optional[FacemapBundle]
     transcoded_videos: Optional[List[TranscodedVideo]]
@@ -226,18 +240,18 @@ def run_session(
             raise ValueError("Frame/TTL verification failed")
 
     # -------------------------------------------------------------------------
-    # Phase 2: Parse Events (Optional)
+    # Phase 2: Parse Behavior (Optional - ndx-structured-behavior)
     # -------------------------------------------------------------------------
-    events_summary: Optional[Dict[str, Any]] = None
+    task_recording: Optional[TaskRecording] = None
+    trials_table: Optional[Any] = None
 
     if manifest.bpod_files and len(manifest.bpod_files) > 0:
-        logger.info("\n[Phase 2] Parsing Bpod events...")
+        logger.info("\n[Phase 2] Building behavioral data (ndx-structured-behavior)...")
 
         try:
             # Extract primitives from Session
             bpod_pattern = session.bpod.path
             bpod_order = session.bpod.order
-            trial_type_configs = session.bpod.trial_types
 
             # Parse Bpod files with low-level API
             bpod_data = parse_bpod(
@@ -246,24 +260,30 @@ def run_session(
                 order=bpod_order,
                 continuous_time=True,
             )
-            logger.info(f"  ✓ Parsed {bpod_data['SessionData']['nTrials']} trials")
+            n_trials = bpod_data["SessionData"]["nTrials"]
+            logger.info(f"  ✓ Parsed {n_trials} trials from Bpod files")
 
-            # Extract trials (no alignment yet)
-            trials = extract_trials(bpod_data, trial_offsets=None)
-            logger.info(f"  ✓ Extracted {len(trials)} trials")
+            # Extract type tables (metadata)
+            state_types = extract_state_types(bpod_data)
+            event_types = extract_event_types(bpod_data)
+            action_types = extract_action_types(bpod_data)
+            logger.info(f"  ✓ Extracted types: {len(state_types)} states, {len(event_types)} events, {len(action_types)} actions")
 
-            # Create summary
-            events_summary = {
-                "session_id": session_id,
-                "total_trials": len(trials),
-                "trial_types": list(set(t.trial_type for t in trials if t.trial_type)),
-                "outcomes": {outcome.value: sum(1 for t in trials if t.outcome == outcome) for outcome in set(t.outcome for t in trials)},
-            }
-            logger.info("  ✓ Events summary created")
+            # Extract data tables (no alignment yet - trial_offsets=None)
+            states, state_indices = extract_states(bpod_data, state_types, trial_offsets=None)
+            events, event_indices = extract_events(bpod_data, event_types, trial_offsets=None)
+            actions, action_indices = extract_actions(bpod_data, action_types, trial_offsets=None)
+            logger.info(f"  ✓ Extracted data: {len(states)} state occurrences, {len(events)} events, {len(actions)} actions")
+
+            # Build trials table and task recording
+            trials_table = build_trials_table(bpod_data, states, events, actions, state_indices, event_indices, action_indices, trial_offsets=None)
+            task_recording = build_task_recording(states, events, actions)
+            logger.info(f"  ✓ Built TrialsTable ({n_trials} trials) and TaskRecording")
 
         except Exception as e:
-            logger.warning(f"  ⚠ Bpod parsing failed: {e}")
-            events_summary = None
+            logger.warning(f"  ⚠ Behavior data extraction failed: {e}")
+            task_recording = None
+            trials_table = None
 
     # -------------------------------------------------------------------------
     # Phase 3: Synchronization (Placeholder)
@@ -444,7 +464,8 @@ def run_session(
     result: RunResult = {
         "manifest": manifest,
         "alignment_stats": alignment_stats,
-        "events_summary": events_summary,
+        "task_recording": task_recording,
+        "trials_table": trials_table,
         "dlc_inference_results": dlc_inference_results,
         "facemap_bundle": facemap_bundle,
         "transcoded_videos": transcoded_videos,

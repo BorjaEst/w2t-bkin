@@ -79,15 +79,15 @@ Low-level modules operate on raw files and simple arguments (e.g., glob patterns
 | Module          | Key Input                                                 | Output / Contract                                       | FR/NFR Coverage        |
 | --------------- | --------------------------------------------------------- | ------------------------------------------------------- | ---------------------- |
 | utils           | primitives, file paths                                    | hashing, path safety, subprocess wrappers, logging      | NFR-1/2/3              |
-| events.bpod     | Bpod `.mat` file paths, `order`, trial-type specs         | TimeIntervals (pynwb), parsed trial structures          | FR-11                  |
-| events.trials   | parsed Bpod data, trial-type specs                        | TimeIntervals with trial metadata                       | FR-11/14               |
+| events.bpod     | Bpod `.mat` file paths, `order`, trial-type specs         | Parsed Bpod data structures (raw dict format)           | FR-11                  |
+| behavior        | parsed Bpod data, trial offsets                           | TaskRecording, TrialsTable (ndx-structured-behavior)    | FR-11/14               |
 | dlc             | video file paths, model config path, GPU selection        | H5 pose files, inference results, batch processing      | FR-5, NFR-1/2 ✅       |
 | pose            | pose result file paths, skeleton maps, frame/idx ranges   | PoseEstimation objects (ndx-pose), Skeleton definitions | FR-5                   |
 | facemap         | video file paths, ROI specs, frame/idx ranges             | BehavioralTimeSeries (pynwb), motion energy traces      | FR-6                   |
 | transcode       | input video file paths, codec/format options              | transcoded/mezzanine video file paths                   | FR-4, NFR-2            |
 | sync.primitives | numeric sequences (timestamps, indices), timebase options | alignment indices/weights, jitter statistics            | FR-TB-1..6, FR-17, A17 |
 
-**Note**: All neuroscience data outputs (pose, events, facemap) are NWB-native structures. Only infrastructure outputs (transcode paths, sync stats) remain as primitives or simple models.
+**Note**: All neuroscience data outputs (pose, behavior, facemap) are NWB-native structures. Only infrastructure outputs (transcode paths, sync stats) remain as primitives or simple models.
 
 Low-level APIs SHOULD offer arguments shaped to be easy to call from `Session` (e.g., `order="name_asc"`, glob patterns, TTL IDs), but must not accept `Session` instances directly.
 

@@ -550,5 +550,143 @@ This example demonstrates:
 
 ---
 
-_Last updated: 2025-11-21_  
-_Migration guide version: 1.0_
+## Phase 2: Behavior Module Migration (NEW)
+
+### Overview
+
+The w2t-bkin pipeline has implemented a **behavior module** using the community-standard `ndx-structured-behavior` extension for NWB. This replaces the legacy events extraction workflow with a more structured, standards-compliant approach.
+
+### Status: New Implementation ✅
+
+**Current State**: Behavior module fully implemented and tested.
+
+- ✅ **New module**: `w2t_bkin.behavior` - complete implementation
+- ⚠️ **Legacy module**: `w2t_bkin.events` extraction functions are deprecated
+- 🔴 **Breaking changes**: See below for migration path
+
+### What Changed
+
+#### Deprecated Functions (from events module)
+
+The following functions from `w2t_bkin.events` are **deprecated**:
+
+- `extract_trials()` - Use behavior module workflow instead
+- `extract_behavioral_events()` - Use behavior module workflow instead
+- `create_event_summary()` - Compute statistics from NWB tables directly
+
+#### New Behavior Module Workflow
+
+**File**: `w2t_bkin.behavior`
+
+Core transformation functions (all produce ndx-structured-behavior NWB objects):
+
+1. **Type extraction** (metadata):
+
+   - `extract_state_types()` → `StateTypesTable`
+   - `extract_event_types()` → `EventTypesTable`
+   - `extract_action_types()` → `ActionTypesTable`
+
+2. **Data extraction** (temporal sequences):
+
+   - `extract_states()` → `StatesTable`
+   - `extract_events()` → `EventsTable`
+   - `extract_actions()` → `ActionsTable`
+
+3. **Assembly**:
+   - `build_trials_table()` → `TrialsTable`
+   - `build_task_recording()` → `TaskRecording`
+
+### Migration Example
+
+#### OLD Pattern (DEPRECATED)
+
+```python
+from w2t_bkin.events import extract_trials, extract_behavioral_events, parse_bpod
+from w2t_bkin.events.summary import create_event_summary
+
+# Parse Bpod data
+bpod_data = parse_bpod(session_dir, pattern, order)
+
+# Extract trials and events
+trials = extract_trials(bpod_data, trial_offsets=offsets)
+events = extract_behavioral_events(bpod_data)
+
+# Create summary
+summary = create_event_summary(
+    session_id="Session-001",
+    trials=trials,
+    events=events,
+)
+```
+
+#### NEW Pattern (RECOMMENDED)
+
+```python
+from w2t_bkin.events.bpod import parse_bpod
+from w2t_bkin.behavior import (
+    extract_state_types, extract_states,
+    extract_event_types, extract_events,
+    extract_action_types, extract_actions,
+    build_trials_table, build_task_recording,
+)
+
+# Parse Bpod data (same as before)
+bpod_data = parse_bpod(session_dir, pattern, order)
+
+# Step 1: Extract type tables (metadata)
+state_types = extract_state_types(bpod_data)
+event_types = extract_event_types(bpod_data)
+action_types = extract_action_types(bpod_data)
+
+# Step 2: Extract data tables (with alignment)
+states = extract_states(bpod_data, state_types, trial_offsets=offsets)
+events = extract_events(bpod_data, event_types, trial_offsets=offsets)
+actions = extract_actions(bpod_data, action_types, trial_offsets=offsets)
+
+# Step 3: Build trials and recording
+trials_table = build_trials_table(bpod_data, states, events, actions,
+                                   trial_offsets=offsets)
+task_recording = build_task_recording(states, events, actions)
+
+# Step 4: Add to NWB
+nwbfile.add_acquisition(task_recording)
+nwbfile.trials = trials_table
+```
+
+### Benefits of New Behavior Module
+
+1. **Standards-compliant**: Uses ndx-structured-behavior (community standard)
+2. **NWB-native**: All outputs are NWB objects ready for integration
+3. **Structured data**: Clear separation of states, events, actions, and trials
+4. **Better interoperability**: Compatible with NWB ecosystem tools
+5. **Follows established pattern**: Same NWB-first approach as pose module
+
+### Updated Examples
+
+The `examples/bpod_camera_sync.py` example has been updated to demonstrate the new behavior module workflow. Run it to see the complete pattern:
+
+```bash
+python examples/bpod_camera_sync.py
+```
+
+### Quick Migration Checklist
+
+For code using the legacy events extraction:
+
+- [ ] Replace `extract_trials()` with behavior module workflow (see pattern above)
+- [ ] Replace `extract_behavioral_events()` with `extract_states/events/actions()`
+- [ ] Replace `create_event_summary()` with direct computation from NWB tables
+- [ ] Update imports from `w2t_bkin.events` to `w2t_bkin.behavior`
+- [ ] Update pipeline/orchestration to use new workflow
+- [ ] Test with your data to ensure compatibility
+
+### Timeline
+
+- **Current Phase**: Both patterns work (legacy events still available)
+- **Recommendation**: Migrate new code to behavior module immediately
+- **Future**: Legacy events extraction may be removed in future version (TBD)
+
+---
+
+_Last updated: 2025-11-24_  
+_Migration guide version: 1.1_

@@ -41,6 +41,9 @@ All public functions and NWB models are re-exported at the package level:
 See core, models, and ttl_mock modules for detailed documentation.
 """
 
+# Re-export NWB-native models
+from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton
+
 # Re-export core functions
 from .core import (
     KeypointsDict,
@@ -53,9 +56,6 @@ from .core import (
     import_sleap_pose,
     validate_pose_confidence,
 )
-
-# Re-export NWB-native models (from ndx_pose via models.py)
-from .models import PoseEstimation, PoseEstimationSeries, Skeleton
 
 # Re-export TTL mock utilities
 from .ttl_mock import (
