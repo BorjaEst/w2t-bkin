@@ -626,9 +626,9 @@ def extract_trials_table(
     action_types = extract_action_types(bpod_data)
 
     # Step 2: Extract data tables with indices
-    states, state_indices = extract_states(bpod_data, state_types)
-    events, event_indices = extract_events(bpod_data, event_types)
-    actions, action_indices = extract_actions(bpod_data, action_types)
+    states, state_indices = extract_states(bpod_data, state_types, trial_offsets)
+    events, event_indices = extract_events(bpod_data, event_types, trial_offsets)
+    actions, action_indices = extract_actions(bpod_data, action_types, trial_offsets)
 
     # Step 3: Build TrialsTable
     trials = build_trials_table(
