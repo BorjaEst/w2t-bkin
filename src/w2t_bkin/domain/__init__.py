@@ -97,7 +97,21 @@ from w2t_bkin.domain.config import (
 from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, ManifestCamera, ManifestTTL, VerificationResult, VerificationSummary
 
 # Session models (Phase 0)
-from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera, Session, SessionMetadata
+from w2t_bkin.domain.session import (
+    TTL,
+    BpodSession,
+    BpodTrialType,
+    Camera,
+    GenerationInfo,
+    LabMetadata,
+    NWBDevice,
+    NWBMetadata,
+    NWBProcessingModule,
+    NWBRequired,
+    NWBSubject,
+    Session,
+    SessionMetadata,
+)
 
 # Exception hierarchy
 from w2t_bkin.exceptions import (
@@ -195,6 +209,14 @@ __all__ = [
     "BpodTrialType",
     "TTL",
     "Camera",
+    # NWB Session models
+    "NWBRequired",
+    "NWBMetadata",
+    "NWBSubject",
+    "NWBDevice",
+    "NWBProcessingModule",
+    "LabMetadata",
+    "GenerationInfo",
     # Manifest models
     "Manifest",
     "ManifestCamera",

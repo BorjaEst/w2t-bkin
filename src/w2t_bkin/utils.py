@@ -83,6 +83,7 @@ Example:
 >>> validate_file_exists(video_path, IngestError, "Video file required")
 """
 
+from datetime import datetime
 import glob
 import hashlib
 import json
@@ -90,7 +91,144 @@ import logging
 import math
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Type, Union
+
+# Import version info
+try:
+    from importlib.metadata import version
+except ImportError:
+    # Python < 3.8
+    from importlib_metadata import version
+
+
+def parse_datetime(dt_str: str) -> datetime:
+    """Parse ISO 8601 datetime string.
+
+    Supports formats: YYYY-MM-DDTHH:MM:SS and YYYY-MM-DD HH:MM:SS
+
+    Parameters
+    ----------
+    dt_str : str
+        ISO 8601 datetime string
+
+    Returns
+    -------
+    datetime
+        Parsed datetime object
+    """
+    # Try with 'T' separator first
+    try:
+        return datetime.fromisoformat(dt_str)
+    except ValueError:
+        pass
+
+    # Try with space separator
+    try:
+        return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        raise ValueError(f"Invalid datetime format: {dt_str}. " "Expected ISO 8601: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS")
+
+
+def get_source_script() -> Optional[str]:
+    """Get the source script that is running (the __main__ script).
+
+    Returns the absolute path of the script file used to create the NWB file.
+    This captures the actual entry point script (e.g., pipeline.py, analysis.py).
+
+    Returns
+    -------
+    Optional[str]
+        Absolute path to the main script file, or None if not available
+
+    Example
+    -------
+    >>> # When running: python pipeline.py
+    >>> get_source_script()
+    '/home/user/project/pipeline.py'
+
+    >>> # When running interactively or from module
+    >>> get_source_script()
+    None
+    """
+    try:
+        # sys.argv[0] contains the script that was invoked
+        if sys.argv and sys.argv[0]:
+            script_path = Path(sys.argv[0]).resolve()
+            # Only return if it's an actual file (not '<stdin>' or similar)
+            if script_path.exists() and script_path.is_file():
+                return str(script_path)
+    except (IndexError, OSError):
+        pass
+
+    return None
+
+
+def get_source_script_file_name() -> Optional[str]:
+    """Get the name of the source script file (without path).
+
+    Returns just the filename of the script used to create the NWB file.
+
+    Returns
+    -------
+    Optional[str]
+        Name of the main script file, or None if not available
+
+    Example
+    -------
+    >>> # When running: python /home/user/project/pipeline.py
+    >>> get_source_script_file_name()
+    'pipeline.py'
+    """
+    script_path = get_source_script()
+    if script_path:
+        return Path(script_path).name
+    return None
+
+
+def get_software_packages() -> List[str]:
+    """Get list of software package names and versions used.
+
+    Returns a list of package names with versions in the format:
+    "package_name==version"
+
+    This captures key dependencies for reproducibility and provenance tracking.
+
+    Returns
+    -------
+    List[str]
+        List of package names with versions (e.g., ["pynwb==3.1.0", "w2t_bkin==0.0.3"])
+
+    Example
+    -------
+    >>> packages = get_software_packages()
+    >>> print(packages)
+    ['w2t_bkin==0.0.3', 'pynwb==3.1.0', 'hdmf==4.1.0', ...]
+    """
+    packages = []
+
+    # Core packages to track
+    package_names = [
+        "w2t_bkin",  # This package
+        "pynwb",  # NWB file creation
+        "hdmf",  # Data format
+        "deeplabcut",  # Pose estimation
+        "facemap",  # Facial metrics
+        "scipy",  # Scientific computing
+        "numpy",  # Array operations
+        "pandas",  # Data frames
+        "torch",  # Deep learning (if used)
+    ]
+
+    for package_name in package_names:
+        try:
+            pkg_version = version(package_name)
+            packages.append(f"{package_name}=={pkg_version}")
+        except Exception:
+            # Package not installed or version not available
+            continue
+
+    return packages
 
 
 def compute_hash(data: Union[str, Dict[str, Any]]) -> str:
