@@ -294,6 +294,58 @@ class TestEndToEnd:
             expected_offset = trial_offsets[trial_num]
             assert start_time >= expected_offset
 
+    def test_extract_task_recording_convenience(self, parsed_bpod_data):
+        """Test high-level extract_task_recording convenience function."""
+        from w2t_bkin.behavior import extract_task_recording
+
+        # Use convenience function
+        task_recording = extract_task_recording(parsed_bpod_data)
+
+        # Verify TaskRecording structure
+        assert task_recording is not None
+        assert hasattr(task_recording, "states")
+        assert hasattr(task_recording, "events")
+        assert hasattr(task_recording, "actions")
+
+        # Verify data tables are populated
+        assert len(task_recording.states) > 0
+        assert len(task_recording.events) > 0
+
+    def test_extract_task_recording_with_offsets(self, parsed_bpod_data):
+        """Test extract_task_recording with time offsets."""
+        from w2t_bkin.behavior import extract_task_recording
+
+        # Create trial offsets
+        n_trials = parsed_bpod_data["SessionData"]["nTrials"]
+        trial_offsets = {i + 1: float(i * 100.0) for i in range(n_trials)}
+
+        # Extract with offsets
+        task_recording = extract_task_recording(parsed_bpod_data, trial_offsets=trial_offsets)
+
+        # Verify time offsets applied to states
+        assert len(task_recording.states) > 0
+        first_state_time = task_recording.states["start_time"][0]
+        # First trial should have offset applied
+        expected_min_offset = trial_offsets[1]
+        assert first_state_time >= expected_min_offset
+
+    def test_extract_task_convenience(self, parsed_bpod_data):
+        """Test high-level extract_task convenience function."""
+        from w2t_bkin.behavior import extract_task
+
+        # Use convenience function
+        task = extract_task(parsed_bpod_data)
+
+        # Verify Task structure
+        assert task is not None
+        assert hasattr(task, "state_types")
+        assert hasattr(task, "event_types")
+        assert hasattr(task, "action_types")
+
+        # Verify type tables are populated
+        assert len(task.state_types) > 0
+        assert len(task.event_types) > 0
+
 
 class TestTaskMetadata:
     """Test Task and TaskArgumentsTable extraction."""

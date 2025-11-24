@@ -19,8 +19,10 @@ Public API:
         - build_trials_table: Combine states/events/actions → TrialsTable
         - extract_trials_table: Complete extraction (convenience) → TrialsTable
         - build_task_recording: Package tables → TaskRecording
+        - extract_task_recording: Complete extraction (convenience) → TaskRecording
         - extract_task_arguments: Extract task parameters → TaskArgumentsTable
         - build_task: Assemble Task container with type tables
+        - extract_task: Complete extraction (convenience) → Task
 
     Re-exported ndx-structured-behavior types:
         - StateTypesTable, StatesTable
@@ -74,7 +76,9 @@ from .core import (
     extract_events,
     extract_state_types,
     extract_states,
+    extract_task,
     extract_task_arguments,
+    extract_task_recording,
     extract_trials_table,
 )
 from .models import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
@@ -90,8 +94,10 @@ __all__ = [
     "build_trials_table",
     "extract_trials_table",
     "build_task_recording",
+    "extract_task_recording",
     "extract_task_arguments",
     "build_task",
+    "extract_task",
     # Re-exported ndx-structured-behavior types
     "StateTypesTable",
     "StatesTable",

@@ -677,6 +677,55 @@ def build_task_recording(
     return task_recording
 
 
+def extract_task_recording(
+    bpod_data: Dict[str, Any],
+    trial_offsets: Optional[Dict[int, float]] = None,
+) -> TaskRecording:
+    """Extract complete TaskRecording from Bpod data (convenience function).
+
+    High-level function that performs all extraction steps:
+    1. Extract type tables (states, events, actions)
+    2. Extract data tables (states, events, actions) with row indices
+    3. Build TaskRecording container
+
+    This is a convenience wrapper for simpler API usage when you need the
+    complete TaskRecording for NWB acquisition.
+
+    Args:
+        bpod_data: Parsed Bpod data dictionary
+        trial_offsets: Optional dict mapping trial_number → absolute time offset
+
+    Returns:
+        TaskRecording with complete state/event/action tables
+
+    Example:
+        >>> from w2t_bkin.events.bpod import parse_bpod
+        >>> from w2t_bkin.behavior import extract_task_recording
+        >>>
+        >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
+        >>> task_recording = extract_task_recording(bpod_data)
+        >>> nwbfile.add_acquisition(task_recording)
+
+    Note:
+        If you need access to the intermediate type tables or data tables,
+        use the individual extract_* functions instead.
+    """
+    # Step 1: Extract type tables
+    state_types = extract_state_types(bpod_data)
+    event_types = extract_event_types(bpod_data)
+    action_types = extract_action_types(bpod_data)
+
+    # Step 2: Extract data tables with indices
+    states, _ = extract_states(bpod_data, state_types, trial_offsets)
+    events, _ = extract_events(bpod_data, event_types, trial_offsets)
+    actions, _ = extract_actions(bpod_data, action_types, trial_offsets)
+
+    # Step 3: Build TaskRecording
+    task_recording = build_task_recording(states, events, actions)
+
+    return task_recording
+
+
 # =============================================================================
 # Task Metadata (Top-level Container)
 # =============================================================================
@@ -848,5 +897,48 @@ def build_task(
         logger.info(f"Built Task with {len(task_arguments)} arguments")
     else:
         logger.info("Built Task without arguments")
+
+    return task
+
+
+def extract_task(bpod_data: Dict[str, Any]) -> Task:
+    """Extract complete Task container from Bpod data (convenience function).
+
+    High-level function that performs all extraction steps:
+    1. Extract type tables (states, events, actions)
+    2. Extract task arguments (optional)
+    3. Build Task container
+
+    This is a convenience wrapper for simpler API usage when you need the
+    complete Task container for /general/task in NWBFile.
+
+    Args:
+        bpod_data: Parsed Bpod data dictionary
+
+    Returns:
+        Task container with type tables and optional arguments
+
+    Example:
+        >>> from w2t_bkin.events.bpod import parse_bpod
+        >>> from w2t_bkin.behavior import extract_task
+        >>>
+        >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
+        >>> task = extract_task(bpod_data)
+        >>> nwbfile.add_lab_meta_data(task)
+
+    Note:
+        If you need access to the intermediate type tables or task arguments,
+        use the individual extract_* functions instead.
+    """
+    # Step 1: Extract type tables
+    state_types = extract_state_types(bpod_data)
+    event_types = extract_event_types(bpod_data)
+    action_types = extract_action_types(bpod_data)
+
+    # Step 2: Extract task arguments (optional)
+    task_arguments = extract_task_arguments(bpod_data)
+
+    # Step 3: Build Task
+    task = build_task(state_types, event_types, action_types, task_arguments)
 
     return task
