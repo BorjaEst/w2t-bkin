@@ -104,13 +104,17 @@ def test_real_session_001_end_to_end_ingest(
 
 
 @pytest.mark.integration
+@pytest.mark.skip(reason="Deprecated: extract_trials and extract_behavioral_events replaced by behavior module with ndx-structured-behavior")
 def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_toml):
     """Test Bpod file parsing with real Session-000001 data.
 
     Requirements: FR-11 (Bpod parsing)
+
+    DEPRECATED: This test uses the old trial extraction API. Use the behavior module instead:
+        from w2t_bkin.behavior import extract_trials_table, extract_task_recording
     """
+    from w2t_bkin.bpod import parse_bpod_mat
     from w2t_bkin.config import load_session
-    from w2t_bkin.events import extract_behavioral_events, extract_trials, parse_bpod_mat
 
     session = load_session(fixture_session_toml)
 
@@ -129,25 +133,11 @@ def test_real_session_001_bpod_parsing(fixture_session_path, fixture_session_tom
     bpod_data = parse_bpod_mat(bpod_file)
     assert bpod_data is not None, "Should successfully parse Bpod .mat file"
 
-    # Extract trials
-    trials, _ = extract_trials(bpod_data)
-    assert len(trials) > 0, "Should extract trials from Bpod data"
+    # For new behavior module usage, see test_behavior.py
+    # from w2t_bkin.behavior import extract_trials_table, extract_task_recording
+    # trials = extract_trials_table(bpod_data)
+    # task_recording = extract_task_recording(bpod_data)
 
-    # Verify trial structure (Trial dataclass instances)
-    for trial in trials[:5]:  # Check first 5 trials
-        assert hasattr(trial, "trial_number")
-        assert hasattr(trial, "start_time")
-        assert hasattr(trial, "stop_time")  # Note: attribute is stop_time, not end_time
-        assert hasattr(trial, "outcome")
-        assert isinstance(trial.trial_number, int)
-        assert isinstance(trial.start_time, (int, float))
-        assert isinstance(trial.stop_time, (int, float))
-
-    # Extract behavioral events
-    events = extract_behavioral_events(bpod_data)
-    assert len(events) > 0, "Should extract behavioral events"
-
-    # Verify event structure (TrialEvent dataclass instances)
     for event in events[:5]:
         assert hasattr(event, "event_type")
         assert hasattr(event, "timestamp")

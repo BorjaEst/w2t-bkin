@@ -517,12 +517,16 @@ class TestAlignmentStatsModel:
         assert stats.aligned_samples == 1000
 
 
+@pytest.mark.skip(reason="Trial model deprecated - use ndx-structured-behavior TrialsTable")
 class TestTrialModel:
-    """Test Trial domain model structure (Phase 3) - NWB-aligned."""
+    """Test Trial domain model structure (Phase 3) - NWB-aligned.
+
+    DEPRECATED: Use ndx-structured-behavior TrialsTable instead.
+    """
 
     def test_Should_CreateTrial_When_ValidDataProvided(self):
         """Trial model should capture trial information from Bpod in NWB-compatible format."""
-        from w2t_bkin.events.models import Trial, TrialOutcome
+        from w2t_bkin.bpod.models import Trial, TrialOutcome
 
         trial = Trial(
             trial_number=1,
@@ -539,7 +543,7 @@ class TestTrialModel:
 
     def test_Should_AcceptExtraFields_When_NWBCompatible(self):
         """Trial should accept protocol-specific extra fields if NWB-compatible."""
-        from w2t_bkin.events.models import Trial, TrialOutcome
+        from w2t_bkin.bpod.models import Trial, TrialOutcome
 
         trial = Trial(
             trial_number=1,
@@ -561,7 +565,7 @@ class TestTrialModel:
 
     def test_Should_RejectExtraFields_When_NotNWBCompatible(self):
         """Trial should reject extra fields that are not NWB-compatible types."""
-        from w2t_bkin.events.models import Trial, TrialOutcome
+        from w2t_bkin.bpod.models import Trial, TrialOutcome
 
         with pytest.raises(ValidationError, match="not NWB-compatible"):
             Trial(
@@ -575,7 +579,7 @@ class TestTrialModel:
 
     def test_Should_BeImmutable_When_TryingToModifyTrial(self):
         """Trial instances should be immutable."""
-        from w2t_bkin.events.models import Trial, TrialOutcome
+        from w2t_bkin.bpod.models import Trial, TrialOutcome
 
         trial = Trial(
             trial_number=1,
@@ -590,14 +594,18 @@ class TestTrialModel:
 
     def test_Should_RequireAllFields_When_CreatingTrial(self):
         """Trial should require all mandatory fields."""
-        from w2t_bkin.events.models import Trial
+        from w2t_bkin.bpod.models import Trial
 
         with pytest.raises(ValidationError):
             Trial(trial_number=1, start_time=0.0)
 
 
+@pytest.mark.skip(reason="BehavioralEvents deprecated - use ndx-structured-behavior EventsTable")
 class TestBehavioralEventsModel:
-    """Test BehavioralEvents domain model structure (Phase 3) - NWB-aligned."""
+    """Test BehavioralEvents domain model structure (Phase 3) - NWB-aligned.
+
+    DEPRECATED: Use ndx-structured-behavior EventsTable instead.
+    """
 
     def test_Should_CreateBehavioralEvents_When_ValidDataProvided(self):
         """BehavioralEvents model should capture NWB-compatible event TimeSeries."""
@@ -650,12 +658,16 @@ class TestBehavioralEventsModel:
             BehavioralEvents(name="Port1In")
 
 
+@pytest.mark.skip(reason="TrialSummary model deprecated - use ndx-structured-behavior metadata")
 class TestTrialSummaryModel:
-    """Test TrialSummary domain model structure (Phase 3)."""
+    """Test TrialSummary domain model structure (Phase 3 - QC).
+
+    DEPRECATED: Use ndx-structured-behavior TaskSchema and TrialsTable metadata.
+    """
 
     def test_Should_CreateTrialSummary_When_ValidDataProvided(self):
         """TrialSummary model should capture QC summary for trials."""
-        from w2t_bkin.events.models import TrialSummary
+        from w2t_bkin.bpod.models import TrialSummary
 
         summary = TrialSummary(
             session_id="test-session",
@@ -681,7 +693,7 @@ class TestTrialSummaryModel:
 
     def test_Should_BeImmutable_When_TryingToModifyTrialSummary(self):
         """TrialSummary instances should be immutable."""
-        from w2t_bkin.events.models import TrialSummary
+        from w2t_bkin.bpod.models import TrialSummary
 
         summary = TrialSummary(
             session_id="test-session",
@@ -699,7 +711,7 @@ class TestTrialSummaryModel:
 
     def test_Should_RejectExtraFields_When_CreatingTrialSummary(self):
         """TrialSummary should reject extra fields not in schema."""
-        from w2t_bkin.events.models import TrialSummary
+        from w2t_bkin.bpod.models import TrialSummary
 
         with pytest.raises(ValidationError):
             TrialSummary(
@@ -716,14 +728,14 @@ class TestTrialSummaryModel:
 
     def test_Should_RequireAllFields_When_CreatingTrialSummary(self):
         """TrialSummary should require all required fields."""
-        from w2t_bkin.events.models import TrialSummary
+        from w2t_bkin.bpod.models import TrialSummary
 
         with pytest.raises(ValidationError):
             TrialSummary(session_id="test-session", total_trials=10)
 
     def test_Should_HandleEmptyOutcomeCounts_When_NoTrials(self):
         """TrialSummary should handle empty outcome counts."""
-        from w2t_bkin.events.models import TrialSummary
+        from w2t_bkin.bpod.models import TrialSummary
 
         summary = TrialSummary(
             session_id="test-session",

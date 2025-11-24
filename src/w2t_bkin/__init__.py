@@ -59,12 +59,12 @@ __version__ = "0.1.0"
 __author__ = "Borja Esteban"
 
 # Import main modules for convenient access
-from . import config, domain, events, facemap, ingest, nwb, pipeline, pose, sync, transcode, utils
+from . import bpod, config, domain, facemap, ingest, nwb, pipeline, pose, sync, transcode, utils
 
 __all__ = [
     "config",
     "domain",
-    "events",
+    "bpod",
     "facemap",
     "ingest",
     "nwb",

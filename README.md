@@ -52,7 +52,8 @@ ingest → sync → (transcode) → pose / facemap / events → nwb → validate
 | dlc       | DeepLabCut batch inference (GPU)      | ✅ Complete |
 | pose      | Import/harmonize pose outputs         | ✅ Complete |
 | facemap   | Import/compute facial metrics         | ✅ Complete |
-| events    | Normalize NDJSON → trials/events      | ✅ Complete |
+| bpod      | Parse Bpod .mat files                 | ✅ Complete |
+| behavior  | Extract trials/events (ndx-behavior)  | ✅ Complete |
 | nwb       | Assemble NWB file & provenance        | ✅ Complete |
 | qc        | Build HTML report from summaries      | 🔲 Planned  |
 | validate  | Run nwbinspector validation           | 🔲 Planned  |
@@ -97,7 +98,8 @@ link_external_video = true
 - `pose` — import/harmonize pose outputs
 - `infer` — run pose inference when configured
 - `facemap` — facial metric stage
-- `events` — normalize NDJSON logs
+- `bpod` — parse Bpod .mat files
+- `behavior` — extract trials/events to NWB
 - `to-nwb` — assemble NWB
 - `validate` — run nwbinspector
 - `report` — generate QC HTML
@@ -127,7 +129,7 @@ pytest -q
 | `data/interim/<session>/sync`    | Timestamps + summaries  |
 | `data/interim/<session>/pose`    | Harmonized pose         |
 | `data/interim/<session>/facemap` | Facial metrics          |
-| `data/interim/<session>/events`  | Trials/events tables    |
+| `data/interim/<session>/bpod`    | Parsed Bpod data        |
 | `data/interim/<session>/video`   | Mezzanine videos        |
 | `data/processed/<session>`       | NWB + validation report |
 | `data/qc/<session>`              | QC HTML                 |

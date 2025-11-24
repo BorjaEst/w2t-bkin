@@ -78,7 +78,7 @@ from w2t_bkin.behavior import (
     extract_states,
     extract_task_arguments,
 )
-from w2t_bkin.events.bpod import discover_bpod_files_from_pattern, parse_bpod, parse_bpod_mat
+from w2t_bkin.bpod.core import discover_bpod_files_from_pattern, parse_bpod, parse_bpod_mat
 from w2t_bkin.sync import align_bpod_trials_to_ttl, get_ttl_pulses
 from w2t_bkin.sync.behavior import get_sync_time_from_bpod_trial
 from w2t_bkin.utils import convert_matlab_struct, to_scalar

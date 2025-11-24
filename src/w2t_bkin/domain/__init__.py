@@ -11,10 +11,11 @@ Package Structure:
 - session: Session models (Session, Camera, TTL, SessionMetadata, etc.)
 - manifest: Manifest and verification models (Manifest, VerificationSummary, etc.)
 - alignment: Alignment and provenance models (AlignmentStats, Provenance)
-- bpod: Bpod file parsing models (BpodMatFile, SessionData, RawTrial, etc.)
-- trials: Trial domain models (Trial, BehavioralEvents, TrialOutcome, TrialSummary)
 - facemap: Facemap models (FacemapBundle, FacemapROI, FacemapSignal)
 - transcode: Transcoding models (TranscodeOptions, TranscodedVideo)
+
+Note: Behavioral trial/event models have been deprecated in favor of
+      ndx-structured-behavior (use w2t_bkin.behavior module instead)
 
 Design Principles:
 ------------------
@@ -97,9 +98,6 @@ from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, Manifes
 
 # Session models (Phase 0)
 from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera, Session, SessionMetadata
-
-# Events/Trial models (Phase 3) - Re-exported from events.models
-from w2t_bkin.events.models import BehavioralEvents, Trial, TrialEvent, TrialOutcome, TrialSummary
 
 # Exception hierarchy
 from w2t_bkin.exceptions import (
@@ -214,10 +212,4 @@ __all__ = [
     # Transcode models
     "TranscodeOptions",
     "TranscodedVideo",
-    # Events/Trial models
-    "Trial",
-    "TrialEvent",
-    "TrialOutcome",
-    "TrialSummary",
-    "BehavioralEvents",
 ]

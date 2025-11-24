@@ -13,15 +13,23 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import FacemapBundle, TranscodedVideo, Trial, TrialEvent, TrialSummary
+from w2t_bkin.domain import FacemapBundle, TranscodedVideo
 
 
 class TestEventsIntegration:
-    """Integration tests for Bpod events parsing and QC summary generation."""
+    """Integration tests for Bpod events parsing and QC summary generation.
 
+    DEPRECATED: Trial/Event extraction tests have been replaced by the behavior module
+    with ndx-structured-behavior. See tests/unit/test_behavior.py for current API tests.
+    """
+
+    @pytest.mark.skip(reason="Deprecated: extract_trials replaced by behavior.extract_trials_table")
     def test_Should_ParseBpodFile_When_FileProvided_Issue4(self, fixtures_root, tmp_work_dir):
-        """Should parse Bpod .mat file and extract trials and events (FR-11)."""
-        from w2t_bkin.events import extract_behavioral_events, extract_trials, parse_bpod_mat
+        """Should parse Bpod .mat file and extract trials and events (FR-11).
+
+        DEPRECATED: Use w2t_bkin.behavior module instead.
+        """
+        from w2t_bkin.bpod import parse_bpod_mat
 
         # Use test fixture Bpod file if available
         bpod_file = fixtures_root / "sessions" / "valid_session.toml"
@@ -29,55 +37,21 @@ class TestEventsIntegration:
         # Skip if no real Bpod .mat file in fixtures
         pytest.skip("Requires real Bpod .mat fixture file")
 
+    @pytest.mark.skip(reason="Deprecated: Trial/TrialEvent models replaced by ndx-structured-behavior")
     def test_Should_CreateEventSummary_When_TrialsExtracted_Issue4(self, tmp_work_dir):
-        """Should create event summary for QC report (FR-14, A4)."""
-        from w2t_bkin.events import create_event_summary
+        """Should create event summary for QC report (FR-14, A4).
 
-        # Create mock trials and events
-        trials = [
-            Trial(trial_number=1, trial_type=1, start_time=0.0, stop_time=9.0, outcome="hit"),
-            Trial(trial_number=2, trial_type=1, start_time=10.0, stop_time=19.0, outcome="miss"),
-            Trial(trial_number=3, trial_type=1, start_time=20.0, stop_time=29.0, outcome="hit"),
-        ]
+        DEPRECATED: TrialSummary model replaced by ndx-structured-behavior TaskRecording.
+        """
+        pass
 
-        events = [
-            TrialEvent(event_type="BNC1High", timestamp=1.5, metadata={"trial_number": 1}),
-            TrialEvent(event_type="BNC1Low", timestamp=1.6, metadata={"trial_number": 1}),
-            TrialEvent(event_type="Flex1Trig2", timestamp=7.1, metadata={"trial_number": 1}),
-        ]
-
-        # Create summary
-        summary = create_event_summary(session="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
-
-        # Verify summary (A4: trial counts and event categories)
-        assert isinstance(summary, TrialSummary)
-        assert summary.total_trials == 3
-        assert summary.outcome_counts["hit"] == 2
-        assert summary.outcome_counts["miss"] == 1
-        assert len(summary.event_categories) == 3
-        assert "BNC1High" in summary.event_categories
-
+    @pytest.mark.skip(reason="Deprecated: Event summary replaced by ndx-structured-behavior metadata")
     def test_Should_WriteEventSummary_When_SummaryCreated_Issue4(self, tmp_work_dir):
-        """Should write event summary to JSON file (FR-14)."""
-        from w2t_bkin.events import create_event_summary, write_event_summary
+        """Should write event summary to JSON file (FR-14).
 
-        trials = [Trial(trial_number=1, trial_type=1, start_time=0.0, stop_time=9.0, outcome="hit")]
-        events = [TrialEvent(event_type="Reward", timestamp=8.5, metadata={"trial_number": 1})]
-
-        summary = create_event_summary(session="Session-000001", trials=trials, events=events, bpod_files=["/path/to/bpod.mat"])
-
-        # Write to temp directory
-        output_path = tmp_work_dir / "interim" / "Session-000001" / "events_summary.json"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        write_event_summary(summary, output_path)
-
-        # Verify file written
-        assert output_path.exists()
-
-        # Verify content
-        with open(output_path, "r") as f:
-            data = json.load(f)
+        DEPRECATED: Use ndx-structured-behavior Task metadata instead.
+        """
+        pass
 
         assert data["session_id"] == "Session-000001"
         assert data["total_trials"] == 1

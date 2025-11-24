@@ -609,7 +609,7 @@ def extract_trials_table(
         TrialsTable with complete trial structure
 
     Example:
-        >>> from w2t_bkin.events.bpod import parse_bpod
+        >>> from w2t_bkin.bpod.code import parse_bpod
         >>> from w2t_bkin.behavior import extract_trials_table
         >>>
         >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
@@ -699,7 +699,7 @@ def extract_task_recording(
         TaskRecording with complete state/event/action tables
 
     Example:
-        >>> from w2t_bkin.events.bpod import parse_bpod
+        >>> from w2t_bkin.bpod.code import parse_bpod
         >>> from w2t_bkin.behavior import extract_task_recording
         >>>
         >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
@@ -919,7 +919,7 @@ def extract_task(bpod_data: Dict[str, Any]) -> Task:
         Task container with type tables and optional arguments
 
     Example:
-        >>> from w2t_bkin.events.bpod import parse_bpod
+        >>> from w2t_bkin.bpod.code import parse_bpod
         >>> from w2t_bkin.behavior import extract_task
         >>>
         >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")

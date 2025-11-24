@@ -79,7 +79,7 @@ Low-level modules operate on raw files and simple arguments (e.g., glob patterns
 | Module          | Key Input                                                 | Output / Contract                                       | FR/NFR Coverage        |
 | --------------- | --------------------------------------------------------- | ------------------------------------------------------- | ---------------------- |
 | utils           | primitives, file paths                                    | hashing, path safety, subprocess wrappers, logging      | NFR-1/2/3              |
-| events.bpod     | Bpod `.mat` file paths, `order`, trial-type specs         | Parsed Bpod data structures (raw dict format)           | FR-11                  |
+| bpod.code       | Bpod `.mat` file paths, `order`, trial-type specs         | Parsed Bpod data structures (raw dict format)           | FR-11                  |
 | behavior        | parsed Bpod data, trial offsets                           | TaskRecording, TrialsTable (ndx-structured-behavior)    | FR-11/14               |
 | dlc             | video file paths, model config path, GPU selection        | H5 pose files, inference results, batch processing      | FR-5, NFR-1/2 ✅       |
 | pose            | pose result file paths, skeleton maps, frame/idx ranges   | PoseEstimation objects (ndx-pose), Skeleton definitions | FR-5                   |

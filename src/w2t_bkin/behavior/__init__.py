@@ -34,7 +34,7 @@ Public API:
 
 Example:
     >>> from pathlib import Path
-    >>> from w2t_bkin.events.bpod import parse_bpod
+    >>> from w2t_bkin.bpod.code import parse_bpod
     >>> from w2t_bkin.behavior import (
     ...     extract_state_types, extract_states,
     ...     extract_event_types, extract_events,

@@ -146,7 +146,7 @@ TrialTypes = 1
 nTrials = 8
 ```
 
-- ✅ **Breaking changes**: Events module deprecated in favor of behavior module
+- ✅ **Breaking changes**: Events module renamed to bpod (Bpod parsing only), behavior module added for trial/event extraction
 - ✅ **NWB-first only**: parse*bpod() → behavior.extract*\*() → TaskRecording + TrialsTable → assemble_nwb()
 - ✅ **All tests pass**: 11 unit tests (behavior), 6 expected HDMF warnings
 - ✅ **Community standard**: Uses ndx-structured-behavior v0.2.0
@@ -202,9 +202,9 @@ trials = build_trials_table(bpod_data, states, events, actions,
 - Lines added: ~860
 - Community extension: ndx-structured-behavior~=0.2.0
 - Pattern: NWB-first (direct production of NWB objects)
-- Architecture: Low-level (events.bpod) → Mid-level (behavior.core) → High-level (pipeline)
+- Architecture: Low-level (bpod.code) → Mid-level (behavior.core) → High-level (pipeline)
 
-**Decision**: Implemented community-standard behavior module following Phase 1 pattern. Breaking change strategy (Option A) adopted - events module deprecated. BEADL task programs left optional. Actions extracted from reward/stimulus state transitions.
+**Decision**: Implemented community-standard behavior module following Phase 1 pattern. Breaking change strategy (Option A) adopted - events module renamed to bpod (parsing only). BEADL task programs left optional. Actions extracted from reward/stimulus state transitions.
 
 **Blockers**: None  
 **Next Phase**: Phase 3 (Facemap Module) can begin

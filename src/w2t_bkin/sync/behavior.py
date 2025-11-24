@@ -110,7 +110,7 @@ def align_bpod_trials_to_ttl(
 
     Example:
         >>> from w2t_bkin.sync import get_ttl_pulses, align_bpod_trials_to_ttl
-        >>> from w2t_bkin.events import parse_bpod
+        >>> from w2t_bkin.bpod.code import parse_bpod
         >>> from pathlib import Path
         >>>
         >>> # Low-level approach with primitives

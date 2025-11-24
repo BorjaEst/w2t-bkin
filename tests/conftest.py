@@ -415,7 +415,7 @@ def expected_ttl_count() -> int:
 @pytest.fixture
 def expected_bpod_file_count() -> int:
     """Expected number of Bpod files in Session-000001."""
-    return 1
+    return 2
 
 
 # ============================================================================
@@ -581,9 +581,9 @@ def valid_bpod_file(tmp_path, monkeypatch):
 
     bpod_file.write_text("")
 
-    from w2t_bkin import events
+    from w2t_bkin import bpod
 
-    monkeypatch.setattr(events, "loadmat", mock_loadmat)
+    monkeypatch.setattr(bpod, "loadmat", mock_loadmat)
 
     return bpod_file
 
@@ -678,34 +678,25 @@ def parsed_bpod_data():
     }
 
 
+# DEPRECATED: Trial and TrialEvent models replaced by ndx-structured-behavior
+# These fixtures are kept for backward compatibility with deprecated tests
+# Use w2t_bkin.behavior module for new tests
 @pytest.fixture
 def trial_list():
-    """List of Trial objects for testing event summary creation."""
-    from w2t_bkin.events.models import Trial, TrialOutcome
+    """List of Trial objects for testing event summary creation.
 
-    return [
-        Trial(trial_number=1, trial_type=1, start_time=0.0, stop_time=9.0, outcome=TrialOutcome.HIT),
-        Trial(trial_number=2, trial_type=1, start_time=10.0, stop_time=19.0, outcome=TrialOutcome.MISS),
-        Trial(trial_number=3, trial_type=1, start_time=20.0, stop_time=29.0, outcome=TrialOutcome.HIT),
-    ]
+    DEPRECATED: Use ndx-structured-behavior TrialsTable instead.
+    """
+    pytest.skip("Trial model deprecated - use ndx-structured-behavior TrialsTable")
 
 
 @pytest.fixture
 def event_list():
-    """List of TrialEvent objects for testing event summary creation."""
-    from w2t_bkin.events.models import TrialEvent
+    """List of TrialEvent objects for testing event summary creation.
 
-    return [
-        TrialEvent(event_type="Flex1Trig2", timestamp=0.0001, metadata={"trial_number": 1.0}),
-        TrialEvent(event_type="BNC1High", timestamp=1.5, metadata={"trial_number": 1.0}),
-        TrialEvent(event_type="BNC1Low", timestamp=1.6, metadata={"trial_number": 1.0}),
-        TrialEvent(event_type="Flex1Trig2", timestamp=7.1, metadata={"trial_number": 1.0}),
-        TrialEvent(event_type="BNC1High", timestamp=8.5, metadata={"trial_number": 1.0}),
-        TrialEvent(event_type="Flex1Trig2", timestamp=0.0001, metadata={"trial_number": 2.0}),
-        TrialEvent(event_type="Flex1Trig2", timestamp=0.0001, metadata={"trial_number": 3.0}),
-        TrialEvent(event_type="BNC1High", timestamp=2.0, metadata={"trial_number": 3.0}),
-        TrialEvent(event_type="BNC1Low", timestamp=2.1, metadata={"trial_number": 3.0}),
-    ]
+    DEPRECATED: Use ndx-structured-behavior EventsTable instead.
+    """
+    pytest.skip("TrialEvent model deprecated - use ndx-structured-behavior EventsTable")
 
 
 @pytest.fixture

@@ -31,7 +31,7 @@ Detailed task breakdown for completed phases and future work.
 - Lines added: ~860
 - Community extension: ndx-structured-behavior~=0.2.0
 - Tests: 11 unit tests (all passing, including validation test)
-- Breaking change: Events module deprecated
+- Breaking change: Events module renamed to bpod (Bpod file parsing only)
 - **Bug fix**: TrialsTable now contains actual row indices (not empty lists)
 
 ### Phase 2.1: Task and TaskArgumentsTable ✅ COMPLETED (2025-11-24)
@@ -93,13 +93,13 @@ Core transformation functions:
 
 **Architecture Pattern**:
 
-- Low-level: `events.bpod.parse_bpod()` → raw Bpod data dict
+- Low-level: `bpod.code.parse_bpod()` → raw Bpod data dict
 - Mid-level: `behavior.extract_*()` → ndx-structured-behavior tables
 - High-level: `pipeline.py` orchestrates, `nwb.py` assembles
 
 **Breaking Changes**:
 
-- Events module deprecated (extract_trials, extract_behavioral_events)
+- Events module renamed to bpod (extract_trials, extract_behavioral_events removed - use behavior module)
 - Use behavior module workflow instead
 - Migration guide needed for users
 

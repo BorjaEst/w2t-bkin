@@ -82,7 +82,6 @@ from pynwb.image import ImageSeries
 
 from .dlc.models import DLCModelInfo
 from .domain import AlignmentStats, Config, FacemapBundle, Manifest, Provenance
-from .events.models import TrialSummary
 from .utils import ensure_directory, sanitize_string
 
 logger = logging.getLogger(__name__)

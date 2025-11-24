@@ -305,7 +305,7 @@ class TestOptionalModalitiesIntegration:
         tmp_work_dir,
     ):
         """Should include Trials TimeIntervals when Bpod summary provided (FR-11)."""
-        from w2t_bkin.events import TrialSummary
+        from w2t_bkin.bpod import TrialSummary
         from w2t_bkin.nwb import assemble_nwb
 
         # Create Bpod summary

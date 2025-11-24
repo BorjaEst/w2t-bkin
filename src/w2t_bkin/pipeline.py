@@ -75,10 +75,10 @@ from w2t_bkin.behavior import (
     extract_state_types,
     extract_states,
 )
+from w2t_bkin.bpod import parse_bpod
 from w2t_bkin.config import load_config, load_session
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
 from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, Session, TranscodedVideo
-from w2t_bkin.events import parse_bpod
 from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
 from w2t_bkin.sync import create_timebase_provider_from_config, get_ttl_pulses
 from w2t_bkin.utils import compute_hash, ensure_directory

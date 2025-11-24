@@ -561,14 +561,14 @@ The w2t-bkin pipeline has implemented a **behavior module** using the community-
 **Current State**: Behavior module fully implemented and tested.
 
 - ✅ **New module**: `w2t_bkin.behavior` - complete implementation
-- ⚠️ **Legacy module**: `w2t_bkin.events` extraction functions are deprecated
+- ⚠️ **Module renamed**: `w2t_bkin.events` → `w2t_bkin.bpod` (parsing only), extraction moved to `w2t_bkin.behavior`
 - 🔴 **Breaking changes**: See below for migration path
 
 ### What Changed
 
-#### Deprecated Functions (from events module)
+#### Removed Functions (from old events module)
 
-The following functions from `w2t_bkin.events` are **deprecated**:
+The following functions from `w2t_bkin.events` have been **removed** (use `w2t_bkin.behavior` instead):
 
 - `extract_trials()` - Use behavior module workflow instead
 - `extract_behavioral_events()` - Use behavior module workflow instead
@@ -601,8 +601,9 @@ Core transformation functions (all produce ndx-structured-behavior NWB objects):
 #### OLD Pattern (DEPRECATED)
 
 ```python
-from w2t_bkin.events import extract_trials, extract_behavioral_events, parse_bpod
-from w2t_bkin.events.summary import create_event_summary
+from w2t_bkin.events import extract_trials, extract_behavioral_events  # REMOVED
+from w2t_bkin.events.summary import create_event_summary  # REMOVED
+from w2t_bkin.events.bpod import parse_bpod  # NOW: w2t_bkin.bpod.code
 
 # Parse Bpod data
 bpod_data = parse_bpod(session_dir, pattern, order)
@@ -622,7 +623,7 @@ summary = create_event_summary(
 #### NEW Pattern (RECOMMENDED)
 
 ```python
-from w2t_bkin.events.bpod import parse_bpod
+from w2t_bkin.bpod.code import parse_bpod
 from w2t_bkin.behavior import (
     extract_state_types, extract_states,
     extract_event_types, extract_events,
@@ -676,7 +677,7 @@ For code using the legacy events extraction:
 - [ ] Replace `extract_trials()` with behavior module workflow (see pattern above)
 - [ ] Replace `extract_behavioral_events()` with `extract_states/events/actions()`
 - [ ] Replace `create_event_summary()` with direct computation from NWB tables
-- [ ] Update imports from `w2t_bkin.events` to `w2t_bkin.behavior`
+- [ ] Update imports: `w2t_bkin.events` → `w2t_bkin.behavior` (extraction) or `w2t_bkin.bpod` (parsing)
 - [ ] Update pipeline/orchestration to use new workflow
 - [ ] Test with your data to ensure compatibility
 
