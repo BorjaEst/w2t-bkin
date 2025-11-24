@@ -16,11 +16,11 @@ Data Flow:
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from ndx_structured_behavior import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
 import numpy as np
 
 from ..exceptions import BpodParseError
 from ..utils import convert_matlab_struct, is_nan_or_none, to_scalar
-from .models import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
 
 logger = logging.getLogger(__name__)
 

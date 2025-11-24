@@ -66,6 +66,8 @@ Example:
     ...                   task_arguments=task_arguments)
 """
 
+from ndx_structured_behavior import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
+
 from .core import (
     build_task,
     build_task_recording,
@@ -81,7 +83,6 @@ from .core import (
     extract_task_recording,
     extract_trials_table,
 )
-from .models import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
 
 __all__ = [
     # Core transformation functions
