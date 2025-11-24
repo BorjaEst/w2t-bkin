@@ -25,10 +25,11 @@ graph TD
         
         utils["utils<br/>━━━━━<br/>hashing, path safety,<br/>subprocess wrappers,<br/>logging, JSON I/O"]
         
-        subgraph EventsModule["bpod"]
-            events_bpod["bpod<br/>Parse Bpod .mat → TimeIntervals"]
-            events_trials["trials<br/>Trial metadata → TimeIntervals"]
+        subgraph BpodModule["bpod (Parsing Only)"]
+            bpod_code["code<br/>Parse Bpod .mat → raw dict"]
         end
+        
+        behavior["behavior<br/>━━━━━<br/>Bpod data → ndx-structured-behavior<br/>TrialsTable, TaskRecording, Task"]
         
         dlc["dlc<br/>━━━━━<br/>GPU batch inference<br/>video paths → H5 pose files"]
         
@@ -84,8 +85,9 @@ graph TD
     
     %% Low-level → Foundation + Utils
     utils --> Foundation
-    events_bpod --> utils
-    events_trials --> utils
+    bpod_code --> utils
+    behavior --> Foundation
+    behavior --> bpod_code
     dlc --> Foundation
     pose --> Foundation
     facemap --> Foundation
@@ -115,7 +117,8 @@ graph TD
     %% ============================================================================
     
     pipeline -.->|"video paths,<br/>model config,<br/>GPU index"| dlc
-    pipeline -.->|"Bpod file paths,<br/>order string,<br/>trial specs"| EventsModule
+    pipeline -.->|"Bpod file paths,<br/>order string,<br/>trial specs"| BpodModule
+    pipeline -.->|"parsed Bpod data,<br/>trial offsets"| behavior
     pipeline -.->|"pose file paths,<br/>skeleton maps,<br/>frame ranges"| pose
     pipeline -.->|"video paths,<br/>ROI specs,<br/>frame ranges"| facemap
     pipeline -.->|"video paths,<br/>codec options"| transcode
@@ -126,7 +129,8 @@ graph TD
     %% DATA FLOW (NWB objects through system)
     %% ============================================================================
     
-    EventsModule -->|"TimeIntervals"| nwb
+    BpodModule -->|"raw Bpod dict"| behavior
+    behavior -->|"TrialsTable,<br/>TaskRecording,<br/>Task"| nwb
     pose -->|"PoseEstimation"| nwb
     facemap -->|"BehavioralTimeSeries"| nwb
     sync -->|"alignment indices,<br/>AlignmentStats"| nwb
@@ -143,6 +147,6 @@ graph TD
     classDef highLevelStyle fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
     
     class pynwb,hdmf,ndx_pose,ndx_events,ndx_behavior foundationStyle
-    class utils,events_bpod,events_trials,dlc,pose,facemap,transcode,sync_primitives lowLevelStyle
+    class utils,bpod_code,behavior,dlc,pose,facemap,transcode,sync_primitives lowLevelStyle
     class sync,nwb midLevelStyle
     class domain,config,ingest,pipeline,validate,qc highLevelStyle

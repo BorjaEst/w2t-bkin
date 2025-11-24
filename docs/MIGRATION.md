@@ -431,9 +431,10 @@ def pose_estimation(camera_device, skeleton):
 
 1. **Recommended**: Migrate to NWB-first pattern (see examples above)
 2. **Temporary**: Suppress warnings in tests:
+
    ```python
    import warnings
-   warnings.filterwarnings("ignore", category=DeprecationWarning, module="w2t_bkin.pose.models")
+   warnings.filterwarnings("ignore", category=DeprecationWarning)
    ```
 
 ### Issue: Missing `camera_id` Parameter Error
@@ -552,7 +553,7 @@ This example demonstrates:
 
 ## Phase 2: Behavior Module Migration (NEW)
 
-### Overview
+### Behavior Module Overview
 
 The w2t-bkin pipeline has implemented a **behavior module** using the community-standard `ndx-structured-behavior` extension for NWB. This replaces the legacy events extraction workflow with a more structured, standards-compliant approach.
 
