@@ -111,7 +111,7 @@ def create_nwb_file(session_file: Union[str, Path]) -> NWBFile:
     metadata = load_session_metadata(session_file)
 
     # Create NWBFile with all metadata
-    nwb_file = NWBFile(
+    nwbfile = NWBFile(
         session_description=metadata.get("session_description"),
         identifier=metadata.get("identifier"),
         session_start_time=utils.parse_datetime(metadata["session_start_time"]) if "session_start_time" in metadata else None,
@@ -138,12 +138,12 @@ def create_nwb_file(session_file: Union[str, Path]) -> NWBFile:
 
     # Add subject if provided
     if "subject" in metadata:
-        nwb_file.subject = create_subject(metadata["subject"])
+        nwbfile.subject = create_subject(metadata["subject"])
 
     # Add devices if provided
     if "devices" in metadata:
         for device_info in metadata["devices"]:
-            nwb_file.add_device(create_device(device_info))
+            nwbfile.add_device(create_device(device_info))
 
     # Add electrode groups if provided
     if "electrode_groups" in metadata:
@@ -166,7 +166,7 @@ def create_nwb_file(session_file: Union[str, Path]) -> NWBFile:
             pass
             # TODO: implement create_processing_module function
 
-    return nwb_file
+    return nwbfile
 
 
 def create_subject(subject_data: Dict[str, Any]) -> Subject:

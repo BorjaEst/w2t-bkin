@@ -1,20 +1,152 @@
-# Migration Guide: NWB-First Architecture (COMPLETE)
+# Migration Guide: NWB-First Architecture
 
 ## Overview
 
-The w2t-bkin pipeline has **completed migration** from intermediate data models (PoseBundle, PoseFrame, PoseKeypoint) to an **NWB-first architecture** where processing modules produce NWB objects directly.
+The w2t-bkin pipeline has completed migration to an **NWB-first architecture** where NWBFile serves as the primary orchestration artifact throughout the entire pipeline.
 
-## Status: Migration Complete ✅
+## Migration Phases
 
-**Current State**: The pose module now uses **NWB-first only**. Legacy code has been removed.
+### Phase 1: Pose Module ✅ (Completed 2025-11-21)
 
-- ❌ **Legacy path**: REMOVED - PoseBundle/PoseFrame/PoseKeypoint no longer exist
-- ✅ **NWB-first path**: ONLY path - creates ndx_pose.PoseEstimation directly
-- 🔴 **Breaking changes**: See below for required code updates
+Eliminated PoseBundle/PoseFrame/PoseKeypoint intermediate models; use ndx-pose PoseEstimation throughout.
 
-## Breaking Changes
+### Phase 2: Behavior Module ✅ (Completed 2025-11-24)
+
+Implemented ndx-structured-behavior integration for NWB-first behavior data (TaskRecording, TrialsTable).
+
+### Phase 3: NWB-First Refactoring ✅ (Completed 2025-11-25)
+
+Replaced Manifest-centric architecture with NWB-first; eliminated ingest/nwb modules.
+
+## Phase 3 Breaking Changes (2025-11-25)
+
+### Removed Modules
+
+The following modules have been **permanently removed**:
+
+- `w2t_bkin.ingest` (775 lines) - File discovery, manifest building, verification
+- `w2t_bkin.nwb` (636 lines) - NWB assembly from manifest
+- `w2t_bkin.domain.manifest` (223 lines) - Manifest domain models
 
 ### Removed Types
+
+- `Manifest`, `ManifestCamera`, `ManifestTTL`
+- `VerificationResult`, `VerificationSummary`, `CameraVerificationResult`
+
+### Removed Functions
+
+- `ingest.build_and_count_manifest()` → Functionality inlined in `pipeline.run_session()`
+- `ingest.verify_manifest()` → Verification inlined in `pipeline.run_session()`
+- `ingest.discover_files()` → Moved to `utils.discover_files()` (already existed)
+- `nwb.assemble_nwb()` → Replaced by `session.write_nwb_file()`
+- `nwb.create_device()` → Use `session.create_device()` (already existed)
+- `nwb.create_image_series()` → Use `session.add_video_acquisition()`
+
+### New Functions (Added)
+
+**In `utils.py`:**
+
+- `count_video_frames(video_path: Path) -> int` - Video frame counting (moved from ingest)
+- `count_ttl_pulses(ttl_path: Path) -> int` - TTL pulse counting (moved from ingest)
+
+**In `session.py`:**
+
+- `add_video_acquisition(nwbfile, camera_id, video_files, ...) -> NWBFile` - Add ImageSeries to NWBFile
+- `write_nwb_file(nwbfile: NWBFile, output_path: Path) -> Path` - Write NWBFile to disk
+
+### Updated API: pipeline.run_session()
+
+**Before (Manifest-centric):**
+
+```python
+from w2t_bkin.pipeline import run_session
+
+result = run_session(config_path, session_id)
+manifest = result['manifest']  # Manifest object
+nwb_path = result['nwb_path']
+```
+
+**After (NWB-first):**
+
+```python
+from w2t_bkin.pipeline import run_session
+
+result = run_session(config_path, session_id)
+nwbfile = result['nwbfile']  # In-memory NWBFile
+nwb_path = result['nwb_path']
+```
+
+### Architecture Change
+
+**Before (Manifest-centric):**
+
+```text
+Config + Session → discover_files() → Manifest
+Manifest → populate_counts() → Manifest (with counts)
+Manifest → verify_manifest() → VerificationResult
+Manifest + processing → assemble_nwb() → NWBFile → write()
+```
+
+**After (NWB-first):**
+
+```text
+Session → create_nwb_file() → NWBFile (early, in memory)
+Config + Session → inline discovery → file_dict + verify inline
+NWBFile + files → add_video_acquisition() → NWBFile (with ImageSeries)
+NWBFile + processing → add behavior/pose → NWBFile (complete)
+NWBFile → write_nwb_file() → disk
+```
+
+### Migration Steps for Phase 3
+
+If your code used the old ingest/nwb modules:
+
+1. **Replace manifest-based workflows:**
+
+   ```python
+   # OLD - No longer works
+   from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
+   from w2t_bkin.nwb import assemble_nwb
+
+   manifest = build_and_count_manifest(config, session)
+   verify_manifest(manifest, tolerance=10)
+   nwb_path = assemble_nwb(manifest, config, provenance, output_dir)
+
+   # NEW - Use pipeline.run_session()
+   from w2t_bkin.pipeline import run_session
+
+   result = run_session(config_path, session_id)
+   nwbfile = result['nwbfile']
+   nwb_path = result['nwb_path']
+   ```
+
+2. **Update utility imports:**
+
+   ```python
+   # OLD - No longer works
+   from w2t_bkin.ingest import count_video_frames, count_ttl_pulses
+
+   # NEW
+   from w2t_bkin.utils import count_video_frames, count_ttl_pulses
+   ```
+
+3. **Update session operations:**
+
+   ```python
+   # OLD - No longer works
+   from w2t_bkin.nwb import create_image_series
+
+   # NEW
+   from w2t_bkin.session import add_video_acquisition
+
+   add_video_acquisition(nwbfile, camera_id="cam0", video_files=[...])
+   ```
+
+---
+
+## Phase 1 Breaking Changes (2025-11-21)
+
+### Pose Module: Removed Types
 
 The following types have been **permanently removed** from the codebase:
 

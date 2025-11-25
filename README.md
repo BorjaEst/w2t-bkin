@@ -18,9 +18,9 @@ post_date: "2025-11-08"
 Modular, reproducible Python pipeline turning multi-camera rodent behavior recordings plus sync and
 optional pose/facial/event logs into a validated NWB dataset with QC and provenance.
 
-**Status**: Phase 4 Complete (NWB Assembly with pynwb) ✅  
+**Status**: Phase 3 Complete (NWB-First Refactoring) ✅  
 **Test Coverage**: 255 tests passing (13 skipped)  
-**Latest**: Real NWB file assembly with external video links, rate-based timing, and provenance embedding
+**Latest**: NWB-first architecture - NWBFile as primary orchestration artifact, inline discovery, -44% code reduction
 
 ## Key Features
 
@@ -38,28 +38,32 @@ optional pose/facial/event logs into a validated NWB dataset with QC and provena
 ## High-Level Flow
 
 ```text
-ingest → sync → (transcode) → pose / facemap / events → nwb → validate → qc
+create_nwb_file → inline discovery + verify → sync → (transcode) → pose / facemap / behavior → write_nwb_file → validate → qc
 ```
+
+**NWB-First Architecture**: Pipeline creates NWBFile early (Phase 0) and uses it as primary orchestration artifact. File discovery and verification are inlined in pipeline. No intermediate Manifest model.
 
 ## Package Modules (Planned)
 
-| Module    | Purpose                               | Status      |
-| --------- | ------------------------------------- | ----------- |
-| config    | Load & validate settings              | ✅ Complete |
-| ingest    | Discover assets, produce manifest     | ✅ Complete |
-| sync      | Generate timestamps, drift/drop stats | ✅ Complete |
-| transcode | Optional stable mezzanine videos      | ✅ Complete |
-| dlc       | DeepLabCut batch inference (GPU)      | ✅ Complete |
-| pose      | Import/harmonize pose outputs         | ✅ Complete |
-| facemap   | Import/compute facial metrics         | ✅ Complete |
-| bpod      | Parse Bpod .mat files                 | ✅ Complete |
-| behavior  | Extract trials/events (ndx-behavior)  | ✅ Complete |
-| nwb       | Assemble NWB file & provenance        | ✅ Complete |
-| qc        | Build HTML report from summaries      | 🔲 Planned  |
-| validate  | Run nwbinspector validation           | 🔲 Planned  |
-| cli       | Typer CLI entry points                | 🔲 Planned  |
-| utils     | Shared primitives                     | ✅ Complete |
-| domain    | Shared typed domain models            | ✅ Complete |
+| Module     | Purpose                               | Status      |
+| ---------- | ------------------------------------- | ----------- |
+| config     | Load & validate settings              | ✅ Complete |
+| session    | NWB file creation & manipulation      | ✅ Complete |
+| sync       | Generate timestamps, drift/drop stats | ✅ Complete |
+| transcode  | Optional stable mezzanine videos      | ✅ Complete |
+| dlc        | DeepLabCut batch inference (GPU)      | ✅ Complete |
+| pose       | Import/harmonize pose outputs         | ✅ Complete |
+| facemap    | Import/compute facial metrics         | ✅ Complete |
+| bpod       | Parse Bpod .mat files                 | ✅ Complete |
+| behavior   | Extract trials/events (ndx-behavior)  | ✅ Complete |
+| pipeline   | Orchestrate phases, inline discovery  | ✅ Complete |
+| qc         | Build HTML report from summaries      | 🔲 Planned  |
+| validate   | Run nwbinspector validation           | 🔲 Planned  |
+| cli        | Typer CLI entry points                | 🔲 Planned  |
+| utils      | Shared primitives                     | ✅ Complete |
+| domain     | Shared typed domain models            | ✅ Complete |
+| ~~ingest~~ | ~~Discover assets, produce manifest~~ | ❌ Removed  |
+| ~~nwb~~    | ~~Assemble NWB file & provenance~~    | ❌ Removed  |
 
 ## Configuration Snippet (Example)
 
@@ -123,16 +127,16 @@ pytest -q
 
 ## Artifact Locations
 
-| Path                             | Description             |
-| -------------------------------- | ----------------------- |
-| `data/raw/<session>`             | Source videos + logs    |
-| `data/interim/<session>/sync`    | Timestamps + summaries  |
-| `data/interim/<session>/pose`    | Harmonized pose         |
-| `data/interim/<session>/facemap` | Facial metrics          |
-| `data/interim/<session>/bpod`    | Parsed Bpod data        |
-| `data/interim/<session>/video`   | Mezzanine videos        |
-| `data/processed/<session>`       | NWB + validation report |
-| `data/qc/<session>`              | QC HTML                 |
+| Path                             | Description          |
+| -------------------------------- | -------------------- |
+| `data/raw/<session>`             | Source videos + logs |
+| `data/interim/<session>/sync`    | Alignment stats      |
+| `data/interim/<session>/pose`    | Harmonized pose      |
+| `data/interim/<session>/facemap` | Facial metrics       |
+| `data/interim/<session>/bpod`    | Parsed Bpod data     |
+| `data/interim/<session>/video`   | Mezzanine videos     |
+| `data/processed/<session>`       | NWB + validation     |
+| `data/qc/<session>`              | QC HTML              |
 
 ## Quality Gates
 

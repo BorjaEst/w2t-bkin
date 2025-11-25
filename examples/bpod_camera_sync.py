@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Example 04: Bpod Camera Synchronization (simplified).
 
+**NOTE (2025-11-25)**: This example uses the old Manifest-centric API.
+It will be updated to use the new NWB-first pipeline API (pipeline.run_session()).
+For reference on the new API, see docs/MIGRATION.md Phase 3 section.
+
 Goal
 ----
 Show **how to align Bpod trial times to TTL absolute time** using per-trial

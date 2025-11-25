@@ -108,49 +108,52 @@ Mid-level tools operate on NWB objects and primitive values only. They never loa
 
 High-level modules understand `Config`, `Session`, and filesystem layout per session. They are responsible for wiring together low- and mid-level tools.
 
-| Module        | Key Input                        | Output / Contract                                                                               | FR/NFR Coverage                  |
-| ------------- | -------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------- |
-| config        | `config.toml`, `session.toml`    | validated `Config`, `Session`, hashes                                                           | FR-10, FR-15, FR-TB-\* NFR-10/11 |
-| ingest+verify | `Config`, `Session`              | discovered raw file paths, `Manifest` (internal), `verification_summary.json`                   | FR-1/2/3/13/15/16                |
-| pipeline/cli  | `Config`, `Session`, CLI options | orchestrated runs: calls low-level tools with raw paths + options, calls `sync` and `nwb`, etc. | FR-1..7, FR-10/11, FR-17         |
-| validate      | NWB                              | `validation_report.json` (nwbinspector report)                                                  | FR-9                             |
-| qc            | NWB + sidecars                   | QC HTML                                                                                         | FR-8/14 NFR-3                    |
+| Module       | Key Input                        | Output / Contract                                                                        | FR/NFR Coverage                  |
+| ------------ | -------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------- |
+| config       | `config.toml`, `session.toml`    | validated `Config`, `Session`, hashes                                                    | FR-10, FR-15, FR-TB-\* NFR-10/11 |
+| session      | `Session`, metadata              | NWBFile creation, video acquisition helpers, NWB file writing                            | FR-7, NFR-6                      |
+| pipeline/cli | `Config`, `Session`, CLI options | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         |
+| validate     | NWB                              | `validation_report.json` (nwbinspector report)                                           | FR-9                             |
+| qc           | NWB + sidecars                   | QC HTML                                                                                  | FR-8/14 NFR-3                    |
 
-## Sidecar & Manifest Schemas (summary)
+## Sidecar Schemas (summary)
 
-### Manifest (high-level orchestration model)
+### NWB-First Discovery (high-level orchestration)
 
-The `Manifest` model is **owned by the ingest layer** and treated as a
-high-level orchestration artifact rather than a mid-level contract.
-It is populated by the ingest module using a two-step workflow and
-is never passed directly into low- or mid-level tools.
+File discovery and verification are **inlined in the pipeline orchestration** (pipeline.py).
+The pipeline creates an NWBFile early (Phase 0) and populates it incrementally throughout
+processing phases. No intermediate Manifest model exists.
 
-1. **Fast discovery** — `discover_files(config, session) → Manifest`
+**Discovery workflow** (inlined in `pipeline.run_session()`):
 
-   - Resolves `config.paths.raw_root` and `session.session.id` into a session directory.
-   - Discovers camera video files, TTL files, and Bpod files using glob patterns.
-   - Populates `ManifestCamera.video_files`, `ManifestTTL.files`, and `Manifest.bpod_files`.
-   - Leaves `frame_count` and `ttl_pulse_count` as `None` (no counting, O(n) in file count only).
+1. **Phase 0: Create NWBFile** — `create_nwb_file(session_path) → NWBFile`
 
-2. **Slow counting** — `populate_manifest_counts(manifest) → Manifest`
-   - Iterates over discovered TTL files and uses `count_ttl_pulses()` to build a map of
-     `ttl_id → total_pulses`.
-   - Iterates over all camera videos and uses `count_video_frames()` (ffprobe) to compute total
-     frame counts per camera.
-   - Returns a **new** `Manifest` with `frame_count`/`ttl_pulse_count` populated on each camera.
+   - Creates NWBFile from session.toml metadata
+   - Populates subject, devices, and required metadata
+   - Returns in-memory NWBFile ready for acquisition data
 
-For convenience, `build_and_count_manifest(config, session)` performs both steps in one call.
-It is a **high-level helper** and must only be used from orchestration code that already
-owns `Config` and `Session`. Downstream stages (e.g., `sync`, `nwb`) receive primitive
-metadata and module-local models derived from `Manifest`, not the `Manifest` itself.
+2. **Phase 1: Discover and verify** — inline in pipeline
+
+   - Uses `discover_files(base_dir, pattern)` to find camera videos and TTL files
+   - Uses `count_video_frames(video_path)` and `count_ttl_pulses(ttl_path)` for counts
+   - Performs inline verification: compares frame_count vs ttl_pulse_count
+   - Calls `add_video_acquisition(nwbfile, camera_id, video_files)` to add ImageSeries
+   - Tracks discovered files in `discovered_cameras` list for downstream use
+
+3. **Phase 5: Write NWBFile** — `write_nwb_file(nwbfile, output_path) → Path`
+   - Embeds provenance in `nwbfile.notes` (JSON string)
+   - Writes complete NWBFile to disk using NWBHDF5IO
+   - Returns path to written file
+
+Downstream stages receive NWBFile directly or primitive metadata extracted from discovered files.
+No Manifest object is passed between stages.
 
 ### Sidecars
 
-Sidecar artifacts (e.g., `verification_summary.json`, alignment stats, provenance,
-validation reports) are produced by serializing module-local models to disk at
-paths chosen by high-level orchestration. Low- and mid-level tools return
-in-memory models; they DO NOT infer filesystem layout or write sidecars on
-their own.
+Sidecar artifacts (e.g., alignment stats, validation reports) are produced by serializing
+module-local models to disk at paths chosen by high-level orchestration. Provenance is
+embedded directly in `nwbfile.notes` (JSON string). Low- and mid-level tools return
+in-memory models; they DO NOT infer filesystem layout or write sidecars on their own.
 
 ## Timebase Strategy (summary)
 
@@ -161,11 +164,11 @@ per A17. ImageSeries timing remains rate-based and independent of timebase choic
 ## Build Order & Dependencies
 
 1. Foundation: pynwb, hdmf, ndx-\* extensions (available to all layers)
-2. Utils, config (legacy `domain` models are transitional only)
-3. Ingest+Verify (owns `Manifest` and other ingest-local models)
+2. Utils, config, domain models (Session, Config, alignment models)
+3. Session (NWBFile creation, video acquisition, NWB writing)
 4. Sync (timebase + alignment, owns alignment/timebase models)
-5. Optional modalities (transcode, pose, facemap, events) - produce NWB-native structures (PoseEstimation, TimeIntervals, TimeSeries)
-6. NWB assembly (aggregates NWB objects, adds provenance, no conversion logic)
+5. Optional modalities (transcode, pose, facemap, bpod, behavior) - produce NWB-native structures (PoseEstimation, TimeIntervals, TimeSeries, TaskRecording)
+6. Pipeline orchestration (inlines file discovery, creates NWBFile early, coordinates processing)
 7. Validation + QC (operate on NWB + sidecar models, no direct knowledge of `Session`)
 
 ### Orchestration API (high-level entrypoints)
@@ -176,14 +179,18 @@ surface that owns `Config`, `Session`, and session layout. Example shapes:
 - `run_session(config_path: str, session_id: str, options: RunOptions) → RunResult`
 
   - Loads `Config` and `Session`.
-  - Builds and counts `Manifest`.
-  - Calls low-level tools (events, pose, facemap, transcode) with raw file paths
+  - Creates NWBFile early via `create_nwb_file(session_path)`.
+  - Inlines file discovery using `discover_files()`, `count_video_frames()`, `count_ttl_pulses()`.
+  - Performs inline verification: compares frame counts vs TTL pulse counts.
+  - Adds video acquisition to NWBFile via `add_video_acquisition()`.
+  - Calls low-level tools (bpod, behavior, pose, facemap, transcode) with raw file paths
     and primitive options derived from `Session`.
-  - Low-level tools return NWB objects (PoseEstimation, TimeIntervals, TimeSeries).
+  - Low-level tools return NWB objects (PoseEstimation, TimeIntervals, TimeSeries, TaskRecording).
   - Calls `sync` to select a timebase and compute alignment models.
-  - Calls `nwb` to assemble the NWB file by aggregating pre-built NWB objects.
-  - Serializes sidecar models (verification, alignment, provenance, validation) to
-    disk at orchestrator-chosen locations.
+  - Adds all NWB objects to the in-memory NWBFile.
+  - Embeds provenance in `nwbfile.notes` and writes to disk via `write_nwb_file()`.
+  - Serializes sidecar models (alignment stats, validation reports) to disk at orchestrator-chosen locations.
+  - Returns `RunResult` with `nwbfile: NWBFile` and `nwb_path: Path`.
 
 - `run_validation(nwb_path: str) → ValidationReport`
   - Runs NWB validation (e.g., nwbinspector) as a mid-level utility invoked by

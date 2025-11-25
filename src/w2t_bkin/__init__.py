@@ -13,7 +13,6 @@ intermediate models and conversion layers.
 Modules:
 --------
 - utils: Shared utilities (hashing, paths, JSON I/O, video analysis, frame counting)
-- domain: Pydantic models for type-safe data contracts
 - config: Configuration and session file loading
 - session: NWB file creation from session metadata
 - sync: Timebase providers and alignment
@@ -67,17 +66,13 @@ Documentation:
 See docs/ for detailed module documentation and design principles.
 """
 
-__version__ = "0.1.0"
-__author__ = "Borja Esteban"
-
 # Import main modules for convenient access
-from . import behavior, bpod, config, domain, facemap, pipeline, pose, session, sync, transcode, utils
+from . import behavior, bpod, config, facemap, pipeline, pose, session, sync, transcode, utils
 
 __all__ = [
     "behavior",
     "bpod",
     "config",
-    "domain",
     "facemap",
     "pipeline",
     "pose",
