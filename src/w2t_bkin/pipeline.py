@@ -81,12 +81,12 @@ from w2t_bkin.behavior import (
 from w2t_bkin.bpod import parse_bpod
 from w2t_bkin.config import Config, load_config
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
-from w2t_bkin.events import add_events_to_nwb
 
 # from w2t_bkin.facemap import FacemapBundle  # Temporarily disabled
 from w2t_bkin.session import add_video_acquisition, create_nwb_file, write_nwb_file
-from w2t_bkin.sync import AlignmentStats, create_timebase_provider_from_config, get_ttl_pulses
+from w2t_bkin.sync import AlignmentStats, create_timebase_provider_from_config
 from w2t_bkin.transcode import TranscodedVideo
+from w2t_bkin.ttl import add_ttl_table_to_nwb, get_ttl_pulses
 from w2t_bkin.utils import compute_hash, count_ttl_pulses, count_video_frames, discover_files, ensure_directory
 
 logger = logging.getLogger(__name__)
@@ -416,7 +416,7 @@ def run_session(
                     ttl_sources[ttl.id] = ttl.source
 
             # Add TTL events using ndx-events EventsTable
-            nwbfile = add_events_to_nwb(
+            nwbfile = add_ttl_table_to_nwb(
                 nwbfile,
                 ttl_pulses,
                 descriptions=ttl_descriptions,

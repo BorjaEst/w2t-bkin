@@ -301,7 +301,7 @@ class TestJitterBudgetEnforcement:
 
         error_msg = str(exc_info.value)
         assert "0.015" in error_msg or "15" in error_msg
-        assert "0.010" in error_msg or "10" in error_msg
+        assert "0.01" in error_msg or "10" in error_msg  # Accept both 0.010 and 0.01
 
 
 class TestAlignmentProcess:

@@ -1,7 +1,9 @@
 """Temporal synchronization utilities.
 
-Provides timebase providers, sample alignment, TTL pulse loading, and
-modality-specific synchronization for video, pose, facemap, and behavioral data.
+Provides timebase providers, sample alignment, and modality-specific
+synchronization for video, pose, facemap, and behavioral data.
+
+Note: TTL pulse loading has been moved to the ttl module.
 
 Example:
     >>> from w2t_bkin.sync import create_timebase_provider, align_samples
@@ -33,9 +35,6 @@ from .stats import compute_alignment, create_alignment_stats, load_alignment_man
 # Timebase providers
 from .timebase import NeuropixelsProvider, NominalRateProvider, TimebaseProvider, TTLProvider, create_timebase_provider, create_timebase_provider_from_config
 
-# TTL utilities (generic)
-from .ttl import get_ttl_pulses, load_ttl_file
-
 # Video synchronization
 from .video import sync_video_frames_to_timebase
 
@@ -58,9 +57,6 @@ __all__ = [
     "compute_jitter_stats",
     "enforce_jitter_budget",
     "align_samples",
-    # TTL
-    "get_ttl_pulses",
-    "load_ttl_file",
     # Behavior
     "get_sync_time_from_bpod_trial",
     "align_bpod_trials_to_ttl",

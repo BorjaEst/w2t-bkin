@@ -98,7 +98,7 @@ Mid-level modules compose low-level outputs and implement cross-cutting policies
 | Module | Key Input                                                              | Output / Contract                                            | FR/NFR Coverage        |
 | ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------- |
 | sync   | timebase config (primitives), TTL timestamps, camera frame times       | alignment indices, alignment stats models, timebase provider | FR-TB-1..6, FR-17, A17 |
-| events | TTL pulse timestamps (Dict[str, List[float]]), TTL descriptions       | EventsTable (ndx-events)                                     | FR-17                  |
+| events | TTL pulse timestamps (Dict[str, List[float]]), TTL descriptions        | EventsTable (ndx-events)                                     | FR-17                  |
 | nwb    | NWB objects from processing modules, camera/video metadata, provenance | Assembled NWBFile (aggregates pre-built NWB objects)         | FR-7 NFR-6             |
 
 Mid-level tools operate on NWB objects and primitive values only. They never load TOML or know how files are laid out on disk for a session.
