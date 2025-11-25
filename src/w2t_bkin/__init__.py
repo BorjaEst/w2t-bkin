@@ -4,47 +4,59 @@ A modular, reproducible Python pipeline for processing multi-camera rodent
 behavior recordings with synchronization, pose estimation, facial metrics,
 and behavioral events into standardized NWB datasets.
 
+Architecture: NWB-First
+------------------------
+This pipeline uses NWB (Neurodata Without Borders) as its foundational data layer.
+All processing modules produce NWB-native data structures directly, eliminating
+intermediate models and conversion layers.
+
 Modules:
 --------
-- utils: Shared utilities (hashing, paths, JSON I/O, video analysis)
+- utils: Shared utilities (hashing, paths, JSON I/O, video analysis, frame counting)
 - domain: Pydantic models for type-safe data contracts
 - config: Configuration and session file loading
-- ingest: File discovery and manifest building
+- session: NWB file creation from session metadata
 - sync: Timebase providers and alignment
-- events: Bpod .mat file parsing and behavioral data extraction
+- behavior: Behavioral task recording (ndx-structured-behavior)
+- bpod: Bpod .mat file parsing
 - transcode: Video transcoding to mezzanine format
-- pose: Pose estimation import and harmonization (DLC/SLEAP)
+- pose: Pose estimation import and harmonization (DLC/SLEAP with ndx-pose)
 - facemap: Facial metrics computation and alignment
-- nwb: NWB file assembly with pynwb
+- pipeline: High-level orchestration (NWB-first workflow)
 
 Pipeline Phases:
 ----------------
-Phase 0 (Foundation): utils, domain, config
-Phase 1 (Ingest): File discovery and manifest
-Phase 2 (Sync): Timebase and alignment
-Phase 3 (Optionals): events, transcode, pose, facemap
-Phase 4 (Output): nwb assembly
-Phase 5 (QC): validation and reporting (planned)
+Phase 0 (Foundation): Load config, create NWBFile from session.toml
+Phase 1 (Discovery): Discover files, verify, add ImageSeries to NWBFile
+Phase 2 (Behavior): Parse Bpod, add TaskRecording/TrialsTable to NWBFile
+Phase 3 (Sync): Compute alignment stats, select timebase
+Phase 4 (Optionals): DLC inference, pose, facemap
+Phase 5 (Output): Write NWBFile to disk, validate
 
 Quick Start:
 -----------
->>> from w2t_bkin import config, ingest, nwb
+>>> from w2t_bkin.pipeline import run_session
 >>>
->>> # Load configuration
->>> cfg = config.load_config("config.toml")
->>> session = config.load_session("Session-000001/session.toml")
+>>> # Run complete pipeline (NWB-first)
+>>> result = run_session(
+...     config_path="config.toml",
+...     session_id="Session-000001"
+... )
 >>>
->>> # Build manifest
->>> manifest = ingest.build_and_count_manifest(cfg, session)
+>>> # Access NWBFile
+>>> nwbfile = result['nwbfile']
+>>> print(f"Identifier: {nwbfile.identifier}")
+>>> print(f"Acquisition: {list(nwbfile.acquisition.keys())}")
 >>>
->>> # Assemble NWB
->>> provenance = {"config_hash": "abc123", "software": {"name": "w2t_bkin"}}
->>> nwb_path = nwb.assemble_nwb(manifest, cfg, provenance, output_dir)
+>>> # NWB file written to disk
+>>> print(f"Output: {result['nwb_path']}")
 
 Requirements:
 -------------
 - Python 3.10+
-- pynwb, scipy, numpy, pydantic
+- pynwb~=3.1.0, hdmf~=4.1.0
+- ndx-pose~=0.2.0, ndx-structured-behavior~=0.1.0
+- scipy, numpy, pydantic
 
 License:
 --------
@@ -52,14 +64,14 @@ Apache-2.0
 
 Documentation:
 --------------
-See docs/modules/ for detailed module documentation.
+See docs/ for detailed module documentation and design principles.
 """
 
 __version__ = "0.1.0"
 __author__ = "Borja Esteban"
 
 # Import main modules for convenient access
-from . import behavior, bpod, config, domain, facemap, ingest, nwb, pipeline, pose, session, sync, transcode, utils
+from . import behavior, bpod, config, domain, facemap, pipeline, pose, session, sync, transcode, utils
 
 __all__ = [
     "behavior",
@@ -67,8 +79,6 @@ __all__ = [
     "config",
     "domain",
     "facemap",
-    "ingest",
-    "nwb",
     "pipeline",
     "pose",
     "session",

@@ -45,11 +45,12 @@ Example:
 # TODO: lab_meta_data create NWB extension to hold lab-specific metadata
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from pynwb import NWBFile
+from pynwb import NWBHDF5IO, NWBFile
 from pynwb.device import Device, DeviceModel
 from pynwb.file import Subject
+from pynwb.image import ImageSeries
 import tomli
 
 from w2t_bkin import utils
@@ -309,3 +310,111 @@ def device_model(device_info: Dict[str, Any]) -> DeviceModel:
         model_number=device_info.get("model_number", None),
         description=device_info.get("description", None),
     )
+
+
+# =============================================================================
+# NWB File Writing and Acquisition
+# =============================================================================
+
+
+def add_video_acquisition(
+    nwbfile: NWBFile,
+    camera_id: str,
+    video_files: List[str],
+    frame_rate: float = 30.0,
+    device: Optional[Device] = None,
+) -> NWBFile:
+    """Add video ImageSeries to NWBFile acquisition.
+
+    Creates an ImageSeries object with external video file links (videos are not
+    embedded in the NWB file) and adds it to the acquisition section. Uses
+    rate-based timing for efficiency.
+
+    Parameters
+    ----------
+    nwbfile : NWBFile
+        NWBFile object to add acquisition to
+    camera_id : str
+        Camera identifier (becomes ImageSeries name)
+    video_files : List[str]
+        List of absolute paths to video files
+    frame_rate : float, optional
+        Video frame rate in Hz (default: 30.0)
+    device : Device, optional
+        pynwb Device object representing the camera
+
+    Returns
+    -------
+    NWBFile
+        Updated NWBFile object (same as input, modified in place)
+
+    Example
+    -------
+    >>> from w2t_bkin.session import create_nwb_file, add_video_acquisition
+    >>> nwbfile = create_nwb_file("session.toml")
+    >>> nwbfile = add_video_acquisition(
+    ...     nwbfile,
+    ...     camera_id="camera_0",
+    ...     video_files=["/path/to/video1.avi", "/path/to/video2.avi"],
+    ...     frame_rate=30.0
+    ... )
+    >>> print(nwbfile.acquisition["camera_0"])
+    """
+
+    image_series = ImageSeries(
+        name=camera_id,
+        external_file=video_files,
+        format="external",
+        rate=frame_rate,
+        starting_time=0.0,
+        unit="n/a",
+        device=device,
+    )
+
+    nwbfile.add_acquisition(image_series)
+    return nwbfile
+
+
+def write_nwb_file(nwbfile: NWBFile, output_path: Path) -> Path:
+    """Write NWBFile to disk using NWBHDF5IO.
+
+    Serializes an in-memory NWBFile object to an HDF5 file on disk.
+    Creates parent directories if needed.
+
+    Parameters
+    ----------
+    nwbfile : NWBFile
+        NWBFile object to write
+    output_path : Path
+        Output file path (should end with .nwb)
+
+    Returns
+    -------
+    Path
+        Path to written NWB file (same as output_path)
+
+    Raises
+    ------
+    IOError
+        If file cannot be written
+
+    Example
+    -------
+    >>> from w2t_bkin.session import create_nwb_file, write_nwb_file
+    >>> from pathlib import Path
+    >>>
+    >>> nwbfile = create_nwb_file("session.toml")
+    >>> output_path = Path("output/session.nwb")
+    >>> write_nwb_file(nwbfile, output_path)
+    >>> print(f"Written: {output_path}")
+    """
+
+    # Ensure parent directory exists
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write NWBFile
+    with NWBHDF5IO(str(output_path), "w") as io:
+        io.write(nwbfile)
+
+    return output_path

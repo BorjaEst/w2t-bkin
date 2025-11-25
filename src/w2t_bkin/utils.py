@@ -914,3 +914,92 @@ if __name__ == "__main__":
     print("=" * 70)
     print("Examples completed. See module docstring for more details.")
     print("=" * 70)
+
+
+# =============================================================================
+# Video and TTL Counting Utilities
+# =============================================================================
+
+
+def count_video_frames(video_path: Path) -> int:
+    """Count frames in a video file using ffprobe or synthetic stub.
+
+    This function counts video frames using ffprobe. It includes special
+    handling for synthetic stub videos (used in testing) and provides
+    robust error handling for unreadable or missing files.
+
+    Args:
+        video_path: Path to video file
+
+    Returns:
+        Number of frames in video (0 if file not found or empty)
+
+    Raises:
+        RuntimeError: If video file cannot be analyzed
+
+    Example:
+        >>> from pathlib import Path
+        >>> frame_count = count_video_frames(Path("video.avi"))
+        >>> print(f"Frames: {frame_count}")
+    """
+    # Validate input
+    if not video_path.exists():
+        logger.warning(f"Video file not found: {video_path}")
+        return 0
+
+    # Handle empty files
+    if video_path.stat().st_size == 0:
+        logger.warning(f"Video file is empty: {video_path}")
+        return 0
+
+    # Check if this is a synthetic stub video
+    try:
+        # Try importing synthetic module (only available if in test/synthetic context)
+        from synthetic.video_synth import count_stub_frames, is_synthetic_stub
+
+        if is_synthetic_stub(video_path):
+            frame_count = count_stub_frames(video_path)
+            logger.debug(f"Counted {frame_count} frames in synthetic stub {video_path.name}")
+            return frame_count
+    except ImportError:
+        # Synthetic module not available - continue with normal ffprobe
+        pass
+
+    # Use ffprobe to count frames
+    try:
+        frame_count = run_ffprobe(video_path)
+        logger.debug(f"Counted {frame_count} frames in {video_path.name}")
+        return frame_count
+    except Exception as e:
+        # Log error and raise - frame counting failure is critical
+        logger.error(f"Failed to count frames in {video_path}: {e}")
+        raise RuntimeError(f"Could not count frames in video {video_path}: {e}")
+
+
+def count_ttl_pulses(ttl_path: Path) -> int:
+    """Count TTL pulses from log file.
+
+    Counts non-empty lines in a TTL log file. Each line represents one
+    TTL pulse event.
+
+    Args:
+        ttl_path: Path to TTL log file
+
+    Returns:
+        Number of pulses in file (0 if file not found or unreadable)
+
+    Example:
+        >>> from pathlib import Path
+        >>> pulse_count = count_ttl_pulses(Path("camera_ttl.log"))
+        >>> print(f"Pulses: {pulse_count}")
+    """
+    if not ttl_path.exists():
+        return 0
+
+    # Count lines in TTL file (each line = one pulse)
+    try:
+        with open(ttl_path, "r") as f:
+            lines = f.readlines()
+            return len([line for line in lines if line.strip()])
+    except Exception:
+        return 0

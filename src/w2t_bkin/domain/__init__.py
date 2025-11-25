@@ -93,9 +93,6 @@ from w2t_bkin.domain.config import (
     VideoConfig,
 )
 
-# Manifest and verification models (Phase 1)
-from w2t_bkin.domain.manifest import CameraVerificationResult, Manifest, ManifestCamera, ManifestTTL, VerificationResult, VerificationSummary
-
 # Session models (Phase 0)
 from w2t_bkin.domain.session import (
     TTL,
@@ -217,13 +214,13 @@ __all__ = [
     "NWBProcessingModule",
     "LabMetadata",
     "GenerationInfo",
-    # Manifest models
-    "Manifest",
-    "ManifestCamera",
-    "ManifestTTL",
-    "CameraVerificationResult",
-    "VerificationSummary",
-    "VerificationResult",
+    # Manifest models - REMOVED
+    # "Manifest",
+    # "ManifestCamera",
+    # "ManifestTTL",
+    # "CameraVerificationResult",
+    # "VerificationSummary",
+    # "VerificationResult",
     # Alignment models
     "AlignmentStats",
     "Provenance",

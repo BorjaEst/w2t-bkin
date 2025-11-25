@@ -60,9 +60,12 @@ Example:
 """
 
 from datetime import datetime
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, Union
+
+from pynwb import NWBFile
 
 from w2t_bkin.behavior import (
     TaskRecording,
@@ -78,10 +81,10 @@ from w2t_bkin.behavior import (
 from w2t_bkin.bpod import parse_bpod
 from w2t_bkin.config import load_config, load_session
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
-from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, Session, TranscodedVideo
-from w2t_bkin.ingest import build_and_count_manifest, verify_manifest
+from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Session, TranscodedVideo
+from w2t_bkin.session import add_video_acquisition, create_nwb_file, write_nwb_file
 from w2t_bkin.sync import create_timebase_provider_from_config, get_ttl_pulses
-from w2t_bkin.utils import compute_hash, ensure_directory
+from w2t_bkin.utils import compute_hash, count_ttl_pulses, count_video_frames, discover_files, ensure_directory
 
 logger = logging.getLogger(__name__)
 
@@ -98,25 +101,25 @@ class RunResult(TypedDict, total=False):
     partial execution (e.g., skip NWB assembly, optional pose/facemap).
 
     Attributes:
-        manifest: File discovery manifest with frame/TTL counts
+        nwbfile: In-memory NWBFile object with all data
+        nwb_path: Path to written NWB file (if written to disk)
         alignment_stats: Timebase alignment quality metrics (optional)
         task_recording: Behavioral task recording with ndx-structured-behavior (optional)
         trials_table: Trials table with behavior data (optional)
         dlc_inference_results: DLC inference results for each camera (optional)
         facemap_bundle: Facial motion signals (optional)
         transcoded_videos: List of transcoded videos (optional)
-        nwb_path: Path to assembled NWB file (optional)
         provenance: Pipeline execution metadata
     """
 
-    manifest: Manifest
+    nwbfile: NWBFile
+    nwb_path: Optional[Path]
     alignment_stats: Optional[AlignmentStats]
     task_recording: Optional[TaskRecording]
     trials_table: Optional[Any]  # TrialsTable from ndx-structured-behavior
     dlc_inference_results: Optional[List[DLCInferenceResult]]
     facemap_bundle: Optional[FacemapBundle]
     transcoded_videos: Optional[List[TranscodedVideo]]
-    nwb_path: Optional[Path]
     provenance: Dict[str, Any]
 
 
@@ -195,16 +198,16 @@ def run_session(
     transcode_videos = options.get("transcode_videos", False)
 
     logger.info("=" * 70)
-    logger.info("W2T-BKIN Pipeline - Session Processing")
+    logger.info("W2T-BKIN Pipeline - Session Processing (NWB-First)")
     logger.info("=" * 70)
     logger.info(f"Config: {config_path}")
     logger.info(f"Session: {session_id}")
     logger.info("=" * 70)
 
     # -------------------------------------------------------------------------
-    # Phase 0: Load Configuration
+    # Phase 0: Load Configuration and Create NWBFile
     # -------------------------------------------------------------------------
-    logger.info("\n[Phase 0] Loading configuration...")
+    logger.info("\n[Phase 0] Loading configuration and creating NWBFile...")
     config_path = Path(config_path)
     config = load_config(config_path)
     logger.info(f"  ✓ Config loaded: {config.project.name}")
@@ -219,25 +222,96 @@ def run_session(
     if session.session.id != session_id:
         raise ValueError(f"Session ID mismatch: requested '{session_id}', " f"found '{session.session.id}' in {session_path}")
 
-    # -------------------------------------------------------------------------
-    # Phase 1: Ingest and Verify
-    # -------------------------------------------------------------------------
-    logger.info("\n[Phase 1] Building manifest...")
-    manifest = build_and_count_manifest(config, session)
-    logger.info(f"  ✓ Discovered {len(manifest.cameras)} cameras")
-    logger.info(f"  ✓ Discovered {len(manifest.ttls)} TTL channels")
-    logger.info(f"  ✓ Discovered {len(manifest.bpod_files or [])} Bpod files")
+    # Create NWBFile early (NWB-first architecture)
+    nwbfile = create_nwb_file(session_path)
+    logger.info(f"  ✓ NWBFile created: {nwbfile.identifier}")
 
-    # Verify frame/TTL alignment
-    if not skip_validation:
-        logger.info("\n[Phase 1] Verifying frame/TTL alignment...")
-        tolerance = config.verification.mismatch_tolerance_frames
-        verification = verify_manifest(manifest, tolerance=tolerance)
-        logger.info(f"  ✓ Verification status: {verification.status}")
+    # -------------------------------------------------------------------------
+    # Phase 1: Discover Files and Add Acquisition Data
+    # -------------------------------------------------------------------------
+    logger.info("\n[Phase 1] Discovering files and populating NWBFile acquisition...")
 
-        if verification.status == "fail":
-            logger.error("  ✗ Verification failed - aborting pipeline")
-            raise ValueError("Frame/TTL verification failed")
+    # Track discovered files for later processing
+    discovered_cameras = []
+    bpod_files = []
+
+    # Discover and verify camera files
+    for camera_config in session.cameras:
+        logger.info(f"  Processing camera: {camera_config.id}")
+
+        # Discover video files
+        video_files = discover_files(session_dir, camera_config.paths, sort=True)
+        if not video_files:
+            logger.warning(f"    ⚠ No videos found for pattern: {camera_config.paths}")
+            continue
+
+        logger.info(f"    ✓ Found {len(video_files)} video file(s)")
+
+        # Count frames
+        frame_count = 0
+        for video_path in video_files:
+            try:
+                frames = count_video_frames(video_path)
+                frame_count += frames
+                logger.debug(f"      {video_path.name}: {frames} frames")
+            except Exception as e:
+                logger.error(f"      ✗ Failed to count frames in {video_path.name}: {e}")
+                raise
+
+        logger.info(f"    ✓ Total frames: {frame_count}")
+
+        # Count TTL pulses (for verification)
+        ttl_pulse_count = 0
+        ttl_config = None
+        for ttl in session.TTLs:
+            if ttl.id == camera_config.ttl_id:
+                ttl_config = ttl
+                ttl_files = discover_files(session_dir, ttl.paths, sort=True)
+                for ttl_path in ttl_files:
+                    ttl_pulse_count += count_ttl_pulses(ttl_path)
+                break
+
+        if ttl_config:
+            logger.info(f"    ✓ TTL pulses: {ttl_pulse_count}")
+
+        # Verify frame/TTL alignment
+        if not skip_validation and ttl_config:
+            mismatch = abs(frame_count - ttl_pulse_count)
+            tolerance = config.verification.mismatch_tolerance_frames
+
+            if mismatch > tolerance:
+                logger.error(
+                    f"    ✗ Verification failed:\n" f"      Frames: {frame_count}\n" f"      TTL pulses: {ttl_pulse_count}\n" f"      Mismatch: {mismatch} (tolerance: {tolerance})"
+                )
+                raise ValueError(f"Frame/TTL verification failed for camera {camera_config.id}: " f"mismatch {mismatch} exceeds tolerance {tolerance}")
+
+            logger.info(f"    ✓ Verification passed (mismatch: {mismatch})")
+
+        # Add ImageSeries to NWBFile
+        add_video_acquisition(
+            nwbfile,
+            camera_id=camera_config.id,
+            video_files=[str(f) for f in video_files],
+            frame_rate=getattr(camera_config, "frame_rate", 30.0),
+        )
+        logger.info(f"    ✓ Added to NWBFile acquisition")
+
+        # Track for later use
+        discovered_cameras.append(
+            {
+                "camera_id": camera_config.id,
+                "video_files": video_files,
+                "frame_count": frame_count,
+                "ttl_pulse_count": ttl_pulse_count,
+            }
+        )
+
+    logger.info(f"  ✓ Processed {len(discovered_cameras)} camera(s)")
+
+    # Discover Bpod files
+    if hasattr(session, "bpod") and session.bpod:
+        bpod_files = discover_files(session_dir, session.bpod.path, sort=True)
+        logger.info(f"  ✓ Discovered {len(bpod_files)} Bpod file(s)")
 
     # -------------------------------------------------------------------------
     # Phase 2: Parse Behavior (Optional - ndx-structured-behavior)
@@ -245,7 +319,7 @@ def run_session(
     task_recording: Optional[TaskRecording] = None
     trials_table: Optional[Any] = None
 
-    if manifest.bpod_files and len(manifest.bpod_files) > 0:
+    if bpod_files and len(bpod_files) > 0:
         logger.info("\n[Phase 2] Building behavioral data (ndx-structured-behavior)...")
 
         try:
@@ -289,10 +363,6 @@ def run_session(
     # Phase 3: Synchronization (Placeholder)
     # -------------------------------------------------------------------------
     logger.info("\n[Phase 3] Creating timebase and alignment...")
-
-    # Create timebase provider
-    timebase_provider = create_timebase_provider_from_config(config, manifest)
-    logger.info(f"  ✓ Timebase provider created: {config.timebase.source}")
 
     # Compute alignment stats (placeholder - would normally align all modalities)
     alignment_stats: Optional[AlignmentStats] = None
@@ -345,15 +415,15 @@ def run_session(
             model_dir_name = config.labels.dlc.model
             model_config_path = Path(config.paths.models_root) / model_dir_name / "config.yaml"
 
-            # Collect all camera video paths from manifest
+            # Collect all camera video paths from discovered cameras
             video_paths = []
-            for camera in manifest.cameras:
+            for camera in discovered_cameras:
                 # Each camera may have multiple video files (concatenated later)
-                if camera.video_file_paths:
-                    video_paths.extend(camera.video_file_paths)
+                if camera["video_files"]:
+                    video_paths.extend(camera["video_files"])
 
             if not video_paths:
-                logger.warning("  ⚠ No video files found in manifest - skipping DLC inference")
+                logger.warning("  ⚠ No video files found - skipping DLC inference")
             elif not model_config_path.exists():
                 logger.error(f"  ✗ DLC model config not found: {model_config_path}")
                 raise FileNotFoundError(f"DLC model config.yaml not found: {model_config_path}")
@@ -414,24 +484,66 @@ def run_session(
         logger.info("  ⊘ Video transcoding: Not implemented")
 
     # -------------------------------------------------------------------------
-    # Phase 5: NWB Assembly (Placeholder)
+    # Phase 5: NWB Assembly and Writing
     # -------------------------------------------------------------------------
     nwb_path: Optional[Path] = None
 
     if not skip_nwb:
-        logger.info("\n[Phase 5] NWB assembly...")
-        logger.info("  ⊘ NWB assembly: Placeholder for future implementation")
+        logger.info("\n[Phase 5] Writing NWB file...")
 
-        # Would normally call:
-        # from w2t_bkin.nwb import assemble_nwb
-        # output_dir = Path(config.paths.output_root) / session_id
-        # ensure_directory(output_dir)
-        # nwb_path = assemble_nwb(
-        #     manifest=manifest,
-        #     config=config,
-        #     provenance=provenance,
-        #     output_dir=output_dir
-        # )
+        # Add provenance to NWBFile
+        provenance = {
+            "pipeline_version": "0.1.0",
+            "config_path": str(config_path),
+            "session_id": session_id,
+            "execution_time": datetime.now().isoformat(),
+            "config_hash": compute_hash(str(config.model_dump())),
+            "session_hash": compute_hash(str(session.model_dump())),
+            "timebase": {
+                "source": config.timebase.source,
+                "mapping": config.timebase.mapping,
+                "offset_s": config.timebase.offset_s,
+            },
+            "dlc_inference": {
+                "enabled": config.labels.dlc.run_inference,
+                "model": config.labels.dlc.model if config.labels.dlc.run_inference else None,
+                "gputouse": config.labels.dlc.gputouse if config.labels.dlc.run_inference else None,
+                "results": len(dlc_inference_results) if dlc_inference_results else 0,
+                "success_count": sum(1 for r in dlc_inference_results if r.success) if dlc_inference_results else 0,
+            },
+        }
+
+        # Embed provenance in NWB file notes
+        nwbfile.notes = json.dumps(provenance, indent=2)
+
+        # Add task recording and trials if available
+        if task_recording:
+            nwbfile.add_acquisition(task_recording)
+            logger.info("  ✓ Added TaskRecording to NWBFile")
+
+        if trials_table:
+            nwbfile.trials = trials_table
+            logger.info("  ✓ Added TrialsTable to NWBFile")
+
+        # Write to disk
+        output_dir = Path(config.paths.output_root) / session_id
+        ensure_directory(output_dir)
+        nwb_path = output_dir / f"{session_id}.nwb"
+
+        write_nwb_file(nwbfile, nwb_path)
+        logger.info(f"  ✓ NWB file written: {nwb_path}")
+        logger.info(f"  ✓ Size: {nwb_path.stat().st_size / (1024 * 1024):.2f} MB")
+    else:
+        logger.info("\n[Phase 5] NWB writing skipped")
+        # Still compute provenance for result
+        provenance = {
+            "pipeline_version": "0.1.0",
+            "config_path": str(config_path),
+            "session_id": session_id,
+            "execution_time": datetime.now().isoformat(),
+            "config_hash": compute_hash(str(config.model_dump())),
+            "session_hash": compute_hash(str(session.model_dump())),
+        }
 
     # -------------------------------------------------------------------------
     # Build Result
@@ -439,37 +551,15 @@ def run_session(
     logger.info("\n[Complete] Pipeline execution finished")
     logger.info("=" * 70)
 
-    # Compute provenance
-    provenance = {
-        "pipeline_version": "0.1.0",
-        "config_path": str(config_path),
-        "session_id": session_id,
-        "execution_time": datetime.now().isoformat(),
-        "config_hash": compute_hash(str(config.model_dump())),
-        "session_hash": compute_hash(str(session.model_dump())),
-        "timebase": {
-            "source": config.timebase.source,
-            "mapping": config.timebase.mapping,
-            "offset_s": config.timebase.offset_s,
-        },
-        "dlc_inference": {
-            "enabled": config.labels.dlc.run_inference,
-            "model": config.labels.dlc.model if config.labels.dlc.run_inference else None,
-            "gputouse": config.labels.dlc.gputouse if config.labels.dlc.run_inference else None,
-            "results": len(dlc_inference_results) if dlc_inference_results else 0,
-            "success_count": sum(1 for r in dlc_inference_results if r.success) if dlc_inference_results else 0,
-        },
-    }
-
     result: RunResult = {
-        "manifest": manifest,
+        "nwbfile": nwbfile,
+        "nwb_path": nwb_path,
         "alignment_stats": alignment_stats,
         "task_recording": task_recording,
         "trials_table": trials_table,
         "dlc_inference_results": dlc_inference_results,
         "facemap_bundle": facemap_bundle,
         "transcoded_videos": transcoded_videos,
-        "nwb_path": nwb_path,
         "provenance": provenance,
     }
 
