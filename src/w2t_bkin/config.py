@@ -1,312 +1,519 @@
-"""Configuration loading and validation for W2T-BKIN pipeline (Phase 0 - Foundation).
+"""Configuration management for W2T-BKIN pipeline.
 
-This module provides robust loading, validation, and hashing functionality for the
-W2T-BKIN pipeline configuration system. It handles two primary configuration files:
-- `config.toml`: Global pipeline configuration (paths, timebase, acquisition policies)
-- `session.toml`: Per-session metadata (subject info, cameras, TTLs, Bpod paths)
+This module provides Pydantic models for validating configuration files (config.toml)
+and functions for loading, validating, and hashing configurations.
 
-The module enforces strict validation rules to catch configuration errors early,
-supports deterministic hashing for reproducibility tracking, and provides clear
-error messages for troubleshooting.
+The configuration system enforces strict schema validation to catch errors early,
+supports deterministic hashing for reproducibility, and provides clear error messages.
 
-Key Features:
--------------
-- **Strict Schema Validation**: Uses Pydantic models with extra="forbid" to prevent typos
-- **Enum Validation**: Validates timebase.source, timebase.mapping, and logging.level
-- **Conditional Requirements**: Enforces required fields based on config values
-  (e.g., ttl_id required when source='ttl')
-- **Deterministic Hashing**: Computes SHA256 hashes for configuration reproducibility
-- **Cross-references**: Validates camera ttl_id references against session TTLs
-- **Clear Error Messages**: Detailed validation failures with paths and values
-
-Main Functions:
----------------
-- load_config: Load and validate config.toml
-- load_session: Load and validate session.toml
-- compute_config_hash: Compute deterministic config hash
-- compute_session_hash: Compute deterministic session hash
-- validate_ttl_references: Check camera TTL cross-references
-
-Requirements:
--------------
-- FR-1: Load and validate configuration files
-- FR-2: Enforce strict schema validation
-- FR-10: Configuration management
-- NFR-1: Deterministic processing (hashing)
-- NFR-3: Clear error reporting
-- NFR-10: Configuration validation
-- NFR-11: Error handling
-
-Acceptance Criteria:
--------------------
-- A1: Load config.toml and validate all fields
-- A2: Load session.toml and validate all fields
-- A3: Reject extra/unknown fields
-- A4: Validate enum values
-- A5: Enforce conditional requirements
-- A6: Compute deterministic config/session hashes
-- A7: Validate TTL cross-references
-- A9, A10, A11: Configuration loading workflows
-- A13, A14: Schema validation
-- A18: TTL reference validation
-
-Validation Rules:
------------------
-Config validation enforces:
-- timebase.source ∈ {"nominal_rate", "ttl", "neuropixels"}
-- timebase.mapping ∈ {"nearest", "linear"}
-- timebase.jitter_budget_s >= 0
-- logging.level ∈ {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-- Conditional: source='ttl' → ttl_id required
-- Conditional: source='neuropixels' → neuropixels_stream required
-
-Session validation enforces:
-- Camera ttl_id references must exist in session TTLs (warning in Phase 0)
-- All required session fields (id, subject_id, date, experimenter)
-
-Example:
---------
->>> from w2t_bkin import config
->>> from pathlib import Path
->>>
->>> # Load and validate config.toml
->>> cfg = config.load_config("config.toml")
->>> print(f"Timebase source: {cfg.timebase.source}")
->>>
->>> # Load and validate session.toml
->>> session = config.load_session("Session-000001/session.toml")
->>> print(f"Session: {session.metadata.session_id}")
->>> print(f"Subject: {session.metadata.subject_id}")
->>>
->>> # Compute deterministic hashes
->>> config_hash = config.compute_config_hash(cfg)
->>> session_hash = config.compute_session_hash(session)
->>> print(f"Config hash: {config_hash[:16]}...")
+Typical usage example:
+    >>> from w2t_bkin.config import load_config
+    >>>
+    >>> config = load_config("config.toml")
+    >>> print(config.project.name)
+    >>> print(config.timebase.source)
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-import re
-from typing import Any, Dict, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 try:
     import tomllib
 except ImportError:
-    import tomli as tomllib
+    import tomli as tomllib  # Python < 3.11 fallback
 
-from pydantic import ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from .config import Config
 from .utils import compute_hash, read_toml
 
-# Enum constants for validation
-VALID_TIMEBASE_SOURCES = {"nominal_rate", "ttl", "neuropixels"}
-VALID_TIMEBASE_MAPPINGS = {"nearest", "linear"}
-VALID_LOGGING_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+# =============================================================================
+# Constants
+# =============================================================================
+
+VALID_TIMEBASE_SOURCES = frozenset({"nominal_rate", "ttl", "neuropixels"})
+VALID_TIMEBASE_MAPPINGS = frozenset({"nearest", "linear"})
+VALID_LOGGING_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+
+# =============================================================================
+# Configuration Models - Core
+# =============================================================================
+
+
+class ProjectConfig(BaseModel, extra="forbid"):
+    """Project identification.
+
+    Attributes:
+        name: Project name identifier.
+    """
+
+    name: str = Field(..., description="Project name")
+
+
+class PathsConfig(BaseModel, extra="forbid"):
+    """File system paths configuration.
+
+    Attributes:
+        raw_root: Path to raw data directory.
+        intermediate_root: Path for intermediate processing outputs.
+        output_root: Path for final outputs.
+        metadata_file: Filename for session metadata (default: session.toml).
+        models_root: Directory containing pose estimation models (default: models).
+    """
+
+    raw_root: str = Field(..., description="Raw data root directory")
+    intermediate_root: str = Field(..., description="Intermediate processing outputs")
+    output_root: str = Field(..., description="Output data root directory")
+    metadata_file: str = Field(default="session.toml", description="Session metadata filename")
+    models_root: str = Field(default="models", description="Pose estimation models directory")
+
+
+class TimebaseConfig(BaseModel, extra="forbid"):
+    """Reference timebase for aligning derived data.
+
+    Defines the reference clock for synchronizing pose and behavior data.
+    ImageSeries remain rate-based; this timebase applies to derived modalities.
+
+    Attributes:
+        source: Timebase source (nominal_rate, ttl, or neuropixels).
+        mapping: Strategy for mapping timestamps (nearest or linear).
+        jitter_budget_s: Maximum allowed temporal jitter in seconds.
+        offset_s: Global time offset before mapping (default: 0.0).
+        ttl_id: TTL channel ID (required when source='ttl').
+        neuropixels_stream: Neuropixels stream name (required when source='neuropixels').
+    """
+
+    source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(..., description="Timebase source")
+    mapping: Literal["nearest", "linear"] = Field(..., description="Mapping strategy")
+    jitter_budget_s: float = Field(..., ge=0.0, description="Max allowed jitter in seconds")
+    offset_s: float = Field(default=0.0, description="Global offset before mapping")
+    ttl_id: Optional[str] = Field(None, description="TTL ID (required when source='ttl')")
+    neuropixels_stream: Optional[str] = Field(None, description="Neuropixels stream (required when source='neuropixels')")
+
+
+class AcquisitionConfig(BaseModel, extra="forbid"):
+    """Data acquisition policies.
+
+    Attributes:
+        concat_strategy: Video concatenation method (ffconcat or streamlist).
+    """
+
+    concat_strategy: Literal["ffconcat", "streamlist"] = Field(default="ffconcat", description="Video concatenation strategy")
+
+
+class VerificationConfig(BaseModel, extra="forbid"):
+    """Hardware synchronization verification.
+
+    Attributes:
+        mismatch_tolerance_frames: Max allowed frame/TTL count mismatch before abort.
+        warn_on_mismatch: If True, warn instead of abort when within tolerance.
+    """
+
+    mismatch_tolerance_frames: int = Field(default=0, ge=0, description="Abort if frame_count - ttl_pulse_count > tolerance")
+    warn_on_mismatch: bool = Field(default=False, description="Warn instead of abort if within tolerance")
+
+
+# =============================================================================
+# Configuration Models - Bpod
+# =============================================================================
+
+
+class BpodSyncTrialType(BaseModel, extra="forbid"):
+    """Bpod trial type synchronization mapping.
+
+    Maps a Bpod trial type to its synchronization signal and TTL channel,
+    enabling conversion from Bpod relative timestamps to absolute time.
+
+    Attributes:
+        trial_type: Trial type identifier matching Bpod classification.
+        description: Human-readable trial type description.
+        sync_signal: Bpod state/event name for alignment (e.g., 'W2T_Audio').
+        sync_ttl: TTL channel whose pulses correspond to sync_signal.
+    """
+
+    trial_type: int = Field(..., ge=0, description="Trial type identifier")
+    description: str = Field(..., description="Trial type description")
+    sync_signal: str = Field(..., description="Bpod state/event for alignment")
+    sync_ttl: str = Field(..., description="TTL channel for sync pulses")
+
+
+class BpodSyncConfig(BaseModel, extra="forbid"):
+    """Bpod-to-TTL synchronization configuration.
+
+    Attributes:
+        trial_types: List of trial type sync configurations.
+    """
+
+    trial_types: List[BpodSyncTrialType] = Field(default_factory=list, description="Trial type sync configs")
+
+
+class BpodConfig(BaseModel, extra="forbid"):
+    """Bpod behavioral control system configuration.
+
+    Attributes:
+        parse: Whether to parse Bpod .mat files.
+        sync: Trial synchronization configuration.
+    """
+
+    parse: bool = Field(default=True, description="Parse Bpod .mat files if present")
+    sync: BpodSyncConfig = Field(default_factory=BpodSyncConfig, description="Trial sync configuration")
+
+
+# =============================================================================
+# Configuration Models - Video
+# =============================================================================
+
+
+class TranscodeConfig(BaseModel, extra="forbid"):
+    """Video transcoding settings.
+
+    Attributes:
+        enabled: Enable video transcoding.
+        codec: FFmpeg codec (e.g., 'h264', 'libx264').
+        crf: Constant rate factor quality (0-51, lower is better).
+        preset: FFmpeg encoding preset (e.g., 'fast', 'medium').
+        keyint: GOP (group of pictures) length.
+    """
+
+    enabled: bool = Field(default=True, description="Enable transcoding")
+    codec: str = Field(default="h264", description="FFmpeg codec name")
+    crf: int = Field(default=20, ge=0, le=51, description="Quality factor (0-51)")
+    preset: str = Field(default="fast", description="FFmpeg preset")
+    keyint: int = Field(default=15, ge=1, description="GOP length")
+
+
+class VideoConfig(BaseModel, extra="forbid"):
+    """Video processing configuration.
+
+    Attributes:
+        transcode: Transcoding settings.
+    """
+
+    transcode: TranscodeConfig = Field(default_factory=TranscodeConfig, description="Transcoding config")
+
+
+# =============================================================================
+# Configuration Models - Output & Logging
+# =============================================================================
+
+
+class NWBConfig(BaseModel, extra="forbid"):
+    """NWB (Neurodata Without Borders) export settings.
+
+    Attributes:
+        link_external_video: Use external links for videos instead of embedding.
+        lab: Laboratory name.
+        institution: Institution name.
+        file_name_template: Template for NWB filename.
+        session_description_template: Template for session description.
+    """
+
+    link_external_video: bool = Field(default=True, description="Link videos externally")
+    lab: str = Field(default="Lab Name", description="Lab name")
+    institution: str = Field(default="Institution Name", description="Institution name")
+    file_name_template: str = Field(default="{session.id}.nwb", description="NWB filename template")
+    session_description_template: str = Field(default="Session {session.id} on {session.date}", description="Session description template")
+
+
+class QCConfig(BaseModel, extra="forbid"):
+    """Quality control report configuration.
+
+    Attributes:
+        generate_report: Enable QC report generation.
+        out_template: Output path template for reports.
+        include_verification: Include frame/TTL verification in reports.
+    """
+
+    generate_report: bool = Field(default=True, description="Generate QC report")
+    out_template: str = Field(default="qc/{session.id}", description="Output path template")
+    include_verification: bool = Field(default=True, description="Include verification in report")
+
+
+class LoggingConfig(BaseModel, extra="forbid"):
+    """Logging configuration.
+
+    Attributes:
+        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        structured: Use structured (JSON) logging format.
+    """
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO", description="Logging level")
+    structured: bool = Field(default=False, description="Use structured logging")
+
+
+# =============================================================================
+# Configuration Models - Inference
+# =============================================================================
+
+
+class DLCConfig(BaseModel, extra="forbid"):
+    """DeepLabCut pose estimation configuration.
+
+    Attributes:
+        run_inference: Enable DLC inference.
+        model: Path to DLC model file.
+        gputouse: GPU device index (-1 for CPU, None for auto-select).
+    """
+
+    run_inference: bool = Field(default=False, description="Run DLC inference")
+    model: str = Field(default="model.pb", description="DLC model path")
+    gputouse: Optional[int] = Field(None, description="GPU index (-1=CPU, None=auto)")
+
+
+class SLEAPConfig(BaseModel, extra="forbid"):
+    """SLEAP pose estimation configuration.
+
+    Attributes:
+        run_inference: Enable SLEAP inference.
+        model: Path to SLEAP model file.
+    """
+
+    run_inference: bool = Field(default=False, description="Run SLEAP inference")
+    model: str = Field(default="sleap.h5", description="SLEAP model path")
+
+
+class LabelsConfig(BaseModel, extra="forbid"):
+    """Pose labeling configuration.
+
+    Attributes:
+        dlc: DeepLabCut configuration.
+        sleap: SLEAP configuration.
+    """
+
+    dlc: DLCConfig = Field(default_factory=DLCConfig, description="DLC config")
+    sleap: SLEAPConfig = Field(default_factory=SLEAPConfig, description="SLEAP config")
+
+
+class FacemapConfig(BaseModel, extra="forbid"):
+    """Facemap facial motion tracking configuration.
+
+    Attributes:
+        run_inference: Enable Facemap inference.
+        ROIs: Regions of interest to process.
+    """
+
+    run_inference: bool = Field(default=False, description="Run Facemap inference")
+    ROIs: List[str] = Field(default_factory=lambda: ["face", "left_eye", "right_eye"], description="ROIs to process")
+
+
+# =============================================================================
+# Main Configuration Model
+# =============================================================================
+
+
+class Config(BaseModel, extra="forbid"):
+    """Main pipeline configuration.
+
+    Root configuration model loaded from config.toml. Uses strict validation
+    with extra="forbid" to prevent typos and configuration errors.
+
+    Attributes:
+        project: Project identification.
+        paths: File system paths.
+        timebase: Reference timebase for synchronization.
+        acquisition: Data acquisition policies.
+        verification: Hardware sync verification.
+        bpod: Bpod behavioral control settings.
+        video: Video processing configuration.
+        nwb: NWB export settings.
+        qc: Quality control configuration.
+        logging: Logging configuration.
+        labels: Pose labeling configuration.
+        facemap: Facemap tracking configuration.
+    """
+
+    project: ProjectConfig
+    paths: PathsConfig
+    timebase: TimebaseConfig
+    acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
+    verification: VerificationConfig = Field(default_factory=VerificationConfig)
+    bpod: BpodConfig = Field(default_factory=BpodConfig)
+    video: VideoConfig = Field(default_factory=VideoConfig)
+    nwb: NWBConfig = Field(default_factory=NWBConfig)
+    qc: QCConfig = Field(default_factory=QCConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    labels: LabelsConfig = Field(default_factory=LabelsConfig)
+    facemap: FacemapConfig = Field(default_factory=FacemapConfig)
+
+    @field_validator("timebase")
+    @classmethod
+    def validate_timebase_conditionals(cls, v: TimebaseConfig) -> TimebaseConfig:
+        """Validate conditional timebase requirements.
+
+        Args:
+            v: TimebaseConfig instance to validate.
+
+        Returns:
+            Validated TimebaseConfig.
+
+        Raises:
+            ValueError: If conditional requirements are not met.
+        """
+        if v.source == "ttl" and v.ttl_id is None:
+            raise ValueError("timebase.ttl_id is required when source='ttl'")
+        if v.source == "neuropixels" and v.neuropixels_stream is None:
+            raise ValueError("timebase.neuropixels_stream is required when source='neuropixels'")
+        return v
+
+
+# =============================================================================
+# Public API Functions
+# =============================================================================
 
 
 def load_config(path: Union[str, Path]) -> Config:
     """Load and validate configuration from TOML file.
 
-    Performs strict schema validation including:
-    - Required/forbidden keys (extra="forbid")
-    - Enum validation for timebase.source, timebase.mapping, logging.level
-    - Numeric validation for jitter_budget_s >= 0
-    - Conditional validation for ttl_id and neuropixels_stream
+    Performs comprehensive validation including:
+    - Schema validation with extra="forbid" to prevent typos
+    - Enum validation for source, mapping, and level fields
+    - Numeric constraints (e.g., jitter_budget_s >= 0)
+    - Conditional requirements (e.g., ttl_id when source='ttl')
 
     Args:
-        path: Path to config.toml file (str or Path)
+        path: Path to config.toml file.
 
     Returns:
-        Validated Config instance
+        Validated Config instance.
 
     Raises:
-        ValidationError: If config violates schema
-        FileNotFoundError: If config file doesn't exist
+        FileNotFoundError: If config file doesn't exist.
+        ValidationError: If config violates Pydantic schema.
+        ValueError: If enum or conditional validation fails.
+
+    Example:
+        >>> config = load_config("config.toml")
+        >>> print(config.project.name)
+        >>> print(config.timebase.source)
     """
     data = read_toml(path)
 
-    # Validate enums before Pydantic validation
+    # Pre-validate enums for clearer error messages
     _validate_config_enums(data)
 
-    # Validate conditional requirements
+    # Pre-validate conditional requirements
     _validate_config_conditionals(data)
 
     return Config(**data)
 
 
 def compute_config_hash(config: Config) -> str:
-    """Compute deterministic hash of config content.
+    """Compute deterministic SHA256 hash of configuration.
 
-    Canonicalizes config by converting to dict and hashing with sorted keys.
-    Comments are not included in the model, so they're automatically stripped.
+    Converts config to canonical dict representation and computes hash.
+    Useful for tracking configuration changes and ensuring reproducibility.
 
     Args:
-        config: Config instance
+        config: Config instance to hash.
 
     Returns:
-        SHA256 hex digest (64 characters)
+        SHA256 hex digest (64 characters).
+
+    Example:
+        >>> config = load_config("config.toml")
+        >>> hash_value = compute_config_hash(config)
+        >>> print(f"Config hash: {hash_value[:16]}...")
     """
     config_dict = config.model_dump()
     return compute_hash(config_dict)
 
 
-# NOTE: compute_session_hash() is DEPRECATED
-# Session model has been replaced by NWBFile in the NWB-first architecture.
-# For session hashing, compute hash from session.toml file content directly
-# or from NWBFile metadata using compute_hash(nwbfile.fields).
-
-
-# Private validation helpers
+# =============================================================================
+# Private Validation Helpers
+# =============================================================================
 
 
 def _validate_config_enums(data: Dict[str, Any]) -> None:
-    """Validate enum constraints for config.
+    """Validate enum constraints before Pydantic validation.
+
+    Pre-validates enum fields to provide clearer error messages than
+    Pydantic's default validation.
+
+    Args:
+        data: Raw configuration dict from TOML.
 
     Raises:
-        ValueError: If enum value is invalid
+        ValueError: If any enum value is invalid.
     """
     timebase = data.get("timebase", {})
 
     # Validate timebase.source
     source = timebase.get("source")
     if source and source not in VALID_TIMEBASE_SOURCES:
-        raise ValueError(f"Invalid timebase.source: {source}. Must be one of {VALID_TIMEBASE_SOURCES}")
+        raise ValueError(f"Invalid timebase.source: '{source}'. " f"Must be one of {sorted(VALID_TIMEBASE_SOURCES)}")
 
     # Validate timebase.mapping
     mapping = timebase.get("mapping")
     if mapping and mapping not in VALID_TIMEBASE_MAPPINGS:
-        raise ValueError(f"Invalid timebase.mapping: {mapping}. Must be one of {VALID_TIMEBASE_MAPPINGS}")
+        raise ValueError(f"Invalid timebase.mapping: '{mapping}'. " f"Must be one of {sorted(VALID_TIMEBASE_MAPPINGS)}")
 
     # Validate jitter_budget_s >= 0
     jitter_budget = timebase.get("jitter_budget_s")
     if jitter_budget is not None and jitter_budget < 0:
-        raise ValueError(f"Invalid timebase.jitter_budget_s: {jitter_budget}. Must be >= 0")
+        raise ValueError(f"Invalid timebase.jitter_budget_s: {jitter_budget}. " f"Must be >= 0")
 
     # Validate logging.level
     logging_config = data.get("logging", {})
     level = logging_config.get("level")
     if level and level not in VALID_LOGGING_LEVELS:
-        raise ValueError(f"Invalid logging.level: {level}. Must be one of {VALID_LOGGING_LEVELS}")
+        raise ValueError(f"Invalid logging.level: '{level}'. " f"Must be one of {sorted(VALID_LOGGING_LEVELS)}")
 
 
 def _validate_config_conditionals(data: Dict[str, Any]) -> None:
-    """Validate conditional requirements for config.
+    """Validate conditional requirements before Pydantic validation.
+
+    Checks that required fields are present based on other field values.
+
+    Args:
+        data: Raw configuration dict from TOML.
 
     Raises:
-        ValueError: If conditional requirement not met
+        ValueError: If conditional requirements are not met.
     """
     timebase = data.get("timebase", {})
     source = timebase.get("source")
 
-    # If source='ttl', require ttl_id
     if source == "ttl" and not timebase.get("ttl_id"):
         raise ValueError("timebase.ttl_id is required when timebase.source='ttl'")
 
-    # If source='neuropixels', require neuropixels_stream
     if source == "neuropixels" and not timebase.get("neuropixels_stream"):
-        raise ValueError("timebase.neuropixels_stream is required when timebase.source='neuropixels'")
+        raise ValueError("timebase.neuropixels_stream is required when " "timebase.source='neuropixels'")
 
 
-def _validate_camera_ttl_references(data: Dict[str, Any]) -> None:
-    """Validate that camera ttl_id references exist in session TTLs.
-
-    This is a warning condition, not a hard error in Phase 0.
-    """
-    ttls = data.get("TTLs", [])
-    ttl_ids = {ttl["id"] for ttl in ttls}
-
-    cameras = data.get("cameras", [])
-    for camera in cameras:
-        ttl_id = camera.get("ttl_id")
-        if ttl_id and ttl_id not in ttl_ids:
-            # In Phase 0, we just validate structure
-            # In Phase 1, this would emit a warning
-            pass
-
-
-def _normalize_trial_type_ids(data: Dict[str, Any]) -> None:
-    """Normalize trial_type_id to trial_type for backwards compatibility.
-
-    If bpod.trial_types entries contain trial_type_id instead of trial_type,
-    rename the field and emit a warning.
-
-    Args:
-        data: Raw session data dict from TOML
-    """
-    import warnings
-
-    bpod = data.get("bpod", {})
-    trial_types = bpod.get("trial_types", [])
-
-    for trial_type_entry in trial_types:
-        if "trial_type_id" in trial_type_entry and "trial_type" not in trial_type_entry:
-            trial_type_entry["trial_type"] = trial_type_entry.pop("trial_type_id")
-            warnings.warn(
-                f"Deprecated field 'trial_type_id' found in bpod.trial_types. " f"Use 'trial_type' instead. Automatically mapped for backwards compatibility.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-
-
-def _validate_bpod_trial_type_references(data: Dict[str, Any]) -> None:
-    """Validate that bpod.trial_types sync_ttl references exist in session TTLs.
-
-    Raises:
-        ValueError: If sync_ttl references a non-existent TTL channel
-    """
-    ttls = data.get("TTLs", [])
-    ttl_ids = {ttl["id"] for ttl in ttls}
-
-    bpod = data.get("bpod", {})
-    trial_types = bpod.get("trial_types", [])
-
-    for trial_type_entry in trial_types:
-        sync_ttl = trial_type_entry.get("sync_ttl")
-        trial_type_id = trial_type_entry.get("trial_type", "unknown")
-
-        if sync_ttl and sync_ttl not in ttl_ids:
-            raise ValueError(f"Bpod trial_type {trial_type_id} references unknown TTL channel '{sync_ttl}'. " f"Available TTL channels: {sorted(ttl_ids)}")
-
+# =============================================================================
+# CLI/Testing Entry Point
+# =============================================================================
 
 if __name__ == "__main__":
-    """Usage examples demonstrating config loading, validation, and hashing.
+    """Demonstrate configuration loading and validation."""
 
-    NOTE: Session model has been DEPRECATED in favor of NWB-first architecture.
-    Use session.py module to create NWBFile from session.toml directly.
-
-    This example demonstrates:
-    1. Loading and validating config.toml
-    2. Computing deterministic hashes for reproducibility
-    3. Handling validation errors
-    4. Accessing validated configuration data
-    """
-    import sys
-
-    from pydantic import ValidationError
-
-    # Example 1: Load and validate config.toml
     print("=" * 70)
-    print("Example 1: Loading and validating config.toml")
+    print("Configuration Loading Examples")
     print("=" * 70)
+    print()
+
+    # Example 1: Load valid configuration
+    print("Example 1: Load and validate config.toml")
+    print("-" * 70)
 
     try:
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         config = load_config(config_path)
 
-        print(f"✓ Config loaded successfully from: {config_path}")
-        print(f"  Project name: {config.project.name}")
-        print(f"  Timebase source: {config.timebase.source}")
-        print(f"  Timebase mapping: {config.timebase.mapping}")
+        print(f"✓ Loaded: {config_path}")
+        print(f"  Project: {config.project.name}")
+        print(f"  Timebase: {config.timebase.source} ({config.timebase.mapping})")
         print(f"  Jitter budget: {config.timebase.jitter_budget_s}s")
-        print(f"  Logging level: {config.logging.level}")
+        print(f"  Logging: {config.logging.level}")
 
-        # Compute and display config hash for reproducibility
         config_hash = compute_config_hash(config)
-        print(f"  Config hash: {config_hash[:16]}... (SHA256)")
+        print(f"  Hash: {config_hash[:16]}...")
 
     except FileNotFoundError as e:
-        print(f"✗ Error: {e}")
-        print("  Hint: Run from project root or provide correct path")
+        print(f"✗ File not found: {e}")
+        print("  Hint: Run from project root")
     except ValidationError as e:
         print(f"✗ Validation failed:")
         for error in e.errors():
@@ -316,91 +523,59 @@ if __name__ == "__main__":
 
     print()
 
-    # Example 2: Load NWBFile from session.toml (NEW NWB-first approach)
-    print("=" * 70)
-    print("Example 2: Creating NWBFile from session.toml (NWB-first)")
-    print("=" * 70)
+    # Example 2: Demonstrate validation errors
+    print("Example 2: Validation error handling")
+    print("-" * 70)
 
+    # Invalid enum
+    print("\n2a. Invalid timebase.source:")
     try:
-        from w2t_bkin.session import create_nwb_file
-
-        session_path = Path("data/raw/Session-000001/session.toml")
-        nwbfile = create_nwb_file(session_path)
-
-        print(f"✓ NWBFile created successfully from: {session_path}")
-        print(f"  Identifier: {nwbfile.identifier}")
-        print(f"  Session ID: {nwbfile.session_id}")
-        print(f"  Session description: {nwbfile.session_description}")
-        if nwbfile.subject:
-            print(f"  Subject ID: {nwbfile.subject.subject_id}")
-        print(f"  Devices: {list(nwbfile.devices.keys())}")
-
-    except FileNotFoundError as e:
-        print(f"✗ Error: {e}")
-        print("  Hint: Ensure session directory exists with session.toml")
-    except Exception as e:
-        print(f"✗ Error creating NWBFile: {e}")
-
-    print()
-
-    # Example 3: Demonstrate validation errors
-    print("=" * 70)
-    print("Example 3: Handling validation errors")
-    print("=" * 70)
-
-    print("\n3a. Invalid timebase.source enum value:")
-    try:
-        invalid_data = {
+        test_data = {
             "project": {"name": "test"},
             "paths": {
                 "raw_root": "data/raw",
                 "intermediate_root": "data/interim",
                 "output_root": "data/processed",
-                "metadata_file": "session.toml",
-                "models_root": "models",
-            },
-            "timebase": {"source": "invalid_source", "mapping": "nearest", "jitter_budget_s": 0.01},  # Invalid enum
-        }
-        _validate_config_enums(invalid_data)
-        print("  ✗ This should have failed validation!")
-    except ValueError as e:
-        print(f"  ✓ Correctly caught validation error:")
-        print(f"    {e}")
-
-    print("\n3b. Missing conditional requirement (ttl_id for source='ttl'):")
-    try:
-        invalid_data = {
-            "project": {"name": "test"},
-            "paths": {
-                "raw_root": "data/raw",
-                "intermediate_root": "data/interim",
-                "output_root": "data/processed",
-                "metadata_file": "session.toml",
-                "models_root": "models",
             },
             "timebase": {
-                "source": "ttl",  # Requires ttl_id
+                "source": "invalid",
                 "mapping": "nearest",
                 "jitter_budget_s": 0.01,
-                # Missing: ttl_id
             },
         }
-        _validate_config_conditionals(invalid_data)
-        print("  ✗ This should have failed conditional validation!")
+        _validate_config_enums(test_data)
     except ValueError as e:
-        print(f"  ✓ Correctly caught conditional validation error:")
-        print(f"    {e}")
+        print(f"  ✓ Caught: {e}")
 
-    print("\n3c. Negative jitter_budget_s:")
+    # Missing conditional field
+    print("\n2b. Missing conditional field (ttl_id):")
     try:
-        invalid_data = {"timebase": {"source": "nominal_rate", "mapping": "nearest", "jitter_budget_s": -0.01}}  # Invalid: must be >= 0
-        _validate_config_enums(invalid_data)
-        print("  ✗ This should have failed validation!")
+        test_data = {
+            "timebase": {
+                "source": "ttl",
+                "mapping": "nearest",
+                "jitter_budget_s": 0.01,
+            }
+        }
+        _validate_config_conditionals(test_data)
     except ValueError as e:
-        print(f"  ✓ Correctly caught validation error:")
-        print(f"    {e}")
+        print(f"  ✓ Caught: {e}")
+
+    # Invalid numeric constraint
+    print("\n2c. Invalid numeric constraint:")
+    try:
+        test_data = {
+            "timebase": {
+                "source": "nominal_rate",
+                "mapping": "nearest",
+                "jitter_budget_s": -0.01,
+            }
+        }
+        _validate_config_enums(test_data)
+    except ValueError as e:
+        print(f"  ✓ Caught: {e}")
 
     print()
     print("=" * 70)
-    print("Examples completed. See function docstrings for more details.")
+    print("See module docstring for more information")
     print("=" * 70)
