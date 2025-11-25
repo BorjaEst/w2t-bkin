@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Union
 from .bpod_synth import BpodSynthOptions, write_bpod_mat_files_for_session
 from .config_synth import SynthConfigOptions, build_config, write_config_toml
 from .pose_synth import PoseH5Params, create_dlc_pose_h5
-from .session_synth import SessionSynthOptions, build_session, write_session_toml
+from .session_synth import SessionSynthOptions, build_metadata, build_session, write_metadata_toml, write_session_toml
 from .ttl_synth import TTLGenerationOptions, generate_and_write_ttls_for_session, generate_ttl_pulses, write_ttl_pulse_files
 from .video_synth import VideoGenerationOptions, generate_video_files_for_session
 
@@ -33,6 +33,9 @@ __all__ = [
     "SessionSynthOptions",
     "build_session",
     "write_session_toml",
+    # Metadata
+    "build_metadata",
+    "write_metadata_toml",
     # TTLs
     "TTLGenerationOptions",
     "generate_and_write_ttls_for_session",
@@ -73,6 +76,8 @@ class RawSessionResult:
         Path to generated `config.toml`.
     session_path : Path
         Path to generated `session.toml` with session metadata.
+    metadata_path : Path
+        Path to generated `metadata.toml` with NWB-compliant metadata.
     video_paths : List[Path]
         Paths to generated video files (all cameras, all segments).
     ttl_paths : List[Path]
@@ -85,6 +90,7 @@ class RawSessionResult:
     session_dir: Path
     config_path: Path
     session_path: Path
+    metadata_path: Path
     video_paths: List[Path]
     ttl_paths: List[Path]
     bpod_paths: List[Path]
@@ -185,7 +191,7 @@ def build_raw_folder(
     )
     config_path = write_config_toml(out_root / "config.toml", cfg)
 
-    # 2) Session (cameras + TTLs + bpod)
+    # 2) Session (cameras + TTLs + bpod) + Metadata (NWB)
     session_opts = SessionSynthOptions(
         session_id=session_id,
         camera_ids=camera_ids,
@@ -195,6 +201,10 @@ def build_raw_folder(
     )
     session_model = build_session(options=session_opts)
     session_path = write_session_toml(session_dir / "session.toml", session_model)
+
+    # Generate NWB-compliant metadata.toml
+    metadata_model = build_metadata(options=session_opts)
+    metadata_path = write_metadata_toml(session_dir / "metadata.toml", metadata_model)
 
     # 3) Videos
     vid_opts = VideoGenerationOptions(
@@ -263,6 +273,7 @@ def build_raw_folder(
         session_dir=session_dir.resolve(),
         config_path=config_path.resolve(),
         session_path=session_path.resolve(),
+        metadata_path=metadata_path.resolve(),
         video_paths=[p.resolve() for p in video_paths],
         ttl_paths=[p.resolve() for p in ttl_paths],
         bpod_paths=[p.resolve() for p in bpod_paths],

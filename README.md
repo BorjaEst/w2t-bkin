@@ -18,9 +18,10 @@ post_date: "2025-11-08"
 Modular, reproducible Python pipeline turning multi-camera rodent behavior recordings plus sync and
 optional pose/facial/event logs into a validated NWB dataset with QC and provenance.
 
-**Status**: Phase 3 Complete (NWB-First Refactoring) ✅  
-**Test Coverage**: 255 tests passing (13 skipped)  
-**Latest**: NWB-first architecture - NWBFile as primary orchestration artifact, inline discovery, -44% code reduction
+**Status**: Phase 3.1 Complete (Domain Module Removal) ✅  
+**Next**: Phase 4 (Facemap Module Migration to NWB-first)  
+**Test Coverage**: 232 tests passing (43 skipped, 63 known synthetic failures)  
+**Latest**: Domain module removed, config models relocated to dedicated packages, -44% code reduction from Phase 3
 
 ## Key Features
 
@@ -149,34 +150,53 @@ pytest -q
 
 ## Roadmap
 
-### ✅ Completed (Phases 0-4)
+### ✅ Completed (Phases 0-3.1)
 
 - [x] Configuration loading and validation (Phase 0)
 - [x] File discovery and manifest building (Phase 1)
 - [x] Timebase synchronization and alignment (Phase 2)
-- [x] Behavioral events from Bpod .mat files (Phase 3)
+- [x] Behavioral events from Bpod .mat files (Phase 2)
+  - ndx-structured-behavior integration
+  - TaskRecording, TrialsTable, EventsTable, ActionsTable
+  - Task and TaskArgumentsTable support
 - [x] Video transcoding to mezzanine format (Phase 3)
-- [x] **DeepLabCut batch inference** (Phase 3) ✨ NEW
+- [x] **DeepLabCut batch inference** (Phase 3)
   - GPU-optimized batch processing (2-3x speedup)
   - Auto-detection with manual override
   - Graceful error handling and CPU fallback
   - Integration with pipeline Phase 4.1
   - 35 tests (25 unit + 10 integration)
-- [x] Pose import and harmonization (DLC/SLEAP) (Phase 3)
+- [x] **Pose Module NWB-first** (Phase 1)
+  - ndx-pose integration (PoseEstimation, PoseEstimationSeries)
+  - Eliminated PoseBundle intermediate model
+  - Direct NWB object production
 - [x] Facemap facial metrics computation (Phase 3)
-- [x] **NWB file assembly with pynwb** (Phase 4)
+- [x] **NWB-First Refactoring** (Phase 3)
+  - NWBFile as primary orchestration artifact
+  - Inline file discovery
+  - Removed ingest/nwb modules (-1,264 lines, -44%)
   - Real pynwb Device and ImageSeries objects
-  - External video file links
-  - Rate-based timing (no per-frame timestamps)
+  - External video file links, rate-based timing
   - Provenance metadata embedding
-  - Security validations and deterministic output
+- [x] **Domain Module Removal** (Phase 3.1)
+  - Config models → w2t_bkin.config/ package
+  - Models relocated to functional domains
+  - Session model deprecated (use NWBFile)
+  - 30+ files updated, cleaner architecture
+
+### 🔄 In Progress (Phase 4)
+
+- [ ] **Facemap Module NWB-first**
+  - Remove FacemapBundle intermediate model
+  - Use pynwb.behavior.BehavioralTimeSeries directly
+  - Follow established pose module pattern
 
 ### 🔲 Planned (Phase 5+)
 
 - [ ] NWB validation with nwbinspector
 - [ ] QC HTML report generation
 - [ ] CLI interface with Typer
-- [ ] Optional modalities integration in NWB (pose, facemap, Bpod events)
+- [ ] Full end-to-end pipeline orchestration
 - [ ] Full end-to-end pipeline orchestration
 
 ## Out of Scope

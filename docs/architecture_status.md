@@ -467,17 +467,33 @@ from pynwb import NWBFile  # Replace Session
 **Blockers**: None  
 **Next Phase**: Phase 4 (Facemap Module)
 
-### Phase 4: Facemap Module 🔲
+### Phase 4: Facemap Module 🔲 (PLANNED)
 
 **Target**: Remove FacemapBundle; use pynwb BehavioralTimeSeries
 
-- [ ] Update facemap/models.py: Remove FacemapBundle
-- [ ] Update facemap processing: Create BehavioralTimeSeries per metric
-- [ ] Update sync/facemap.py: Work with TimeSeries
-- [ ] Update tests: Use TimeSeries fixtures
+**Status**: 🔲 PLANNED - Detailed migration plan created
 
-**Blockers**: None (pattern established in Phase 1)  
-**Dependencies**: None (can proceed independently)
+**Plan**: See `docs/FACEMAP_MIGRATION_PLAN.md` for complete implementation plan
+
+**Tasks**:
+
+- [ ] Update facemap/models.py: Remove FacemapBundle, FacemapSignal, FacemapROI
+- [ ] Update facemap/core.py: Make functions return TimeSeries directly
+  - [ ] Update define_rois() to return List[Dict]
+  - [ ] Update compute_facemap_signals() to return List[TimeSeries]
+  - [ ] Update align_facemap_to_timebase() to work with TimeSeries
+- [ ] Update facemap/\*\*init\*\*.py: Export pynwb types
+- [ ] Update tests: Use TimeSeries fixtures
+- [ ] Update pipeline.py: Direct TimeSeries usage in Phase 4.3
+
+**Estimated Effort**: 6-8 hours  
+**Expected Code Reduction**: ~185 lines  
+**Pattern**: Follow Phase 1 (Pose Module) NWB-first migration
+
+**Blockers**: None (can proceed independently)  
+**Dependencies**: Pattern established in Phase 1
+
+**Next Phase**: Phase 5 (Testing & Documentation)
 
 ### Phase 5: Testing & Documentation 🔲
 

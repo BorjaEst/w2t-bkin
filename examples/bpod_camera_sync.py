@@ -244,85 +244,88 @@ if __name__ == "__main__":
     else:
         print("\nNo trials aligned (check sync configuration and Bpod data)")
 
-    print("\nFirst 10 per-trial offsets:")
-    for trial_num in sorted(trial_offsets.keys())[:10]:
-        print(f"  - Trial {trial_num:2d}: offset = {trial_offsets[trial_num]:.4f} s")
+    if trial_offsets:
+        print("\nFirst 10 per-trial offsets:")
+        for trial_num in sorted(trial_offsets.keys())[:10]:
+            print(f"  - Trial {trial_num:2d}: offset = {trial_offsets[trial_num]:.4f} s")
 
-    # Demonstrate the math explicitly for trial 1
-    example_trial = sorted(trial_offsets.keys())[0]
-    offset = trial_offsets[example_trial]
+        # Demonstrate the math explicitly for trial 1
+        example_trial = sorted(trial_offsets.keys())[0]
+        offset = trial_offsets[example_trial]
 
-    print(f"\nExample alignment math for Trial {example_trial}:")
-    session_data_struct = bpod_data_raw["SessionData"]
-    session_data_struct = convert_matlab_struct(session_data_struct)
-    raw_events = convert_matlab_struct(session_data_struct["RawEvents"])
-    trial_raw = convert_matlab_struct(raw_events["Trial"][example_trial - 1])
-    trial_start_ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], example_trial - 1))
-    trial_end_ts = float(to_scalar(session_data_struct["TrialEndTimestamp"], example_trial - 1))
+        print(f"\nExample alignment math for Trial {example_trial}:")
+        session_data_struct = bpod_data_raw["SessionData"]
+        session_data_struct = convert_matlab_struct(session_data_struct)
+        raw_events = convert_matlab_struct(session_data_struct["RawEvents"])
+        trial_raw = convert_matlab_struct(raw_events["Trial"][example_trial - 1])
+        trial_start_ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], example_trial - 1))
+        trial_end_ts = float(to_scalar(session_data_struct["TrialEndTimestamp"], example_trial - 1))
 
-    # Look up sync signal from config (first trial_type as example)
-    # In a real session, this can differ per trial_type.
-    sync_signal = config.bpod.sync.trial_types[0].sync_signal
-    sync_time_rel = get_sync_time_from_bpod_trial(trial_raw, sync_signal)
-    bpod_sync_time = trial_start_ts + sync_time_rel
-    ttl_sync_time = bpod_sync_time + offset
+        # Look up sync signal from config (first trial_type as example)
+        # In a real session, this can differ per trial_type.
+        sync_signal = config.bpod.sync.trial_types[0].sync_signal
+        sync_time_rel = get_sync_time_from_bpod_trial(trial_raw, sync_signal)
+        bpod_sync_time = trial_start_ts + sync_time_rel
+        ttl_sync_time = bpod_sync_time + offset
 
-    print(f"  - TrialStartTimestamp (Bpod): {trial_start_ts:.3f} s")
-    print(f"  - Sync time (relative):       {sync_time_rel:.3f} s")
-    print(f"  - Bpod sync time:             {bpod_sync_time:.3f} s")
-    print(f"  - Offset (trial):             {offset:.3f} s")
-    print(f"  - TTL sync time:              {ttl_sync_time:.3f} s")
-    print("  => absolute_time = offset + bpod_time")
+        print(f"  - TrialStartTimestamp (Bpod): {trial_start_ts:.3f} s")
+        print(f"  - Sync time (relative):       {sync_time_rel:.3f} s")
+        print(f"  - Bpod sync time:             {bpod_sync_time:.3f} s")
+        print(f"  - Offset (trial):             {offset:.3f} s")
+        print(f"  - TTL sync time:              {ttl_sync_time:.3f} s")
+        print("  => absolute_time = offset + bpod_time")
 
-    # -----------------------------------------------------------------
-    # PHASE 3b: Visualizations to aid understanding
-    # -----------------------------------------------------------------
-    figs_dir = settings.output_root / "output" / "figures"
-    figs_dir.mkdir(parents=True, exist_ok=True)
+        # -----------------------------------------------------------------
+        # PHASE 3b: Visualizations to aid understanding
+        # -----------------------------------------------------------------
+        figs_dir = settings.output_root / "output" / "figures"
+        figs_dir.mkdir(parents=True, exist_ok=True)
 
-    # TTL timeline for key channels (camera TTL and Bpod sync TTL)
-    cameras = session_metadata.get("cameras", [])
-    example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
-    example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else None
-    ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
-    plot_ttl_timeline(ttl_pulses, channel_order=ttl_order, out_path=figs_dir / "ttl_timeline.png")
+        # TTL timeline for key channels (camera TTL and Bpod sync TTL)
+        cameras = session_metadata.get("cameras", [])
+        example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
+        example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else None
+        ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
+        plot_ttl_timeline(ttl_pulses, channel_order=ttl_order, out_path=figs_dir / "ttl_timeline.png")
 
-    # Offsets trend across trials
-    plot_trial_offsets(trial_offsets, out_path=figs_dir / "trial_offsets.png")
+        # Offsets trend across trials
+        plot_trial_offsets(trial_offsets, out_path=figs_dir / "trial_offsets.png")
 
-    # Alignment example illustration for the first trial, with more context.
-    # Extra Bpod-relative signals: trial start/end, sync start/end (if available)
-    extra_bpod_rel = [("trial start", 0.0), ("trial end", max(0.0, trial_end_ts - trial_start_ts)), ("sync start", sync_time_rel)]
-    # Optionally include sync end from Bpod states (if present)
-    try:
-        states = convert_matlab_struct(trial_raw.get("States", {}))
-        if isinstance(states, dict) and sync_signal in states:
-            sync_arr = states[sync_signal]
-            if isinstance(sync_arr, (list, tuple, np.ndarray)) and len(sync_arr) == 2:
-                extra_bpod_rel.append(("sync end", float(sync_arr[1])))
-    except Exception:
-        pass
+        # Alignment example illustration for the first trial, with more context.
+        # Extra Bpod-relative signals: trial start/end, sync start/end (if available)
+        extra_bpod_rel = [("trial start", 0.0), ("trial end", max(0.0, trial_end_ts - trial_start_ts)), ("sync start", sync_time_rel)]
+        # Optionally include sync end from Bpod states (if present)
+        try:
+            states = convert_matlab_struct(trial_raw.get("States", {}))
+            if isinstance(states, dict) and sync_signal in states:
+                sync_arr = states[sync_signal]
+                if isinstance(sync_arr, (list, tuple, np.ndarray)) and len(sync_arr) == 2:
+                    extra_bpod_rel.append(("sync end", float(sync_arr[1])))
+        except Exception:
+            pass
 
-    # Extra TTL series: camera TTL pulses near the trial window
-    example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
-    extra_ttl_series = {}
-    if example_cam_ttl and example_cam_ttl in ttl_pulses:
-        window_start = trial_start_ts - 0.25
-        window_end = trial_end_ts + 0.25
-        cam_pulses_near = [t for t in ttl_pulses[example_cam_ttl] if window_start <= t <= window_end]
-        # Limit to avoid clutter if necessary
-        extra_ttl_series[example_cam_ttl] = cam_pulses_near[:120]
+        # Extra TTL series: camera TTL pulses near the trial window
+        example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
+        extra_ttl_series = {}
+        if example_cam_ttl and example_cam_ttl in ttl_pulses:
+            window_start = trial_start_ts - 0.25
+            window_end = trial_end_ts + 0.25
+            cam_pulses_near = [t for t in ttl_pulses[example_cam_ttl] if window_start <= t <= window_end]
+            # Limit to avoid clutter if necessary
+            extra_ttl_series[example_cam_ttl] = cam_pulses_near[:120]
 
-    plot_alignment_example(
-        trial_number=example_trial,
-        trial_start_ts=trial_start_ts,
-        trial_end_ts=trial_end_ts,
-        sync_time_rel=sync_time_rel,
-        ttl_sync_time=ttl_sync_time,
-        out_path=figs_dir / "alignment_example.png",
-        extra_bpod_rel=extra_bpod_rel,
-        extra_ttl_series=extra_ttl_series,
-    )
+        plot_alignment_example(
+            trial_number=example_trial,
+            trial_start_ts=trial_start_ts,
+            trial_end_ts=trial_end_ts,
+            sync_time_rel=sync_time_rel,
+            ttl_sync_time=ttl_sync_time,
+            out_path=figs_dir / "alignment_example.png",
+            extra_bpod_rel=extra_bpod_rel,
+            extra_ttl_series=extra_ttl_series,
+        )
+    else:
+        print("\nSkipping visualizations (no aligned trials)")
 
     # ---------------------------------------------------------------------
     # PHASE 4: Build NWB behavior tables (ndx-structured-behavior)

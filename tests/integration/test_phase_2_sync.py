@@ -15,11 +15,12 @@ from typing import Dict
 
 import pytest
 
-from w2t_bkin.config import Config, load_config, load_session
+from w2t_bkin.config import Config
+from w2t_bkin.config_loader import load_config
 
 # DEPRECATED: Manifest model removed in Phase 3
-# from w2t_bkin.domain import Manifest
-from w2t_bkin.ingest import build_and_count_manifest
+# DEPRECATED: load_session removed - Session model deprecated
+# DEPRECATED: build_and_count_manifest removed - ingest module removed in Phase 3
 from w2t_bkin.sync import AlignmentStats, JitterExceedsBudgetError, align_samples, create_alignment_stats, create_timebase_provider_from_config, write_alignment_stats
 
 

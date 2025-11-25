@@ -82,7 +82,8 @@ from w2t_bkin.bpod import parse_bpod
 from w2t_bkin.config import Config
 from w2t_bkin.config_loader import load_config
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
-from w2t_bkin.facemap import FacemapBundle
+
+# from w2t_bkin.facemap import FacemapBundle  # Temporarily disabled
 from w2t_bkin.session import add_video_acquisition, create_nwb_file, write_nwb_file
 from w2t_bkin.sync import AlignmentStats, create_timebase_provider_from_config, get_ttl_pulses
 from w2t_bkin.transcode import TranscodedVideo
@@ -120,7 +121,7 @@ class RunResult(TypedDict, total=False):
     task_recording: Optional[TaskRecording]
     trials_table: Optional[Any]  # TrialsTable from ndx-structured-behavior
     dlc_inference_results: Optional[List[DLCInferenceResult]]
-    facemap_bundle: Optional[FacemapBundle]
+    facemap_bundle: Optional[Any]  # FacemapBundle - temporarily disabled
     transcoded_videos: Optional[List[TranscodedVideo]]
     provenance: Dict[str, Any]
 
@@ -402,7 +403,7 @@ def run_session(
     # Phase 4: Optional Modalities (DLC Inference, Facemap, Transcode)
     # -------------------------------------------------------------------------
     dlc_inference_results: Optional[List[DLCInferenceResult]] = None
-    facemap_bundle: Optional[FacemapBundle] = None
+    facemap_bundle: Optional[Any] = None  # FacemapBundle - temporarily disabled
     transcoded_videos: Optional[List[TranscodedVideo]] = None
 
     logger.info("\n[Phase 4] Checking for optional modalities...")

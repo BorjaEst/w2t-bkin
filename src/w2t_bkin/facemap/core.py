@@ -76,8 +76,6 @@ from typing import Dict, List, Optional
 import cv2
 import numpy as np
 
-from .models import FacemapBundle, FacemapROI, FacemapSignal
-
 logger = logging.getLogger(__name__)
 
 
