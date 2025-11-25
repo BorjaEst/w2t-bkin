@@ -95,7 +95,7 @@ except ImportError:
 
 from pydantic import ValidationError, field_validator, model_validator
 
-from .domain import Config, Session
+from .config import Config
 from .utils import compute_hash, read_toml
 
 # Enum constants for validation
@@ -134,48 +134,6 @@ def load_config(path: Union[str, Path]) -> Config:
     return Config(**data)
 
 
-def load_session(path: Union[str, Path]) -> Session:
-    """Load and validate session metadata from TOML file.
-
-    Performs strict schema validation including:
-    - Required/forbidden keys (extra="forbid")
-    - Camera TTL reference validation
-    - Bpod trial_type sync_ttl reference validation
-    - Backwards-compatible trial_type_id → trial_type mapping
-    - Populates session_dir with parent directory of session.toml
-
-    Args:
-        path: Path to session.toml file (str or Path)
-
-    Returns:
-        Validated Session instance with session_dir populated
-
-    Raises:
-        ValidationError: If session violates schema
-        FileNotFoundError: If session file doesn't exist
-
-    Example:
-        >>> session = load_session("data/raw/Session-001/session.toml")
-        >>> print(session.session_dir)  # "data/raw/Session-001"
-    """
-    path = Path(path) if isinstance(path, str) else path
-    data = read_toml(path)
-
-    # Handle backwards compatibility: trial_type_id → trial_type
-    _normalize_trial_type_ids(data)
-
-    # Validate camera TTL references
-    _validate_camera_ttl_references(data)
-
-    # Validate bpod trial_type sync_ttl references
-    _validate_bpod_trial_type_references(data)
-
-    # Add session_dir to data (parent directory of session.toml)
-    data["session_dir"] = str(path.parent.resolve())
-
-    return Session(**data)
-
-
 def compute_config_hash(config: Config) -> str:
     """Compute deterministic hash of config content.
 
@@ -192,20 +150,10 @@ def compute_config_hash(config: Config) -> str:
     return compute_hash(config_dict)
 
 
-def compute_session_hash(session: Session) -> str:
-    """Compute deterministic hash of session content.
-
-    Canonicalizes session by converting to dict and hashing with sorted keys.
-    Comments are not included in the model, so they're automatically stripped.
-
-    Args:
-        session: Session instance
-
-    Returns:
-        SHA256 hex digest (64 characters)
-    """
-    session_dict = session.model_dump()
-    return compute_hash(session_dict)
+# NOTE: compute_session_hash() is DEPRECATED
+# Session model has been replaced by NWBFile in the NWB-first architecture.
+# For session hashing, compute hash from session.toml file content directly
+# or from NWBFile metadata using compute_hash(nwbfile.fields).
 
 
 # Private validation helpers
