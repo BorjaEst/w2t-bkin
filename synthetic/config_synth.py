@@ -29,7 +29,7 @@ from typing import Iterable, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from w2t_bkin.config.models import (
+from w2t_bkin.config import (
     DLCConfig,
     FacemapConfig,
     LabelsConfig,
@@ -44,8 +44,8 @@ from w2t_bkin.config.models import (
     VerificationConfig,
     VideoConfig,
 )
-from w2t_bkin.config.models import AcquisitionConfig, BpodConfig, BpodSyncConfig, BpodSyncTrialType
-from w2t_bkin.config.models import Config as ConfigModel
+from w2t_bkin.config import AcquisitionConfig, BpodConfig, BpodSyncConfig, BpodSyncTrialType
+from w2t_bkin.config import Config as ConfigModel
 
 
 class SynthConfigOptions(BaseModel):

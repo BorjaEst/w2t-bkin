@@ -15,8 +15,7 @@ from typing import Dict
 
 import pytest
 
-from w2t_bkin.config import Config
-from w2t_bkin.config_loader import load_config
+from w2t_bkin.config import Config, load_config
 
 # DEPRECATED: Manifest model removed in Phase 3
 # DEPRECATED: load_session removed - Session model deprecated

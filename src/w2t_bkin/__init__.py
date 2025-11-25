@@ -18,6 +18,7 @@ Modules:
 - sync: Timebase providers and alignment
 - behavior: Behavioral task recording (ndx-structured-behavior)
 - bpod: Bpod .mat file parsing
+- events: TTL hardware events (ndx-events EventsTable)
 - transcode: Video transcoding to mezzanine format
 - pose: Pose estimation import and harmonization (DLC/SLEAP with ndx-pose)
 - facemap: Facial metrics computation and alignment
@@ -68,13 +69,13 @@ See docs/ for detailed module documentation and design principles.
 
 # Import main modules for convenient access
 # Note: facemap temporarily disabled due to model migration
-from . import behavior, bpod, config, config_loader, pipeline, pose, session, sync, transcode, utils
+from . import behavior, bpod, config, events, pipeline, pose, session, sync, transcode, utils
 
 __all__ = [
     "behavior",
     "bpod",
     "config",
-    "config_loader",
+    "events",
     # "facemap",  # Temporarily disabled
     "pipeline",
     "pose",

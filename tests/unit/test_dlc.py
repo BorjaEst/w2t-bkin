@@ -84,6 +84,7 @@ class TestModuleStructure:
             scorer="DLC_scorer",
             bodyparts=["nose", "ear"],
             num_outputs=6,
+            skeleton=[],
             task="test",
             date="2024-01-01",
         )
@@ -200,6 +201,7 @@ class TestOutputPaths:
             scorer="resnet50_BA_W2T_test20240101shuffle1_150000",
             bodyparts=["nose", "ear"],
             num_outputs=6,
+            skeleton=[],
             task="BA_W2T_test",
             date="2024-01-01",
         )
@@ -224,6 +226,7 @@ class TestOutputPaths:
             scorer="resnet50_test_scorer",
             bodyparts=["nose"],
             num_outputs=3,
+            skeleton=[],
             task="test",
             date="2024-01-01",
         )
@@ -248,6 +251,7 @@ class TestOutputPaths:
             scorer="scorer",
             bodyparts=["nose"],
             num_outputs=3,
+            skeleton=[],
             task="test",
             date="2024-01-01",
         )

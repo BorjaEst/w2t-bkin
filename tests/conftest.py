@@ -106,7 +106,7 @@ def minimal_config_dict(tmp_work_dir: Path, fixtures_raw_root: Path) -> Dict[str
             "models_root": str(tmp_work_dir / "external" / "models"),
         },
         "timebase": {"source": "nominal_rate", "mapping": "nearest", "jitter_budget_s": 0.001, "offset_s": 0.0},
-        "acquisition": {"concat_strategy": "order"},
+        "acquisition": {"concat_strategy": "ffconcat"},
         "verification": {"mismatch_tolerance_frames": 2, "warn_on_mismatch": True},
         "bpod": {"parse": True},
         "video": {"transcode": {"enabled": False, "codec": "libx264", "crf": 23, "preset": "medium", "keyint": 300}},
@@ -146,7 +146,7 @@ jitter_budget_s = 0.001
 offset_s = 0.0
 
 [acquisition]
-concat_strategy = "order"
+concat_strategy = "ffconcat"
 
 [verification]
 mismatch_tolerance_frames = 2

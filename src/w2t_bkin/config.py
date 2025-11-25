@@ -483,6 +483,52 @@ def _validate_config_conditionals(data: Dict[str, Any]) -> None:
 
 
 # =============================================================================
+# Session Loading Functions (backward compatibility)
+# =============================================================================
+
+
+def load_session(path: Union[str, Path]) -> Dict[str, Any]:
+    """Load session metadata from TOML file.
+
+    Args:
+        path: Path to session.toml or metadata.toml file.
+
+    Returns:
+        Parsed session metadata dictionary.
+
+    Raises:
+        FileNotFoundError: If file doesn't exist.
+
+    Example:
+        >>> session = load_session("data/raw/Session-000001/session.toml")
+        >>> print(session["identifier"])
+    """
+    session_path = Path(path)
+
+    if not session_path.exists():
+        raise FileNotFoundError(f"Session file not found: {session_path}")
+
+    return read_toml(session_path)
+
+
+def compute_session_hash(session: Dict[str, Any]) -> str:
+    """Compute deterministic SHA256 hash of session metadata.
+
+    Args:
+        session: Session metadata dictionary.
+
+    Returns:
+        SHA256 hex digest (64 characters).
+
+    Example:
+        >>> session = load_session("session.toml")
+        >>> hash_value = compute_session_hash(session)
+        >>> print(f"Session hash: {hash_value[:16]}...")
+    """
+    return compute_hash(session)
+
+
+# =============================================================================
 # CLI/Testing Entry Point
 # =============================================================================
 

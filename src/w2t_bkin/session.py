@@ -95,7 +95,7 @@ def load_session_metadata(session_path: Union[str, Path]) -> Dict[str, Any]:
     return metadata
 
 
-def create_nwb_file(session_file: Union[str, Path]) -> NWBFile:
+def create_nwb_file(session_file: Union[str, Path, Dict[str, Any]]) -> NWBFile:
     """Create NWBFile object from session metadata.
 
     Example
@@ -107,8 +107,11 @@ def create_nwb_file(session_file: Union[str, Path]) -> NWBFile:
     >>> metadata = {"identifier": "S001", "session_start_time": "2025-01-15T14:30:00", ...}
     >>> nwbfile = create_nwb_file(metadata)
     """
-    # Load metadata if path provided
-    metadata = load_session_metadata(session_file)
+    # Load metadata if path provided, otherwise use dict directly
+    if isinstance(session_file, dict):
+        metadata = session_file
+    else:
+        metadata = load_session_metadata(session_file)
 
     # Create NWBFile with all metadata
     nwbfile = NWBFile(

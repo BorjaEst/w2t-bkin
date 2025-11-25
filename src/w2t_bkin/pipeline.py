@@ -79,9 +79,9 @@ from w2t_bkin.behavior import (
     extract_states,
 )
 from w2t_bkin.bpod import parse_bpod
-from w2t_bkin.config import Config
-from w2t_bkin.config_loader import load_config
+from w2t_bkin.config import Config, load_config
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
+from w2t_bkin.events import add_events_to_nwb
 
 # from w2t_bkin.facemap import FacemapBundle  # Temporarily disabled
 from w2t_bkin.session import add_video_acquisition, create_nwb_file, write_nwb_file
@@ -398,6 +398,37 @@ def run_session(
             aligned_samples=0,
         )
         logger.info("  ✓ Alignment stats created (nominal rate)")
+
+    # Add TTL events to NWBFile (Phase 3.5 - after TTL loading)
+    if config.timebase.source == "ttl":
+        logger.info("\n[Phase 3.5] Adding TTL events to NWBFile...")
+
+        try:
+            # Extract TTL descriptions and sources from session config
+            ttl_descriptions = {}
+            ttl_sources = {}
+
+            for ttl in session.TTLs:
+                if hasattr(ttl, "description") and ttl.description:
+                    ttl_descriptions[ttl.id] = ttl.description
+                # Source defaults to "unknown" if not in config
+                if hasattr(ttl, "source"):
+                    ttl_sources[ttl.id] = ttl.source
+
+            # Add TTL events using ndx-events EventsTable
+            nwbfile = add_events_to_nwb(
+                nwbfile,
+                ttl_pulses,
+                descriptions=ttl_descriptions,
+                sources=ttl_sources,
+                container_name="TTLEvents",
+            )
+
+            total_events = sum(len(pulses) for pulses in ttl_pulses.values())
+            logger.info(f"  ✓ Added {total_events} TTL events from {len(ttl_pulses)} channels to NWBFile")
+
+        except Exception as e:
+            logger.warning(f"  ⚠ Failed to add TTL events to NWBFile: {e}")
 
     # -------------------------------------------------------------------------
     # Phase 4: Optional Modalities (DLC Inference, Facemap, Transcode)
