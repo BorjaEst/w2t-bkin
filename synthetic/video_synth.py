@@ -40,6 +40,8 @@ try:
 except Exception:  # pragma: no cover - fallback if import fails
     ffmpeg = None  # type: ignore
 
+# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+# This import is kept for backward compatibility but Session model is no longer used.
 from w2t_bkin.domain.session import Session as SessionModel
 
 

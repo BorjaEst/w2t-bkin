@@ -15,10 +15,12 @@ from typing import Dict
 
 import pytest
 
-from w2t_bkin.config import load_config, load_session
-from w2t_bkin.domain import AlignmentStats, Config, Manifest
+from w2t_bkin.config import Config, load_config, load_session
+
+# DEPRECATED: Manifest model removed in Phase 3
+# from w2t_bkin.domain import Manifest
 from w2t_bkin.ingest import build_and_count_manifest
-from w2t_bkin.sync import JitterExceedsBudgetError, align_samples, create_alignment_stats, create_timebase_provider_from_config, write_alignment_stats
+from w2t_bkin.sync import AlignmentStats, JitterExceedsBudgetError, align_samples, create_alignment_stats, create_timebase_provider_from_config, write_alignment_stats
 
 
 @pytest.mark.integration

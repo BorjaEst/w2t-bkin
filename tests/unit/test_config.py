@@ -38,7 +38,7 @@ class TestConfigLoading:
 
     def test_Should_RejectConfig_When_ExtraKeyPresent(self):
         """Should reject config with extra key not in schema (A13)."""
-        from w2t_bkin.domain import Config
+        from w2t_bkin.config import Config
 
         config_data = {
             "project": {"name": "test", "extra_key": "not allowed"},
@@ -155,8 +155,12 @@ class TestSessionLoading:
         assert len(session.TTLs) == 3
         assert len(session.cameras) == 2
 
+    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
     def test_Should_RejectSession_When_MissingRequiredKey(self):
-        """Should reject session missing required key (A14)."""
+        """Should reject session missing required key (A14).
+
+        DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+        """
         from w2t_bkin.domain import Session
 
         session_data = {
@@ -169,8 +173,12 @@ class TestSessionLoading:
         with pytest.raises(ValidationError):
             Session(**session_data)
 
+    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
     def test_Should_RejectSession_When_ExtraKeyPresent(self):
-        """Should reject session with extra key not in schema (A14)."""
+        """Should reject session with extra key not in schema (A14).
+
+        DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+        """
         from w2t_bkin.domain import SessionMetadata
 
         with pytest.raises(ValidationError):
@@ -219,8 +227,7 @@ class TestConfigHashing:
 
     def test_Should_ProduceDifferentHash_When_ConfigDiffers(self):
         """Config hash should differ when config content changes."""
-        from w2t_bkin.config import compute_config_hash
-        from w2t_bkin.domain import (
+        from w2t_bkin.config import (
             AcquisitionConfig,
             BpodConfig,
             Config,
@@ -237,14 +244,13 @@ class TestConfigHashing:
             TranscodeConfig,
             VerificationConfig,
             VideoConfig,
+            compute_config_hash,
         )
 
         # Create two configs with different values
         config1 = Config(
             project=ProjectConfig(name="project1"),
-            paths=PathsConfig(
-                raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="session.toml", models_root="models"
-            ),
+            paths=PathsConfig(raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="session.toml", models_root="models"),
             timebase=TimebaseConfig(source="nominal_rate", mapping="nearest", jitter_budget_s=0.01, offset_s=0.0),
             acquisition=AcquisitionConfig(concat_strategy="ffconcat"),
             verification=VerificationConfig(mismatch_tolerance_frames=0, warn_on_mismatch=False),
@@ -265,9 +271,7 @@ class TestConfigHashing:
 
         config2 = Config(
             project=ProjectConfig(name="project2"),  # Different name
-            paths=PathsConfig(
-                raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="session.toml", models_root="models"
-            ),
+            paths=PathsConfig(raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="session.toml", models_root="models"),
             timebase=TimebaseConfig(source="nominal_rate", mapping="nearest", jitter_budget_s=0.01, offset_s=0.0),
             acquisition=AcquisitionConfig(concat_strategy="ffconcat"),
             verification=VerificationConfig(mismatch_tolerance_frames=0, warn_on_mismatch=False),
@@ -322,24 +326,24 @@ class TestSessionHashing:
         assert hash1 == hash2
         assert len(hash1) == 64  # SHA256 hex digest
 
+    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
     def test_Should_ProduceDifferentHash_When_SessionDiffers(self):
-        """Session hash should differ when session content changes."""
+        """Session hash should differ when session content changes.
+
+        DEPRECATED: Session model and compute_session_hash() deprecated in favor of NWB-first architecture.
+        """
         from w2t_bkin.config import compute_session_hash
         from w2t_bkin.domain import BpodSession, Session, SessionMetadata
 
         session1 = Session(
-            session=SessionMetadata(
-                id="session1", subject_id="mouse1", date="2025-01-01", experimenter="Test", description="Test", sex="M", age="P60", genotype="WT"
-            ),
+            session=SessionMetadata(id="session1", subject_id="mouse1", date="2025-01-01", experimenter="Test", description="Test", sex="M", age="P60", genotype="WT"),
             bpod=BpodSession(path="Bpod/*.mat", order="name_asc"),
             TTLs=[],
             cameras=[],
         )
 
         session2 = Session(
-            session=SessionMetadata(
-                id="session2", subject_id="mouse2", date="2025-01-01", experimenter="Test", description="Test", sex="M", age="P60", genotype="WT"
-            ),
+            session=SessionMetadata(id="session2", subject_id="mouse2", date="2025-01-01", experimenter="Test", description="Test", sex="M", age="P60", genotype="WT"),
             bpod=BpodSession(path="Bpod/*.mat", order="name_asc"),
             TTLs=[],
             cameras=[],

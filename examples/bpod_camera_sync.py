@@ -69,7 +69,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="hdmf.container")
 from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offsets, plot_ttl_timeline
 from synthetic import build_raw_folder
 from w2t_bkin import config as cfg_module
-from w2t_bkin import ingest
 from w2t_bkin.behavior import (
     build_task,
     build_task_recording,

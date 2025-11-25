@@ -1,5 +1,13 @@
 """Tests for ingest module (Phase 1 Red Phase).
 
+DEPRECATED: This test file tests the old w2t_bkin.ingest module which was removed in Phase 3
+during NWB-first refactoring. The ingest functionality (discovery, verification, manifest
+building) was removed because the pipeline now works directly with NWBFile and ndx extensions.
+
+All tests in this file are now obsolete and should not be run.
+See tests/integration/test_phase_1_ingest.py for current ingestion integration tests.
+
+Original purpose:
 Requirements: FR-1, FR-2, FR-3, FR-13, FR-15, FR-16
 Acceptance: A6, A7
 
@@ -11,6 +19,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+
+# Skip all tests in this module - ingest module removed in Phase 3
+pytest.skip("test_ingest.py deprecated - ingest module removed in Phase 3", allow_module_level=True)
 
 
 class TestManifestBuilding:

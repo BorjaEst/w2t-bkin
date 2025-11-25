@@ -1,5 +1,16 @@
 """Integration tests for Phase 1 — Ingest and Verify.
 
+DEPRECATED: This test file tests the old w2t_bkin.ingest module which was removed in Phase 3
+during NWB-first refactoring. The ingest functionality (discovery, verification, manifest
+building) was removed because the pipeline now works directly with NWBFile and ndx extensions.
+
+The ingest phase logic (file discovery, counting, verification) has been absorbed into
+the individual processing modules and pipeline orchestration. Tests should use NWBFile-based
+integration tests instead.
+
+All tests in this file are now obsolete and should not be run.
+
+Original purpose:
 Covers: manifest discovery, frame/TTL counting, verification behavior (abort/warn),
 unverifiable camera warnings, and sidecar writing.
 
@@ -13,6 +24,9 @@ from pathlib import Path
 from typing import List
 
 import pytest
+
+# Skip all tests in this module - ingest module removed in Phase 3
+pytest.skip("test_phase_1_ingest.py deprecated - ingest module removed in Phase 3", allow_module_level=True)
 
 
 @pytest.mark.integration

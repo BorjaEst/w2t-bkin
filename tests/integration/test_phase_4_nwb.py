@@ -14,7 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import Config, Manifest
+from w2t_bkin.config import Config
+
+# DEPRECATED: Manifest model removed in Phase 3
+# from w2t_bkin.domain import Manifest
 
 
 class TestBasicNWBAssembly:

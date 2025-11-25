@@ -1,5 +1,13 @@
 """Unit tests for NWB module (Phase 4 - with pynwb).
 
+DEPRECATED: This test file tests the old w2t_bkin.nwb module which was removed in Phase 3
+during NWB-first refactoring. The nwb assembly logic was moved to the session module and
+uses pynwb directly with ndx extensions (ndx-pose, ndx-structured-behavior).
+
+All tests in this file are now obsolete and should not be run.
+See tests/integration/test_phase_4_nwb.py for current NWB integration tests.
+
+Original purpose:
 Tests NWB file assembly with Devices, ImageSeries, optional pose/facemap/bpod,
 rate-based timing, provenance embedding, and external file links.
 
@@ -19,7 +27,18 @@ from typing import Dict, List, Optional
 from pynwb import NWBHDF5IO
 import pytest
 
-from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Manifest, Provenance
+# DEPRECATED: This entire test module is obsolete. The w2t_bkin.nwb module was removed
+# in Phase 3 (NWB-first refactoring). All tests in this file should be skipped.
+# See tests/integration/test_phase_4_nwb.py for current NWB integration tests.
+
+pytest.skip("test_nwb.py deprecated - nwb module removed in Phase 3", allow_module_level=True)
+
+from w2t_bkin.config import Config
+from w2t_bkin.facemap import FacemapBundle
+from w2t_bkin.sync import AlignmentStats
+
+# DEPRECATED: Manifest and Provenance models removed
+# from w2t_bkin.domain import Manifest, Provenance
 
 # DEPRECATED: TrialSummary removed - use ndx-structured-behavior metadata instead
 

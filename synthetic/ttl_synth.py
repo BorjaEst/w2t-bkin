@@ -40,6 +40,9 @@ from typing import Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 from synthetic.utils import deterministic_rng, write_float_lines
+
+# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+# This import is kept for backward compatibility but Session model is no longer used.
 from w2t_bkin.domain.session import Session as SessionModel
 
 

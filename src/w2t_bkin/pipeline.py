@@ -79,12 +79,15 @@ from w2t_bkin.behavior import (
     extract_states,
 )
 from w2t_bkin.bpod import parse_bpod
-from w2t_bkin.config import load_config, load_session
+from w2t_bkin.config import Config, load_config, load_session
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
-from w2t_bkin.domain import AlignmentStats, Config, FacemapBundle, Session, TranscodedVideo
+from w2t_bkin.facemap import FacemapBundle
 from w2t_bkin.session import add_video_acquisition, create_nwb_file, write_nwb_file
-from w2t_bkin.sync import create_timebase_provider_from_config, get_ttl_pulses
+from w2t_bkin.sync import AlignmentStats, create_timebase_provider_from_config, get_ttl_pulses
+from w2t_bkin.transcode import TranscodedVideo
 from w2t_bkin.utils import compute_hash, count_ttl_pulses, count_video_frames, discover_files, ensure_directory
+
+# NOTE: Session model is deprecated - using load_session() which returns NWBFile
 
 logger = logging.getLogger(__name__)
 

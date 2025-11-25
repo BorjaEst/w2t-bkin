@@ -12,8 +12,7 @@ from typing import Dict
 
 import pytest
 
-from w2t_bkin.domain import TranscodedVideo, TranscodeOptions
-from w2t_bkin.transcode import TranscodeError, create_transcode_options, is_already_transcoded, transcode_video, update_manifest_with_transcode
+from w2t_bkin.transcode import TranscodedVideo, TranscodeError, TranscodeOptions, create_transcode_options, is_already_transcoded, transcode_video, update_manifest_with_transcode
 from w2t_bkin.utils import compute_file_checksum
 
 

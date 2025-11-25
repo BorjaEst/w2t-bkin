@@ -223,7 +223,7 @@ def valid_config(tmp_path):
     Returns a fully-configured Config domain model suitable for
     testing business logic that requires Config objects.
     """
-    from w2t_bkin.domain import (
+    from w2t_bkin.config import (
         AcquisitionConfig,
         BpodConfig,
         Config,
@@ -288,7 +288,7 @@ def ttl_config(valid_config):
     config_dict["timebase"]["source"] = "ttl"
     config_dict["timebase"]["ttl_id"] = "ttl_camera"
 
-    from w2t_bkin.domain import Config
+    from w2t_bkin.config import Config
 
     return Config(**config_dict)
 
@@ -303,7 +303,7 @@ def neuropixels_config(valid_config):
     config_dict["timebase"]["source"] = "neuropixels"
     config_dict["timebase"]["neuropixels_stream"] = "AP0"
 
-    from w2t_bkin.domain import Config
+    from w2t_bkin.config import Config
 
     return Config(**config_dict)
 
@@ -317,9 +317,14 @@ def neuropixels_config(valid_config):
 def valid_manifest():
     """Valid Manifest object for testing.
 
+    DEPRECATED: Manifest model removed in Phase 3 (NWB-first refactoring).
+    This fixture is kept for backward compatibility but should not be used
+    in new tests. Use NWBFile-based fixtures instead.
+
     Returns a minimal but valid Manifest domain model with one camera
     and one TTL, suitable for testing business logic.
     """
+    pytest.skip("Manifest model removed in Phase 3 - use NWBFile-based approach")
     from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
 
     return Manifest(
@@ -363,9 +368,14 @@ def ttl_files(tmp_path):
 def ttl_manifest(ttl_files):
     """Create a minimal Manifest with TTL configuration for testing.
 
+    DEPRECATED: Manifest model removed in Phase 3 (NWB-first refactoring).
+    This fixture is kept for backward compatibility but should not be used
+    in new tests. Use NWBFile-based fixtures instead.
+
     Returns a Manifest domain model with one camera and one TTL channel,
     suitable for testing TTL-based synchronization.
     """
+    pytest.skip("Manifest model removed in Phase 3 - use NWBFile-based approach")
     from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
 
     return Manifest(
@@ -512,7 +522,13 @@ def pytest_configure(config):
 
 @pytest.fixture
 def mock_session_with_ttl(tmp_path):
-    """Create a Session with TTL configuration for alignment testing."""
+    """Create a Session with TTL configuration for alignment testing.
+
+    DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+    Use create_nwb_file() from session module to create NWBFile from session.toml.
+    This fixture is kept for backward compatibility but should not be used in new tests.
+    """
+    pytest.skip("Session model deprecated - use create_nwb_file() for NWBFile-based approach")
     from w2t_bkin.domain import TTL, BpodSession, BpodTrialType, Session, SessionMetadata
 
     ttl_dir = tmp_path / "TTLs"

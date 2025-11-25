@@ -37,6 +37,9 @@ except Exception as e:  # pragma: no cover - scipy is required by project
     savemat = None  # type: ignore
 
 from w2t_bkin.bpod.core import write_bpod_mat
+
+# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+# This import is kept for backward compatibility but Session model is no longer used.
 from w2t_bkin.domain.session import Session as SessionModel
 
 

@@ -66,6 +66,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from figures.pose import plot_pose_keypoints_grid
 from synthetic import build_interim_pose, build_raw_folder
+
+# DEPRECATED: Session model and w2t_bkin.nwb module deprecated/removed in Phase 3.
+# This example uses the old architecture and may not work correctly.
+# For current examples, see integration tests in tests/integration/
 from w2t_bkin.domain.session import BpodSession, Camera
 from w2t_bkin.domain.session import Session as SessionModel
 from w2t_bkin.domain.session import SessionMetadata

@@ -95,7 +95,7 @@ except ImportError:
 
 from pydantic import ValidationError, field_validator, model_validator
 
-from .config import Config
+from .config.models import Config
 from .utils import compute_hash, read_toml
 
 # Enum constants for validation

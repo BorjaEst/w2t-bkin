@@ -29,6 +29,10 @@ from pydantic import BaseModel, Field
 
 from w2t_bkin.domain.session import Session as SessionModel
 from w2t_bkin.domain.session import SessionMetadata
+
+# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+# This synthetic generator creates the old Session model which is no longer used.
+# For session metadata, use session.toml directly with create_nwb_file().
 from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera
 
 

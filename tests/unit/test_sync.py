@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import AlignmentStats, Config, TimebaseConfig
+from w2t_bkin.config import Config, TimebaseConfig
 from w2t_bkin.sync import (
+    AlignmentStats,
     JitterExceedsBudgetError,
     NeuropixelsProvider,
     NominalRateProvider,

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.domain import FacemapBundle, TranscodedVideo
+from w2t_bkin.facemap import FacemapBundle, TranscodedVideo
 
 
 class TestEventsIntegration:

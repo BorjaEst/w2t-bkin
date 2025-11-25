@@ -17,15 +17,13 @@ order = "name_asc"
 continuous_time = false
 
 [[bpod.trial_types]]
-description = "Active wisker touch trials"
+description = "Active whisker touch trials"
 trial_type = 1
 sync_signal = "W2T_Audio"
 sync_ttl = "ttl_cue"
-### Add here a list with the items that are going to be extracted from bpod
-
 
 [[bpod.trial_types]]
-description = "Passive wisker touch trials"
+description = "Passive whisker touch trials"
 trial_type = 2
 sync_signal = "A2L_Audio"
 sync_ttl = "ttl_cue"

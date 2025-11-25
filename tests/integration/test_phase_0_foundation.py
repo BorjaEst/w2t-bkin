@@ -24,8 +24,7 @@ class TestConfigDomainIntegration:
 
         Tests the full pipeline: TOML parsing → domain validation → deterministic hashing.
         """
-        from w2t_bkin.config import compute_config_hash, load_config
-        from w2t_bkin.domain import Config
+        from w2t_bkin.config import Config, compute_config_hash, load_config
 
         # Use the fixtures provided in the test suite
         config_path = Path(__file__).parent.parent / "fixtures" / "configs" / "valid_config.toml"
@@ -45,8 +44,13 @@ class TestConfigDomainIntegration:
         assert hash1 == hash2
         assert len(hash1) == 64  # SHA256 hex digest
 
+    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
     def test_Should_LoadValidSession_When_AllRequiredFieldsProvided_Issue2(self):
-        """Should successfully load and validate a complete session file."""
+        """Should successfully load and validate a complete session file.
+
+        DEPRECATED: Session model and compute_session_hash() deprecated in favor of NWB-first architecture.
+        Use create_nwb_file() from session module instead.
+        """
         from w2t_bkin.config import compute_session_hash, load_session
         from w2t_bkin.domain import Session
 
@@ -95,8 +99,12 @@ class TestConfigDomainIntegration:
         error_str = str(exc_info.value).lower()
         assert "extra" in error_str or "forbidden" in error_str
 
+    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
     def test_Should_FailValidation_When_SessionMissingRequiredSection_Issue2(self):
-        """Should fail when session file is missing required sections (A14)."""
+        """Should fail when session file is missing required sections (A14).
+
+        DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+        """
         from w2t_bkin.config import load_session
 
         # Use fixture missing required 'session' section
@@ -214,12 +222,7 @@ class TestFullPhase0Integration:
         This tests the complete foundation: config loading → domain validation →
         hashing → JSON serialization → path handling.
         """
-        from w2t_bkin.config import (
-            compute_config_hash,
-            compute_session_hash,
-            load_config,
-            load_session,
-        )
+        from w2t_bkin.config import compute_config_hash, compute_session_hash, load_config, load_session
         from w2t_bkin.domain import Config, Session
         from w2t_bkin.utils import configure_logger, read_json, write_json
 
