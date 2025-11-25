@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Example 04: Bpod Camera Synchronization (simplified).
+"""Example 04: Bpod Camera Synchronization.
 
-**NOTE (2025-11-25)**: This example uses the old Manifest-centric API.
-It will be updated to use the new NWB-first pipeline API (pipeline.run_session()).
-For reference on the new API, see docs/MIGRATION.md Phase 3 section.
+**Updated (2025-11-25)**: Uses config.bpod.sync for trial synchronization configuration.
 
 Goal
 ----
@@ -11,46 +9,22 @@ Show **how to align Bpod trial times to TTL absolute time** using per-trial
 offsets, with a clear mental model of the three systems:
 
 1. TTL system (absolute time, t = 0)
-   - Records *all* hardware sync pulses
-   - For cameras: logs one pulse per frame → frame index → absolute timestamp
-   - For Bpod: logs a sync pulse per trial from a specific Bpod state/event
-     (e.g., Bpod outputs a TTL pulse when entering a sync state)
-
 2. Camera system (starts at camera_start_delay_s)
-   - Frames are triggered by TTL pulses
-   - TTL log gives absolute time for each frame index
-   - Recorded in TTL channel defined in session config (one pulse per frame)
-
 3. Bpod system (starts at bpod_start_delay_s)
-   - Within each trial, Bpod times are **relative to trial start**
-   - A chosen state/event (sync_signal) also triggers a TTL pulse
-   - That TTL pulse is recorded in a SEPARATE TTL channel (one pulse per trial)
-   - Both sync_signal and sync_ttl are defined per trial_type in session config
 
 Core idea
 ---------
 For each trial, we align the Bpod timeline to the TTL timeline:
-
     offset_trial = T_ttl_sync - (TrialStartTimestamp + sync_time_rel)
 
-Where:
-    - sync_time_rel: start time of the sync state within the trial (Bpod-relative)
-    - TrialStartTimestamp: when Bpod says the trial started (its own clock)
-    - T_ttl_sync: absolute time of the sync pulse recorded by TTL
-
-Then for *any* Bpod time in that trial:
-    t_abs = offset_trial + t_bpod
-
 We use:
+    - config.bpod.sync.trial_types: Trial synchronization configuration
     - align_bpod_trials_to_ttl(...): compute per-trial offsets using TTL pulses
     - behavior.extract_*(..., trial_offsets=...): build NWB tables in **absolute time**
 
 Example usage
 -------------
     $ python examples/bpod_camera_sync.py
-
-With different timing:
-    $ CAMERA_START_DELAY_S=3.0 BPOD_START_DELAY_S=10.0 python examples/bpod_camera_sync.py
 """
 
 import json
@@ -68,20 +42,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="hdmf.container")
 
 from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offsets, plot_ttl_timeline
 from synthetic import build_raw_folder
-from w2t_bkin import config as cfg_module
-from w2t_bkin.behavior import (
-    build_task,
-    build_task_recording,
-    build_trials_table,
-    extract_action_types,
-    extract_actions,
-    extract_event_types,
-    extract_events,
-    extract_state_types,
-    extract_states,
-    extract_task_arguments,
-)
-from w2t_bkin.bpod.core import discover_bpod_files_from_pattern, parse_bpod, parse_bpod_mat
+from w2t_bkin.bpod import parse_bpod
+from w2t_bkin.config import load_config, load_session
 from w2t_bkin.sync import align_bpod_trials_to_ttl, get_ttl_pulses
 from w2t_bkin.sync.behavior import get_sync_time_from_bpod_trial
 from w2t_bkin.utils import convert_matlab_struct, to_scalar
@@ -165,8 +127,8 @@ if __name__ == "__main__":
     print("PHASE 1: Ingest (config + manifest)")
     print("=" * 80)
 
-    config = cfg_module.load_config(session.config_path)
-    session_cfg = cfg_module.load_session(session.session_path)
+    config = load_config(session.config_path)
+    session_cfg = load_session(session.session_path)
 
     print("\nSession config:")
     print(f"  - Project:              {config.project.name}")
@@ -252,15 +214,15 @@ if __name__ == "__main__":
         else:
             print(f"  - {ttl_id}: (no pulses)")
 
-    print("\nStep 4.2: Compute per-trial offsets (Bpod → TTL) [Phase 2 pattern]")
+    print("\nStep 4.2: Compute per-trial offsets (Bpod → TTL)")
     print("  For each trial, align Bpod sync state to next TTL pulse.")
-    # Get sync signal and TTL from session config (first trial type as example)
-    print(f"  - sync_signal '{session_cfg.bpod.trial_types[0].sync_signal}' is a Bpod state that triggers a TTL output")
-    print(f"  - sync_ttl '{session_cfg.bpod.trial_types[0].sync_ttl}' is the TTL channel that records those pulses")
+    # Get sync signal and TTL from config (first trial type as example)
+    print(f"  - sync_signal '{config.bpod.sync.trial_types[0].sync_signal}' is a Bpod state that triggers a TTL output")
+    print(f"  - sync_ttl '{config.bpod.sync.trial_types[0].sync_ttl}' is the TTL channel that records those pulses")
     print("  offset_trial = T_ttl_sync - (TrialStartTimestamp + sync_time_rel)")
 
-    # Extract trial type configs from session (Phase 2 pattern)
-    trial_type_configs = session_cfg.bpod.trial_types
+    # Extract trial type configs from config
+    trial_type_configs = config.bpod.sync.trial_types
     trial_offsets, warnings = align_bpod_trials_to_ttl(
         trial_type_configs=trial_type_configs,
         bpod_data=bpod_data_raw,
@@ -299,9 +261,9 @@ if __name__ == "__main__":
     trial_start_ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], example_trial - 1))
     trial_end_ts = float(to_scalar(session_data_struct["TrialEndTimestamp"], example_trial - 1))
 
-    # Look up sync signal from session config (first trial_type as example)
+    # Look up sync signal from config (first trial_type as example)
     # In a real session, this can differ per trial_type.
-    sync_signal = session_cfg.bpod.trial_types[0].sync_signal
+    sync_signal = config.bpod.sync.trial_types[0].sync_signal
     sync_time_rel = get_sync_time_from_bpod_trial(trial_raw, sync_signal)
     bpod_sync_time = trial_start_ts + sync_time_rel
     ttl_sync_time = bpod_sync_time + offset
@@ -321,7 +283,7 @@ if __name__ == "__main__":
 
     # TTL timeline for key channels (camera TTL and Bpod sync TTL)
     example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else None
-    example_sync_ttl = session_cfg.bpod.trial_types[0].sync_ttl if session_cfg.bpod.trial_types else None
+    example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else None
     ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
     plot_ttl_timeline(ttl_pulses, channel_order=ttl_order, out_path=figs_dir / "ttl_timeline.png")
 
@@ -500,9 +462,9 @@ if __name__ == "__main__":
     example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else "cam_ttl"
     print(f"  - Camera frames start at {settings.camera_start_delay_s:.3f} s " f"and are aligned via {example_cam_ttl} (one pulse per frame)")
     print(f"  - Bpod trials start at {settings.bpod_start_delay_s:.3f} s")
-    # Get sync signal and TTL from session config (first trial type as example)
-    example_sync_signal = session_cfg.bpod.trial_types[0].sync_signal if session_cfg.bpod.trial_types else "sync_signal"
-    example_sync_ttl = session_cfg.bpod.trial_types[0].sync_ttl if session_cfg.bpod.trial_types else "sync_ttl"
+    # Get sync signal and TTL from config (first trial type as example)
+    example_sync_signal = config.bpod.sync.trial_types[0].sync_signal if config.bpod.sync.trial_types else "sync_signal"
+    example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else "sync_ttl"
     print(f"  - Bpod sync state '{example_sync_signal}' triggers TTL pulses on {example_sync_ttl} (one per trial)")
     print(f"  - align_bpod_trials_to_ttl() uses {example_sync_ttl} to compute per-trial offsets")
     print("  - behavior.extract_*(..., trial_offsets=...) yields NWB tables in TTL absolute time")

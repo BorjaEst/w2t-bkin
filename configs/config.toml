@@ -29,6 +29,26 @@ warn_on_mismatch = false            # when true, warn instead of abort if within
 [bpod]
 parse = true                        # parse Bpod .mat if present in the session
 
+# Trial synchronization configuration for aligning Bpod to TTL timeline
+# Maps Bpod trial types to sync signals and TTL channels
+[[bpod.sync.trial_types]]
+trial_type = 1
+description = "Active whisker touch trials"
+sync_signal = "W2T_Audio"          # Bpod state that triggers TTL
+sync_ttl = "ttl_cue"               # TTL channel ID (must match [[TTLs]].id in session)
+
+[[bpod.sync.trial_types]]
+trial_type = 2
+description = "Passive whisker touch trials"
+sync_signal = "A2L_Audio"
+sync_ttl = "ttl_cue"
+
+[[bpod.sync.trial_types]]
+trial_type = 3
+description = "Microstim trials"
+sync_signal = "Microstim"
+sync_ttl = "ttl_cue"
+
 # Global video defaults (legacy fallback; generally superseded by per-camera probing)
 [video.transcode]
 enabled = true

@@ -11,6 +11,8 @@ Loading functions are defined in w2t_bkin.config_loader and re-exported here.
 from .models import (
     AcquisitionConfig,
     BpodConfig,
+    BpodSyncConfig,
+    BpodSyncTrialType,
     Config,
     DLCConfig,
     FacemapConfig,
@@ -48,6 +50,8 @@ __all__ = [
     "AcquisitionConfig",
     "VerificationConfig",
     "BpodConfig",
+    "BpodSyncConfig",
+    "BpodSyncTrialType",
     "VideoConfig",
     "TranscodeConfig",
     "NWBConfig",

@@ -79,15 +79,14 @@ from w2t_bkin.behavior import (
     extract_states,
 )
 from w2t_bkin.bpod import parse_bpod
-from w2t_bkin.config import Config, load_config, load_session
+from w2t_bkin.config import Config
+from w2t_bkin.config_loader import load_config
 from w2t_bkin.dlc import DLCInferenceOptions, DLCInferenceResult, run_dlc_inference_batch
 from w2t_bkin.facemap import FacemapBundle
 from w2t_bkin.session import add_video_acquisition, create_nwb_file, write_nwb_file
 from w2t_bkin.sync import AlignmentStats, create_timebase_provider_from_config, get_ttl_pulses
 from w2t_bkin.transcode import TranscodedVideo
 from w2t_bkin.utils import compute_hash, count_ttl_pulses, count_video_frames, discover_files, ensure_directory
-
-# NOTE: Session model is deprecated - using load_session() which returns NWBFile
 
 logger = logging.getLogger(__name__)
 
@@ -215,18 +214,17 @@ def run_session(
     config = load_config(config_path)
     logger.info(f"  ✓ Config loaded: {config.project.name}")
 
-    # Find session.toml
+    # Find session.toml and create NWBFile (NWB-first architecture)
     session_dir = Path(config.paths.raw_root) / session_id
     session_path = session_dir / config.paths.metadata_file
-    session = load_session(session_path)
-    logger.info(f"  ✓ Session loaded: {session.session.id}")
+    nwbfile = create_nwb_file(session_path)
+    logger.info(f"  ✓ NWBFile created: {nwbfile.identifier}")
 
     # Verify session_id matches
-    if session.session.id != session_id:
-        raise ValueError(f"Session ID mismatch: requested '{session_id}', " f"found '{session.session.id}' in {session_path}")
+    if nwbfile.identifier != session_id:
+        raise ValueError(f"Session ID mismatch: requested '{session_id}', " f"found '{nwbfile.identifier}' in {session_path}")
 
-    # Create NWBFile early (NWB-first architecture)
-    nwbfile = create_nwb_file(session_path)
+    # NWBFile is already created (NWB-first architecture)
     logger.info(f"  ✓ NWBFile created: {nwbfile.identifier}")
 
     # -------------------------------------------------------------------------

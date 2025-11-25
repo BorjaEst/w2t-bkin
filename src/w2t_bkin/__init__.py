@@ -67,12 +67,13 @@ See docs/ for detailed module documentation and design principles.
 """
 
 # Import main modules for convenient access
-from . import behavior, bpod, config, facemap, pipeline, pose, session, sync, transcode, utils
+from . import behavior, bpod, config, config_loader, facemap, pipeline, pose, session, sync, transcode, utils
 
 __all__ = [
     "behavior",
     "bpod",
     "config",
+    "config_loader",
     "facemap",
     "pipeline",
     "pose",

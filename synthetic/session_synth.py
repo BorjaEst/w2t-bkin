@@ -33,7 +33,7 @@ from w2t_bkin.domain.session import SessionMetadata
 # DEPRECATED: Session model deprecated in favor of NWB-first architecture.
 # This synthetic generator creates the old Session model which is no longer used.
 # For session metadata, use session.toml directly with create_nwb_file().
-from w2t_bkin.domain.session import TTL, BpodSession, BpodTrialType, Camera
+from w2t_bkin.domain.session import TTL, BpodSession, Camera
 
 
 class SessionSynthOptions(BaseModel):
@@ -122,33 +122,12 @@ def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides)
             )
         )
 
-    # Bpod / trial types
-    trial_types: List[BpodTrialType] = []
-    if base.bpod_enabled and base.number_of_trial_types > 0:
-        # Smart TTL selection: if trial_type_sync_ttl is explicitly set, use it
-        # Otherwise, if we have >1 TTL, assume second one is for Bpod sync
-        # Otherwise fall back to the camera TTL
-        if base.trial_type_sync_ttl:
-            sync_ttl = base.trial_type_sync_ttl
-        elif len(base.ttl_ids) > 1:
-            sync_ttl = base.ttl_ids[1]  # Second TTL for Bpod
-        else:
-            sync_ttl = camera_ttl
-        for i in range(1, base.number_of_trial_types + 1):
-            trial_types.append(
-                BpodTrialType(
-                    trial_type=i,
-                    description=base.trial_type_description_template.format(trial_type=i),
-                    sync_signal=base.trial_type_sync_signal_template.format(trial_type=i),
-                    sync_ttl=sync_ttl,
-                )
-            )
-
+    # Bpod (no trial_types - moved to config)
     bpod = BpodSession(
         path=base.bpod_path,
         order=base.bpod_order,
         continuous_time=base.bpod_continuous_time,
-        trial_types=trial_types,
+        trial_types=[],  # Now defined in config.bpod.sync.trial_types
     )
 
     return SessionModel(
@@ -185,20 +164,13 @@ def session_to_toml(session: SessionModel) -> str:
     lines.append("\n")
 
     # [bpod]
-    lines.append("[bpod]\n")
+    lines.append("[bpod]\\n")
     lines.append(_kv_line("path", session.bpod.path))
     lines.append(_kv_line("order", session.bpod.order))
     lines.append(_kv_line("continuous_time", session.bpod.continuous_time))
-    lines.append("\n")
+    lines.append("\\n")
 
-    # [[bpod.trial_types]]
-    for tt in session.bpod.trial_types:
-        lines.append("[[bpod.trial_types]]\n")
-        lines.append(_kv_line("trial_type", tt.trial_type))
-        lines.append(_kv_line("description", tt.description))
-        lines.append(_kv_line("sync_signal", tt.sync_signal))
-        lines.append(_kv_line("sync_ttl", tt.sync_ttl))
-        lines.append("\n")
+    # NOTE: trial_types moved to config.bpod.sync.trial_types
 
     # [[TTLs]]
     for ttl in session.TTLs:

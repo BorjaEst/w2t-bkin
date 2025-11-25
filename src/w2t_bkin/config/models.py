@@ -84,10 +84,40 @@ class VerificationConfig(BaseModel, extra="forbid"):
 # =============================================================================
 
 
+class BpodSyncTrialType(BaseModel, extra="forbid"):
+    """Bpod trial type synchronization configuration.
+
+    Maps a trial type to its synchronization signal and TTL channel for
+    absolute time alignment. Used to convert Bpod relative timestamps to
+    absolute timestamps using external TTL recordings.
+
+    Attributes:
+        trial_type: Trial type identifier (matches Bpod trial classification)
+        description: Human-readable description of trial type
+        sync_signal: Bpod state/event name used for alignment
+        sync_ttl: TTL channel ID whose pulses correspond to sync_signal
+    """
+
+    trial_type: int = Field(..., ge=0, description="Trial type identifier (matches Bpod trial classification)")
+    description: str = Field(..., description="Human-readable description of trial type")
+    sync_signal: str = Field(..., description="Bpod state/event name used for alignment (e.g., 'W2L_Audio')")
+    sync_ttl: str = Field(..., description="TTL channel ID whose pulses correspond to sync_signal")
+
+
+class BpodSyncConfig(BaseModel, extra="forbid"):
+    """Bpod synchronization configuration.
+
+    Defines how to align Bpod trials to TTL absolute time.
+    """
+
+    trial_types: List[BpodSyncTrialType] = Field(default_factory=list, description="Trial type synchronization configurations")
+
+
 class BpodConfig(BaseModel, extra="forbid"):
     """Bpod behavioral system configuration."""
 
     parse: bool = Field(default=True, description="Parse Bpod .mat files if present")
+    sync: BpodSyncConfig = Field(default_factory=BpodSyncConfig, description="Trial synchronization configuration")
 
 
 # =============================================================================

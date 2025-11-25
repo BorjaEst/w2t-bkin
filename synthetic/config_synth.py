@@ -29,7 +29,7 @@ from typing import Iterable, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from w2t_bkin.domain.config import (
+from w2t_bkin.config.models import (
     DLCConfig,
     FacemapConfig,
     LabelsConfig,
@@ -44,8 +44,8 @@ from w2t_bkin.domain.config import (
     VerificationConfig,
     VideoConfig,
 )
-from w2t_bkin.domain.config import AcquisitionConfig, BpodConfig
-from w2t_bkin.domain.config import Config as ConfigModel
+from w2t_bkin.config.models import AcquisitionConfig, BpodConfig, BpodSyncConfig, BpodSyncTrialType
+from w2t_bkin.config.models import Config as ConfigModel
 
 
 class SynthConfigOptions(BaseModel):
@@ -150,7 +150,29 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
         warn_on_mismatch=base.warn_on_mismatch,
     )
 
-    bpod = BpodConfig(parse=False)
+    # Build Bpod sync configuration with trial types
+    sync_trial_types = [
+        BpodSyncTrialType(
+            trial_type=1,
+            description="Active whisker touch trials",
+            sync_signal="W2T_Audio",
+            sync_ttl="ttl_cue",
+        ),
+        BpodSyncTrialType(
+            trial_type=2,
+            description="Passive whisker touch trials",
+            sync_signal="A2L_Audio",
+            sync_ttl="ttl_cue",
+        ),
+        BpodSyncTrialType(
+            trial_type=3,
+            description="Microstim trials",
+            sync_signal="Microstim",
+            sync_ttl="ttl_cue",
+        ),
+    ]
+    sync_config = BpodSyncConfig(trial_types=sync_trial_types)
+    bpod = BpodConfig(parse=False, sync=sync_config)
 
     transcode = TranscodeConfig(
         enabled=base.transcode_enabled,
@@ -271,6 +293,15 @@ def config_to_toml(config: ConfigModel) -> str:
     lines.append("[bpod]\n")
     lines.append(_toml_kv("parse", config.bpod.parse))
     lines.append("\n")
+
+    # [[bpod.sync.trial_types]]
+    for tt in config.bpod.sync.trial_types:
+        lines.append("[[bpod.sync.trial_types]]\n")
+        lines.append(_toml_kv("trial_type", tt.trial_type))
+        lines.append(_toml_kv("description", tt.description))
+        lines.append(_toml_kv("sync_signal", tt.sync_signal))
+        lines.append(_toml_kv("sync_ttl", tt.sync_ttl))
+        lines.append("\n")
 
     # [video.transcode]
     lines.append("[video.transcode]\n")
