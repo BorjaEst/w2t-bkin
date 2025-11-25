@@ -1,0 +1,198 @@
+# NWB Session Configuration File
+# Based on pynwb.file.NWBFile specification
+# Documentation: https://pynwb.readthedocs.io/en/stable/pynwb.file.html#pynwb.file.NWBFile
+
+# =============================================================================
+# REQUIRED FIELDS (must be provided)
+# =============================================================================
+
+# A description of the session where this data was generated
+session_description = "Behavioral training session with pose tracking and camera synchronization"
+
+# A unique text identifier for the file (e.g., UUID or lab-specific ID)
+identifier = "Session-000001"
+
+# The start date and time of the recording session (ISO 8601 format)
+# Format: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS
+session_start_time = "2025-01-15T14:30:00"
+
+# =============================================================================
+# OPTIONAL METADATA FIELDS
+# =============================================================================
+
+# Lab-specific ID for the session
+session_id = "000001"
+
+# Name of person(s) who performed experiment (can be a list)
+experimenter = ["John Doe", "Jane Smith"]
+
+# General description of the experiment
+experiment_description = """
+Water-to-target behavioral task with simultaneous video tracking.
+Animal navigates to target location while pose is tracked using
+DeepLabCut and synchronized with Bpod behavioral events.
+"""
+
+# Institution(s) where experiment is performed
+institution = "Neural Dynamics Laboratory, University Example"
+
+# Lab where experiment was performed
+lab = "Larkum Lab"
+
+# Terms to search over (keywords)
+keywords = [
+    "behavior",
+    "pose tracking",
+    "synchronization",
+    "water reward",
+    "navigation",
+]
+
+# Notes about the experiment
+notes = """
+Session conducted with standard lighting conditions.
+Animal showed normal behavior throughout the session.
+All equipment functioning properly.
+"""
+
+# Experimental protocol reference (e.g., IACUC protocol number)
+protocol = "IACUC-2025-001"
+
+# Publication information (PMID, DOI, URL, etc.)
+related_publications = []
+
+# Description of drugs used, including administration details
+pharmacology = "None"
+
+# Description of slices (for in vitro experiments)
+slices = "N/A - in vivo experiment"
+
+# Notes about data collection and analysis
+data_collection = """
+Data collected using Bpod behavioral control system.
+Video recorded at 30 fps using synchronized cameras.
+Pose estimated using DeepLabCut model trained on lab-specific data.
+"""
+
+# Narrative description about surgery/surgeries
+surgery = """
+Cranial window implant surgery performed 2 weeks prior to recording.
+No complications observed. Animal recovered fully.
+"""
+
+# Information about virus(es) used
+virus = "None"
+
+# Notes about stimuli presentation
+stimulus_notes = "Visual target displayed on LED screen at variable locations"
+
+# Date and time corresponding to time zero of all timestamps
+# If not specified, defaults to session_start_time
+# timestamps_reference_time = "2025-01-15T14:30:00"
+
+# =============================================================================
+# SUBJECT INFORMATION
+# =============================================================================
+
+[subject]
+# Subject identifier
+subject_id = "M001"
+
+# Description of the subject
+description = "Adult male C57BL/6J mouse, 12 weeks old"
+
+# Species (formal latin binomial name recommended)
+species = "Mus musculus"
+
+# Sex: "F" (female), "M" (male), "U" (unknown), or "O" (other)
+sex = "M"
+
+# Age (ISO 8601 Duration format recommended, e.g., "P90D" for 90 days)
+age = "P84D"
+
+# Age reference: "birth" or "gestational"
+age__reference = "birth"
+
+# Genotype
+genotype = "C57BL/6J wild-type"
+
+# Strain
+strain = "C57BL/6J"
+
+# Weight (include units, e.g., "0.025 kg" or just the number for kg)
+weight = "0.025 kg"
+
+# Date of birth (ISO 8601 format)
+date_of_birth = "2024-10-23T00:00:00"
+
+# =============================================================================
+# DEVICES
+# =============================================================================
+
+# Devices used in the experiment
+[[devices]]
+name = "bpod"
+description = "Bpod State Machine r2.5 for behavioral control"
+manufacturer = "Sanworks"
+
+[[devices]]
+name = "camera_0"
+description = "High-speed camera for pose tracking - overhead view"
+manufacturer = "FLIR"
+model_name = "Blackfly S"
+
+[[devices]]
+name = "camera_1"
+description = "High-speed camera for pose tracking - side view"
+manufacturer = "FLIR"
+model_name = "Blackfly S"
+
+# =============================================================================
+# ELECTRODE GROUPS (for electrophysiology, if applicable)
+# =============================================================================
+
+# Example electrode group (remove if not applicable)
+[[electrode_groups]]
+name = "tetrode1"
+description = "Tetrode in motor cortex"
+location = "M1, right hemisphere"
+device = "neuropixels"
+
+# =============================================================================
+# IMAGING PLANES (for optical imaging, if applicable)
+# =============================================================================
+
+# Example imaging plane (remove if not applicable)
+[[imaging_planes]]
+name = "imaging_plane_1"
+description = "Imaging plane in primary motor cortex"
+excitation_lambda = 920.0
+indicator = "GCaMP6f"
+location = "M1"
+device = "two_photon_microscope"
+imaging_rate = 30.0
+
+# =============================================================================
+# OPTOGENETIC SITES (if applicable)
+# =============================================================================
+
+# Example optogenetic site (remove if not applicable)
+[[ogen_sites]]
+name = "stim_site_1"
+description = "Optogenetic stimulation site in M1"
+excitation_lambda = 473.0
+location = "M1, left hemisphere"
+device = "laser_473"
+
+# =============================================================================
+# PROCESSING MODULES
+# =============================================================================
+
+# Processing modules for organizing processed data
+[[processing_modules]]
+name = "behavior"
+description = "Processed behavioral data including pose estimates and synchronized events"
+
+[[processing_modules]]
+name = "sync"
+description = "Synchronization data between Bpod and cameras"
