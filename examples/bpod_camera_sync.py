@@ -42,11 +42,24 @@ warnings.filterwarnings("ignore", category=UserWarning, module="hdmf.container")
 
 from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offsets, plot_ttl_timeline
 from synthetic import build_raw_folder
+from w2t_bkin.behavior import (
+    build_task,
+    build_task_recording,
+    build_trials_table,
+    extract_action_types,
+    extract_actions,
+    extract_event_types,
+    extract_events,
+    extract_state_types,
+    extract_states,
+    extract_task_arguments,
+)
 from w2t_bkin.bpod import parse_bpod
-from w2t_bkin.config import load_config, load_session
+from w2t_bkin.config import load_config
+from w2t_bkin.session import load_session_metadata
 from w2t_bkin.sync import align_bpod_trials_to_ttl, get_ttl_pulses
 from w2t_bkin.sync.behavior import get_sync_time_from_bpod_trial
-from w2t_bkin.utils import convert_matlab_struct, to_scalar
+from w2t_bkin.utils import convert_matlab_struct, count_ttl_pulses, count_video_frames, discover_files, to_scalar
 
 
 class ExampleSettings(BaseSettings):
@@ -121,90 +134,73 @@ if __name__ == "__main__":
     print(f"  - Bpod .mat files:      {len(session.bpod_paths)}")
 
     # ---------------------------------------------------------------------
-    # PHASE 1: Load config + build manifest
+    # PHASE 1: Load config and session metadata
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 1: Ingest (config + manifest)")
+    print("PHASE 1: Load Config and Session Metadata")
     print("=" * 80)
 
     config = load_config(session.config_path)
-    session_cfg = load_session(session.session_path)
+    session_metadata = load_session_metadata(session.session_path)
+    session_dir = session.session_path.parent
 
     print("\nSession config:")
     print(f"  - Project:              {config.project.name}")
-    print(f"  - Session ID:           {session_cfg.session.id}")
-    print(f"  - Subject:              {session_cfg.session.subject_id}")
-    print(f"  - Cameras:              {len(session_cfg.cameras)}")
-    print(f"  - Bpod path pattern:    {session_cfg.bpod.path}")
+    print(f"  - Session ID:           {session_metadata['session']['id']}")
+    print(f"  - Subject:              {session_metadata['session']['subject_id']}")
+    print(f"  - Cameras:              {len(session_metadata.get('cameras', []))}")
+    print(f"  - Bpod path pattern:    {session_metadata['bpod']['path']}")
 
-    manifest = ingest.build_and_count_manifest(config, session_cfg)
-
-    print("\nCamera + TTL overview (from manifest):")
-    for cam in manifest.cameras:
-        print(f"  - Camera {cam.camera_id}:")
-        print(f"      frames:             {cam.frame_count}")
-        print(f"      ttl pulses:         {cam.ttl_pulse_count}")
-        print(f"      ttl channel:        {cam.ttl_id}")
-
-    print("\nTTL channels discovered:")
-    for ttl in manifest.ttls:
-        print(f"  - TTL {ttl.ttl_id}: {len(ttl.files)} file(s)")
-
-    # ---------------------------------------------------------------------
-    # PHASE 2: Quick verification (frame vs TTL counts)
-    # ---------------------------------------------------------------------
-    print("\n" + "=" * 80)
-    print("PHASE 2: Quick Verification (frame vs TTL counts)")
-    print("=" * 80)
-
-    verification = ingest.verify_manifest(manifest, tolerance=5)
-    print("\nVerification per camera:")
-    for cam in verification.camera_results:
-        status_symbol = "✓" if cam.status == "pass" else "✗"
-        print(f"  {status_symbol} {cam.camera_id}: status={cam.status}, mismatch={cam.mismatch}")
+    print("\nCamera + TTL overview:")
+    for cam in session_metadata.get("cameras", []):
+        cam_videos = discover_files(session_dir, cam["paths"], sort=True)
+        frame_count = sum(count_video_frames(Path(v)) for v in cam_videos)
+        ttl_config = next((ttl for ttl in session_metadata.get("TTLs", []) if ttl["id"] == cam["ttl_id"]), None)
+        if ttl_config:
+            ttl_files = discover_files(session_dir, ttl_config["paths"], sort=True)
+            ttl_pulse_count = sum(count_ttl_pulses(Path(t)) for t in ttl_files)
+            mismatch = abs(frame_count - ttl_pulse_count)
+            status = "✓" if mismatch <= 5 else "✗"
+            print(f"  {status} Camera {cam['id']}:")
+            print(f"      frames:             {frame_count}")
+            print(f"      ttl pulses:         {ttl_pulse_count}")
+            print(f"      ttl channel:        {cam['ttl_id']}")
+            print(f"      mismatch:           {mismatch}")
+        else:
+            print(f"  - Camera {cam['id']}: (no TTL reference)")
 
     # ---------------------------------------------------------------------
-    # PHASE 3: Parse Bpod data (but don't extract trials yet)
+    # PHASE 2: Parse Bpod data
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 3: Parse Bpod Data")
+    print("PHASE 2: Parse Bpod Data")
     print("=" * 80)
 
-    session_dir = Path(session_cfg.session_dir)
-    # Use parse_bpod directly instead of discover_bpod_files
-    print(f"\nParsing Bpod files from pattern: {session_cfg.bpod.path}")
+    print(f"\nParsing Bpod files from pattern: {session_metadata['bpod']['path']}")
+    bpod_data_raw = parse_bpod(
+        session_dir=session_dir,
+        pattern=session_metadata["bpod"]["path"],
+        order=session_metadata["bpod"]["order"],
+        continuous_time=session_metadata["bpod"]["continuous_time"],
+    )
 
-    # Peek into first Bpod file to show structure (if exists)
-    bpod_files = discover_bpod_files_from_pattern(session_dir=session_dir, pattern=session_cfg.bpod.path, order=session_cfg.bpod.order)
-    print(f"Found {len(bpod_files)} Bpod file(s):")
-    for bf in bpod_files:
-        print(f"  - {bf.name}")
-
-    # Peek into first file
-    bpod_raw_example = parse_bpod_mat(bpod_files[0])
-    if "SessionData" in bpod_raw_example:
-        session_data_raw = bpod_raw_example["SessionData"]
-        if hasattr(session_data_raw, "nTrials"):
-            print(f"\nExample Bpod file:")
-            print(f"  - nTrials:   {session_data_raw.nTrials}")
-        elif isinstance(session_data_raw, dict) and "nTrials" in session_data_raw:
-            print(f"\nExample Bpod file:")
-            print(f"  - nTrials:   {session_data_raw['nTrials']}")
-
-    # Parse complete Bpod session using low-level API
-    print("\nParsing complete Bpod session (all Bpod files)...")
-    bpod_data_raw = parse_bpod(session_dir=session_dir, pattern=session_cfg.bpod.path, order=session_cfg.bpod.order, continuous_time=session_cfg.bpod.continuous_time)
+    # Show trial count
+    session_data_struct = convert_matlab_struct(bpod_data_raw["SessionData"])
+    raw_events = convert_matlab_struct(session_data_struct.get("RawEvents") if isinstance(session_data_struct, dict) else session_data_struct.RawEvents)
+    trials = raw_events.get("Trial") if isinstance(raw_events, dict) else raw_events.Trial
+    n_trials = len(trials) if trials is not None else 0
+    print(f"Parsed {n_trials} Bpod trial(s)")
 
     # ---------------------------------------------------------------------
-    # PHASE 4: Load TTL pulses and compute per-trial offsets
+    # PHASE 3: Load TTL pulses and compute per-trial offsets
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 4: TTL Pulses + Per-Trial Offsets")
+    print("PHASE 3: TTL Pulses + Per-Trial Offsets")
     print("=" * 80)
 
-    print("\nStep 4.1: Load TTL pulses from disk (Phase 2 pattern)")
+    print("\nStep 3.1: Load TTL pulses from disk")
     # Extract primitives from session
-    ttl_patterns = {ttl.id: ttl.paths for ttl in session_cfg.TTLs}
+    ttl_patterns = {ttl["id"]: ttl["paths"] for ttl in session_metadata.get("TTLs", [])}
     ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
 
     print("\nTTL channels (absolute times):")
@@ -214,7 +210,7 @@ if __name__ == "__main__":
         else:
             print(f"  - {ttl_id}: (no pulses)")
 
-    print("\nStep 4.2: Compute per-trial offsets (Bpod → TTL)")
+    print("\nStep 3.2: Compute per-trial offsets (Bpod → TTL)")
     print("  For each trial, align Bpod sync state to next TTL pulse.")
     # Get sync signal and TTL from config (first trial type as example)
     print(f"  - sync_signal '{config.bpod.sync.trial_types[0].sync_signal}' is a Bpod state that triggers a TTL output")
@@ -239,11 +235,14 @@ if __name__ == "__main__":
     print(f"\nComputed offsets for {len(trial_offsets)} trial(s).")
 
     offsets_array = np.array(list(trial_offsets.values()))
-    print("\nOffset statistics:")
-    print(f"  - Mean: {np.mean(offsets_array):.4f} s")
-    print(f"  - Std:  {np.std(offsets_array):.4f} s")
-    print(f"  - Min:  {np.min(offsets_array):.4f} s")
-    print(f"  - Max:  {np.max(offsets_array):.4f} s")
+    if len(offsets_array) > 0:
+        print("\nOffset statistics:")
+        print(f"  - Mean: {np.mean(offsets_array):.4f} s")
+        print(f"  - Std:  {np.std(offsets_array):.4f} s")
+        print(f"  - Min:  {np.min(offsets_array):.4f} s")
+        print(f"  - Max:  {np.max(offsets_array):.4f} s")
+    else:
+        print("\nNo trials aligned (check sync configuration and Bpod data)")
 
     print("\nFirst 10 per-trial offsets:")
     for trial_num in sorted(trial_offsets.keys())[:10]:
@@ -276,13 +275,14 @@ if __name__ == "__main__":
     print("  => absolute_time = offset + bpod_time")
 
     # -----------------------------------------------------------------
-    # PHASE 4b: Visualizations to aid understanding
+    # PHASE 3b: Visualizations to aid understanding
     # -----------------------------------------------------------------
     figs_dir = settings.output_root / "output" / "figures"
     figs_dir.mkdir(parents=True, exist_ok=True)
 
     # TTL timeline for key channels (camera TTL and Bpod sync TTL)
-    example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else None
+    cameras = session_metadata.get("cameras", [])
+    example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
     example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else None
     ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
     plot_ttl_timeline(ttl_pulses, channel_order=ttl_order, out_path=figs_dir / "ttl_timeline.png")
@@ -304,7 +304,7 @@ if __name__ == "__main__":
         pass
 
     # Extra TTL series: camera TTL pulses near the trial window
-    example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else None
+    example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
     extra_ttl_series = {}
     if example_cam_ttl and example_cam_ttl in ttl_pulses:
         window_start = trial_start_ts - 0.25
@@ -325,13 +325,13 @@ if __name__ == "__main__":
     )
 
     # ---------------------------------------------------------------------
-    # PHASE 5: Build NWB behavior tables (ndx-structured-behavior)
+    # PHASE 4: Build NWB behavior tables (ndx-structured-behavior)
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 5: Build NWB Behavior Tables (ndx-structured-behavior)")
+    print("PHASE 4: Build NWB Behavior Tables (ndx-structured-behavior)")
     print("=" * 80)
 
-    print("\nStep 5.1: Extract type tables (metadata)")
+    print("\nStep 4.1: Extract type tables (metadata)")
     state_types = extract_state_types(bpod_data_raw)
     event_types = extract_event_types(bpod_data_raw)
     action_types = extract_action_types(bpod_data_raw)
@@ -349,14 +349,14 @@ if __name__ == "__main__":
     print(f"  - Events:  {len(events)} entries")
     print(f"  - Actions: {len(actions)} entries")
 
-    print("\nStep 5.3: Build trials table and task recording")
+    print("\nStep 4.3: Build trials table and task recording")
     trials_table = build_trials_table(bpod_data_raw, states, events, actions, state_indices, event_indices, action_indices, trial_offsets=trial_offsets)
     task_recording = build_task_recording(states, events, actions)
 
     print(f"  - Trials table: {len(trials_table)} trials")
     print(f"  - Task recording: {task_recording.name}")
 
-    print("\nStep 5.4: Build Task container (optional metadata)")
+    print("\nStep 4.4: Build Task container (optional metadata)")
     task_arguments = extract_task_arguments(bpod_data_raw)
     task = build_task(state_types, event_types, action_types, task_arguments=task_arguments)
 
@@ -374,10 +374,10 @@ if __name__ == "__main__":
         print(f"  - Duration:         {trials_table['stop_time'][0] - trials_table['start_time'][0]:.3f} s")
 
     # ---------------------------------------------------------------------
-    # PHASE 6: Summary statistics + small report
+    # PHASE 5: Summary statistics + small report
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 6: Summary Statistics + Report")
+    print("PHASE 5: Summary Statistics + Report")
     print("=" * 80)
 
     output_dir = settings.output_root / "output"
@@ -389,7 +389,7 @@ if __name__ == "__main__":
     mean_duration = float(np.mean(trial_durations))
 
     trial_summary = {
-        "session_id": session_cfg.session.id,
+        "session_id": session_metadata["session"]["id"],
         "total_trials": n_trials,
         "mean_trial_duration": mean_duration,
         "n_states": len(states),
@@ -459,7 +459,8 @@ if __name__ == "__main__":
     print("\nSummary:")
     print("  - TTL system defines absolute time (t = 0)")
     # Get camera TTL from session config (first camera as example)
-    example_cam_ttl = session_cfg.cameras[0].ttl_id if session_cfg.cameras else "cam_ttl"
+    cameras = session_metadata.get("cameras", [])
+    example_cam_ttl = cameras[0]["ttl_id"] if cameras else "cam_ttl"
     print(f"  - Camera frames start at {settings.camera_start_delay_s:.3f} s " f"and are aligned via {example_cam_ttl} (one pulse per frame)")
     print(f"  - Bpod trials start at {settings.bpod_start_delay_s:.3f} s")
     # Get sync signal and TTL from config (first trial type as example)

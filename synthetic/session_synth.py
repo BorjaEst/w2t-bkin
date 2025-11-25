@@ -27,14 +27,6 @@ from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from w2t_bkin.domain.session import Session as SessionModel
-from w2t_bkin.domain.session import SessionMetadata
-
-# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-# This synthetic generator creates the old Session model which is no longer used.
-# For session metadata, use session.toml directly with create_nwb_file().
-from w2t_bkin.domain.session import TTL, BpodSession, Camera
-
 
 class SessionSynthOptions(BaseModel):
     """Options for synthesizing a minimal session.
@@ -75,8 +67,10 @@ class SessionSynthOptions(BaseModel):
     trial_type_sync_ttl: Optional[str] = Field(default=None, description="TTL id to associate with trial types; defaults to first ttl id")
 
 
-def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides) -> SessionModel:
-    """Create a synthetic `Session` model.
+def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides) -> dict:
+    """Create a synthetic session configuration dictionary.
+
+    Returns a dictionary that can be written to session.toml.
 
     Preferred usage: `build_session(options=SessionSynthOptions(...))`.
     Convenience: pass overrides as kwargs.
@@ -85,58 +79,51 @@ def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides)
     if overrides:
         base = base.model_copy(update=overrides)
 
-    # Metadata
-    metadata = SessionMetadata(
-        id=base.session_id,
-        subject_id=base.subject_id,
-        date=base.date,
-        experimenter=base.experimenter,
-        description=base.description,
-        sex=base.sex,
-        age=base.age,
-        genotype=base.genotype,
-    )
+    # Build session dictionary matching session.toml structure
+    session_dict = {
+        "session": {
+            "id": base.session_id,
+            "subject_id": base.subject_id,
+            "date": base.date,
+            "experimenter": base.experimenter,
+            "description": base.description,
+            "sex": base.sex,
+            "age": base.age,
+            "genotype": base.genotype,
+        },
+        "bpod": {
+            "path": base.bpod_path,
+            "order": base.bpod_order,
+            "continuous_time": base.bpod_continuous_time,
+        },
+        "TTLs": [],
+        "cameras": [],
+    }
 
-    # TTLs
-    ttl_models: List[TTL] = []
+    # Add TTLs
     for tid in base.ttl_ids:
-        ttl_models.append(
-            TTL(
-                id=tid,
-                description=base.ttl_description_template.format(ttl_id=tid),
-                paths=base.ttl_paths_template.format(ttl_id=tid),
-            )
+        session_dict["TTLs"].append(
+            {
+                "id": tid,
+                "description": base.ttl_description_template.format(ttl_id=tid),
+                "paths": base.ttl_paths_template.format(ttl_id=tid),
+            }
         )
 
-    # Cameras referencing first TTL (or specified mapping)
-    camera_models: List[Camera] = []
+    # Add cameras
     camera_ttl = base.trial_type_sync_ttl or (base.ttl_ids[0] if base.ttl_ids else "ttl_sync")
     for cid in base.camera_ids:
-        camera_models.append(
-            Camera(
-                id=cid,
-                description=base.camera_description_template.format(camera_id=cid),
-                paths=base.camera_paths_template.format(camera_id=cid),
-                order=base.camera_order,
-                ttl_id=camera_ttl,
-            )
+        session_dict["cameras"].append(
+            {
+                "id": cid,
+                "description": base.camera_description_template.format(camera_id=cid),
+                "paths": base.camera_paths_template.format(camera_id=cid),
+                "order": base.camera_order,
+                "ttl_id": camera_ttl,
+            }
         )
 
-    # Bpod (no trial_types - moved to config)
-    bpod = BpodSession(
-        path=base.bpod_path,
-        order=base.bpod_order,
-        continuous_time=base.bpod_continuous_time,
-        trial_types=[],  # Now defined in config.bpod.sync.trial_types
-    )
-
-    return SessionModel(
-        session=metadata,
-        bpod=bpod,
-        TTLs=ttl_models,
-        cameras=camera_models,
-        session_dir=".",  # load_session will override
-    )
+    return session_dict
 
 
 def _kv_line(key: str, value: Union[str, int, float, bool]) -> str:
@@ -147,53 +134,43 @@ def _kv_line(key: str, value: Union[str, int, float, bool]) -> str:
     return f"{key} = {value}\n"
 
 
-def session_to_toml(session: SessionModel) -> str:
-    """Render a `Session` model to TOML text with arrays-of-tables."""
+def session_to_toml(session: dict) -> str:
+    """Render a session dictionary to TOML text with arrays-of-tables."""
     lines: list[str] = []
 
     # [session]
     lines.append("[session]\n")
-    lines.append(_kv_line("id", session.session.id))
-    lines.append(_kv_line("subject_id", session.session.subject_id))
-    lines.append(_kv_line("date", session.session.date))
-    lines.append(_kv_line("experimenter", session.session.experimenter))
-    lines.append(_kv_line("description", session.session.description))
-    lines.append(_kv_line("sex", session.session.sex))
-    lines.append(_kv_line("age", session.session.age))
-    lines.append(_kv_line("genotype", session.session.genotype))
+    for key, value in session["session"].items():
+        lines.append(_kv_line(key, value))
     lines.append("\n")
 
     # [bpod]
-    lines.append("[bpod]\\n")
-    lines.append(_kv_line("path", session.bpod.path))
-    lines.append(_kv_line("order", session.bpod.order))
-    lines.append(_kv_line("continuous_time", session.bpod.continuous_time))
-    lines.append("\\n")
+    lines.append("[bpod]\n")
+    for key, value in session["bpod"].items():
+        lines.append(_kv_line(key, value))
+    lines.append("\n")
 
     # NOTE: trial_types moved to config.bpod.sync.trial_types
 
     # [[TTLs]]
-    for ttl in session.TTLs:
+    for ttl in session["TTLs"]:
         lines.append("[[TTLs]]\n")
-        lines.append(_kv_line("id", ttl.id))
-        lines.append(_kv_line("description", ttl.description))
-        lines.append(_kv_line("paths", ttl.paths))
+        for key, value in ttl.items():
+            lines.append(_kv_line(key, value))
         lines.append("\n")
 
     # [[cameras]]
-    for cam in session.cameras:
+    for cam in session["cameras"]:
         lines.append("[[cameras]]\n")
-        lines.append(_kv_line("id", cam.id))
-        lines.append(_kv_line("description", cam.description))
-        lines.append(_kv_line("paths", cam.paths))
-        lines.append(_kv_line("order", cam.order))
-        lines.append(_kv_line("ttl_id", cam.ttl_id))
+        for key, value in cam.items():
+            lines.append(_kv_line(key, value))
         lines.append("\n")
 
     return "".join(lines)
 
 
-def write_session_toml(path: Union[str, Path], session: SessionModel) -> Path:
+def write_session_toml(path: Union[str, Path], session: dict) -> Path:
+    """Write session dictionary to TOML file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = session_to_toml(session)

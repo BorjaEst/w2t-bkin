@@ -228,7 +228,7 @@ def build_raw_folder(
     )
     # Generate both: assume first TTL is camera, others are for Bpod sync (simplified)
     # In real scenario, session config defines which TTL is which
-    ttl_ids_list = [ttl.id for ttl in session_model.TTLs]
+    ttl_ids_list = [ttl["id"] for ttl in session_model["TTLs"]]
     if len(ttl_ids_list) == 1:
         # Single TTL: assume camera
         ttl_map = generate_and_write_ttls_for_session(session_model, session_dir, options=camera_ttl_opts)

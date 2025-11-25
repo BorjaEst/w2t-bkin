@@ -38,10 +38,6 @@ except Exception as e:  # pragma: no cover - scipy is required by project
 
 from w2t_bkin.bpod.core import write_bpod_mat
 
-# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-# This import is kept for backward compatibility but Session model is no longer used.
-from w2t_bkin.domain.session import Session as SessionModel
-
 
 class BpodSynthOptions(BaseModel):
     """Options controlling synthetic Bpod generation."""
@@ -203,7 +199,7 @@ def _build_sessiondata_dict(
 
 
 def write_bpod_mat_files_for_session(
-    session: SessionModel,
+    session: dict,
     base_dir: Union[str, Path],
     *,
     options: Optional[BpodSynthOptions] = None,
@@ -221,7 +217,7 @@ def write_bpod_mat_files_for_session(
         raise RuntimeError("scipy.io.savemat is required to write Bpod .mat files")
 
     out_base = Path(base_dir)
-    paths = _derive_bpod_paths(session.bpod.path, base.files)
+    paths = _derive_bpod_paths(session["bpod"]["path"], base.files)
     rng = random.Random(base.seed)
 
     written: List[Path] = []
@@ -229,10 +225,9 @@ def write_bpod_mat_files_for_session(
         full = out_base / rel
         full.parent.mkdir(parents=True, exist_ok=True)
 
-        # Build trial type codes from session config if present
-        tt_codes = [tt.trial_type for tt in session.bpod.trial_types] if session.bpod and session.bpod.trial_types else None
-        # Extract sync_signal name from first trial type if available
-        sync_signal = session.bpod.trial_types[0].sync_signal if session.bpod and session.bpod.trial_types else base.sync_signal_name
+        # NOTE: trial_types moved to config.bpod.sync.trial_types
+        tt_codes = None  # Use default from BpodSynthOptions
+        sync_signal = base.sync_signal_name
 
         session_dict = _build_sessiondata_dict(
             base.trials_per_file,

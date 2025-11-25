@@ -94,6 +94,9 @@ import subprocess
 import sys
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Type, Union
 
+# Module logger
+logger = logging.getLogger(__name__)
+
 # Import version info
 try:
     from importlib.metadata import version

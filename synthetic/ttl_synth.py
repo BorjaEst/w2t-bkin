@@ -41,10 +41,6 @@ from pydantic import BaseModel, Field
 
 from synthetic.utils import deterministic_rng, write_float_lines
 
-# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-# This import is kept for backward compatibility but Session model is no longer used.
-from w2t_bkin.domain.session import Session as SessionModel
-
 
 class TTLGenerationOptions(BaseModel):
     """Knobs controlling synthetic TTL pulse generation.
@@ -133,10 +129,10 @@ def write_ttl_pulse_files(
     base_dir = Path(base_dir)
     output: Dict[str, List[Path]] = {}
 
-    for ttl_cfg in session.TTLs:
-        tid = ttl_cfg.id
+    for ttl_cfg in session["TTLs"]:
+        tid = ttl_cfg["id"]
         channel_pulses = pulses.get(tid, [])
-        pattern = ttl_cfg.paths
+        pattern = ttl_cfg["paths"]
         paths = _derive_output_paths(pattern, tid, multi_file)
         concrete_paths: List[Path] = []
         for p in paths:
@@ -152,14 +148,14 @@ def write_ttl_pulse_files(
 
 
 def generate_and_write_ttls_for_session(
-    session: SessionModel,
+    session: dict,
     base_dir: Union[str, Path],
     *,
     options: Optional[TTLGenerationOptions] = None,
     **overrides,
 ) -> Dict[str, List[Path]]:
     """Generate pulses for each TTL in `session` and write them to disk."""
-    ttl_ids = [ttl.id for ttl in session.TTLs]
+    ttl_ids = [ttl["id"] for ttl in session["TTLs"]]
     pulses = generate_ttl_pulses(ttl_ids, options=options, **overrides)
     multi_file = options.multi_file if options else False
     return write_ttl_pulse_files(session, pulses, base_dir, multi_file=multi_file)

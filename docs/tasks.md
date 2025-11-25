@@ -159,6 +159,111 @@ Core transformation functions:
 
 ---
 
+### Phase 3.1: Domain Module Removal ✅ COMPLETED (2025-11-25)
+
+**Goal**: Eliminate w2t_bkin.domain module; relocate all models to appropriate packages
+
+**Status**: Complete domain module removal. All config models moved to dedicated config/ package. Session model deprecated in favor of NWBFile.
+
+**Results**:
+
+- Module removed: w2t_bkin.domain/ package (completely deleted)
+- Package created: w2t_bkin.config/ with 15 Pydantic config models
+- File renamed: config.py → config_loader.py (avoid circular imports)
+- Files modified: 30+ (source, tests, examples, synthetic generators)
+- Breaking changes: All `from w2t_bkin.domain import *` statements fail
+- Import updates: Use `from w2t_bkin.config import Config, TimebaseConfig` etc.
+- Architecture impact: Each functional domain owns its models (config/, sync/, facemap/, transcode/)
+
+**Task Checklist**:
+
+1. ✅ Create w2t_bkin.config/ package structure (\_\_init\_\_.py, models.py)
+2. ✅ Move 15 Config models to config/models.py
+3. ✅ Rename config.py → config_loader.py (eliminate circular import)
+4. ✅ Update config/\_\_init\_\_.py with lazy loading for load_config/hash functions
+5. ✅ Delete domain/ package completely
+6. ✅ Update all source file imports (pipeline, session, etc.)
+7. ✅ Update all test file imports (conftest, test_config, test_sync, etc.)
+8. ✅ Update examples and synthetic generators
+9. ✅ Mark obsolete Session model tests as deprecated
+10. ✅ Verify all modules compile successfully (0 import errors)
+
+**Model Relocations**:
+
+**Configuration Models** → `w2t_bkin.config`:
+
+- Config, ProjectConfig, PathsConfig, TimebaseConfig
+- AcquisitionConfig, VerificationConfig, BpodConfig
+- VideoConfig, TranscodeConfig, NWBConfig
+- QCConfig, LoggingConfig, LabelsConfig
+- DLCConfig, SLEAPConfig, FacemapConfig
+
+**Other Models** (previously relocated):
+
+- Sync models → `w2t_bkin.sync` (AlignmentStats)
+- Facemap models → `w2t_bkin.facemap` (FacemapBundle, FacemapROI, FacemapSignal)
+- Transcode models → `w2t_bkin.transcode` (TranscodedVideo, TranscodeOptions)
+
+**Deprecated/Removed Models**:
+
+- Session model → DEPRECATED (replaced by pynwb.NWBFile in Phase 3)
+- Manifest models → REMOVED in Phase 3
+
+**Architecture Change:**
+
+**Before**:
+
+```text
+src/w2t_bkin/
+  ├── domain/              # Monolithic model package
+  │   ├── config.py        # Config models
+  │   ├── session.py       # Session (deprecated)
+  │   └── manifest.py      # Manifest (removed)
+  └── config.py            # Loading functions
+```
+
+**After**:
+
+```text
+src/w2t_bkin/
+  ├── config/              # Dedicated config package
+  │   ├── __init__.py      # Exports + lazy loading
+  │   └── models.py        # 15 Config models
+  └── config_loader.py     # Loading functions
+```
+
+**Benefits Achieved**:
+
+- Clearer separation: Config models in dedicated package (not mixed with deprecated Session)
+- No circular imports: config_loader.py can import from config/ package
+- Consistent pattern: Matches pose/, sync/, facemap/ organization
+- Simpler architecture: No domain "meta-package" - models live with their functional modules
+- Better maintainability: Clear ownership - config models in config/, sync models in sync/, etc.
+
+**Breaking Changes**:
+
+All `from w2t_bkin.domain import` statements must be updated:
+
+```python
+# OLD (no longer works):
+from w2t_bkin.domain import Config, TimebaseConfig
+from w2t_bkin.domain import AlignmentStats
+from w2t_bkin.domain import Session  # Deprecated
+
+# NEW (required):
+from w2t_bkin.config import Config, TimebaseConfig
+from w2t_bkin.sync import AlignmentStats
+from pynwb import NWBFile  # Replace Session
+```
+
+**Migration**: See docs/MIGRATION.md Phase 3.1 for complete breaking changes guide.
+
+**Completed**: 2025-11-25  
+**Time Spent**: ~4 hours  
+**Status**: Production-ready, all modules compile successfully
+
+---
+
 ## Current Phase: Documentation & Test Migration
 
 ### Next Tasks

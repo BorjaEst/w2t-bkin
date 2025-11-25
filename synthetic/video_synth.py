@@ -40,10 +40,6 @@ try:
 except Exception:  # pragma: no cover - fallback if import fails
     ffmpeg = None  # type: ignore
 
-# DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-# This import is kept for backward compatibility but Session model is no longer used.
-from w2t_bkin.domain.session import Session as SessionModel
-
 
 class VideoGenerationOptions(BaseModel):
     """Options controlling synthetic video generation.
@@ -134,7 +130,7 @@ def _write_video_file(path: Path, *, fps: float, frames: int, width: int, height
 
 
 def generate_video_files_for_session(
-    session: SessionModel,
+    session: dict,
     base_dir: Union[str, Path],
     *,
     options: Optional[VideoGenerationOptions] = None,
@@ -150,9 +146,11 @@ def generate_video_files_for_session(
 
     out_base = Path(base_dir)
     mapping: Dict[str, List[Path]] = {}
-    for cam in session.cameras:
-        paths = _derive_video_paths(cam.paths, base.segments_per_camera, base.extension)
-        color = _camera_color(base.base_color, cam.id, base.seed)
+    for cam in session["cameras"]:
+        cam_id = cam["id"]
+        pattern = cam["paths"]
+        paths = _derive_video_paths(pattern, base.segments_per_camera, base.extension)
+        color = _camera_color(base.base_color, cam_id, base.seed)
         concrete: List[Path] = []
         for p in paths:
             full = out_base / p
@@ -168,7 +166,7 @@ def generate_video_files_for_session(
                 overwrite=base.overwrite,
             )
             concrete.append(full.resolve())
-        mapping[cam.id] = concrete
+        mapping[cam_id] = concrete
     return mapping
 
 

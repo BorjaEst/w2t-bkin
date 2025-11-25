@@ -48,8 +48,8 @@ This pipeline uses NWB as its foundational data layer rather than treating it as
 **Key architectural constraints:**
 
 - **Solid arrows** (→): direct module imports allowed
-- **Dotted arrows** (-.→): orchestration layer calls with primitives only (no Session/Manifest passed)
-- **Low-level** tools never import `config`, `Session`, or `Manifest`
+- **Dotted arrows** (-.→): orchestration layer calls with primitives only (no Config models passed)
+- **Low-level** tools never import `config` package or `config_loader`
 - **Mid-level** tools never load TOML or know filesystem layout
 - **High-level** is the only layer that understands session structure
 
@@ -68,13 +68,13 @@ Principles:
 
 **Foundation layer**: `pynwb`, `hdmf`, `ndx-*` extensions are foundational dependencies available to all layers.
 
-- Low-level tools may depend on foundation layer (pynwb/ndx) + general utilities (e.g., `utils`). They produce NWB-native data structures. They MUST NOT depend on `config`, `Session`, `Manifest`, or any CLI/orchestration module.
-- Mid-level tools may depend on low-level tools + foundation layer + shared utilities. They MUST NOT depend on `config`, `Session`, or TOML parsing.
-- High-level orchestration (session-aware code) may depend on any lower layer. It is the ONLY layer that touches `config.toml`, `session.toml`, `Session`, or `Manifest`.
+- Low-level tools may depend on foundation layer (pynwb/ndx) + general utilities (e.g., `utils`). They produce NWB-native data structures. They MUST NOT depend on `config`, `config_loader`, or any CLI/orchestration module.
+- Mid-level tools may depend on low-level tools + foundation layer + shared utilities. They MUST NOT depend on `config`, `config_loader`, or TOML parsing.
+- High-level orchestration (session-aware code) may depend on any lower layer. It is the ONLY layer that touches `config.toml` and loads configuration models.
 
 ### Low-level tools (raw files, primitive options)
 
-Low-level modules operate on raw files and simple arguments (e.g., glob patterns, sort order, ROI specs) and never see `Session` or `Manifest`. Modules produce NWB-native data structures directly.
+Low-level modules operate on raw files and simple arguments (e.g., glob patterns, sort order, ROI specs). Modules produce NWB-native data structures directly.
 
 | Module          | Key Input                                                 | Output / Contract                                       | FR/NFR Coverage        |
 | --------------- | --------------------------------------------------------- | ------------------------------------------------------- | ---------------------- |
@@ -89,7 +89,7 @@ Low-level modules operate on raw files and simple arguments (e.g., glob patterns
 
 **Note**: All neuroscience data outputs (pose, behavior, facemap) are NWB-native structures. Only infrastructure outputs (transcode paths, sync stats) remain as primitives or simple models.
 
-Low-level APIs SHOULD offer arguments shaped to be easy to call from `Session` (e.g., `order="name_asc"`, glob patterns, TTL IDs), but must not accept `Session` instances directly.
+Low-level APIs SHOULD offer arguments shaped to be easy to call from orchestration code (e.g., `order="name_asc"`, glob patterns, TTL IDs), but must not accept `Config` or configuration models directly.
 
 ### Mid-level tools (composition and timebase)
 
@@ -106,15 +106,16 @@ Mid-level tools operate on NWB objects and primitive values only. They never loa
 
 ### High-level orchestration (session-aware)
 
-High-level modules understand `Config`, `Session`, and filesystem layout per session. They are responsible for wiring together low- and mid-level tools.
+High-level modules understand `Config` models, NWBFile, and filesystem layout per session. They are responsible for wiring together low- and mid-level tools.
 
-| Module       | Key Input                        | Output / Contract                                                                        | FR/NFR Coverage                  |
-| ------------ | -------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------- |
-| config       | `config.toml`, `session.toml`    | validated `Config`, `Session`, hashes                                                    | FR-10, FR-15, FR-TB-\* NFR-10/11 |
-| session      | `Session`, metadata              | NWBFile creation, video acquisition helpers, NWB file writing                            | FR-7, NFR-6                      |
-| pipeline/cli | `Config`, `Session`, CLI options | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         |
-| validate     | NWB                              | `validation_report.json` (nwbinspector report)                                           | FR-9                             |
-| qc           | NWB + sidecars                   | QC HTML                                                                                  | FR-8/14 NFR-3                    |
+| Module        | Key Input                      | Output / Contract                                                                        | FR/NFR Coverage                  |
+| ------------- | ------------------------------ | ---------------------------------------------------------------------------------------- | -------------------------------- |
+| config        | N/A                            | Pydantic config models (Config, PathsConfig, TimebaseConfig, etc.)                       | FR-10, FR-15, FR-TB-\* NFR-10/11 |
+| config_loader | `config.toml`                  | validated `Config` instances, content hashing                                            | FR-10, FR-15, FR-TB-\* NFR-10/11 |
+| session       | `Config`, metadata             | NWBFile creation, video acquisition helpers, NWB file writing                            | FR-7, NFR-6                      |
+| pipeline/cli  | `Config`, NWBFile, CLI options | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         |
+| validate      | NWB                            | `validation_report.json` (nwbinspector report)                                           | FR-9                             |
+| qc            | NWB + sidecars                 | QC HTML                                                                                  | FR-8/14 NFR-3                    |
 
 ## Sidecar Schemas (summary)
 
@@ -164,12 +165,12 @@ per A17. ImageSeries timing remains rate-based and independent of timebase choic
 ## Build Order & Dependencies
 
 1. Foundation: pynwb, hdmf, ndx-\* extensions (available to all layers)
-2. Utils, config, domain models (Session, Config, alignment models)
-3. Session (NWBFile creation, video acquisition, NWB writing)
-4. Sync (timebase + alignment, owns alignment/timebase models)
+2. Utils, config package (15 Config models), config_loader (TOML loading + hashing)
+3. Session module (NWBFile creation, video acquisition, NWB writing)
+4. Sync (timebase + alignment, owns AlignmentStats model)
 5. Optional modalities (transcode, pose, facemap, bpod, behavior) - produce NWB-native structures (PoseEstimation, TimeIntervals, TimeSeries, TaskRecording)
 6. Pipeline orchestration (inlines file discovery, creates NWBFile early, coordinates processing)
-7. Validation + QC (operate on NWB + sidecar models, no direct knowledge of `Session`)
+7. Validation + QC (operate on NWB + sidecar models)
 
 ### Orchestration API (high-level entrypoints)
 

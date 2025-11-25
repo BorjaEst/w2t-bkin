@@ -18,6 +18,163 @@ Implemented ndx-structured-behavior integration for NWB-first behavior data (Tas
 
 Replaced Manifest-centric architecture with NWB-first; eliminated ingest/nwb modules.
 
+### Phase 3.1: Domain Module Removal ✅ (Completed 2025-11-25)
+
+Eliminated w2t_bkin.domain module; relocated all models to appropriate packages. Config models moved to new config/ package.
+
+## Phase 3.1 Breaking Changes (2025-11-25)
+
+### Domain Module Removal
+
+**The `w2t_bkin.domain` module has been completely removed.**
+
+All configuration models have been relocated to a new `w2t_bkin.config` package. The configuration loading module was renamed to `config_loader.py` to avoid circular imports.
+
+### Removed Module
+
+- `w2t_bkin.domain` - Entire module deleted (package completely removed)
+
+### Module Relocations
+
+**Configuration Models** → `w2t_bkin.config`:
+
+- All 15 Config Pydantic models relocated
+- New package structure: `config/__init__.py`, `config/models.py`
+- Models: Config, ProjectConfig, PathsConfig, TimebaseConfig, AcquisitionConfig, VerificationConfig, BpodConfig, VideoConfig, TranscodeConfig, NWBConfig, QCConfig, LoggingConfig, LabelsConfig, DLCConfig, SLEAPConfig, FacemapConfig
+
+**Configuration Loading Functions** → `w2t_bkin.config_loader`:
+
+- File renamed: `config.py` → `config_loader.py`
+- Functions: `load_config()`, `compute_config_hash()`
+
+**Other Model Relocations** (already completed in earlier phases):
+
+- Sync models → `w2t_bkin.sync` (AlignmentStats)
+- Facemap models → `w2t_bkin.facemap` (FacemapBundle, FacemapROI, FacemapSignal)
+- Transcode models → `w2t_bkin.transcode` (TranscodedVideo, TranscodeOptions)
+
+### Deprecated Models
+
+- **Session model** → DEPRECATED (replaced by `pynwb.NWBFile` in Phase 3)
+- **Manifest models** → REMOVED in Phase 3
+
+### Updated Import Paths
+
+**Before (NO LONGER WORKS):**
+
+```python
+from w2t_bkin.domain import Config, TimebaseConfig, DLCConfig
+from w2t_bkin.domain import AlignmentStats
+from w2t_bkin.domain import FacemapBundle
+from w2t_bkin.domain import Session  # Deprecated
+from w2t_bkin.domain import Manifest  # Removed in Phase 3
+```
+
+**After (REQUIRED):**
+
+```python
+# Config models - use config package
+from w2t_bkin.config import Config, TimebaseConfig, DLCConfig
+
+# Sync models - use sync module
+from w2t_bkin.sync import AlignmentStats
+
+# Facemap models - use facemap module
+from w2t_bkin.facemap import FacemapBundle, FacemapROI, FacemapSignal
+
+# Transcode models - use transcode module
+from w2t_bkin.transcode import TranscodedVideo, TranscodeOptions
+
+# Session - use NWBFile directly
+from pynwb import NWBFile
+from w2t_bkin.session import create_nwb_file
+
+# Manifest - use inline discovery + NWBFile
+# (no replacement - functionality inlined in pipeline)
+```
+
+### Config Loading Function Relocation
+
+The configuration loading module was renamed to avoid circular imports:
+
+**Before:**
+
+```python
+from w2t_bkin.config import load_config, compute_config_hash
+```
+
+**After (both options work):**
+
+```python
+# Option 1: Import from config package (recommended - lazy loaded)
+from w2t_bkin.config import load_config, compute_config_hash
+
+# Option 2: Import from config_loader module directly
+from w2t_bkin.config_loader import load_config, compute_config_hash
+```
+
+### Migration Steps for Phase 3.1
+
+1. **Update all imports**:
+
+   ```bash
+   # Find all domain imports
+   grep -r "from w2t_bkin.domain" .
+
+   # Replace Config imports
+   find . -name "*.py" -exec sed -i 's/from w2t_bkin\.domain import Config/from w2t_bkin.config import Config/g' {} +
+
+   # Replace AlignmentStats imports
+   find . -name "*.py" -exec sed -i 's/from w2t_bkin\.domain import AlignmentStats/from w2t_bkin.sync import AlignmentStats/g' {} +
+   ```
+
+2. **Remove Session model usage**:
+
+   ```python
+   # OLD - Session model (deprecated)
+   from w2t_bkin.config import load_session
+   session = load_session(session_path)
+
+   # NEW - Use NWBFile directly
+   from w2t_bkin.session import create_nwb_file
+   nwbfile = create_nwb_file(session_path)
+   ```
+
+3. **Update tests and examples**:
+
+   - Replace `domain` imports with `config`, `sync`, `facemap`, or `transcode` imports
+   - Update any Session model usage to NWBFile
+   - Remove Manifest references (use inline discovery)
+
+### Architecture Impact
+
+**Module Structure Change:**
+
+```text
+Before:
+src/w2t_bkin/
+  ├── domain/
+  │   ├── __init__.py
+  │   ├── config.py  (Config models)
+  │   ├── session.py (Session model - deprecated)
+  │   └── manifest.py (Manifest - removed Phase 3)
+  └── config.py  (loading functions)
+
+After:
+src/w2t_bkin/
+  ├── config/
+  │   ├── __init__.py
+  │   └── models.py  (15 Config models)
+  └── config_loader.py  (loading functions)
+```
+
+### Benefits of This Change
+
+1. **Clearer separation**: Config models in dedicated package
+2. **No circular imports**: config_loader.py can import from config/ package
+3. **Consistent pattern**: Each domain (pose, sync, facemap) has its own models
+4. **Simpler architecture**: No domain "meta-package" - models live with their modules
+
 ## Phase 3 Breaking Changes (2025-11-25)
 
 ### Removed Modules

@@ -77,7 +77,7 @@ class SynthConfigOptions(BaseModel):
     logging_structured: bool = Field(default=False)
 
     # Acquisition/verification
-    concat_strategy: str = Field(default="by_camera_then_time")
+    concat_strategy: str = Field(default="ffconcat")
     mismatch_tolerance_frames: int = Field(default=0, ge=0)
     warn_on_mismatch: bool = Field(default=True)
 

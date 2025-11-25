@@ -47,11 +47,14 @@ graph TD
     %% Composition + timebase, no TOML/filesystem knowledge
     %% ============================================================================
     subgraph MidLevel["🟡 Mid-Level Tools (Composition & Timebase)"]
+    %% ============================================================================
+    %% MID-LEVEL LAYER
+    %% Composition + timebase, no TOML/filesystem knowledge
+    %% ============================================================================
+    subgraph MidLevel["🟡 Mid-Level Tools (Composition & Timebase)"]
         direction LR
         
         sync["sync<br/>━━━━━<br/>Timebase providers<br/>(nominal, TTL, neuropixels)<br/>Alignment orchestration<br/>Jitter enforcement"]
-        
-        nwb["nwb<br/>━━━━━<br/>NWB assembly layer<br/>Aggregates pre-built NWB objects<br/>Adds provenance & metadata<br/>ImageSeries creation"]
     end
 
     %% ============================================================================
@@ -61,13 +64,13 @@ graph TD
     subgraph HighLevel["🔴 High-Level Orchestration (Session-Aware)"]
         direction TB
         
-        domain["domain<br/>━━━━━<br/>Pydantic models<br/>Config, Session,<br/>Manifest, etc."]
+        config_pkg["config<br/>━━━━━<br/>Pydantic Config models<br/>(15 models)<br/>TimebaseConfig, DLCConfig, etc."]
         
-        config["config<br/>━━━━━<br/>Load/validate TOML<br/>Deterministic hashing"]
+        config_loader["config_loader<br/>━━━━━<br/>Load/validate TOML<br/>Deterministic hashing"]
         
-        ingest["ingest<br/>━━━━━<br/>File discovery (fast)<br/>Frame/TTL counting (slow)<br/>Verification"]
+        session_mod["session<br/>━━━━━<br/>NWBFile creation<br/>Video acquisition<br/>NWB file writing"]
         
-        pipeline["pipeline/cli<br/>━━━━━<br/>Orchestration entrypoint<br/>Wires low/mid-level tools<br/>Serializes sidecars"]
+        pipeline["pipeline/cli<br/>━━━━━<br/>Orchestration entrypoint<br/>Wires low/mid-level tools<br/>Serializes sidecars<br/>NWB-first architecture"]
         
         validate["validate<br/>━━━━━<br/>NWB validation<br/>(nwbinspector)"]
         
@@ -94,19 +97,19 @@ graph TD
     
     %% Mid-level → Low-level + Foundation
     sync --> sync_primitives
+    
+    %% Mid-level → Low-level + Foundation
+    sync --> sync_primitives
     sync --> Foundation
-    nwb --> Foundation
-    nwb --> domain
-    nwb --> utils
     
     %% High-level → Everything below
-    config --> domain
-    config --> utils
-    ingest --> domain
-    ingest --> utils
-    pipeline --> config
-    pipeline --> ingest
-    pipeline --> domain
+    config_loader --> config_pkg
+    config_loader --> utils
+    session_mod --> Foundation
+    session_mod --> config_pkg
+    pipeline --> config_pkg
+    pipeline --> config_loader
+    pipeline --> session_mod
     pipeline --> utils
     validate --> Foundation
     qc --> Foundation
@@ -123,19 +126,19 @@ graph TD
     pipeline -.->|"video paths,<br/>ROI specs,<br/>frame ranges"| facemap
     pipeline -.->|"video paths,<br/>codec options"| transcode
     pipeline -.->|"timestamps,<br/>indices,<br/>timebase config"| sync
-    pipeline -.->|"NWB objects,<br/>metadata primitives,<br/>provenance dict"| nwb
+    pipeline -.->|"NWBFile,<br/>camera specs,<br/>video files"| session_mod
 
     %% ============================================================================
     %% DATA FLOW (NWB objects through system)
     %% ============================================================================
     
     BpodModule -->|"raw Bpod dict"| behavior
-    behavior -->|"TrialsTable,<br/>TaskRecording,<br/>Task"| nwb
-    pose -->|"PoseEstimation"| nwb
-    facemap -->|"BehavioralTimeSeries"| nwb
-    sync -->|"alignment indices,<br/>AlignmentStats"| nwb
-    nwb -->|"NWBFile"| validate
-    nwb -->|"NWBFile"| qc
+    behavior -->|"TrialsTable,<br/>TaskRecording,<br/>Task"| session_mod
+    pose -->|"PoseEstimation"| session_mod
+    facemap -->|"BehavioralTimeSeries"| session_mod
+    sync -->|"alignment indices,<br/>AlignmentStats"| session_mod
+    session_mod -->|"NWBFile"| validate
+    session_mod -->|"NWBFile"| qc
 
     %% ============================================================================
     %% STYLING
@@ -148,5 +151,5 @@ graph TD
     
     class pynwb,hdmf,ndx_pose,ndx_events,ndx_behavior foundationStyle
     class utils,bpod_code,behavior,dlc,pose,facemap,transcode,sync_primitives lowLevelStyle
-    class sync,nwb midLevelStyle
-    class domain,config,ingest,pipeline,validate,qc highLevelStyle
+    class sync midLevelStyle
+    class config_pkg,config_loader,session_mod,pipeline,validate,qc highLevelStyle

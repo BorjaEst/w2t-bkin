@@ -45,25 +45,26 @@ create_nwb_file → inline discovery + verify → sync → (transcode) → pose 
 
 ## Package Modules (Planned)
 
-| Module     | Purpose                               | Status      |
-| ---------- | ------------------------------------- | ----------- |
-| config     | Load & validate settings              | ✅ Complete |
-| session    | NWB file creation & manipulation      | ✅ Complete |
-| sync       | Generate timestamps, drift/drop stats | ✅ Complete |
-| transcode  | Optional stable mezzanine videos      | ✅ Complete |
-| dlc        | DeepLabCut batch inference (GPU)      | ✅ Complete |
-| pose       | Import/harmonize pose outputs         | ✅ Complete |
-| facemap    | Import/compute facial metrics         | ✅ Complete |
-| bpod       | Parse Bpod .mat files                 | ✅ Complete |
-| behavior   | Extract trials/events (ndx-behavior)  | ✅ Complete |
-| pipeline   | Orchestrate phases, inline discovery  | ✅ Complete |
-| qc         | Build HTML report from summaries      | 🔲 Planned  |
-| validate   | Run nwbinspector validation           | 🔲 Planned  |
-| cli        | Typer CLI entry points                | 🔲 Planned  |
-| utils      | Shared primitives                     | ✅ Complete |
-| domain     | Shared typed domain models            | ✅ Complete |
-| ~~ingest~~ | ~~Discover assets, produce manifest~~ | ❌ Removed  |
-| ~~nwb~~    | ~~Assemble NWB file & provenance~~    | ❌ Removed  |
+| Module        | Purpose                               | Status      |
+| ------------- | ------------------------------------- | ----------- |
+| config        | Pydantic Config models                | ✅ Complete |
+| config_loader | Load & validate TOML, compute hashes  | ✅ Complete |
+| session       | NWB file creation & manipulation      | ✅ Complete |
+| sync          | Generate timestamps, drift/drop stats | ✅ Complete |
+| transcode     | Optional stable mezzanine videos      | ✅ Complete |
+| dlc           | DeepLabCut batch inference (GPU)      | ✅ Complete |
+| pose          | Import/harmonize pose outputs         | ✅ Complete |
+| facemap       | Import/compute facial metrics         | ✅ Complete |
+| bpod          | Parse Bpod .mat files                 | ✅ Complete |
+| behavior      | Extract trials/events (ndx-behavior)  | ✅ Complete |
+| pipeline      | Orchestrate phases, inline discovery  | ✅ Complete |
+| qc            | Build HTML report from summaries      | 🔲 Planned  |
+| validate      | Run nwbinspector validation           | 🔲 Planned  |
+| cli           | Typer CLI entry points                | 🔲 Planned  |
+| utils         | Shared primitives                     | ✅ Complete |
+| ~~domain~~    | ~~Shared typed domain models~~        | ❌ Removed  |
+| ~~ingest~~    | ~~Discover assets, produce manifest~~ | ❌ Removed  |
+| ~~nwb~~       | ~~Assemble NWB file & provenance~~    | ❌ Removed  |
 
 ## Configuration Snippet (Example)
 
