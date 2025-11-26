@@ -153,7 +153,6 @@ def align_bpod_trials_to_ttl(
         trial_type_map[tt_config.trial_type] = {
             "sync_signal": tt_config.sync_signal,
             "sync_ttl": tt_config.sync_ttl,
-            "description": tt_config.description,
         }
 
     if not trial_type_map:

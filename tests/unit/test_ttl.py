@@ -10,7 +10,7 @@ import numpy as np
 from pynwb import NWBFile
 import pytest
 
-from w2t_bkin.ttl import TTLError, EventsTable, add_ttl_table_to_nwb, extract_ttl_table
+from w2t_bkin.ttl import EventsTable, TTLError, add_ttl_table_to_nwb, extract_ttl_table
 
 
 class TestExtractTTLTable:
@@ -207,7 +207,7 @@ class TestPerformance:
     """Performance tests for large TTL datasets."""
 
     def test_handles_10k_events_efficiently(self):
-        """Should handle 10k events in reasonable time."""
+        """Should handle 10k events in under 2 seconds (with DataFrame bulk insertion)."""
         import time
 
         # Generate 10k camera frame TTLs at 30Hz (5.5 minutes of recording)
@@ -220,7 +220,7 @@ class TestPerformance:
         expected_count = len(ttl_pulses["ttl_camera"])
         assert len(table.timestamp) == expected_count
         assert expected_count >= 10000, f"Should have at least 10k events, got {expected_count}"
-        assert elapsed < 60.0, f"Performance degraded: {elapsed:.3f}s for 10k events (should be < 60s)"
+        assert elapsed < 2.0, f"Performance degraded: {elapsed:.3f}s for 10k events (should be < 2s with bulk insertion)"
 
     def test_handles_multiple_channels_with_many_events(self):
         """Should handle multiple channels with many events efficiently."""

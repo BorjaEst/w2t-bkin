@@ -128,13 +128,11 @@ class BpodSyncTrialType(BaseModel, extra="forbid"):
 
     Attributes:
         trial_type: Trial type identifier matching Bpod classification.
-        description: Human-readable trial type description.
         sync_signal: Bpod state/event name for alignment (e.g., 'W2T_Audio').
         sync_ttl: TTL channel whose pulses correspond to sync_signal.
     """
 
     trial_type: int = Field(..., ge=0, description="Trial type identifier")
-    description: str = Field(..., description="Trial type description")
     sync_signal: str = Field(..., description="Bpod state/event for alignment")
     sync_ttl: str = Field(..., description="TTL channel for sync pulses")
 
@@ -326,36 +324,36 @@ class Config(BaseModel, extra="forbid"):
 
     project: ProjectConfig
     paths: PathsConfig
-    timebase: TimebaseConfig
-    acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
-    verification: VerificationConfig = Field(default_factory=VerificationConfig)
+    # timebase: TimebaseConfig
+    # acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
+    # verification: VerificationConfig = Field(default_factory=VerificationConfig)
     bpod: BpodConfig = Field(default_factory=BpodConfig)
-    video: VideoConfig = Field(default_factory=VideoConfig)
-    nwb: NWBConfig = Field(default_factory=NWBConfig)
-    qc: QCConfig = Field(default_factory=QCConfig)
+    # video: VideoConfig = Field(default_factory=VideoConfig)
+    # nwb: NWBConfig = Field(default_factory=NWBConfig)
+    # qc: QCConfig = Field(default_factory=QCConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    labels: LabelsConfig = Field(default_factory=LabelsConfig)
-    facemap: FacemapConfig = Field(default_factory=FacemapConfig)
+    # labels: LabelsConfig = Field(default_factory=LabelsConfig)
+    # facemap: FacemapConfig = Field(default_factory=FacemapConfig)
 
-    @field_validator("timebase")
-    @classmethod
-    def validate_timebase_conditionals(cls, v: TimebaseConfig) -> TimebaseConfig:
-        """Validate conditional timebase requirements.
+    # @field_validator("timebase")
+    # @classmethod
+    # def validate_timebase_conditionals(cls, v: TimebaseConfig) -> TimebaseConfig:
+    #     """Validate conditional timebase requirements.
 
-        Args:
-            v: TimebaseConfig instance to validate.
+    #     Args:
+    #         v: TimebaseConfig instance to validate.
 
-        Returns:
-            Validated TimebaseConfig.
+    #     Returns:
+    #         Validated TimebaseConfig.
 
-        Raises:
-            ValueError: If conditional requirements are not met.
-        """
-        if v.source == "ttl" and v.ttl_id is None:
-            raise ValueError("timebase.ttl_id is required when source='ttl'")
-        if v.source == "neuropixels" and v.neuropixels_stream is None:
-            raise ValueError("timebase.neuropixels_stream is required when source='neuropixels'")
-        return v
+    #     Raises:
+    #         ValueError: If conditional requirements are not met.
+    #     """
+    #     if v.source == "ttl" and v.ttl_id is None:
+    #         raise ValueError("timebase.ttl_id is required when source='ttl'")
+    #     if v.source == "neuropixels" and v.neuropixels_stream is None:
+    #         raise ValueError("timebase.neuropixels_stream is required when source='neuropixels'")
+    #     return v
 
 
 # =============================================================================

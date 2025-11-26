@@ -42,6 +42,7 @@ from typing import Dict, List, Optional
 
 from ndx_events import EventsTable
 import numpy as np
+import pandas as pd
 from pynwb import NWBFile
 
 logger = logging.getLogger(__name__)
@@ -243,34 +244,30 @@ def extract_ttl_table(
     sorted_descriptions = all_descriptions[sort_indices]
     sorted_sources = all_sources[sort_indices]
 
-    # Create EventsTable with custom columns
-    ttl_table = EventsTable(
+    # Create DataFrame for bulk insertion (much faster than add_row loop)
+    df = pd.DataFrame(
+        {
+            "timestamp": sorted_timestamps,
+            "channel": sorted_channels,
+            "ttl_description": sorted_descriptions,
+            "source": sorted_sources,
+        }
+    )
+
+    # Define column descriptions for EventsTable
+    columns = [
+        {"name": "channel", "description": "TTL channel identifier"},
+        {"name": "ttl_description", "description": "Description of the TTL channel"},
+        {"name": "source", "description": "Source device or system generating the TTL signal"},
+    ]
+
+    # Create EventsTable from DataFrame (bulk insertion - much faster than add_row)
+    ttl_table = EventsTable.from_dataframe(
+        df=df,
         name=name,
-        description=f"Hardware TTL pulse events from {len(ttl_pulses)} channels, {offset} total pulses",
+        table_description=f"Hardware TTL pulse events from {len(ttl_pulses)} channels, {offset} total pulses",
+        columns=columns,
     )
-
-    # Add custom columns for metadata
-    ttl_table.add_column(
-        name="channel",
-        description="TTL channel identifier",
-    )
-    ttl_table.add_column(
-        name="ttl_description",
-        description="Description of the TTL channel",
-    )
-    ttl_table.add_column(
-        name="source",
-        description="Source device or system generating the TTL signal",
-    )
-
-    # Add all rows efficiently (EventsTable handles timestamp column automatically)
-    for timestamp, channel, description, source in zip(sorted_timestamps, sorted_channels, sorted_descriptions, sorted_sources):
-        ttl_table.add_row(
-            timestamp=float(timestamp),
-            channel=str(channel),
-            ttl_description=str(description),
-            source=str(source),
-        )
 
     logger.info(f"Created EventsTable '{name}' with {offset} events from {len(ttl_pulses)} TTL channels")
 
