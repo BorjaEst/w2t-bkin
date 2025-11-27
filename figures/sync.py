@@ -44,7 +44,7 @@ def plot_ttl_timeline(
     fig, ax = plt.subplots(figsize=(10, 2 + 0.6 * len(order)))
     for y, ch in zip(ys, order):
         ts = ttl_pulses.get(ch, [])
-        if not ts:
+        if len(ts) == 0:
             continue
         ax.vlines(ts, y - 0.35, y + 0.35, colors="tab:blue" if y % 2 == 0 else "tab:orange", alpha=0.8, linewidth=1.0)
         ax.text(ts[0], y + 0.45, ch, fontsize=9, va="bottom")
@@ -245,5 +245,94 @@ def plot_alignment_grid(
 
     fig.tight_layout()
     fig.savefig(out_path)
+    plt.close(fig)
+    return out_path
+
+
+def plot_sync_recovery(
+    *,
+    bpod_times: np.ndarray,
+    recorded_times: np.ndarray,
+    fitted_slope: float,
+    fitted_intercept: float,
+    valid_mask: np.ndarray,
+    final_errors: np.ndarray,
+    max_error_ms: float,
+    rms_error_ms: float,
+    out_path: Path,
+) -> Optional[Path]:
+    """Plot sync recovery diagnostics showing outlier detection and final alignment errors.
+
+    Creates a two-panel figure:
+    - Top: Residuals before correction (naive nearest-neighbor mapping) with outliers highlighted
+    - Bottom: Final alignment errors after robust recovery
+
+    Both plots share the same y-axis limits for easy comparison.
+
+    Args:
+        bpod_times: Bpod trial start timestamps (source timeline)
+        recorded_times: Recorded TTL pulse timestamps (target timeline, with missing data)
+        fitted_slope: Recovered linear model slope
+        fitted_intercept: Recovered linear model intercept
+        valid_mask: Boolean mask indicating inlier pairs (True = valid, False = outlier)
+        final_errors: Final alignment errors after recovery (seconds)
+        max_error_ms: Maximum alignment error in milliseconds
+        rms_error_ms: RMS alignment error in milliseconds
+        out_path: Output path for the plot
+
+    Returns:
+        Path to saved plot, or None if matplotlib unavailable
+    """
+    if plt is None:  # pragma: no cover
+        return None
+
+    _ensure_parent(out_path)
+
+    # Import map_nearest locally to avoid circular dependency
+    from w2t_bkin.sync import map_nearest
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+
+    # Plot 1: Residuals before correction (showing outliers)
+    indices = map_nearest(bpod_times.tolist(), recorded_times.tolist())
+    raw_diffs = recorded_times[indices] - bpod_times
+
+    ax1.plot(bpod_times, raw_diffs * 1000, "r.", markersize=8, label="All Pairs (Naive Mapping)", alpha=0.6)
+    ax1.plot(bpod_times[valid_mask], raw_diffs[valid_mask] * 1000, "g.", markersize=8, label="Valid Pairs (Inliers)")
+    ax1.axhline(fitted_intercept * 1000, color="b", linestyle="--", linewidth=2, label="Recovered Intercept")
+    ax1.set_title("Outlier Detection: Missing TTL Pulses Create Obvious Mismatches", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Time Difference (ms)", fontsize=10)
+    ax1.legend(loc="upper left")
+    ax1.grid(True, alpha=0.3)
+
+    # Plot 2: Final Alignment Error
+    ax2.plot(bpod_times, final_errors * 1000, "b.-", linewidth=1, markersize=4)
+    ax2.axhline(0, color="k", linestyle="--", alpha=0.3)
+    ax2.set_title("Final Alignment Error After Recovery (vs Ground Truth)", fontsize=12, fontweight="bold")
+    ax2.set_xlabel("Session Time (s)", fontsize=10)
+    ax2.set_ylabel("Alignment Error (ms)", fontsize=10)
+    ax2.grid(True, alpha=0.3)
+
+    # Set common y-axis limits for both plots
+    all_diffs_ms = np.concatenate([raw_diffs * 1000, final_errors * 1000])
+    y_min = np.min(all_diffs_ms)
+    y_max = np.max(all_diffs_ms)
+    y_margin = (y_max - y_min) * 0.1  # Add 10% margin
+    y_lim = [y_min - y_margin, y_max + y_margin]
+    ax1.set_ylim(y_lim)
+    ax2.set_ylim(y_lim)
+
+    # Add error statistics to plot
+    ax2.text(
+        0.02,
+        0.98,
+        f"Max Error: {max_error_ms:.4f} ms\nRMS Error: {rms_error_ms:.4f} ms",
+        transform=ax2.transAxes,
+        verticalalignment="top",
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+    )
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path

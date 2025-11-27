@@ -1,5 +1,8 @@
 """Create and persist alignment statistics.
 
+This module handles the representation, creation, and persistence of
+synchronization quality metrics.
+
 Example:
     >>> stats = create_alignment_stats(
     ...     timebase_source="ttl",
@@ -16,13 +19,15 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Union
+from typing import Literal, Union
+
+from pydantic import BaseModel, Field
 
 from ..exceptions import SyncError
 from ..utils import write_json
-from .models import AlignmentStats
 
 __all__ = [
+    "AlignmentStats",
     "create_alignment_stats",
     "write_alignment_stats",
     "load_alignment_manifest",
@@ -30,6 +35,28 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class AlignmentStats(BaseModel):
+    """Alignment quality metrics.
+
+    Attributes:
+        timebase_source: "nominal_rate", "ttl", or "neuropixels"
+        mapping: "nearest" or "linear"
+        offset_s: Time offset in seconds
+        max_jitter_s: Maximum jitter in seconds
+        p95_jitter_s: 95th percentile jitter in seconds
+        aligned_samples: Number of aligned samples
+    """
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+    timebase_source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(..., description="Source of reference timebase: 'nominal_rate' | 'ttl' | 'neuropixels'")
+    mapping: Literal["nearest", "linear"] = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
+    offset_s: float = Field(..., description="Time offset applied to timebase in seconds")
+    max_jitter_s: float = Field(..., description="Maximum jitter observed in seconds", ge=0)
+    p95_jitter_s: float = Field(..., description="95th percentile jitter in seconds", ge=0)
+    aligned_samples: int = Field(..., description="Number of samples successfully aligned", ge=0)
 
 
 def create_alignment_stats(

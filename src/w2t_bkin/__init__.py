@@ -68,14 +68,13 @@ See docs/ for detailed module documentation and design principles.
 """
 
 # Import main modules for convenient access
-# Note: facemap temporarily disabled due to model migration
-from . import behavior, bpod, config, pipeline, pose, session, sync, transcode, ttl, utils
+from . import behavior, bpod, config, facemap, pipeline, pose, session, sync, transcode, ttl, utils
 
 __all__ = [
     "behavior",
     "bpod",
     "config",
-    # "facemap",  # Temporarily disabled
+    "facemap",
     "pipeline",
     "pose",
     "session",

@@ -55,7 +55,7 @@ Example:
 
 Integration with Pipeline:
 --------------------------
->>> from w2t_bkin.sync import get_ttl_pulses
+>>> from w2t_bkin.ttl import get_ttl_pulses
 >>> from w2t_bkin.config import load_session
 >>>
 >>> # Generate mock TTL from pose data

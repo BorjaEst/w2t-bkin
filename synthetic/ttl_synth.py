@@ -25,7 +25,7 @@ Example:
 
 Smoke test (combined with loader):
         from w2t_bkin.config import load_session
-        from w2t_bkin.sync import get_ttl_pulses
+        from w2t_bkin.ttl import get_ttl_pulses
         session = load_session('temp/Session-SYNTH-0001/session.toml')
         pulses = get_ttl_pulses(session)
         print(len(pulses['ttl_sync']))  # 100

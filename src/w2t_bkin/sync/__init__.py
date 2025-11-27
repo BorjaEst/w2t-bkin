@@ -1,7 +1,7 @@
 """Temporal synchronization utilities.
 
-Provides timebase providers, sample alignment, and modality-specific
-synchronization for video, pose, facemap, and behavioral data.
+Provides timebase providers, sample alignment, and stream synchronization
+for video, pose, facemap, and behavioral data.
 
 Note: TTL pulse loading has been moved to the ttl module.
 
@@ -14,29 +14,27 @@ Example:
 # Exceptions
 from ..exceptions import JitterExceedsBudgetError, SyncError
 
-# Behavioral synchronization
-from .behavior import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
+# Core synchronization (formerly primitives, streams, protocols)
+from .core import (
+    TimebaseConfigProtocol,
+    align_pose_frames_to_reference,
+    align_samples,
+    compute_jitter_stats,
+    enforce_jitter_budget,
+    fit_robust_linear_model,
+    map_linear,
+    map_nearest,
+    sync_stream_to_timebase,
+)
 
-# FaceMap synchronization
-from .facemap import sync_facemap_to_timebase
-
-# Mapping strategies
-from .mapping import align_samples, compute_jitter_stats, enforce_jitter_budget, map_linear, map_nearest
-
-# Module-local models
-from .models import AlignmentStats
-
-# Pose synchronization
-from .pose import align_pose_frames_to_reference, sync_pose_to_timebase
-
-# Alignment statistics
-from .stats import compute_alignment, create_alignment_stats, load_alignment_manifest, write_alignment_stats
+# Alignment statistics (formerly models, stats)
+from .stats import AlignmentStats, compute_alignment, create_alignment_stats, load_alignment_manifest, write_alignment_stats
 
 # Timebase providers
 from .timebase import NeuropixelsProvider, NominalRateProvider, TimebaseProvider, TTLProvider, create_timebase_provider, create_timebase_provider_from_config
 
-# Video synchronization
-from .video import sync_video_frames_to_timebase
+# TTL synchronization
+from .ttl import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
 
 __all__ = [
     # Exceptions
@@ -51,25 +49,24 @@ __all__ = [
     "NeuropixelsProvider",
     "create_timebase_provider",
     "create_timebase_provider_from_config",
-    # Mapping
+    # Mapping (Primitives)
     "map_nearest",
     "map_linear",
     "compute_jitter_stats",
     "enforce_jitter_budget",
     "align_samples",
-    # Behavior
-    "get_sync_time_from_bpod_trial",
+    # TTL
     "align_bpod_trials_to_ttl",
-    # Video
-    "sync_video_frames_to_timebase",
-    # FaceMap
-    "sync_facemap_to_timebase",
-    # Pose
-    "sync_pose_to_timebase",
+    "get_sync_time_from_bpod_trial",
+    # Streams
+    "sync_stream_to_timebase",
     "align_pose_frames_to_reference",
+    "fit_robust_linear_model",
     # Stats
     "create_alignment_stats",
     "write_alignment_stats",
     "load_alignment_manifest",
     "compute_alignment",
+    # Protocols
+    "TimebaseConfigProtocol",
 ]

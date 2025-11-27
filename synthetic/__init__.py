@@ -291,6 +291,8 @@ def build_interim_pose(
     confidence_mean: float = 0.95,
     confidence_std: float = 0.05,
     dropout_rate: float = 0.02,
+    video_width: int = 640,
+    video_height: int = 480,
     seed: int = 42,
 ) -> InterimPoseResult:
     """Build interim pose estimation data (DLC/SLEAP H5 files) for a synthetic session.
@@ -317,6 +319,8 @@ def build_interim_pose(
     confidence_mean: Mean confidence for synthetic pose data
     confidence_std: Standard deviation for confidence values
     dropout_rate: Fraction of keypoints to drop (simulates tracking failures)
+    video_width: Width of video frames in pixels (default: 640)
+    video_height: Height of video frames in pixels (default: 480)
     seed: Random seed for reproducible generation
 
     Returns
@@ -345,6 +349,8 @@ def build_interim_pose(
             confidence_mean=confidence_mean,
             confidence_std=confidence_std,
             dropout_rate=dropout_rate,
+            video_width=video_width,
+            video_height=video_height,
             seed=cam_seed,
         )
 

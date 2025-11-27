@@ -230,7 +230,7 @@ class TestCreateNWBFile:
             "identifier": "TEST-001",
             "session_start_time": "2025-01-15T14:30:00",
             "session_id": "S001",
-            "experimenter": ["John Doe"],
+            "experimenter": ["Borja Esteban"],
             "institution": "Test University",
             "lab": "Test Lab",
             "keywords": ["test", "nwb"],
@@ -240,7 +240,7 @@ class TestCreateNWBFile:
         nwbfile = create_nwb_file(metadata)
 
         assert nwbfile.session_id == "S001"
-        assert nwbfile.experimenter == ["John Doe"]
+        assert nwbfile.experimenter == ["Borja Esteban"]
         assert nwbfile.institution == "Test University"
         assert nwbfile.lab == "Test Lab"
         assert nwbfile.keywords == ["test", "nwb"]

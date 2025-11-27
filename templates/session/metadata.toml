@@ -24,7 +24,7 @@ session_start_time = "2025-01-15T14:30:00"
 session_id = "000001"
 
 # Name of person(s) who performed experiment (can be a list)
-experimenter = ["John Doe", "Jane Smith"]
+experimenter = ["Borja Esteban", "Some friend"]
 
 # General description of the experiment
 experiment_description = """

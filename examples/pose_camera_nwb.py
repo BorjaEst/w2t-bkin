@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
 
 from ndx_pose import Skeletons
 import numpy as np
@@ -148,6 +149,8 @@ if __name__ == "__main__":
         confidence_mean=0.95,
         confidence_std=0.05,
         dropout_rate=0.02,
+        video_width=320,  # Match synthetic video dimensions
+        video_height=240,
         seed=settings.seed,
     )
 
@@ -262,6 +265,26 @@ if __name__ == "__main__":
         print(f"  - Confidence:       {series.confidence[0]:.3f}")
         print(f"  - Timestamps:       {len(series.timestamps)} frames")
 
+    # Generate pose visualization
+    print("\nStep 2.4: Generate pose keypoints visualization")
+    output_dir = settings.output_root / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create a simple PoseBundle-like object for the plotting function
+    bundle = SimpleNamespace(frames=[], session_id=settings.session_id, camera_id=settings.camera_id, model_name=settings.model_name, mean_confidence=float(conf_array.mean()))
+
+    # Create frame objects with keypoints
+    for i, frame_data in enumerate(pose_data[:10]):  # First 10 frames
+        frame_obj = SimpleNamespace(timestamp=reference_times[i], keypoints=[])
+        for kp_name, kp_data in frame_data["keypoints"].items():
+            kp_obj = SimpleNamespace(name=kp_name, x=kp_data["x"], y=kp_data["y"], confidence=kp_data["confidence"])
+            frame_obj.keypoints.append(kp_obj)
+        bundle.frames.append(frame_obj)
+
+    plot_path = output_dir / "pose_keypoints.png"
+    plot_pose_keypoints_grid(bundle, video_path, plot_path, frame_indices=[0, len(bundle.frames) // 2, len(bundle.frames) - 1])
+    print(f"  ✓ Saved: {plot_path}")
+
     # ---------------------------------------------------------------------
     # PHASE 3: Create NWB File
     # ---------------------------------------------------------------------
@@ -325,14 +348,9 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------
     # PHASE 4: Generate Summary
     # ---------------------------------------------------------------------
-    print("\n" + "=" * 80)
+    print("=" * 80)
     print("PHASE 4: Generate Summary")
     print("=" * 80)
-
-    figures_dir = output_dir / "figures"
-    figures_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"\nFigures directory: {figures_dir}")
 
     # Create pose summary JSON
     print("\nStep 4.1: Pose summary JSON")

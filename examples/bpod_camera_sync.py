@@ -57,8 +57,8 @@ from w2t_bkin.behavior import (
 from w2t_bkin.bpod import parse_bpod
 from w2t_bkin.config import load_config
 from w2t_bkin.session import load_session_metadata
-from w2t_bkin.sync import align_bpod_trials_to_ttl, get_ttl_pulses
-from w2t_bkin.sync.behavior import get_sync_time_from_bpod_trial
+from w2t_bkin.sync import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
+from w2t_bkin.ttl import get_ttl_pulses
 from w2t_bkin.utils import convert_matlab_struct, count_ttl_pulses, count_video_frames, discover_files, to_scalar
 
 
@@ -201,7 +201,7 @@ if __name__ == "__main__":
     print("\nStep 3.1: Load TTL pulses from disk")
     # Extract primitives from session
     ttl_patterns = {ttl["id"]: ttl["paths"] for ttl in session_metadata.get("TTLs", [])}
-    ttl_pulses = get_ttl_pulses(ttl_patterns, session_dir)
+    ttl_pulses = get_ttl_pulses(session_dir, ttl_patterns)
 
     print("\nTTL channels (absolute times):")
     for ttl_id, timestamps in ttl_pulses.items():
@@ -244,6 +244,21 @@ if __name__ == "__main__":
     else:
         print("\nNo trials aligned (check sync configuration and Bpod data)")
 
+    # -----------------------------------------------------------------
+    # Generate TTL timeline visualization (always useful)
+    # -----------------------------------------------------------------
+    output_dir = settings.output_root / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    cameras = session_metadata.get("cameras", [])
+    example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
+    example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else None
+    ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
+
+    print("\nGenerating TTL timeline plot...")
+    plot_ttl_timeline(ttl_pulses, channel_order=ttl_order, out_path=output_dir / "ttl_timeline.png")
+    print(f"  ✓ Saved: {output_dir / 'ttl_timeline.png'}")
+
     if trial_offsets:
         print("\nFirst 10 per-trial offsets:")
         for trial_num in sorted(trial_offsets.keys())[:10]:
@@ -276,20 +291,13 @@ if __name__ == "__main__":
         print("  => absolute_time = offset + bpod_time")
 
         # -----------------------------------------------------------------
-        # PHASE 3b: Visualizations to aid understanding
+        # PHASE 3b: Additional visualizations for aligned trials
         # -----------------------------------------------------------------
-        figs_dir = settings.output_root / "output" / "figures"
-        figs_dir.mkdir(parents=True, exist_ok=True)
-
-        # TTL timeline for key channels (camera TTL and Bpod sync TTL)
-        cameras = session_metadata.get("cameras", [])
-        example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
-        example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else None
-        ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
-        plot_ttl_timeline(ttl_pulses, channel_order=ttl_order, out_path=figs_dir / "ttl_timeline.png")
+        print("\nGenerating alignment plots...")
 
         # Offsets trend across trials
-        plot_trial_offsets(trial_offsets, out_path=figs_dir / "trial_offsets.png")
+        plot_trial_offsets(trial_offsets, out_path=output_dir / "trial_offsets.png")
+        print(f"  ✓ Saved: {output_dir / 'trial_offsets.png'}")
 
         # Alignment example illustration for the first trial, with more context.
         # Extra Bpod-relative signals: trial start/end, sync start/end (if available)
@@ -320,7 +328,7 @@ if __name__ == "__main__":
             trial_end_ts=trial_end_ts,
             sync_time_rel=sync_time_rel,
             ttl_sync_time=ttl_sync_time,
-            out_path=figs_dir / "alignment_example.png",
+            out_path=output_dir / "alignment_example.png",
             extra_bpod_rel=extra_bpod_rel,
             extra_ttl_series=extra_ttl_series,
         )
@@ -352,9 +360,11 @@ if __name__ == "__main__":
     print(f"  - Events:  {len(events)} entries")
     print(f"  - Actions: {len(actions)} entries")
 
-    print("\nStep 4.3: Build trials table and task recording")
-    trials_table = build_trials_table(bpod_data_raw, states, events, actions, state_indices, event_indices, action_indices, trial_offsets=trial_offsets)
+    print("\nStep 4.3: Build task recording")
     task_recording = build_task_recording(states, events, actions)
+
+    print("\nStep 4.4: Build trials table")
+    trials_table = build_trials_table(bpod_data_raw, task_recording, state_indices, event_indices, action_indices, trial_offsets=trial_offsets)
 
     print(f"  - Trials table: {len(trials_table)} trials")
     print(f"  - Task recording: {task_recording.name}")
@@ -426,35 +436,25 @@ if __name__ == "__main__":
         print(f"  - Alignment results:     {alignment_stats_path}")
     # Figures (if matplotlib available)
     figures_written = [
-        output_dir / "figures" / "ttl_timeline.png",
-        output_dir / "figures" / "trial_offsets.png",
-        output_dir / "figures" / "alignment_example.png",
+        output_dir / "ttl_timeline.png",
+        output_dir / "trial_offsets.png",
+        output_dir / "alignment_example.png",
     ]
     # Add a small-multiples alignment panel across the first few trials
-    try:
-        grid_infos = []
-        max_trials_grid = 6
-        for tn in sorted(trial_offsets.keys())[:max_trials_grid]:
-            ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], tn - 1))
-            te = float(to_scalar(session_data_struct["TrialEndTimestamp"], tn - 1))
-            trial_raw_n = convert_matlab_struct(raw_events["Trial"][tn - 1])
-            sync_rel_n = get_sync_time_from_bpod_trial(trial_raw_n, sync_signal)
-            ttl_sync_n = ts + sync_rel_n + trial_offsets[tn]
-            grid_infos.append(
-                {
-                    "trial_number": tn,
-                    "trial_start_ts": ts,
-                    "trial_end_ts": te,
-                    "sync_time_rel": float(sync_rel_n),
-                    "ttl_sync_time": float(ttl_sync_n),
-                }
-            )
-        grid_path = output_dir / "figures" / "alignment_grid.png"
-        if grid_infos:
-            plot_alignment_grid(grid_infos, out_path=grid_path, cols=3)
-            figures_written.append(grid_path)
-    except Exception:
-        pass
+    grid_infos = []
+    max_trials_grid = 6
+    for tn in sorted(trial_offsets.keys())[:max_trials_grid]:
+        ts = float(to_scalar(session_data_struct["TrialStartTimestamp"], tn - 1))
+        te = float(to_scalar(session_data_struct["TrialEndTimestamp"], tn - 1))
+        trial_raw_n = convert_matlab_struct(raw_events["Trial"][tn - 1])
+        sync_rel_n = get_sync_time_from_bpod_trial(trial_raw_n, sync_signal)
+        ttl_sync_n = ts + sync_rel_n + trial_offsets[tn]
+        grid_infos.append({"trial_number": tn, "trial_start_ts": ts, "trial_end_ts": te, "sync_time_rel": float(sync_rel_n), "ttl_sync_time": float(ttl_sync_n)})
+    grid_path = output_dir / "figures" / "alignment_grid.png"
+    if grid_infos:
+        plot_alignment_grid(grid_infos, out_path=grid_path, cols=3)
+        figures_written.append(grid_path)
+
     for p in figures_written:
         if p.exists():
             print(f"  - Figure:                {p}")

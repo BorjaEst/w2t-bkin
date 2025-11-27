@@ -221,13 +221,14 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
     )
 
 
-def _toml_kv(key: str, value: Union[str, int, float, bool]) -> str:
+def _toml_kv(key: str, value: Union[str, int, float, bool, Path]) -> str:
     """Render a single TOML key-value line.
 
-    Strings are quoted; booleans/ints/floats are written as-is.
+    Strings and Paths are quoted; booleans/ints/floats are written as-is.
     """
 
-    if isinstance(value, str):
+    if isinstance(value, (str, Path)):
+        # Always quote strings and paths
         return f'{key} = "{value}"\n'
     if isinstance(value, bool):
         return f"{key} = {'true' if value else 'false'}\n"
