@@ -512,24 +512,24 @@ def extract_actions(
 
 def build_trials_table(
     bpod_data: Dict[str, Any],
-    states: StatesTable,
-    events: EventsTable,
-    actions: ActionsTable,
+    recording: TaskRecording,
     state_indices: Dict[int, List[int]],
     event_indices: Dict[int, List[int]],
     action_indices: Dict[int, List[int]],
     trial_offsets: Optional[Dict[int, float]] = None,
 ) -> TrialsTable:
-    """Build TrialsTable with references to states/events/actions.
+    """Build TrialsTable with references to TaskRecording tables.
 
     Creates ndx-structured-behavior TrialsTable with start/stop times for
-    each trial and index ranges referencing the states/events/actions tables.
+    each trial and index ranges referencing the states/events/actions tables
+    from the TaskRecording.
+
+    This simplified API ensures that the TrialsTable references the exact same
+    table instances as the TaskRecording, preventing instance mismatch errors.
 
     Args:
         bpod_data: Parsed Bpod data dictionary
-        states: StatesTable with state occurrences
-        events: EventsTable with event occurrences
-        actions: ActionsTable with action occurrences
+        recording: TaskRecording containing states/events/actions tables
         state_indices: Dict mapping trial_number → list of state row indices
         event_indices: Dict mapping trial_number → list of event row indices
         action_indices: Dict mapping trial_number → list of action row indices
@@ -539,11 +539,19 @@ def build_trials_table(
         TrialsTable with trial structure
 
     Example:
-        >>> trials = build_trials_table(bpod_data, states, events, actions,
+        >>> # Build TaskRecording first
+        >>> recording = build_task_recording(states, events, actions)
+        >>> # Build TrialsTable using the same instances
+        >>> trials = build_trials_table(bpod_data, recording,
         ...                             state_indices, event_indices, action_indices,
         ...                             trial_offsets)
         >>> print(f"{len(trials)} trials")
     """
+    # Extract tables from TaskRecording to ensure instance consistency
+    states = recording.states
+    events = recording.events
+    actions = recording.actions
+
     session_data = convert_matlab_struct(bpod_data.get("SessionData", {}))
     n_trials = int(session_data["nTrials"])
     start_timestamps = session_data["TrialStartTimestamp"]
@@ -589,20 +597,22 @@ def build_trials_table(
 
 def extract_trials_table(
     bpod_data: Dict[str, Any],
+    recording: TaskRecording,
     trial_offsets: Optional[Dict[int, float]] = None,
 ) -> TrialsTable:
-    """Extract complete TrialsTable from Bpod data (convenience function).
+    """Extract complete TrialsTable from Bpod data using TaskRecording.
 
-    High-level function that performs all extraction steps:
-    1. Extract type tables (states, events, actions)
-    2. Extract data tables (states, events, actions) with row indices
-    3. Build TrialsTable with references to data tables
+    High-level function that builds a TrialsTable using the data tables from
+    an existing TaskRecording. This ensures instance consistency between the
+    TaskRecording and TrialsTable.
 
-    This is a convenience wrapper around the individual extract_* and build_*
-    functions for simpler API usage when you just need the complete TrialsTable.
+    This is the recommended approach for creating TrialsTable:
+    1. Build TaskRecording with extract_task_recording() or build_task_recording()
+    2. Pass TaskRecording to this function to build TrialsTable
 
     Args:
         bpod_data: Parsed Bpod data dictionary
+        recording: TaskRecording with states/events/actions tables
         trial_offsets: Optional dict mapping trial_number → absolute time offset
 
     Returns:
@@ -610,32 +620,37 @@ def extract_trials_table(
 
     Example:
         >>> from w2t_bkin.bpod.code import parse_bpod
-        >>> from w2t_bkin.behavior import extract_trials_table
+        >>> from w2t_bkin.behavior import extract_task_recording, extract_trials_table
         >>>
         >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
-        >>> trials = extract_trials_table(bpod_data)
+        >>> recording = extract_task_recording(bpod_data, trial_offsets)
+        >>> trials = extract_trials_table(bpod_data, recording, trial_offsets)
         >>> print(f"{len(trials)} trials extracted")
 
     Note:
-        If you need access to the intermediate type tables or data tables,
-        use the individual extract_* functions instead.
+        The recording parameter ensures that TrialsTable references the exact
+        same table instances as the TaskRecording, preventing NWB serialization
+        errors due to instance mismatches.
     """
-    # Step 1: Extract type tables
-    state_types = extract_state_types(bpod_data)
-    event_types = extract_event_types(bpod_data)
-    action_types = extract_action_types(bpod_data)
+    # Extract type tables from recording to build indices
+    states = recording.states
+    events = recording.events
+    actions = recording.actions
 
-    # Step 2: Extract data tables with indices
-    states, state_indices = extract_states(bpod_data, state_types, trial_offsets)
-    events, event_indices = extract_events(bpod_data, event_types, trial_offsets)
-    actions, action_indices = extract_actions(bpod_data, action_types, trial_offsets)
+    state_types = states.state_type.table
+    event_types = events.event_type.table
+    action_types = actions.action_type.table
 
-    # Step 3: Build TrialsTable
+    # Re-extract indices (they're not stored in TaskRecording)
+    # This is necessary to map trial_number → row indices
+    _, state_indices = extract_states(bpod_data, state_types, trial_offsets)
+    _, event_indices = extract_events(bpod_data, event_types, trial_offsets)
+    _, action_indices = extract_actions(bpod_data, action_types, trial_offsets)
+
+    # Build TrialsTable using TaskRecording
     trials = build_trials_table(
         bpod_data=bpod_data,
-        states=states,
-        events=events,
-        actions=actions,
+        recording=recording,
         state_indices=state_indices,
         event_indices=event_indices,
         action_indices=action_indices,
@@ -942,3 +957,71 @@ def extract_task(bpod_data: Dict[str, Any]) -> Task:
     task = build_task(state_types, event_types, action_types, task_arguments)
 
     return task
+
+
+def extract_behavioral_data(
+    bpod_data: Dict[str, Any],
+    trial_offsets: Optional[Dict[int, float]] = None,
+) -> Tuple[Task, TaskRecording, TrialsTable]:
+    """Extract all behavioral data structures in one call (highest-level convenience).
+
+    This is the simplest API for extracting complete behavioral data from Bpod.
+    It extracts Task, TaskRecording, and TrialsTable with guaranteed instance
+    consistency between all components.
+
+    Recommended for most use cases where you need all three components.
+
+    Args:
+        bpod_data: Parsed Bpod data dictionary
+        trial_offsets: Optional dict mapping trial_number → absolute time offset
+
+    Returns:
+        Tuple of (Task, TaskRecording, TrialsTable)
+
+    Example:
+        >>> from w2t_bkin.bpod.code import parse_bpod
+        >>> from w2t_bkin.behavior import extract_behavioral_data
+        >>>
+        >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
+        >>> task, recording, trials = extract_behavioral_data(bpod_data, trial_offsets)
+        >>>
+        >>> # Add to NWB file
+        >>> nwbfile.add_lab_meta_data(task)
+        >>> nwbfile.add_acquisition(recording)
+        >>> nwbfile.trials = trials
+
+    Note:
+        This function ensures that:
+        - Task contains the type tables
+        - TaskRecording references those type tables
+        - TrialsTable references the data tables from TaskRecording
+    """
+    # Step 1: Extract type tables once (shared between Task and TaskRecording)
+    state_types = extract_state_types(bpod_data)
+    event_types = extract_event_types(bpod_data)
+    action_types = extract_action_types(bpod_data)
+
+    # Step 2: Build Task with type tables
+    task_arguments = extract_task_arguments(bpod_data)
+    task = build_task(state_types, event_types, action_types, task_arguments)
+
+    # Step 3: Extract data tables using the same type tables
+    states, state_indices = extract_states(bpod_data, state_types, trial_offsets)
+    events, event_indices = extract_events(bpod_data, event_types, trial_offsets)
+    actions, action_indices = extract_actions(bpod_data, action_types, trial_offsets)
+
+    # Step 4: Build TaskRecording with data tables
+    recording = build_task_recording(states, events, actions)
+
+    # Step 5: Build TrialsTable using TaskRecording (ensures instance consistency)
+    trials = build_trials_table(
+        bpod_data=bpod_data,
+        recording=recording,
+        state_indices=state_indices,
+        event_indices=event_indices,
+        action_indices=action_indices,
+        trial_offsets=trial_offsets,
+    )
+
+    logger.info("Extracted complete behavioral data: Task, TaskRecording, and TrialsTable")
+    return task, recording, trials

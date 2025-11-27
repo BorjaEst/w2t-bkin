@@ -74,6 +74,7 @@ from .core import (
     build_trials_table,
     extract_action_types,
     extract_actions,
+    extract_behavioral_data,
     extract_event_types,
     extract_events,
     extract_state_types,
@@ -99,6 +100,7 @@ __all__ = [
     "extract_task_arguments",
     "build_task",
     "extract_task",
+    "extract_behavioral_data",
     # Re-exported ndx-structured-behavior types
     "StateTypesTable",
     "StatesTable",

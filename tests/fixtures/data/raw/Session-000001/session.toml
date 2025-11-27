@@ -1,3 +1,40 @@
+# NWB Session Configuration File (Test Fixture)
+# Based on pynwb.file.NWBFile specification
+
+# =============================================================================
+# REQUIRED FIELDS
+# =============================================================================
+
+session_description = "Test session for integration tests"
+identifier = "Session-000001"
+session_start_time = "2025-01-01T00:00:00"
+
+# =============================================================================
+# OPTIONAL METADATA FIELDS
+# =============================================================================
+
+session_id = "000001"
+experimenter = ["Borja Esteban"]
+experiment_description = "Test session with behavioral and pose data"
+
+# =============================================================================
+# SUBJECT INFORMATION
+# =============================================================================
+
+[subject]
+subject_id = "mouse_001"
+age = "P60D"                                       # ISO 8601 duration format
+description = "Test mouse for integration testing"
+genotype = "WT"
+sex = "M"
+species = "Mus musculus"
+strain = "C57BL/6J"
+date_of_birth = "2024-11-02"
+
+# =============================================================================
+# LEGACY FIELDS (for backward compatibility)
+# =============================================================================
+
 # Session metadata used for templating and identification
 [session]
 id = "Session-000001"
