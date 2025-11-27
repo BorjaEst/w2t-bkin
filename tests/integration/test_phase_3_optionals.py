@@ -68,7 +68,7 @@ class TestPoseIntegration:
         """Should import DLC pose and align to timebase (FR-5)."""
         from ndx_pose import PoseEstimation
 
-        from w2t_bkin.pose import align_pose_to_timebase, harmonize_dlc_to_canonical, import_dlc_pose
+        from w2t_bkin.pose import align_pose_to_timebase, harmonize_to_canonical, import_dlc_pose
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -80,7 +80,7 @@ class TestPoseIntegration:
 
         # Harmonize to canonical skeleton
         mapping = {"nose": "nose", "left_ear": "ear_left", "right_ear": "ear_right"}
-        canonical_pose = harmonize_dlc_to_canonical(pose_data, mapping)
+        canonical_pose = harmonize_to_canonical(pose_data, mapping, source="dlc")
 
         # Align to timebase (NWB-first)
         reference_times = alignment["cam0"]["timestamps"]
@@ -88,7 +88,6 @@ class TestPoseIntegration:
         pose_estimation = align_pose_to_timebase(
             canonical_pose,
             reference_times,
-            camera_id="cam0",
             bodyparts=bodyparts,
             mapping="nearest",
             source="dlc",
@@ -97,7 +96,7 @@ class TestPoseIntegration:
 
         # Verify NWB-native PoseEstimation
         assert isinstance(pose_estimation, PoseEstimation)
-        assert pose_estimation.name == "PoseEstimation_cam0"
+        assert pose_estimation.name == "PoseEstimation_test_skeleton"
         assert len(pose_estimation.pose_estimation_series) == len(bodyparts)
 
     @pytest.mark.skip(reason="Blocked: requires Phase 2 alignment implementation, test uses non-spec config keys, and missing pose_sample.json fixture")
@@ -105,7 +104,7 @@ class TestPoseIntegration:
         """Should import SLEAP pose and align to timebase (FR-5)."""
         from ndx_pose import PoseEstimation
 
-        from w2t_bkin.pose import align_pose_to_timebase, harmonize_sleap_to_canonical, import_sleap_pose
+        from w2t_bkin.pose import align_pose_to_timebase, harmonize_to_canonical, import_sleap_pose
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -117,7 +116,7 @@ class TestPoseIntegration:
 
         # Harmonize to canonical skeleton
         mapping = {"nose": "nose", "leftear": "ear_left", "rightear": "ear_right"}
-        canonical_pose = harmonize_sleap_to_canonical(pose_data, mapping)
+        canonical_pose = harmonize_to_canonical(pose_data, mapping, source="sleap")
 
         # Align to timebase (NWB-first)
         reference_times = alignment["cam0"]["timestamps"]
@@ -125,7 +124,6 @@ class TestPoseIntegration:
         pose_estimation = align_pose_to_timebase(
             canonical_pose,
             reference_times,
-            camera_id="cam0",
             bodyparts=bodyparts,
             mapping="nearest",
             source="sleap",
@@ -167,7 +165,6 @@ class TestFacemapIntegration:
         # Create bundle
         bundle = FacemapBundle(
             session_id="Session-000001",
-            camera_id="cam0",
             rois=rois,
             signals=aligned_signals,
             alignment_method="nearest",

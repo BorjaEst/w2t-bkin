@@ -205,7 +205,8 @@ class TestOptionalModalitiesIntegration:
         from pynwb import NWBHDF5IO
 
         from w2t_bkin.nwb import assemble_nwb
-        from w2t_bkin.pose import build_pose_estimation
+        from w2t_bkin.pose import build_pose_estimation, create_skeleton
+        from w2t_bkin.pose.io import PoseMetadata
 
         # Create harmonized pose data
         harmonized_data = [
@@ -227,15 +228,24 @@ class TestOptionalModalitiesIntegration:
             },
         ]
 
-        # Build PoseEstimation using NWB-first approach
+        # Create metadata
+        bodyparts = ["nose", "ear_left", "ear_right"]
+        metadata = PoseMetadata(
+            confidence_definition="Likelihood score from neural network output (0-1 range)",
+            scorer="DLC_test_model",
+            source_software="DeepLabCut",
+            source_software_version="2.3.0",
+            bodyparts=bodyparts,
+        )
+
+        # Build PoseEstimation using tuple format
         camera_id = "cam0_top"
+        skeleton = create_skeleton(camera_id, bodyparts, edges=[[0, 1], [0, 2]])
+
         pose_estimation = build_pose_estimation(
-            data=harmonized_data,
+            data=(harmonized_data, metadata),
             reference_times=np.array([0.0, 0.033]),
-            camera_id=camera_id,
-            bodyparts=["nose", "ear_left", "ear_right"],
-            source="dlc",
-            model_name="DLC_test_model",
+            skeleton=skeleton,
         )
 
         output_dir = tmp_work_dir / "processed" / "Session-000001"

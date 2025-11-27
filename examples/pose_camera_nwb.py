@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Example: Pose Estimation + Camera → NWB (simplified).
 
-**NOTE (2025-11-25)**: This example uses the old Manifest-centric API.
-It will be updated to use the new NWB-first pipeline API (pipeline.run_session()).
-For reference on the new API, see docs/MIGRATION.md Phase 3 section.
+Demonstrates the modern w2t_bkin.pose API for building NWB files from
+DeepLabCut pose tracking data.
 
 Goal
 ----
@@ -55,26 +54,20 @@ With custom parameters:
     $ N_FRAMES=600 FPS=60.0 python examples/pose_camera_nwb.py
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
 
+from ndx_pose import Skeletons
 import numpy as np
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pynwb import NWBHDF5IO, NWBFile
 
 from figures.pose import plot_pose_keypoints_grid
 from synthetic import build_interim_pose, build_raw_folder
-
-# DEPRECATED: Session model and w2t_bkin.nwb module deprecated/removed in Phase 3.
-# This example uses the old architecture and may not work correctly.
-# For current examples, see integration tests in tests/integration/
-from w2t_bkin.domain.session import BpodSession, Camera
-from w2t_bkin.domain.session import Session as SessionModel
-from w2t_bkin.domain.session import SessionMetadata
-from w2t_bkin.nwb import assemble_nwb
-from w2t_bkin.pose import align_pose_to_timebase, harmonize_dlc_to_canonical, import_dlc_pose
+from w2t_bkin.pose import build_pose_estimation, create_skeleton, harmonize_to_canonical, import_dlc_pose
 
 
 class ExampleSettings(BaseSettings):
@@ -172,10 +165,12 @@ if __name__ == "__main__":
     print(f"\nImporting DLC H5 from interim folder:")
     print(f"  File: {h5_path}")
 
-    pose_data = import_dlc_pose(h5_path)
+    # Import returns tuple: (pose_data, metadata)
+    dlc_data = import_dlc_pose(h5_path)
+    pose_data, metadata = dlc_data
 
-    # Extract keypoint names from first frame
-    keypoints = list(pose_data[0]["keypoints"].keys()) if pose_data else []
+    # Extract keypoint names from metadata
+    keypoints = metadata.bodyparts
 
     # Compute confidence statistics inline
     confidences = []
@@ -226,24 +221,25 @@ if __name__ == "__main__":
     print(f"  Using identity mapping (no skeleton conversion)")
     # Create identity mapping for demonstration
     identity_mapping = {kp: kp for kp in keypoints}
-    harmonized_pose = harmonize_dlc_to_canonical(pose_data, identity_mapping)
+    harmonized_pose = harmonize_to_canonical(pose_data, identity_mapping)
     print(f"  ✓ Harmonized {len(harmonized_pose)} frames")
 
-    print("\nStep 2.3: Align pose frames and build PoseEstimation (NWB-native)")
-    print(f"  Alignment method: nearest")
-    print(f"  Source: dlc")
-    print(f"  Mode: NWB-first (returns PoseEstimation directly)")
+    print("\nStep 2.3: Create skeleton and build PoseEstimation")
+    print(f"  Skeleton: {settings.camera_id}_skeleton")
+    print(f"  Bodyparts: {len(keypoints)}")
 
-    # NEW: Use NWB-first mode to get PoseEstimation directly
-    pose_estimation = align_pose_to_timebase(
-        data=harmonized_pose,
-        reference_times=reference_times,
-        mapping="nearest",
-        source="dlc",
-        camera_id=settings.camera_id,
-        bodyparts=keypoints,
-        skeleton_edges=None,  # Could provide skeleton connectivity here
-        model_name=settings.model_name,
+    # Create skeleton (nodes only, no edges for this simple example)
+    skeleton = create_skeleton(
+        name=f"{settings.camera_id}_skeleton",
+        nodes=keypoints,
+        edges=[],  # Could add connectivity: [[0, 1], [0, 2]] for nose-ears
+    )
+
+    # Build PoseEstimation using new tuple API
+    pose_estimation = build_pose_estimation(
+        data=(harmonized_pose, metadata),  # Pass tuple directly
+        reference_times=reference_times.tolist(),
+        skeleton=skeleton,
     )
 
     print(f"  ✓ Created PoseEstimation with {len(pose_estimation.pose_estimation_series)} keypoint series")
@@ -267,68 +263,13 @@ if __name__ == "__main__":
         print(f"  - Timestamps:       {len(series.timestamps)} frames")
 
     # ---------------------------------------------------------------------
-    # PHASE 3: Build Session Manifest (Simplified - No PoseBundle)
+    # PHASE 3: Create NWB File
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 3: Build Session Manifest (NWB-First)")
+    print("PHASE 3: Create NWB File")
     print("=" * 80)
-
-    print("\nStep 3.1: Create session manifest")
-    print(f"  Note: PoseEstimation is already in NWB format")
-    print(f"  No intermediate PoseBundle needed with NWB-first approach")
-    print(f"  ✓ PoseEstimation ready for direct inclusion in NWB file")
-
-    # ---------------------------------------------------------------------
-    # PHASE 4: Build Manifest and Config
-    # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 4: Build Manifest and Config")
-    print("=" * 80)
-
-    print("\nStep 4.1: Build camera metadata")
-    # Build inline (no helper function)
-    camera_metadata = {
-        "camera_id": settings.camera_id,
-        "video_path": str(video_path.resolve()),
-        "frame_rate": settings.fps,
-        "frame_count": settings.n_frames,
-        "starting_time": 0.0,
-        "manufacturer": "Demo",
-        "description": f"Camera {settings.camera_id}",
-    }
-    print(f"  Camera ID:       {camera_metadata['camera_id']}")
-    print(f"  Video:           {Path(camera_metadata['video_path']).name}")
-    print(f"  Frame rate:      {camera_metadata['frame_rate']} Hz")
-    print(f"  Frame count:     {camera_metadata['frame_count']}")
-
-    print("\nStep 4.2: Build manifest (NWB-first)")
-    manifest = {
-        "session_id": settings.session_id,
-        "cameras": [camera_metadata],
-        "pose_estimations": [pose_estimation],  # Direct NWB objects
-    }
-    print(f"  Session ID:      {manifest['session_id']}")
-    print(f"  Cameras:         {len(manifest['cameras'])}")
-    print(f"  Pose data:       {len(manifest['pose_estimations'])} PoseEstimation(s)")
-
-    print("\nStep 4.3: Build config")
-    config = {
-        "nwb": {
-            "session_description": f"Pose + Camera demo session {settings.session_id}",
-            "file_name_template": "{session_id}.nwb",
-            "lab": "Demo Lab",
-            "institution": "Demo Institution",
-            "experimenter": ["Demo User"],
-        }
-    }
-    print(f"  Lab:             {config['nwb']['lab']}")
-    print(f"  Institution:     {config['nwb']['institution']}")
-
-    # ---------------------------------------------------------------------
-    # PHASE 5: Assemble NWB File
-    # ---------------------------------------------------------------------
-    print("\n" + "=" * 80)
-    print("PHASE 5: Assemble NWB File")
+    print("PHASE 5: Create NWB File")
     print("=" * 80)
 
     output_dir = settings.output_root / "output"
@@ -336,31 +277,40 @@ if __name__ == "__main__":
 
     print(f"\nOutput directory: {output_dir}")
 
-    # Build provenance dict inline
-    provenance = {
-        "timebase": {
-            "source": "nominal_rate",
-            "fps": settings.fps,
-            "alignment_method": "nearest",
-        },
-        "software": {
-            "name": "w2t_bkin",
-            "version": "0.1.0-dev",
-            "example": "pose_camera_nwb.py",
-        },
-        "generated_at": datetime.now().isoformat(),
-    }
-
-    # NWB-first mode: extract PoseEstimation from manifest
-    pose_estimations_list = manifest.get("pose_estimations", [])
-
-    nwb_path = assemble_nwb(
-        manifest=manifest,
-        config=config,
-        provenance=provenance,
-        output_dir=output_dir,
-        pose_estimations=pose_estimations_list,  # NWB-first mode
+    # Create NWB file directly
+    nwbfile = NWBFile(
+        session_description=f"Pose + Camera demo session {settings.session_id}",
+        identifier=settings.session_id,
+        session_start_time=datetime.now(timezone.utc),
+        lab="Demo Lab",
+        institution="Demo Institution",
+        experimenter=["Demo User"],
     )
+
+    # Create camera device
+    camera_device = nwbfile.create_device(
+        name=settings.camera_id,
+        description=f"Camera {settings.camera_id}",
+        manufacturer="Demo",
+    )
+
+    # Add behavior processing module
+    behavior_pm = nwbfile.create_processing_module(
+        name="behavior",
+        description="Processed behavioral data including pose estimation",
+    )
+
+    # Add Skeletons container
+    skeletons_container = Skeletons(skeletons=[skeleton])
+    behavior_pm.add(skeletons_container)
+
+    # Add PoseEstimation
+    behavior_pm.add(pose_estimation)
+
+    # Write to disk
+    nwb_path = output_dir / f"{settings.session_id}.nwb"
+    with NWBHDF5IO(str(nwb_path), "w") as io:
+        io.write(nwbfile)
 
     nwb_size_kb = nwb_path.stat().st_size / 1024
 
@@ -373,10 +323,10 @@ if __name__ == "__main__":
     print(f"    Pose frames:   {n_frames}")
 
     # ---------------------------------------------------------------------
-    # PHASE 6: Generate Visualizations (TODO: Update for NWB-first mode)
+    # PHASE 4: Generate Summary
     # ---------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("PHASE 6: Generate Visualizations")
+    print("PHASE 4: Generate Summary")
     print("=" * 80)
 
     figures_dir = output_dir / "figures"
@@ -384,12 +334,8 @@ if __name__ == "__main__":
 
     print(f"\nFigures directory: {figures_dir}")
 
-    # TODO: Update plot_pose_keypoints_grid to accept PoseEstimation instead of PoseBundle
-    print("\nStep 6.1: Pose keypoints grid (skipped - requires PoseBundle adaptation)")
-    print("  Note: Visualization functions will be updated in next iteration")
-
     # Create pose summary JSON
-    print("\nStep 6.2: Pose summary JSON")
+    print("\nStep 4.1: Pose summary JSON")
     pose_summary = {
         "session_id": settings.session_id,
         "camera_id": settings.camera_id,
@@ -425,11 +371,11 @@ if __name__ == "__main__":
     print(f"  - Duration:        {reference_times[-1]:.3f} s")
     print(f"  - Keypoints:       {len(keypoints)}")
 
-    print(f"\nData flow summary (NWB-First):")
+    print(f"\nData flow summary (Modern API):")
     print(f"  1. Synthetic session → raw/ (videos) + interim/ (DLC H5)")
-    print(f"  2. DLC H5 → import_dlc_pose() → {len(pose_data)} frames")
-    print(f"  3. Harmonize → align_pose_to_timebase() → PoseEstimation (NWB-native)")
-    print(f"  4. PoseEstimation → NWB assembly → {nwb_path.name}")
-    print(f"  5. No intermediate PoseBundle needed!")
+    print(f"  2. DLC H5 → import_dlc_pose() → tuple (pose_data, metadata)")
+    print(f"  3. Harmonize → create_skeleton() → build_pose_estimation()")
+    print(f"  4. PoseEstimation → NWB file creation → {nwb_path.name}")
+    print(f"  5. Clean tuple-based API throughout!")
 
     print("\nDone.")

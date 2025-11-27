@@ -979,6 +979,91 @@ def count_video_frames(video_path: Path) -> int:
         raise RuntimeError(f"Could not count frames in video {video_path}: {e}")
 
 
+def normalize_keypoints_to_dict(keypoints) -> Dict[str, Dict]:
+    """Convert keypoints to standard dict format (name -> keypoint data).
+
+    Handles multiple input formats:
+    - KeypointsDict (custom dict that iterates over values)
+    - Regular dict with keypoint name as key
+    - List of keypoint dicts
+
+    Args:
+        keypoints: Keypoints in various formats
+
+    Returns:
+        Dictionary mapping keypoint name to keypoint data dict
+
+    Example:
+        >>> kp_list = [{"name": "nose", "x": 10, "y": 20}]
+        >>> result = normalize_keypoints_to_dict(kp_list)
+        >>> result["nose"]
+        {"name": "nose", "x": 10, "y": 20}
+    """
+    if isinstance(keypoints, dict):
+        # Check if it's a KeypointsDict or dict-like that iterates values
+        if hasattr(keypoints, "__iter__") and keypoints:
+            first_val = next(iter(keypoints.values()))
+            if isinstance(first_val, dict) and "name" in first_val:
+                # Already in correct format (name -> dict)
+                return keypoints
+        # Standard dict format
+        return keypoints
+    elif isinstance(keypoints, list):
+        # Convert list to dict
+        return {kp["name"]: kp for kp in keypoints}
+    else:
+        # Fallback for unknown types
+        return {}
+
+
+def log_missing_keypoints(
+    frame_index: int,
+    expected_names: Set[str],
+    actual_names: Set[str],
+    logger_instance: logging.Logger,
+) -> None:
+    """Log warning for missing keypoints in a frame.
+
+    Args:
+        frame_index: Frame number for logging
+        expected_names: Set of expected keypoint names
+        actual_names: Set of actual keypoint names found
+        logger_instance: Logger to use for warning
+    """
+    missing = expected_names - actual_names
+    if missing:
+        logger_instance.warning(f"Frame {frame_index}: Missing keypoints {missing}")
+
+
+def derive_bodyparts_from_data(data: List[Dict]) -> List[str]:
+    """Extract canonical bodypart names from harmonized pose data.
+
+    Args:
+        data: List of pose frame dictionaries with keypoints
+
+    Returns:
+        Sorted list of bodypart names
+
+    Raises:
+        ValueError: If data is empty or has no keypoints
+
+    Example:
+        >>> frames = [{"keypoints": {"nose": {...}, "ear_left": {...}}}]
+        >>> derive_bodyparts_from_data(frames)
+        ["ear_left", "nose"]
+    """
+    if not data:
+        raise ValueError("Cannot derive bodyparts from empty data")
+
+    first_frame_keypoints = normalize_keypoints_to_dict(data[0].get("keypoints", {}))
+
+    if not first_frame_keypoints:
+        raise ValueError("First frame has no keypoints")
+
+    # Sort for consistency across runs
+    return sorted(first_frame_keypoints.keys())
+
+
 def count_ttl_pulses(ttl_path: Path) -> int:
     """Count TTL pulses from log file.
 

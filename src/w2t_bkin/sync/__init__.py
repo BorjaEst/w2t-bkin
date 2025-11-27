@@ -27,7 +27,7 @@ from .mapping import align_samples, compute_jitter_stats, enforce_jitter_budget,
 from .models import AlignmentStats
 
 # Pose synchronization
-from .pose import sync_pose_to_timebase
+from .pose import align_pose_frames_to_reference, sync_pose_to_timebase
 
 # Alignment statistics
 from .stats import compute_alignment, create_alignment_stats, load_alignment_manifest, write_alignment_stats
@@ -66,6 +66,7 @@ __all__ = [
     "sync_facemap_to_timebase",
     # Pose
     "sync_pose_to_timebase",
+    "align_pose_frames_to_reference",
     # Stats
     "create_alignment_stats",
     "write_alignment_stats",

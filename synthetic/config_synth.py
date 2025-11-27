@@ -154,19 +154,16 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
     sync_trial_types = [
         BpodSyncTrialType(
             trial_type=1,
-            description="Active whisker touch trials",
             sync_signal="W2T_Audio",
             sync_ttl="ttl_cue",
         ),
         BpodSyncTrialType(
             trial_type=2,
-            description="Passive whisker touch trials",
             sync_signal="A2L_Audio",
             sync_ttl="ttl_cue",
         ),
         BpodSyncTrialType(
             trial_type=3,
-            description="Microstim trials",
             sync_signal="Microstim",
             sync_ttl="ttl_cue",
         ),
@@ -214,19 +211,13 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
         ROIs=list(base.facemap_rois),
     )
 
+    # Only pass fields that are active in Config model
+    # (other fields are commented out in config.py)
     return ConfigModel(
         project=project,
         paths=paths,
-        timebase=timebase,
-        acquisition=acquisition,
-        verification=verification,
         bpod=bpod,
-        video=video,
-        nwb=nwb,
-        qc=qc,
         logging=logging,
-        labels=labels,
-        facemap=facemap,
     )
 
 
@@ -244,10 +235,13 @@ def _toml_kv(key: str, value: Union[str, int, float, bool]) -> str:
 
 
 def config_to_toml(config: ConfigModel) -> str:
-    """Render a `Config` model to TOML text.
+    """Convert Config model to TOML string.
 
     This writer is schema-aware and intentionally minimal.
     It preserves a logical section order and omits no required fields.
+
+    NOTE: Only writes sections that are currently active in the Config model.
+    Many sections are commented out in config.py, so we only write what exists.
     """
 
     lines: list[str] = []
@@ -266,30 +260,7 @@ def config_to_toml(config: ConfigModel) -> str:
     lines.append(_toml_kv("models_root", config.paths.models_root))
     lines.append("\n")
 
-    # [timebase]
-    lines.append("[timebase]\n")
-    lines.append(_toml_kv("source", config.timebase.source))
-    lines.append(_toml_kv("mapping", config.timebase.mapping))
-    lines.append(_toml_kv("jitter_budget_s", config.timebase.jitter_budget_s))
-    lines.append(_toml_kv("offset_s", config.timebase.offset_s))
-    if config.timebase.ttl_id is not None:
-        lines.append(_toml_kv("ttl_id", config.timebase.ttl_id))
-    if config.timebase.neuropixels_stream is not None:
-        lines.append(_toml_kv("neuropixels_stream", config.timebase.neuropixels_stream))
-    lines.append("\n")
-
-    # [acquisition]
-    lines.append("[acquisition]\n")
-    lines.append(_toml_kv("concat_strategy", config.acquisition.concat_strategy))
-    lines.append("\n")
-
-    # [verification]
-    lines.append("[verification]\n")
-    lines.append(_toml_kv("mismatch_tolerance_frames", config.verification.mismatch_tolerance_frames))
-    lines.append(_toml_kv("warn_on_mismatch", config.verification.warn_on_mismatch))
-    lines.append("\n")
-
-    # [bpod]
+    # [bpod] - only active section
     lines.append("[bpod]\n")
     lines.append(_toml_kv("parse", config.bpod.parse))
     lines.append("\n")
@@ -298,62 +269,15 @@ def config_to_toml(config: ConfigModel) -> str:
     for tt in config.bpod.sync.trial_types:
         lines.append("[[bpod.sync.trial_types]]\n")
         lines.append(_toml_kv("trial_type", tt.trial_type))
-        lines.append(_toml_kv("description", tt.description))
         lines.append(_toml_kv("sync_signal", tt.sync_signal))
         lines.append(_toml_kv("sync_ttl", tt.sync_ttl))
         lines.append("\n")
-
-    # [video.transcode]
-    lines.append("[video.transcode]\n")
-    lines.append(_toml_kv("enabled", config.video.transcode.enabled))
-    lines.append(_toml_kv("codec", config.video.transcode.codec))
-    lines.append(_toml_kv("crf", config.video.transcode.crf))
-    lines.append(_toml_kv("preset", config.video.transcode.preset))
-    lines.append(_toml_kv("keyint", config.video.transcode.keyint))
-    lines.append("\n")
-
-    # [nwb]
-    lines.append("[nwb]\n")
-    lines.append(_toml_kv("link_external_video", config.nwb.link_external_video))
-    lines.append(_toml_kv("lab", config.nwb.lab))
-    lines.append(_toml_kv("institution", config.nwb.institution))
-    lines.append(_toml_kv("file_name_template", config.nwb.file_name_template))
-    lines.append(_toml_kv("session_description_template", config.nwb.session_description_template))
-    lines.append("\n")
-
-    # [qc]
-    lines.append("[qc]\n")
-    lines.append(_toml_kv("generate_report", config.qc.generate_report))
-    lines.append(_toml_kv("out_template", config.qc.out_template))
-    lines.append(_toml_kv("include_verification", config.qc.include_verification))
-    lines.append("\n")
 
     # [logging]
     lines.append("[logging]\n")
     lines.append(_toml_kv("level", config.logging.level))
     lines.append(_toml_kv("structured", config.logging.structured))
     lines.append("\n")
-
-    # [labels.dlc]
-    lines.append("[labels.dlc]\n")
-    lines.append(_toml_kv("run_inference", config.labels.dlc.run_inference))
-    lines.append(_toml_kv("model", config.labels.dlc.model))
-    if config.labels.dlc.gputouse is not None:
-        lines.append(_toml_kv("gputouse", config.labels.dlc.gputouse))
-    lines.append("\n")
-
-    # [labels.sleap]
-    lines.append("[labels.sleap]\n")
-    lines.append(_toml_kv("run_inference", config.labels.sleap.run_inference))
-    lines.append(_toml_kv("model", config.labels.sleap.model))
-    lines.append("\n")
-
-    # [facemap]
-    lines.append("[facemap]\n")
-    lines.append(_toml_kv("run_inference", config.facemap.run_inference))
-    # ROIs as a TOML array of strings
-    rois = ", ".join(f'"{roi}"' for roi in config.facemap.ROIs)
-    lines.append(f"ROIs = [{rois}]\n")
 
     return "".join(lines)
 

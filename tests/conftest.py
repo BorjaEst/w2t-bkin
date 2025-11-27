@@ -331,7 +331,6 @@ def valid_manifest():
         session_id="test-session",
         cameras=[
             ManifestCamera(
-                camera_id="cam0",
                 ttl_id="ttl_camera",
                 video_files=["/path/to/video.avi"],
                 frame_count=1000,
@@ -382,7 +381,6 @@ def ttl_manifest(ttl_files):
         session_id="test-session",
         cameras=[
             ManifestCamera(
-                camera_id="cam0",
                 ttl_id="ttl_camera",
                 video_files=[],
                 frame_count=1000,

@@ -63,11 +63,11 @@ class PathsConfig(BaseModel, extra="forbid"):
         models_root: Directory containing pose estimation models (default: models).
     """
 
-    raw_root: str = Field(..., description="Raw data root directory")
-    intermediate_root: str = Field(..., description="Intermediate processing outputs")
-    output_root: str = Field(..., description="Output data root directory")
-    metadata_file: str = Field(default="session.toml", description="Session metadata filename")
-    models_root: str = Field(default="models", description="Pose estimation models directory")
+    raw_root: Path = Field(..., description="Raw data root directory")
+    intermediate_root: Path = Field(..., description="Intermediate processing outputs")
+    output_root: Path = Field(..., description="Output data root directory")
+    metadata_file: Path = Field(default="session.toml", description="Session metadata filename")
+    models_root: Path = Field(default="models", description="Pose estimation models directory")
 
 
 class TimebaseConfig(BaseModel, extra="forbid"):
