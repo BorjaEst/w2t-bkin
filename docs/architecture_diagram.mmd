@@ -66,9 +66,7 @@ graph TD
     subgraph HighLevel["🔴 High-Level Orchestration (Session-Aware)"]
         direction TB
         
-        config_pkg["⚠️ config<br/>━━━━━<br/>Pydantic Config models<br/>Active: project, paths, bpod, logging<br/>Planned: timebase, video, nwb, etc."]
-        
-        config_loader["✅ config_loader<br/>━━━━━<br/>Load/validate TOML<br/>Deterministic hashing"]
+        config_pkg["✅ config<br/>━━━━━<br/>Pydantic Config models<br/>TOML loading + hashing<br/>Active: project, paths, bpod, logging"]
         
         session_mod["✅ session<br/>━━━━━<br/>NWBFile creation & Assembly<br/>Video acquisition<br/>NWB file writing"]
         
@@ -118,12 +116,10 @@ graph TD
     sync --> Foundation
     
     %% High-level → Everything below
-    config_loader --> config_pkg
-    config_loader --> utils
+    config_pkg --> utils
     session_mod --> Foundation
     session_mod --> config_pkg
     pipeline --> config_pkg
-    pipeline --> config_loader
     pipeline --> session_mod
     pipeline --> utils
     validate --> Foundation
@@ -174,7 +170,7 @@ graph TD
     classDef orchStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
     
     class pynwb,hdmf,ndx_pose,ndx_events,ndx_behavior foundationStyle
-    class utils,bpod_code,behavior,dlc,pose,ttl,sync_primitives,config_loader,session_mod lowLevelStyle
+    class utils,bpod_code,behavior,dlc,pose,ttl,sync_primitives,session_mod lowLevelStyle
     class sync midLevelStyle
     class config_pkg,pipeline highLevelStyle
     class validate,qc plannedStyle
