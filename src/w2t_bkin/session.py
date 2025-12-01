@@ -15,7 +15,7 @@ Key Features:
 
 Main Functions:
 ---------------
-- load_session_metadata: Load and parse metadata.toml file
+- load_metadata: Load and parse metadata.toml file
 - create_nwb_file: Create pynwb.NWBFile from session metadata
 - create_subject: Create pynwb.file.Subject from metadata
 - create_devices: Create Device objects from device list
@@ -29,12 +29,12 @@ Requirements:
 
 Example:
 --------
->>> from w2t_bkin.session import load_session_metadata, create_nwb_file
+>>> from w2t_bkin.session import load_metadata, create_nwb_file
 >>> from pathlib import Path
 >>>
 >>> # Load session metadata from TOML
 >>> session_path = Path("data/raw/Session-000001/metadata.toml")
->>> metadata = load_session_metadata(session_path)
+>>> metadata = load_metadata(session_path)
 >>>
 >>> # Create NWBFile object
 >>> nwbfile = create_nwb_file(metadata)
@@ -56,7 +56,7 @@ import tomli
 from w2t_bkin import utils
 
 
-def load_session_metadata(session_path: Union[str, Path]) -> Dict[str, Any]:
+def load_metadata(session_path: Union[str, Path]) -> Dict[str, Any]:
     """Load session metadata from TOML file.
 
     Reads and parses a metadata.toml file containing NWB metadata.
@@ -80,7 +80,7 @@ def load_session_metadata(session_path: Union[str, Path]) -> Dict[str, Any]:
 
     Example
     -------
-    >>> metadata = load_session_metadata("Session-000001/metadata.toml")
+    >>> metadata = load_metadata("Session-000001/metadata.toml")
     >>> print(metadata["identifier"])
     Session-000001
     """
@@ -111,7 +111,7 @@ def create_nwb_file(session_file: Union[str, Path, Dict[str, Any]]) -> NWBFile:
     if isinstance(session_file, dict):
         metadata = session_file
     else:
-        metadata = load_session_metadata(session_file)
+        metadata = load_metadata(session_file)
 
     # Create NWBFile with all metadata
     nwbfile = NWBFile(

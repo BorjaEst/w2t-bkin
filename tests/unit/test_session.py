@@ -8,7 +8,7 @@ from pynwb.device import Device
 from pynwb.file import Subject
 import pytest
 
-from w2t_bkin.session import create_device, create_nwb_file, create_subject, load_session_metadata
+from w2t_bkin.session import create_device, create_nwb_file, create_subject, load_metadata
 from w2t_bkin.utils import parse_datetime
 
 
@@ -133,7 +133,7 @@ class TestLoadSessionMetadata:
         if not session_path.exists():
             pytest.skip("Session file not found")
 
-        metadata = load_session_metadata(session_path)
+        metadata = load_metadata(session_path)
 
         assert isinstance(metadata, dict)
         assert "identifier" in metadata
@@ -143,7 +143,7 @@ class TestLoadSessionMetadata:
     def test_load_nonexistent_file(self):
         """Test that loading nonexistent file raises FileNotFoundError."""
         with pytest.raises(FileNotFoundError):
-            load_session_metadata("nonexistent/metadata.toml")
+            load_metadata("nonexistent/metadata.toml")
 
 
 class TestCreateNWBFile:
@@ -286,7 +286,7 @@ class TestIntegration:
             pytest.skip("Session file not found")
 
         # Load metadata
-        metadata = load_session_metadata(session_path)
+        metadata = load_metadata(session_path)
         assert metadata
 
         # Create NWBFile
