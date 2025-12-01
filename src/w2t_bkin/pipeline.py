@@ -488,10 +488,11 @@ class SessionPipeline:
             task_arguments = behavior.extract_task_arguments(context.bpod_data)
             task = behavior.build_task(state_types, event_types, action_types, task_arguments=task_arguments)
 
-            context.nwbfile.add_trials_table(trials_table)
+            context.nwbfile.trials = trials_table
+            context.nwbfile.add_acquisition(task_recording)
             context.nwbfile.add_lab_meta_data(task)
 
-            logger.info(f"  Added TrialsTable ({len(trials_table)} trials) and Task to NWBFile")
+            logger.info(f"  Added TrialsTable ({len(trials_table)} trials), TaskRecording, and Task to NWBFile")
         else:
             logger.warning("Skipping behavior table assembly (missing Bpod data or trial offsets)")
 
