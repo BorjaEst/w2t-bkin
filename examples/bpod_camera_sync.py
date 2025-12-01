@@ -56,10 +56,9 @@ from w2t_bkin.behavior import (
 )
 from w2t_bkin.bpod import parse_bpod
 from w2t_bkin.config import load_config
-from w2t_bkin.session import load_metadata
 from w2t_bkin.sync import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
 from w2t_bkin.ttl import get_ttl_pulses
-from w2t_bkin.utils import convert_matlab_struct, count_ttl_pulses, count_video_frames, discover_files, to_scalar
+from w2t_bkin.utils import convert_matlab_struct, count_ttl_pulses, count_video_frames, discover_files, load_session_metadata_and_nwb, to_scalar
 
 
 class ExampleSettings(BaseSettings):
@@ -68,6 +67,8 @@ class ExampleSettings(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=False, extra="ignore")
 
     output_root: Path = Field(default=Path("output/bpod_camera_sync"), description="Root directory for generated synthetic session and output files")
+    subject_id: str = Field(default="subject-001", description="Subject identifier")
+    session_id: str = Field(default="session-001", description="Session identifier")
     n_frames: int = Field(default=600, description="Number of camera frames to generate (one TTL pulse per frame)")
     n_trials: int = Field(default=8, description="Number of Bpod trials to generate (one sync TTL pulse per trial)")
     seed: int = Field(default=42, description="Random seed for reproducible synthetic data generation")
@@ -113,7 +114,8 @@ if __name__ == "__main__":
     session = build_raw_folder(
         out_root=settings.output_root / "raw",
         project_name="Bpod-Camera-Sync-Demo",
-        session_id="Session-000001",
+        subject_id=settings.subject_id,
+        session_id=settings.session_id,
         camera_ids=["cam0", "cam1"],
         ttl_ids=["ttl_camera", "ttl_bpod"],
         n_frames=settings.n_frames,
@@ -141,21 +143,32 @@ if __name__ == "__main__":
     print("=" * 80)
 
     config = load_config(session.config_path)
-    session_metadata = load_metadata(session.session_path)
-    session_dir = session.session_path.parent
+
+    # Get session directory
+    session_dir = session.session_dir
 
     print("\nSession config:")
     print(f"  - Project:              {config.project.name}")
-    print(f"  - Session ID:           {session_metadata['session']['id']}")
-    print(f"  - Subject:              {session_metadata['session']['subject_id']}")
-    print(f"  - Cameras:              {len(session_metadata.get('cameras', []))}")
-    print(f"  - Bpod path pattern:    {session_metadata['bpod']['path']}")
+    print(f"  - Subject ID:           {settings.subject_id}")
+    print(f"  - Session ID:           {settings.session_id}")
+    print(f"  - Session dir:          {session_dir}")
 
     print("\nCamera + TTL overview:")
-    for cam in session_metadata.get("cameras", []):
+    # Get session model from the synthetic result
+    from synthetic.session_synth import SessionSynthOptions, build_session
+
+    session_opts = SessionSynthOptions(
+        session_id=settings.session_id,
+        subject_id=settings.subject_id,
+        camera_ids=["cam0", "cam1"],
+        ttl_ids=["ttl_camera", "ttl_bpod"],
+    )
+    session_model = build_session(options=session_opts)
+
+    for cam in session_model.get("cameras", []):
         cam_videos = discover_files(session_dir, cam["paths"], sort=True)
         frame_count = sum(count_video_frames(Path(v)) for v in cam_videos)
-        ttl_config = next((ttl for ttl in session_metadata.get("TTLs", []) if ttl["id"] == cam["ttl_id"]), None)
+        ttl_config = next((ttl for ttl in session_model.get("TTLs", []) if ttl["id"] == cam["ttl_id"]), None)
         if ttl_config:
             ttl_files = discover_files(session_dir, ttl_config["paths"], sort=True)
             ttl_pulse_count = sum(count_ttl_pulses(Path(t)) for t in ttl_files)
@@ -176,12 +189,12 @@ if __name__ == "__main__":
     print("PHASE 2: Parse Bpod Data")
     print("=" * 80)
 
-    print(f"\nParsing Bpod files from pattern: {session_metadata['bpod']['path']}")
+    print(f"\nParsing Bpod files from pattern: {session_model['bpod']['path']}")
     bpod_data_raw = parse_bpod(
         session_dir=session_dir,
-        pattern=session_metadata["bpod"]["path"],
-        order=session_metadata["bpod"]["order"],
-        continuous_time=session_metadata["bpod"]["continuous_time"],
+        pattern=session_model["bpod"]["path"],
+        order=session_model["bpod"]["order"],
+        continuous_time=session_model["bpod"]["continuous_time"],
     )
 
     # Show trial count
@@ -199,8 +212,8 @@ if __name__ == "__main__":
     print("=" * 80)
 
     print("\nStep 3.1: Load TTL pulses from disk")
-    # Extract primitives from session
-    ttl_patterns = {ttl["id"]: ttl["paths"] for ttl in session_metadata.get("TTLs", [])}
+    # Extract primitives from session model
+    ttl_patterns = {ttl["id"]: ttl["paths"] for ttl in session_model.get("TTLs", [])}
     ttl_pulses = get_ttl_pulses(session_dir, ttl_patterns)
 
     print("\nTTL channels (absolute times):")
@@ -250,7 +263,7 @@ if __name__ == "__main__":
     output_dir = settings.output_root / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    cameras = session_metadata.get("cameras", [])
+    cameras = session_model.get("cameras", [])
     example_cam_ttl = cameras[0]["ttl_id"] if cameras else None
     example_sync_ttl = config.bpod.sync.trial_types[0].sync_ttl if config.bpod.sync.trial_types else None
     ttl_order = [ch for ch in [example_cam_ttl, example_sync_ttl] if ch]
@@ -402,7 +415,7 @@ if __name__ == "__main__":
     mean_duration = float(np.mean(trial_durations))
 
     trial_summary = {
-        "session_id": session_metadata["session"]["id"],
+        "session_id": settings.session_id,
         "total_trials": n_trials,
         "mean_trial_duration": mean_duration,
         "n_states": len(states),
@@ -461,8 +474,8 @@ if __name__ == "__main__":
 
     print("\nSummary:")
     print("  - TTL system defines absolute time (t = 0)")
-    # Get camera TTL from session config (first camera as example)
-    cameras = session_metadata.get("cameras", [])
+    # Get camera TTL from session model (first camera as example)
+    cameras = session_model.get("cameras", [])
     example_cam_ttl = cameras[0]["ttl_id"] if cameras else "cam_ttl"
     print(f"  - Camera frames start at {settings.camera_start_delay_s:.3f} s " f"and are aligned via {example_cam_ttl} (one pulse per frame)")
     print(f"  - Bpod trials start at {settings.bpod_start_delay_s:.3f} s")

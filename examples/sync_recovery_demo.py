@@ -78,7 +78,8 @@ class ExampleSettings(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=False, extra="ignore")
 
     output_root: Path = Field(default=Path("output/sync_recovery_demo"), description="Root directory")
-    session_id: str = Field(default="Session-RECOVERY-001", description="Session identifier")
+    subject_id: str = Field(default="subject-recovery-001", description="Subject identifier")
+    session_id: str = Field(default="session-recovery-001", description="Session identifier")
 
     # Simulation parameters
     n_trials: int = Field(default=50, description="Number of Bpod trials")
@@ -123,6 +124,7 @@ if __name__ == "__main__":
     print("\nStep 0.1: Generating synthetic session (Bpod + TTLs)...")
     session_result = build_raw_folder(
         out_root=raw_dir,
+        subject_id=settings.subject_id,
         session_id=settings.session_id,
         camera_ids=[],  # No video needed for this demo
         ttl_ids=["ttl_dummy", "ttl_bpod"],  # Use 2nd TTL for Bpod sync (1 pulse/trial)

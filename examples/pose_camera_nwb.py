@@ -77,7 +77,8 @@ class ExampleSettings(BaseSettings):
     model_config = SettingsConfigDict(case_sensitive=False, extra="ignore")
 
     output_root: Path = Field(default=Path("output/pose_camera_nwb"), description="Root directory for synthetic session and output files")
-    session_id: str = Field(default="Session-000001", description="Session identifier")
+    subject_id: str = Field(default="subject-001", description="Subject identifier")
+    session_id: str = Field(default="session-001", description="Session identifier")
     camera_id: str = Field(default="cam0", description="Camera identifier")
     fps: float = Field(default=30.0, description="Video frame rate (Hz)")
     model_name: str = Field(default="dlc_demo", description="DLC model identifier")
@@ -122,6 +123,7 @@ if __name__ == "__main__":
     raw_result = build_raw_folder(
         out_root=settings.output_root / "raw",
         project_name="pose_camera_demo",
+        subject_id=settings.subject_id,
         session_id=settings.session_id,
         camera_ids=[settings.camera_id],
         ttl_ids=[],  # No TTLs needed for pose example
@@ -141,6 +143,7 @@ if __name__ == "__main__":
     print("\nStep 0.2: Build interim pose data (simulates DLC processing)")
     pose_result = build_interim_pose(
         interim_root=settings.output_root / "interim",
+        subject_id=settings.subject_id,
         session_id=settings.session_id,
         camera_ids=[settings.camera_id],
         n_frames=settings.n_frames,
