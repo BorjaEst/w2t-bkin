@@ -15,6 +15,7 @@ Example:
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +47,7 @@ def run(
     skip_verification: bool = typer.Option(False, "--skip-verification", help="Skip frame/TTL verification"),
     skip_validation: bool = typer.Option(False, "--skip-validation", help="Skip NWB validation"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing outputs"),
+    log_level: str = typer.Option("INFO", "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"),
 ):
     """Run the pipeline for a single session.
 
@@ -61,6 +63,9 @@ def run(
         $ python -m w2t_bkin.cli run config.toml subject-001 session-001
         $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --skip-validation
     """
+    # Set logging level
+    logging.getLogger().setLevel(log_level.upper())
+
     if not config_path.exists():
         console.print(f"[red]Error: Config file not found: {config_path}[/red]")
         raise typer.Exit(1)

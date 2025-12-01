@@ -230,3 +230,27 @@ surface that owns `Config`, `Session`, and session layout. Example shapes:
 
 Canonicalization: strip comments → sort keys → compact JSON → SHA256. Record timebase selection
 and jitter metrics. Ensures reproducibility (NFR-1) and traceability (FR-17, A18).
+
+## Implementation Plan: Orchestration Layer
+
+The transition from the current `SessionPipeline` class to Prefect orchestration involves the following steps:
+
+1. **Task Definition (`src/w2t_bkin/tasks/`)**:
+
+   - Create a new `tasks` package.
+   - Refactor `SessionPipeline` methods (e.g., `_phase_2_ingestion`) into standalone, pure functions decorated with `@task`.
+   - Ensure tasks accept explicit inputs (paths, primitives) and return explicit outputs (NWB objects, stats), minimizing shared state.
+
+2. **Flow Composition (`src/w2t_bkin/pipeline.py`)**:
+
+   - Define a new `run_session_flow` decorated with `@flow`.
+   - Re-implement the logic of `SessionPipeline.run()` using the new tasks.
+   - Maintain the `SessionPipeline` class as a legacy wrapper or deprecated entry point during transition.
+
+3. **Infrastructure Setup**:
+
+   - Configure `prefect.yaml` for deployment definitions.
+   - Implement `DaskTaskRunner` configuration for HPC integration.
+
+4. **CLI Update**:
+   - Update `src/w2t_bkin/cli.py` to invoke the Prefect flow instead of the class-based runner.

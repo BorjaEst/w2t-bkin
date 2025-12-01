@@ -83,8 +83,8 @@ graph TD
     %% ============================================================================
     subgraph Orchestration["🟣 Orchestration Layer (Prefect)"]
         direction TB
-        prefect_flow["✅ @flow run_session<br/>━━━━━<br/>Main entrypoint<br/>State management"]
-        prefect_tasks["✅ @task wrappers<br/>━━━━━<br/>Granular execution<br/>Retries & Logging"]
+        prefect_flow["🔵 @flow run_session<br/>━━━━━<br/>Main entrypoint<br/>State management"]
+        prefect_tasks["🔵 @task wrappers<br/>━━━━━<br/>Granular execution<br/>Retries & Logging"]
         
         runners["Runners:<br/>• Local (Concurrent)<br/>• HPC (Dask/Slurm)<br/>• K8s (KubernetesJob)"]
     end
@@ -173,6 +173,6 @@ graph TD
     class utils,bpod_code,behavior,dlc,pose,ttl,sync_primitives,session_mod lowLevelStyle
     class sync midLevelStyle
     class config_pkg,pipeline highLevelStyle
-    class validate,qc plannedStyle
+    class validate,qc,prefect_flow,prefect_tasks plannedStyle
     class facemap,transcode wipStyle
-    class prefect_flow,prefect_tasks,runners orchStyle
+    class runners orchStyle
