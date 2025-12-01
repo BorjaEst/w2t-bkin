@@ -1,0 +1,17 @@
+# NWB Session Configuration File
+# Based on pynwb.file.NWBFile specification
+# Documentation: https://pynwb.readthedocs.io/en/stable/pynwb.file.html#pynwb.file.NWBFile
+
+# =============================================================================
+# REQUIRED FIELDS (must be provided)
+# =============================================================================
+
+# A description of the session where this data was generated
+session_description = "Behavioral training session with pose tracking and camera synchronization"
+
+# A unique text identifier for the file (e.g., UUID or lab-specific ID)
+identifier = "Session-000001"
+
+# The start date and time of the recording session (ISO 8601 format)
+# Format: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS
+session_start_time = "2025-01-15T14:30:00"
