@@ -74,9 +74,21 @@ graph TD
         
         pipeline["⚠️ pipeline/cli<br/>━━━━━<br/>Orchestration entrypoint<br/>Current: Bpod + Pose + TTL + NWB<br/>Planned: full pipeline"]
         
-        validate["🔵 validate (Planned)<br/>━━━━━<br/>NWB validation<br/>(nwbinspector)"]
+        validate["🔵 validate (Planned)<br/>━python libraries to orchestrate pipelines━━━━<br/>NWB validation<br/>(nwbinspector)"]
         
         qc["🔵 qc (Planned)<br/>━━━━━<br/>QC HTML generation<br/>from NWB + sidecars"]
+    end
+
+    %% ============================================================================
+    %% ORCHESTRATION LAYER (Prefect)
+    %% Wraps High-Level logic for distributed execution
+    %% ============================================================================
+    subgraph Orchestration["🟣 Orchestration Layer (Prefect)"]
+        direction TB
+        prefect_flow["✅ @flow run_session<br/>━━━━━<br/>Main entrypoint<br/>State management"]
+        prefect_tasks["✅ @task wrappers<br/>━━━━━<br/>Granular execution<br/>Retries & Logging"]
+        
+        runners["Runners:<br/>• Local (Concurrent)<br/>• HPC (Dask/Slurm)<br/>• K8s (KubernetesJob)"]
     end
 
     %% ============================================================================
@@ -117,6 +129,10 @@ graph TD
     validate --> Foundation
     qc --> Foundation
 
+    %% Orchestration → High-Level
+    prefect_flow --> pipeline
+    prefect_tasks --> pipeline
+
     %% ============================================================================
     %% DOTTED ARROWS (-.→) - Orchestration calls with primitives only
     %% Pipeline calls low/mid-level with paths, strings, numbers (NO Session/Manifest)
@@ -155,6 +171,7 @@ graph TD
     classDef highLevelStyle fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
     classDef plannedStyle fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px,stroke-dasharray:5 5,color:#666
     classDef wipStyle fill:#fffde7,stroke:#fbc02d,stroke-width:2px,stroke-dasharray:5 5,color:#000
+    classDef orchStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
     
     class pynwb,hdmf,ndx_pose,ndx_events,ndx_behavior foundationStyle
     class utils,bpod_code,behavior,dlc,pose,ttl,sync_primitives,config_loader,session_mod lowLevelStyle
@@ -162,3 +179,4 @@ graph TD
     class config_pkg,pipeline highLevelStyle
     class validate,qc plannedStyle
     class facemap,transcode wipStyle
+    class prefect_flow,prefect_tasks,runners orchStyle

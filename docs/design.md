@@ -129,6 +129,22 @@ High-level modules understand `Config` models, NWBFile, and filesystem layout pe
 | validate      | NWB                             | `validation_report.json` (nwbinspector report)                                           | FR-9                             | 🔵 Planned     |
 | qc            | NWB + sidecars                  | QC HTML                                                                                  | FR-8/14 NFR-3                    | 🔵 Planned     |
 
+## Orchestration Layer (Prefect)
+
+The pipeline uses **Prefect** for orchestration, providing observability, retries, and hybrid execution capabilities.
+
+**Key Components**:
+
+- **Flows**: The main entry point (`run_session`) is a Prefect `@flow`.
+- **Tasks**: Granular processing steps (e.g., `ingest_session`, `run_pose`, `align_timebase`) are defined as `@task`s in `src/w2t_bkin/tasks/`.
+- **Execution Strategy**:
+  - **Local**: Uses `ConcurrentTaskRunner` for development and lightweight runs.
+  - **HPC**: Uses `DaskTaskRunner` (via `prefect-dask` + `dask-jobqueue`) to dispatch heavy tasks (e.g., DLC inference) to Slurm/PBS clusters.
+  - **Kubernetes**: Uses `KubernetesJob` infrastructure for cloud-native deployments.
+
+**Integration**:
+The orchestration layer wraps the High-Level modules. It calls `pipeline` functions but adds state management and logging. It does **not** replace the core logic in `pipeline.py` but rather decorates or wraps it to enable distributed execution.
+
 ## Sidecar Schemas (summary)
 
 ### NWB-First Discovery (high-level orchestration)
