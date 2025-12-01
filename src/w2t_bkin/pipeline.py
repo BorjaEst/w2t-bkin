@@ -134,6 +134,8 @@ class PipelineContext:
     trial_offsets: Optional[Dict[int, float]] = None
     ttl_pulses: Dict[str, List[float]] = field(default_factory=dict)
     alignment_stats: Dict[str, Any] = field(default_factory=dict)
+    nwb_path: Optional[Path] = None
+    validation_results: Optional[List[Dict[str, Any]]] = None
 
 
 # =============================================================================
@@ -220,16 +222,16 @@ class SessionPipeline:
 
                 # Phase 5: Finalization
                 task = progress.add_task("[cyan]Phase 5: Finalization & Validation", total=1)
-                nwb_path, validation_results = self._phase_5_finalization(self.context)
+                self._phase_5_finalization(self.context)
                 progress.update(task, advance=1)
 
             console.print("\n[bold green]✓ Pipeline completed successfully[/bold green]")
 
             return RunResult(
-                nwb_path=nwb_path,
+                nwb_path=self.context.nwb_path or Path(""),
                 nwbfile=self.context.nwbfile,
                 alignment_stats=self.context.alignment_stats,
-                validation_results=validation_results,
+                validation_results=self.context.validation_results,
                 success=True,
             )
 
@@ -241,12 +243,14 @@ class SessionPipeline:
     def _phase_0_initialization(self, context: PipelineContext) -> None:
         """Phase 0: Load configuration and create NWBFile."""
         logger.info("Loading configuration and creating NWBFile...")
+        logger.debug(f"Config path: {context.config_path}")
 
         # Load configuration (paths now auto-resolved by Pydantic validators)
         context.config = config_pkg.load_config(context.config_path)
         logger.info(f"  Project: {context.config.project.name}")
         logger.info(f"  Raw root: {context.config.paths.raw_root}")
         logger.info(f"  Output root: {context.config.paths.output_root}")
+        logger.debug(f"  Full config: {context.config.model_dump_json(indent=2)}")
 
         # Load metadata and create NWBFile
         context.metadata, context.nwbfile = utils.load_session_metadata_and_nwb(
@@ -255,10 +259,12 @@ class SessionPipeline:
             session_id=context.session_id,
         )
         context.session_dir = context.config.paths.raw_root / context.subject_id / context.session_id
+        logger.debug(f"  Session directory: {context.session_dir}")
 
         logger.info(f"  NWBFile: identifier='{context.nwbfile.identifier}'")
         if context.nwbfile.subject:
             logger.info(f"  Subject: {context.nwbfile.subject.subject_id}")
+            logger.debug(f"  Subject metadata: {context.nwbfile.subject}")
 
     def _phase_1_discovery(self, context: PipelineContext) -> None:
         """Phase 1: Discover and verify files."""
@@ -266,12 +272,16 @@ class SessionPipeline:
 
         # Discover cameras
         cameras = context.metadata.get("cameras", [])
+        logger.debug(f"Searching for {len(cameras)} camera(s)")
+
         for camera in cameras:
             camera_id = camera["id"]
             pattern = camera["paths"]
+            logger.debug(f"  Scanning camera '{camera_id}' with pattern: {pattern}")
 
             video_paths = utils.discover_files(context.session_dir, pattern, sort=True)
             if not video_paths:
+                logger.error(f"No video files found for camera '{camera_id}'")
                 raise IngestError(
                     message=f"No video files found for camera '{camera_id}'",
                     context={"camera_id": camera_id, "pattern": pattern},
@@ -282,9 +292,15 @@ class SessionPipeline:
             frame_count = sum(utils.count_video_frames(p) for p in video_paths)
 
             logger.info(f"  Camera '{camera_id}': {len(video_paths)} file(s), {frame_count} frames")
+            logger.debug(f"    Files: {[p.name for p in video_paths]}")
 
             # Add video acquisition to NWBFile
             device = context.nwbfile.devices.get(camera_id)
+            if device:
+                logger.debug(f"    Linked to device: {device.name}")
+            else:
+                logger.warning(f"    Device '{camera_id}' not found in NWBFile devices")
+
             session.add_video_acquisition(
                 context.nwbfile,
                 camera_id=camera_id,
@@ -295,30 +311,42 @@ class SessionPipeline:
 
         # Discover TTL files
         ttls = context.metadata.get("TTLs", [])
+        logger.debug(f"Searching for {len(ttls)} TTL source(s)")
+
         for ttl in ttls:
             ttl_id = ttl["id"]
             pattern = ttl["paths"]
+            logger.debug(f"  Scanning TTL '{ttl_id}' with pattern: {pattern}")
 
             ttl_paths = utils.discover_files(context.session_dir, pattern, sort=True)
             if ttl_paths:
                 context.ttl_files[ttl_id] = ttl_paths
                 pulse_count = sum(utils.count_ttl_pulses(p) for p in ttl_paths)
                 logger.info(f"  TTL '{ttl_id}': {len(ttl_paths)} file(s), {pulse_count} pulses")
+                logger.debug(f"    Files: {[p.name for p in ttl_paths]}")
             else:
                 logger.warning(f"  TTL '{ttl_id}': No files found (pattern: {pattern})")
                 context.ttl_files[ttl_id] = []
 
         # Verification: Check frame/TTL synchronization
         if not context.options.skip_verification:
+            logger.debug("Verifying synchronization between cameras and TTLs...")
             for camera in cameras:
                 camera_id = camera["id"]
                 ttl_id = camera.get("ttl_id")
 
-                if not ttl_id or ttl_id not in context.ttl_files:
+                if not ttl_id:
+                    logger.debug(f"  Skipping verification for '{camera_id}' (no ttl_id configured)")
+                    continue
+
+                if ttl_id not in context.ttl_files:
+                    logger.warning(f"  Skipping verification for '{camera_id}': TTL source '{ttl_id}' not found")
                     continue
 
                 frame_count = sum(utils.count_video_frames(p) for p in context.camera_files[camera_id])
                 pulse_count = sum(utils.count_ttl_pulses(p) for p in context.ttl_files[ttl_id])
+
+                logger.debug(f"  Verifying '{camera_id}' ({frame_count} frames) vs '{ttl_id}' ({pulse_count} pulses)")
 
                 validate.verify_synchronization(
                     camera_id=camera_id,
@@ -327,15 +355,21 @@ class SessionPipeline:
                     pulse_count=pulse_count,
                     tolerance=0,
                 )
+        else:
+            logger.info("Skipping synchronization verification (requested by options)")
 
         # Discover Bpod files
         bpod_config = context.metadata.get("bpod")
         if bpod_config:
             pattern = bpod_config["path"]
+            logger.debug(f"Scanning Bpod with pattern: {pattern}")
             bpod_paths = utils.discover_files(context.session_dir, pattern, sort=True)
             if bpod_paths:
                 context.bpod_files["bpod"] = bpod_paths
                 logger.info(f"  Bpod: {len(bpod_paths)} file(s)")
+                logger.debug(f"    Files: {[p.name for p in bpod_paths]}")
+            else:
+                logger.warning(f"  Bpod: No files found (pattern: {pattern})")
 
     def _phase_2_ingestion(self, context: PipelineContext) -> None:
         """Phase 2: Ingest Bpod and TTL data."""
@@ -344,6 +378,7 @@ class SessionPipeline:
         # Process Bpod
         if not context.options.skip_bpod and context.bpod_files:
             bpod_config = context.metadata.get("bpod", {})
+            logger.debug(f"Parsing Bpod data (order={bpod_config.get('order')}, continuous={bpod_config.get('continuous_time')})")
 
             context.bpod_data = bpod.parse_bpod(
                 session_dir=context.session_dir,
@@ -357,6 +392,9 @@ class SessionPipeline:
             trials = raw_events.get("Trial", [])
             n_trials = len(trials) if trials is not None else 0
             logger.info(f"  Bpod: {n_trials} trials")
+            logger.debug(f"    SessionData keys: {list(session_data.keys())}")
+        elif context.options.skip_bpod:
+            logger.info("Skipping Bpod processing (requested by options)")
 
         # Process TTL
         ttl_patterns = {ttl_id: context.metadata["TTLs"][i]["paths"] for i, ttl_id in enumerate(context.ttl_files.keys()) if i < len(context.metadata.get("TTLs", []))}
@@ -365,9 +403,14 @@ class SessionPipeline:
         for ttl_id, timestamps in context.ttl_pulses.items():
             if timestamps:
                 logger.info(f"  TTL '{ttl_id}': {len(timestamps)} pulses, " f"range=[{timestamps[0]:.3f}, {timestamps[-1]:.3f}] s")
+                if len(timestamps) > 0:
+                    logger.debug(f"    First 5 timestamps: {timestamps[:5]}")
+            else:
+                logger.warning(f"  TTL '{ttl_id}': No pulses extracted")
 
         # Compute trial offsets
         if context.bpod_data and context.config.bpod.sync.trial_types:
+            logger.debug("Aligning Bpod trials to TTL pulses...")
             context.trial_offsets, warnings = sync.align_bpod_trials_to_ttl(
                 trial_type_configs=context.config.bpod.sync.trial_types,
                 bpod_data=context.bpod_data,
@@ -376,6 +419,12 @@ class SessionPipeline:
             logger.info(f"  Aligned {len(context.trial_offsets)} trials")
             if warnings:
                 logger.warning(f"  {len(warnings)} alignment warnings")
+                for w in warnings[:5]:  # Show first 5 warnings
+                    logger.debug(f"    Warning: {w}")
+                if len(warnings) > 5:
+                    logger.debug(f"    ... and {len(warnings) - 5} more")
+        else:
+            logger.debug("Skipping trial alignment (missing Bpod data or sync config)")
 
     def _phase_3_synchronization(self, context: PipelineContext) -> None:
         """Phase 3: Synchronization and jitter checking."""
@@ -400,6 +449,9 @@ class SessionPipeline:
             logger.info(f"  Trials: {stats['n_trials_aligned']}")
             logger.info(f"  Mean offset: {stats['mean_offset_s']:.4f} s")
             logger.info(f"  Std offset: {stats['std_offset_s']:.4f} s")
+            logger.debug(f"  Offset range: [{stats['min_offset_s']:.4f}, {stats['max_offset_s']:.4f}] s")
+        else:
+            logger.warning("  No trial offsets computed - synchronization statistics are empty")
 
     def _phase_4_assembly(self, context: PipelineContext) -> None:
         """Phase 4: Assemble NWB objects."""
@@ -407,11 +459,14 @@ class SessionPipeline:
 
         if context.bpod_data and context.trial_offsets:
             # Extract type tables
+            logger.debug("Extracting state, event, and action types...")
             state_types = behavior.extract_state_types(context.bpod_data)
             event_types = behavior.extract_event_types(context.bpod_data)
             action_types = behavior.extract_action_types(context.bpod_data)
+            logger.debug(f"  Found {len(state_types)} state types, {len(event_types)} event types, {len(action_types)} action types")
 
             # Extract data tables
+            logger.debug("Extracting trial data...")
             states, state_indices = behavior.extract_states(context.bpod_data, state_types, trial_offsets=context.trial_offsets)
             events, event_indices = behavior.extract_events(context.bpod_data, event_types, trial_offsets=context.trial_offsets)
             actions, action_indices = behavior.extract_actions(context.bpod_data, action_types, trial_offsets=context.trial_offsets)
@@ -419,6 +474,7 @@ class SessionPipeline:
             logger.info(f"  States: {len(states)}, Events: {len(events)}, Actions: {len(actions)}")
 
             # Build and add to NWBFile
+            logger.debug("Building NWB tables...")
             task_recording = behavior.build_task_recording(states, events, actions)
             trials_table = behavior.build_trials_table(
                 context.bpod_data,
@@ -436,13 +492,11 @@ class SessionPipeline:
             context.nwbfile.add_lab_meta_data(task)
 
             logger.info(f"  Added TrialsTable ({len(trials_table)} trials) and Task to NWBFile")
+        else:
+            logger.warning("Skipping behavior table assembly (missing Bpod data or trial offsets)")
 
-    def _phase_5_finalization(self, context: PipelineContext) -> tuple[Path, Optional[List[Dict[str, Any]]]]:
-        """Phase 5: Write NWB file, validate, and create sidecars.
-
-        Returns:
-            Tuple of (nwb_path, validation_results)
-        """
+    def _phase_5_finalization(self, context: PipelineContext) -> None:
+        """Phase 5: Write NWB file, validate, and create sidecars."""
         logger.info("Writing NWB file and creating sidecars...")
 
         # Prepare provenance
@@ -452,13 +506,16 @@ class SessionPipeline:
             "config_hash": utils.compute_hash(context.config.model_dump(mode="json")),
             "alignment_stats": context.alignment_stats,
         }
+        logger.debug(f"Provenance data prepared: {list(provenance.keys())}")
 
         # Write NWB file
         output_dir = context.config.paths.output_root / context.subject_id / context.session_id
         output_dir.mkdir(parents=True, exist_ok=True)
         nwb_path = output_dir / f"{context.session_id}.nwb"
 
+        logger.debug(f"Writing NWB file to: {nwb_path}")
         session.write_nwb_file(context.nwbfile, nwb_path)
+        context.nwb_path = nwb_path
         nwb_size_mb = nwb_path.stat().st_size / (1024 * 1024)
         logger.info(f"  NWB file: {nwb_path.name} ({nwb_size_mb:.1f} MB)")
 
@@ -467,6 +524,8 @@ class SessionPipeline:
             stats_path = output_dir / "alignment_stats.json"
             utils.write_json(context.alignment_stats, stats_path)
             logger.info(f"  Alignment stats: {stats_path.name}")
+        else:
+            logger.debug("Skipping alignment stats sidecar (empty stats)")
 
         provenance_path = output_dir / "provenance.json"
         utils.write_json(provenance, provenance_path)
@@ -486,9 +545,16 @@ class SessionPipeline:
 
                 if critical > 0 or errors > 0:
                     logger.warning(f"  Validation issues: {critical} critical, {errors} errors, {warnings} warnings")
+                    for r in validation_results:
+                        if r.get("severity") in ["CRITICAL", "ERROR"]:
+                            logger.debug(f"    {r.get('severity')}: {r.get('message')}")
                 else:
                     logger.info(f"  Validation passed ({warnings} warnings)")
+                    if warnings > 0:
+                        logger.debug(f"    {warnings} warnings found (check validation report)")
             else:
                 logger.info("  Validation passed (no issues)")
+        else:
+            logger.info("Skipping NWB validation (requested by options)")
 
-        return nwb_path, validation_results
+        context.validation_results = validation_results

@@ -94,15 +94,13 @@ import subprocess
 import sys
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Set, Type, Union
 
+from pynwb import NWBFile
+
 # Module logger
 logger = logging.getLogger(__name__)
 
 # Import version info
-try:
-    from importlib.metadata import version
-except ImportError:
-    # Python < 3.8
-    from importlib_metadata import version
+from importlib.metadata import version
 
 
 def recursive_dict_update(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
@@ -1147,7 +1145,7 @@ def load_session_metadata_and_nwb(
     config: "Config",
     subject_id: str,
     session_id: str,
-) -> tuple[Dict[str, Any], "NWBFile"]:
+) -> tuple[Dict[str, Any], NWBFile]:
     """Load hierarchical metadata and create NWBFile for a session.
 
     This is a convenience function for the pipeline that:
