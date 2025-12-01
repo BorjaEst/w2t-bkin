@@ -66,7 +66,7 @@ Integration with Pipeline:
 ... )
 >>>
 >>> # Load in pipeline
->>> session = load_session(session_dir / "session.toml")
+>>> session = load_session(session_dir / "metadata.toml")
 >>> pulses = get_ttl_pulses(session)
 >>> print(len(pulses['ttl_sync']))  # Matches generated count
 

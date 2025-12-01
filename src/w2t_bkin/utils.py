@@ -75,7 +75,7 @@ Example:
 >>> video_files = discover_files(Path("data/raw/session"), "*.avi")
 >>>
 >>> # Sanitize file paths
->>> safe_path = sanitize_path("data/raw/session.toml")
+>>> safe_path = sanitize_path("data/raw/metadata.toml")
 >>> # Raises ValueError for dangerous paths like "../../../etc/passwd"
 >>>
 >>> # Validate files exist
@@ -629,7 +629,7 @@ def read_toml(path: Union[str, Path]) -> Dict[str, Any]:
 
     Example:
         >>> data = read_toml("config.toml")
-        >>> data = read_toml(Path("session.toml"))
+        >>> data = read_toml(Path("metadata.toml"))
     """
     path = Path(path) if isinstance(path, str) else path
 

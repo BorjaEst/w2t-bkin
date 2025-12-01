@@ -61,7 +61,7 @@ class SynthConfigOptions(BaseModel):
     raw_root: str = Field(default="data/raw")
     intermediate_root: str = Field(default="data/interim")
     output_root: str = Field(default="data/processed")
-    metadata_file: str = Field(default="session.toml")
+    metadata_file: str = Field(default="metadata.toml")
     models_root: str = Field(default="models")
 
     # Timebase

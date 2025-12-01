@@ -1,12 +1,12 @@
 """Session metadata loading and NWBFile creation.
 
-This module provides functionality to load session.toml files and create
+This module provides functionality to load metadata.toml files and create
 pynwb.NWBFile objects with complete metadata. It bridges session configuration
 files and NWB file generation.
 
 Key Features:
 -------------
-- **TOML Loading**: Parse session.toml with validation
+- **TOML Loading**: Parse metadata.toml with validation
 - **NWBFile Creation**: Convert session metadata to pynwb.NWBFile
 - **Subject Metadata**: Full pynwb.file.Subject object creation
 - **Device Management**: Create Device objects from config
@@ -15,7 +15,7 @@ Key Features:
 
 Main Functions:
 ---------------
-- load_session_metadata: Load and parse session.toml file
+- load_session_metadata: Load and parse metadata.toml file
 - create_nwb_file: Create pynwb.NWBFile from session metadata
 - create_subject: Create pynwb.file.Subject from metadata
 - create_devices: Create Device objects from device list
@@ -33,7 +33,7 @@ Example:
 >>> from pathlib import Path
 >>>
 >>> # Load session metadata from TOML
->>> session_path = Path("data/raw/Session-000001/session.toml")
+>>> session_path = Path("data/raw/Session-000001/metadata.toml")
 >>> metadata = load_session_metadata(session_path)
 >>>
 >>> # Create NWBFile object
@@ -59,12 +59,12 @@ from w2t_bkin import utils
 def load_session_metadata(session_path: Union[str, Path]) -> Dict[str, Any]:
     """Load session metadata from TOML file.
 
-    Reads and parses a session.toml file containing NWB metadata.
+    Reads and parses a metadata.toml file containing NWB metadata.
 
     Parameters
     ----------
     session_path : Union[str, Path]
-        Path to session.toml file
+        Path to metadata.toml file
 
     Returns
     -------
@@ -74,13 +74,13 @@ def load_session_metadata(session_path: Union[str, Path]) -> Dict[str, Any]:
     Raises
     ------
     FileNotFoundError
-        If session.toml does not exist
+        If metadata.toml does not exist
     ValueError
         If TOML is invalid or malformed
 
     Example
     -------
-    >>> metadata = load_session_metadata("Session-000001/session.toml")
+    >>> metadata = load_session_metadata("Session-000001/metadata.toml")
     >>> print(metadata["identifier"])
     Session-000001
     """
@@ -101,7 +101,7 @@ def create_nwb_file(session_file: Union[str, Path, Dict[str, Any]]) -> NWBFile:
     Example
     -------
     >>> # From file path
-    >>> nwbfile = create_nwb_file("Session-000001/session.toml")
+    >>> nwbfile = create_nwb_file("Session-000001/metadata.toml")
     >>>
     >>> # From metadata dict
     >>> metadata = {"identifier": "S001", "session_start_time": "2025-01-15T14:30:00", ...}
@@ -354,7 +354,7 @@ def add_video_acquisition(
     Example
     -------
     >>> from w2t_bkin.session import create_nwb_file, add_video_acquisition
-    >>> nwbfile = create_nwb_file("session.toml")
+    >>> nwbfile = create_nwb_file("metadata.toml")
     >>> nwbfile = add_video_acquisition(
     ...     nwbfile,
     ...     camera_id="camera_0",
@@ -406,7 +406,7 @@ def write_nwb_file(nwbfile: NWBFile, output_path: Path) -> Path:
     >>> from w2t_bkin.session import create_nwb_file, write_nwb_file
     >>> from pathlib import Path
     >>>
-    >>> nwbfile = create_nwb_file("session.toml")
+    >>> nwbfile = create_nwb_file("metadata.toml")
     >>> output_path = Path("output/session.nwb")
     >>> write_nwb_file(nwbfile, output_path)
     >>> print(f"Written: {output_path}")

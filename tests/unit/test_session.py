@@ -127,8 +127,8 @@ class TestLoadSessionMetadata:
     """Test session metadata loading from TOML."""
 
     def test_load_session_metadata(self):
-        """Test loading valid session.toml file."""
-        session_path = Path("data/raw/Session-000001/session.toml")
+        """Test loading valid metadata.toml file."""
+        session_path = Path("data/raw/Session-000001/metadata.toml")
 
         if not session_path.exists():
             pytest.skip("Session file not found")
@@ -143,15 +143,15 @@ class TestLoadSessionMetadata:
     def test_load_nonexistent_file(self):
         """Test that loading nonexistent file raises FileNotFoundError."""
         with pytest.raises(FileNotFoundError):
-            load_session_metadata("nonexistent/session.toml")
+            load_session_metadata("nonexistent/metadata.toml")
 
 
 class TestCreateNWBFile:
     """Test NWBFile creation from session metadata."""
 
     def test_create_nwb_from_path(self):
-        """Test creating NWBFile from session.toml path."""
-        session_path = Path("data/raw/Session-000001/session.toml")
+        """Test creating NWBFile from metadata.toml path."""
+        session_path = Path("data/raw/Session-000001/metadata.toml")
 
         if not session_path.exists():
             pytest.skip("Session file not found")
@@ -280,7 +280,7 @@ class TestIntegration:
 
     def test_full_workflow(self):
         """Test complete workflow from file to NWBFile."""
-        session_path = Path("data/raw/Session-000001/session.toml")
+        session_path = Path("data/raw/Session-000001/metadata.toml")
 
         if not session_path.exists():
             pytest.skip("Session file not found")

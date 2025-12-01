@@ -274,7 +274,7 @@ class TestFullPhase0Integration:
 
         # Test session file not found
         with pytest.raises(FileNotFoundError):
-            load_session(Path("/nonexistent/session.toml"))
+            load_session(Path("/nonexistent/metadata.toml"))
 
         # Test path traversal security
         with pytest.raises(ValueError, match="Directory traversal not allowed"):

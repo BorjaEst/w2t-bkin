@@ -46,7 +46,7 @@ class TestConfigLoading:
                 "raw_root": "data/raw",
                 "intermediate_root": "data/interim",
                 "output_root": "data/processed",
-                "metadata_file": "session.toml",
+                "metadata_file": "metadata.toml",
                 "models_root": "models",
             },
             "timebase": {"source": "nominal_rate", "mapping": "nearest", "jitter_budget_s": 0.01, "offset_s": 0.0},
@@ -144,7 +144,7 @@ class TestSessionLoading:
     """Test session file loading and parsing."""
 
     def test_Should_LoadValidSession_When_ValidTOMLProvided(self):
-        """Should successfully load a valid session.toml file."""
+        """Should successfully load a valid metadata.toml file."""
         from w2t_bkin.config import load_session
 
         session_path = Path("tests/fixtures/sessions/valid_session.toml")
@@ -247,7 +247,7 @@ class TestConfigHashing:
         # Create two configs with different values
         config1 = Config(
             project=ProjectConfig(name="project1"),
-            paths=PathsConfig(raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="session.toml", models_root="models"),
+            paths=PathsConfig(raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="metadata.toml", models_root="models"),
             timebase=TimebaseConfig(source="nominal_rate", mapping="nearest", jitter_budget_s=0.01, offset_s=0.0),
             acquisition=AcquisitionConfig(concat_strategy="ffconcat"),
             verification=VerificationConfig(mismatch_tolerance_frames=0, warn_on_mismatch=False),
@@ -268,7 +268,7 @@ class TestConfigHashing:
 
         config2 = Config(
             project=ProjectConfig(name="project2"),  # Different name
-            paths=PathsConfig(raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="session.toml", models_root="models"),
+            paths=PathsConfig(raw_root="data/raw", intermediate_root="data/interim", output_root="data/processed", metadata_file="metadata.toml", models_root="models"),
             timebase=TimebaseConfig(source="nominal_rate", mapping="nearest", jitter_budget_s=0.01, offset_s=0.0),
             acquisition=AcquisitionConfig(concat_strategy="ffconcat"),
             verification=VerificationConfig(mismatch_tolerance_frames=0, warn_on_mismatch=False),

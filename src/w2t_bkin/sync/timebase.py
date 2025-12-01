@@ -266,7 +266,7 @@ def create_timebase_provider_from_config(config, manifest: Optional[Any] = None)
         >>> from w2t_bkin.ingest import build_and_count_manifest
         >>>
         >>> config = load_config("config.toml")
-        >>> session = load_session("session.toml")
+        >>> session = load_session("metadata.toml")
         >>> manifest = build_and_count_manifest(config, session)
         >>>
         >>> provider = create_timebase_provider_from_config(config, manifest)

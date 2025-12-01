@@ -140,7 +140,7 @@ processing phases. No intermediate Manifest model exists.
 
 1. **Phase 0: Create NWBFile** — `create_nwb_file(session_path) → NWBFile`
 
-   - Creates NWBFile from session.toml metadata
+   - Creates NWBFile from metadata.toml metadata
    - Populates subject, devices, and required metadata
    - Returns in-memory NWBFile ready for acquisition data
 

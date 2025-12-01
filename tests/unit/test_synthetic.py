@@ -106,7 +106,7 @@ class TestConfigGeneration:
         assert 'ttl_id = "test_ttl"' in content
 
     def test_create_session_toml(self, tmp_path):
-        """Test session.toml generation."""
+        """Test metadata.toml generation."""
         from synthetic.session_synth import SessionSynthOptions, write_session_toml
 
         # Use SessionSynthOptions to build a session
@@ -118,7 +118,7 @@ class TestConfigGeneration:
                 subject_id="mouse-01",
             )
         )
-        session_path = write_session_toml(tmp_path / "session.toml", session)
+        session_path = write_session_toml(tmp_path / "metadata.toml", session)
 
         assert session_path.exists()
 

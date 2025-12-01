@@ -5,7 +5,7 @@ name = "test-project"
 raw_root = "data/raw"
 intermediate_root = "data/interim"
 output_root = "data/processed"
-metadata_file = "session.toml"
+metadata_file = "metadata.toml"
 models_root = "models"
 
 [timebase]

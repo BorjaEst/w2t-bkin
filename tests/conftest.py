@@ -46,8 +46,8 @@ def fixture_session_path(fixtures_raw_root: Path) -> Path:
 
 @pytest.fixture(scope="session")
 def fixture_session_toml(fixture_session_path: Path) -> Path:
-    """Path to session.toml for Session-000001."""
-    return fixture_session_path / "session.toml"
+    """Path to metadata.toml for Session-000001."""
+    return fixture_session_path / "metadata.toml"
 
 
 # ============================================================================
@@ -102,7 +102,7 @@ def minimal_config_dict(tmp_work_dir: Path, fixtures_raw_root: Path) -> Dict[str
             "raw_root": str(fixtures_raw_root),
             "intermediate_root": str(tmp_work_dir / "interim"),
             "output_root": str(tmp_work_dir / "processed"),
-            "metadata_file": "session.toml",
+            "metadata_file": "metadata.toml",
             "models_root": str(tmp_work_dir / "external" / "models"),
         },
         "timebase": {"source": "nominal_rate", "mapping": "nearest", "jitter_budget_s": 0.001, "offset_s": 0.0},
@@ -136,7 +136,7 @@ name = "test-w2t-bkin"
 raw_root = "{fixtures_raw_root}"
 intermediate_root = "{tmp_work_dir / "interim"}"
 output_root = "{tmp_work_dir / "processed"}"
-metadata_file = "session.toml"
+metadata_file = "metadata.toml"
 models_root = "{tmp_work_dir / "external" / "models"}"
 
 [timebase]
@@ -248,7 +248,7 @@ def valid_config(tmp_path):
             raw_root=str(tmp_path / "raw"),
             intermediate_root=str(tmp_path / "interim"),
             output_root=str(tmp_path / "output"),
-            metadata_file="session.toml",
+            metadata_file="metadata.toml",
             models_root=str(tmp_path / "models"),
         ),
         timebase=TimebaseConfig(
@@ -403,7 +403,7 @@ def ttl_manifest(ttl_files):
 
 @pytest.fixture
 def fixture_session_dict(fixture_session_toml: Path) -> Dict[str, Any]:
-    """Parsed session.toml as dictionary."""
+    """Parsed metadata.toml as dictionary."""
     with open(fixture_session_toml, "rb") as f:
         return tomli.load(f)
 
@@ -523,7 +523,7 @@ def mock_session_with_ttl(tmp_path):
     """Create a Session with TTL configuration for alignment testing.
 
     DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-    Use create_nwb_file() from session module to create NWBFile from session.toml.
+    Use create_nwb_file() from session module to create NWBFile from metadata.toml.
     This fixture is kept for backward compatibility but should not be used in new tests.
     """
     pytest.skip("Session model deprecated - use create_nwb_file() for NWBFile-based approach")

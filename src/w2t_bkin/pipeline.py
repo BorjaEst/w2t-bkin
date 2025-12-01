@@ -169,7 +169,7 @@ def run_session(
 
     Args:
         config_path: Path to config.toml
-        session_id: Session identifier (must match session.toml session.id)
+        session_id: Session identifier (must match metadata.toml session.id)
         options: Optional execution options:
             - skip_nwb: Skip NWB assembly (default: False)
             - skip_validation: Skip verification stage (default: False)
@@ -215,7 +215,7 @@ def run_session(
     config = load_config(config_path)
     logger.info(f"  ✓ Config loaded: {config.project.name}")
 
-    # Find session.toml and create NWBFile (NWB-first architecture)
+    # Find metadata.toml and create NWBFile (NWB-first architecture)
     session_dir = Path(config.paths.raw_root) / session_id
     session_path = session_dir / config.paths.metadata_file
     nwbfile = create_nwb_file(session_path)

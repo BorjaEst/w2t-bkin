@@ -176,7 +176,7 @@ def extract_ttl_table(
         ttl_pulses: Dict mapping TTL ID to list of timestamps (seconds)
         name: Name for the EventsTable container (default: "TTLEvents")
         descriptions: Optional dict mapping TTL ID to description string
-                     (typically from session.toml [[TTLs]].description)
+                     (typically from metadata.toml [[TTLs]].description)
         sources: Optional dict mapping TTL ID to source device/system
 
     Returns:
@@ -289,7 +289,7 @@ def add_ttl_table_to_nwb(
     Args:
         nwbfile: NWBFile to add TTL table to
         ttl_pulses: Dict mapping TTL ID to timestamps
-        descriptions: Optional channel descriptions (from session.toml)
+        descriptions: Optional channel descriptions (from metadata.toml)
         sources: Optional source device/system names
         container_name: Name for the TTL table container (default: "TTLEvents")
 

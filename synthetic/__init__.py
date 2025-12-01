@@ -75,7 +75,7 @@ class RawSessionResult:
     config_path : Path
         Path to generated `config.toml`.
     session_path : Path
-        Path to generated `session.toml` with session metadata.
+        Path to generated `metadata.toml` with session metadata.
     metadata_path : Path
         Path to generated `metadata.toml` with NWB-compliant metadata.
     video_paths : List[Path]
@@ -141,7 +141,7 @@ def build_raw_folder(
     Creates:
     - `config.toml` at `<out_root>/config.toml`.
     - Session folder `<out_root>/<session_id>/` with:
-      - `session.toml`
+      - `metadata.toml`
       - `Video/` with synthetic video files per camera
       - `TTLs/` with TTL timestamp files per TTL channel
       - `Bpod/` with synthetic .mat files
@@ -185,7 +185,7 @@ def build_raw_folder(
             raw_root=str(out_root),
             intermediate_root=str(out_root / "../interim"),
             output_root=str(out_root / "../processed"),
-            metadata_file="session.toml",
+            metadata_file="metadata.toml",
             models_root="models",
         )
     )
@@ -200,7 +200,7 @@ def build_raw_folder(
         number_of_trial_types=1,
     )
     session_model = build_session(options=session_opts)
-    session_path = write_session_toml(session_dir / "session.toml", session_model)
+    session_path = write_session_toml(session_dir / "metadata.toml", session_model)
 
     # Generate NWB-compliant metadata.toml
     metadata_model = build_metadata(options=session_opts)

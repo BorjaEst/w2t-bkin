@@ -225,7 +225,7 @@ class CameraUnverifiableError(IngestError):
         super().__init__(
             message=f"Camera '{camera_id}' references unknown TTL '{ttl_id}'",
             context={"camera_id": camera_id, "ttl_id": ttl_id},
-            hint=f"Add TTL entry for '{ttl_id}' to session.toml or correct camera.ttl_id",
+            hint=f"Add TTL entry for '{ttl_id}' to metadata.toml or correct camera.ttl_id",
         )
         self.error_code = "CAMERA_UNVERIFIABLE"
 

@@ -1,6 +1,6 @@
 """Synthetic session configuration generator for W2T-BKIN.
 
-Generates valid `session.toml` and `metadata.toml` files for the pipeline.
+Generates valid `metadata.toml` and `metadata.toml` files for the pipeline.
 Intended for tests, demos, and quick experimentation.
 
 Features:
@@ -13,9 +13,9 @@ Example:
     from synthetic.session_synth import build_session, write_session_toml
     from synthetic.session_synth import build_metadata, write_metadata_toml
 
-    # Generate session.toml (cameras, TTLs, bpod)
+    # Generate metadata.toml (cameras, TTLs, bpod)
     session = build_session()  # uses defaults (two cameras, one TTL)
-    write_session_toml('output/Session-SYNTH-0001/session.toml', session)
+    write_session_toml('output/Session-SYNTH-0001/metadata.toml', session)
 
     # Generate metadata.toml (NWB-compliant metadata)
     metadata = build_metadata()  # uses same defaults
@@ -209,7 +209,7 @@ def build_metadata(*, options: Optional[SessionSynthOptions] = None, **overrides
 def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides) -> dict:
     """Create a synthetic session configuration dictionary.
 
-    Returns a dictionary that can be written to session.toml.
+    Returns a dictionary that can be written to metadata.toml.
 
     Preferred usage: `build_session(options=SessionSynthOptions(...))`.
     Convenience: pass overrides as kwargs.
@@ -218,7 +218,7 @@ def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides)
     if overrides:
         base = base.model_copy(update=overrides)
 
-    # Build session dictionary matching session.toml structure
+    # Build session dictionary matching metadata.toml structure
     session_dict = {
         "session": {
             "id": base.session_id,
@@ -404,7 +404,7 @@ def generate_and_save_session(path: Union[str, Path], **kwargs) -> Path:
 
 if __name__ == "__main__":
     # Generate and write a synthetic session.
-    out = Path("output/Session-SYNTH-0001/session.toml")
+    out = Path("output/Session-SYNTH-0001/metadata.toml")
     session = build_session()
     p = write_session_toml(out, session)
     print(f"Wrote synthetic session to: {p}")

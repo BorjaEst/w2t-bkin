@@ -26,7 +26,7 @@ Modules:
 
 Pipeline Phases:
 ----------------
-Phase 0 (Foundation): Load config, create NWBFile from session.toml
+Phase 0 (Foundation): Load config, create NWBFile from metadata.toml
 Phase 1 (Discovery): Discover files, verify, add ImageSeries to NWBFile
 Phase 2 (Behavior): Parse Bpod, add TaskRecording/TrialsTable to NWBFile
 Phase 3 (Sync): Compute alignment stats, select timebase

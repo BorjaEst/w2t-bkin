@@ -59,14 +59,14 @@ class PathsConfig(BaseModel, extra="forbid"):
         raw_root: Path to raw data directory.
         intermediate_root: Path for intermediate processing outputs.
         output_root: Path for final outputs.
-        metadata_file: Filename for session metadata (default: session.toml).
+        metadata_file: Filename for session metadata (default: metadata.toml).
         models_root: Directory containing pose estimation models (default: models).
     """
 
     raw_root: Path = Field(..., description="Raw data root directory")
     intermediate_root: Path = Field(..., description="Intermediate processing outputs")
     output_root: Path = Field(..., description="Output data root directory")
-    metadata_file: Path = Field(default="session.toml", description="Session metadata filename")
+    metadata_file: Path = Field(default="metadata.toml", description="Session metadata filename")
     models_root: Path = Field(default="models", description="Pose estimation models directory")
 
 
@@ -489,7 +489,7 @@ def load_session(path: Union[str, Path]) -> Dict[str, Any]:
     """Load session metadata from TOML file.
 
     Args:
-        path: Path to session.toml or metadata.toml file.
+        path: Path to metadata.toml or metadata.toml file.
 
     Returns:
         Parsed session metadata dictionary.
@@ -498,7 +498,7 @@ def load_session(path: Union[str, Path]) -> Dict[str, Any]:
         FileNotFoundError: If file doesn't exist.
 
     Example:
-        >>> session = load_session("data/raw/Session-000001/session.toml")
+        >>> session = load_session("data/raw/Session-000001/metadata.toml")
         >>> print(session["identifier"])
     """
     session_path = Path(path)
@@ -519,7 +519,7 @@ def compute_session_hash(session: Dict[str, Any]) -> str:
         SHA256 hex digest (64 characters).
 
     Example:
-        >>> session = load_session("session.toml")
+        >>> session = load_session("metadata.toml")
         >>> hash_value = compute_session_hash(session)
         >>> print(f"Session hash: {hash_value[:16]}...")
     """

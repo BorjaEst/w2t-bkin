@@ -46,12 +46,12 @@ def test_full_pipeline_integration(test_config, tmp_path):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Validate required paths exist
-    assert (rawdata_dir / "session.toml").exists(), "Session metadata missing"
+    assert (rawdata_dir / "metadata.toml").exists(), "Session metadata missing"
     assert (rawdata_dir / "Bpod").exists(), "Bpod directory missing"
     assert (rawdata_dir / "TTLs").exists(), "TTLs directory missing"
 
     # Step 1: Create NWB file from session metadata
-    nwbfile = session.create_nwb_file(rawdata_dir / "session.toml")
+    nwbfile = session.create_nwb_file(rawdata_dir / "metadata.toml")
     assert nwbfile.identifier == "Session-000001"
     assert nwbfile.session_description is not None
 
@@ -191,15 +191,15 @@ def test_pipeline_with_missing_data(test_config, tmp_path):
     interim_dir.mkdir(parents=True, exist_ok=True)
 
     # Should work without pose data
-    nwbfile = session.create_nwb_file(rawdata_dir / "session.toml")
+    nwbfile = session.create_nwb_file(rawdata_dir / "metadata.toml")
     assert nwbfile is not None
 
 
 def test_pipeline_validates_required_paths(test_config):
     """Test that pipeline validates required paths exist."""
-    # Test missing session.toml
+    # Test missing metadata.toml
     with pytest.raises(FileNotFoundError):
-        session.create_nwb_file(Path("nonexistent") / "session.toml")
+        session.create_nwb_file(Path("nonexistent") / "metadata.toml")
 
 
 def test_object_instance_sharing():
