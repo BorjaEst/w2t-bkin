@@ -49,8 +49,8 @@ class SessionSynthOptions(BaseModel):
     """
 
     # Session metadata
-    session_id: str = Field(default="Session-SYNTH-0001")
-    subject_id: str = Field(default="Subject-XYZ")
+    session_id: str = Field(default="session-001")
+    subject_id: str = Field(default="subject-001")
     date: str = Field(default="2025-01-01")
     experimenter: str = Field(default="synthetic")
     description: str = Field(default="Synthetic test session")

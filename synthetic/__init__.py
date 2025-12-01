@@ -122,7 +122,8 @@ def build_raw_folder(
     out_root: Union[str, Path],
     *,
     project_name: str = "synthetic-project",
-    session_id: str = "Session-SYNTH-0001",
+    subject_id: str = "subject-001",
+    session_id: str = "session-001",
     camera_ids: Optional[List[str]] = None,
     ttl_ids: Optional[List[str]] = None,
     n_frames: int = 300,
@@ -171,25 +172,27 @@ def build_raw_folder(
 
     out_root = Path(out_root)
     out_root.mkdir(parents=True, exist_ok=True)
-    session_dir = out_root / session_id
+
+    # Create subject_id/session_id structure
+    session_dir = out_root / subject_id / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
 
     # Defaults
     camera_ids = camera_ids or ["cam0", "cam1"]
     ttl_ids = ttl_ids or ["ttl_sync"]
 
-    # 1) Config
+    # 1) Config - write to parent directory (not inside raw folder)
+    config_root = out_root.parent
     cfg = build_config(
         options=SynthConfigOptions(
             project_name=project_name,
             raw_root=str(out_root),
-            intermediate_root=str(out_root / "../interim"),
-            output_root=str(out_root / "../processed"),
-            metadata_file="metadata.toml",
+            intermediate_root=str(out_root.parent / "interim"),
+            output_root=str(out_root.parent / "processed"),
             models_root="models",
         )
     )
-    config_path = write_config_toml(out_root / "config.toml", cfg)
+    config_path = write_config_toml(config_root / "config.toml", cfg)
 
     # 2) Session (cameras + TTLs + bpod) + Metadata (NWB)
     session_opts = SessionSynthOptions(
@@ -283,7 +286,8 @@ def build_raw_folder(
 def build_interim_pose(
     interim_root: Union[str, Path],
     *,
-    session_id: str,
+    subject_id: str = "subject-001",
+    session_id: str = "session-001",
     camera_ids: List[str],
     n_frames: int = 300,
     fps: float = 30.0,
@@ -329,7 +333,9 @@ def build_interim_pose(
     """
 
     interim_root = Path(interim_root)
-    session_dir = interim_root / session_id
+
+    # Create subject_id/session_id structure
+    session_dir = interim_root / subject_id / session_id
     pose_dir = session_dir / "Pose"
     pose_paths = []
 

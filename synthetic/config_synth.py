@@ -61,7 +61,6 @@ class SynthConfigOptions(BaseModel):
     raw_root: str = Field(default="data/raw")
     intermediate_root: str = Field(default="data/interim")
     output_root: str = Field(default="data/processed")
-    metadata_file: str = Field(default="metadata.toml")
     models_root: str = Field(default="models")
 
     # Timebase
@@ -130,7 +129,6 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
         raw_root=base.raw_root,
         intermediate_root=base.intermediate_root,
         output_root=base.output_root,
-        metadata_file=base.metadata_file,
         models_root=base.models_root,
     )
 
@@ -257,7 +255,6 @@ def config_to_toml(config: ConfigModel) -> str:
     lines.append(_toml_kv("raw_root", config.paths.raw_root))
     lines.append(_toml_kv("intermediate_root", config.paths.intermediate_root))
     lines.append(_toml_kv("output_root", config.paths.output_root))
-    lines.append(_toml_kv("metadata_file", config.paths.metadata_file))
     lines.append(_toml_kv("models_root", config.paths.models_root))
     lines.append("\n")
 
