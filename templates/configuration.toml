@@ -8,6 +8,15 @@ output_root = "data/processed"      # Output data root
 models_root = "models"              # Directory containing pose estimation models
 root_metadata = "/home/user/configs/metadata.toml"  # Global metadata file path
 
+[synchronization]
+strategy = "hardware_pulse"  # Options: "rate_based", "hardware_pulse", "network_stream"
+reference_channel = "ttl_camera"  # TTL channel ID to use as master clock
+
+[synchronization.alignment]
+method = "nearest"  # Options: "nearest", "linear"
+tolerance_s = 0.002  # Maximum allowed jitter in seconds
+global_offset_s = 0.0  # Global time offset before mapping
+
 # Hardware sync policy: software does not compute per-frame timestamps; it verifies counts
 [verification]
 mismatch_tolerance_frames = 0       # abort if video_frame_count - ttl_pulse_count > tolerance

@@ -252,14 +252,14 @@ def create_timebase_provider_from_config(config, manifest: Optional[Any] = None)
     and delegates to the low-level create_timebase_provider() function.
 
     Args:
-        config: Pipeline configuration with timebase settings
-        manifest: Session manifest (required for TTL provider)
+        config: Pipeline configuration with synchronization settings
+        manifest: Session manifest (required for hardware_pulse provider)
 
     Returns:
         TimebaseProvider instance
 
     Raises:
-        SyncError: If invalid source or missing required data
+        SyncError: If invalid strategy or missing required data
 
     Example:
         >>> from w2t_bkin.config import load_config
@@ -272,21 +272,21 @@ def create_timebase_provider_from_config(config, manifest: Optional[Any] = None)
         >>> provider = create_timebase_provider_from_config(config, manifest)
         >>> timestamps = provider.get_timestamps(n_samples=1000)
     """
-    source = config.timebase.source
-    offset_s = config.timebase.offset_s
+    strategy = config.synchronization.strategy
+    offset_s = config.synchronization.alignment.global_offset_s
 
-    if source == "nominal_rate":
+    if strategy == "rate_based":
         # Default to 30 Hz for cameras
         rate = 30.0
         return create_timebase_provider(source="nominal_rate", rate=rate, offset_s=offset_s)
 
-    elif source == "ttl":
+    elif strategy == "hardware_pulse":
         if manifest is None:
-            raise SyncError("Manifest required for TTL timebase provider")
+            raise SyncError("Manifest required for hardware_pulse timebase provider")
 
-        ttl_id = config.timebase.ttl_id
+        ttl_id = config.synchronization.reference_channel
         if not ttl_id:
-            raise SyncError("timebase.ttl_id required when source='ttl'")
+            raise SyncError("synchronization.reference_channel required when strategy='hardware_pulse'")
 
         # Find TTL files in manifest
         ttl_files = None
@@ -300,12 +300,12 @@ def create_timebase_provider_from_config(config, manifest: Optional[Any] = None)
 
         return create_timebase_provider(source="ttl", ttl_id=ttl_id, ttl_files=ttl_files, offset_s=offset_s)
 
-    elif source == "neuropixels":
-        stream = config.timebase.neuropixels_stream
+    elif strategy == "network_stream":
+        stream = config.synchronization.reference_channel
         if not stream:
-            raise SyncError("timebase.neuropixels_stream required when source='neuropixels'")
+            raise SyncError("synchronization.reference_channel required when strategy='network_stream'")
 
         return create_timebase_provider(source="neuropixels", neuropixels_stream=stream, offset_s=offset_s)
 
     else:
-        raise SyncError(f"Invalid timebase source: {source}")
+        raise SyncError(f"Invalid synchronization strategy: {strategy}")

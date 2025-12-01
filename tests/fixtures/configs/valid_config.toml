@@ -8,14 +8,14 @@ output_root = "data/processed"      # Output data root
 metadata_file = "metadata.toml"      # Session metadata file name within each session directory
 models_root = "models"              # Directory containing pose estimation models
 
-# Session reference timebase (aligns derived data; ImageSeries remain rate-based)
-[timebase]
-source = "nominal_rate"       # one of: "nominal_rate" | "ttl" | "neuropixels"
-mapping = "nearest"           # one of: "nearest" | "linear"
-jitter_budget_s = 0.010       # non-negative; max allowed alignment jitter in seconds
-offset_s = 0.0                # global offset applied before mapping
-# ttl_id = "cam0_ttl"         # REQUIRED when source = "ttl"; must match a session [[TTLs]].id
-# neuropixels_stream = "AP0"  # REQUIRED when source = "neuropixels"; identifies the reference clock/stream
+[synchronization]
+strategy = "hardware_pulse"  # Options: "rate_based", "hardware_pulse", "network_stream"
+reference_channel = "ttl_camera"  # TTL channel ID to use as master clock
+
+[synchronization.alignment]
+method = "nearest"  # Options: "nearest", "linear"
+tolerance_s = 0.010  # Maximum allowed jitter in seconds
+global_offset_s = 0.0  # Global time offset before mapping
 
 # Acquisition policies (session-agnostic)
 [acquisition]

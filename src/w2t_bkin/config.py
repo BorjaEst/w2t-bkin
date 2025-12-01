@@ -24,7 +24,7 @@ try:
 except ImportError:
     import tomli as tomllib  # Python < 3.11 fallback
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .utils import compute_hash, read_toml
 
@@ -32,8 +32,8 @@ from .utils import compute_hash, read_toml
 # Constants
 # =============================================================================
 
-VALID_TIMEBASE_SOURCES = frozenset({"nominal_rate", "ttl", "neuropixels"})
-VALID_TIMEBASE_MAPPINGS = frozenset({"nearest", "linear"})
+VALID_SYNC_STRATEGIES = frozenset({"rate_based", "hardware_pulse", "network_stream"})
+VALID_ALIGNMENT_METHODS = frozenset({"nearest", "linear"})
 VALID_LOGGING_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
@@ -71,28 +71,48 @@ class PathsConfig(BaseModel, extra="forbid"):
     models_root: Path = Field(default="models", description="Pose estimation models directory")
     root_metadata: Optional[Path] = Field(None, description="Optional global metadata file (base layer)")
 
+    @model_validator(mode="after")
+    def resolve_paths(self) -> "PathsConfig":
+        """Resolve all paths to absolute paths.
 
-class TimebaseConfig(BaseModel, extra="forbid"):
-    """Reference timebase for aligning derived data.
+        Converts relative paths to absolute paths based on current working directory.
+        This ensures consistent path handling regardless of execution context.
+        """
+        self.raw_root = self.raw_root.resolve()
+        self.intermediate_root = self.intermediate_root.resolve()
+        self.output_root = self.output_root.resolve()
+        self.models_root = self.models_root.resolve()
+        if self.root_metadata:
+            self.root_metadata = self.root_metadata.resolve()
+        return self
 
-    Defines the reference clock for synchronizing pose and behavior data.
-    ImageSeries remain rate-based; this timebase applies to derived modalities.
+
+class AlignmentConfig(BaseModel, extra="forbid"):
+    """Alignment configuration.
 
     Attributes:
-        source: Timebase source (nominal_rate, ttl, or neuropixels).
-        mapping: Strategy for mapping timestamps (nearest or linear).
-        jitter_budget_s: Maximum allowed temporal jitter in seconds.
-        offset_s: Global time offset before mapping (default: 0.0).
-        ttl_id: TTL channel ID (required when source='ttl').
-        neuropixels_stream: Neuropixels stream name (required when source='neuropixels').
+        method: Alignment strategy ("nearest" or "linear").
+        tolerance_s: Maximum acceptable jitter in seconds.
+        global_offset_s: Global time offset before mapping (default: 0.0).
     """
 
-    source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(..., description="Timebase source")
-    mapping: Literal["nearest", "linear"] = Field(..., description="Mapping strategy")
-    jitter_budget_s: float = Field(..., ge=0.0, description="Max allowed jitter in seconds")
-    offset_s: float = Field(default=0.0, description="Global offset before mapping")
-    ttl_id: Optional[str] = Field(None, description="TTL ID (required when source='ttl')")
-    neuropixels_stream: Optional[str] = Field(None, description="Neuropixels stream (required when source='neuropixels')")
+    method: Literal["nearest", "linear"] = Field(..., description="Alignment strategy")
+    tolerance_s: float = Field(..., ge=0.0, description="Max allowed jitter in seconds")
+    global_offset_s: float = Field(default=0.0, description="Global offset before mapping")
+
+
+class SynchronizationConfig(BaseModel, extra="forbid"):
+    """Synchronization configuration.
+
+    Attributes:
+        strategy: Synchronization strategy ("rate_based", "hardware_pulse", "network_stream").
+        reference_channel: Reference channel ID (required for hardware_pulse/network_stream).
+        alignment: Alignment configuration.
+    """
+
+    strategy: Literal["rate_based", "hardware_pulse", "network_stream"] = Field(..., description="Synchronization strategy")
+    reference_channel: Optional[str] = Field(None, description="Reference channel ID (required for hardware_pulse)")
+    alignment: AlignmentConfig
 
 
 class AcquisitionConfig(BaseModel, extra="forbid"):
@@ -312,7 +332,7 @@ class Config(BaseModel, extra="forbid"):
     Attributes:
         project: Project identification.
         paths: File system paths.
-        timebase: Reference timebase for synchronization.
+        synchronization: Synchronization configuration.
         acquisition: Data acquisition policies.
         verification: Hardware sync verification.
         bpod: Bpod behavioral control settings.
@@ -326,7 +346,7 @@ class Config(BaseModel, extra="forbid"):
 
     project: ProjectConfig
     paths: PathsConfig
-    # timebase: TimebaseConfig
+    synchronization: SynchronizationConfig
     # acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
     # verification: VerificationConfig = Field(default_factory=VerificationConfig)
     bpod: BpodConfig = Field(default_factory=BpodConfig)
@@ -336,26 +356,6 @@ class Config(BaseModel, extra="forbid"):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     # labels: LabelsConfig = Field(default_factory=LabelsConfig)
     # facemap: FacemapConfig = Field(default_factory=FacemapConfig)
-
-    # @field_validator("timebase")
-    # @classmethod
-    # def validate_timebase_conditionals(cls, v: TimebaseConfig) -> TimebaseConfig:
-    #     """Validate conditional timebase requirements.
-
-    #     Args:
-    #         v: TimebaseConfig instance to validate.
-
-    #     Returns:
-    #         Validated TimebaseConfig.
-
-    #     Raises:
-    #         ValueError: If conditional requirements are not met.
-    #     """
-    #     if v.source == "ttl" and v.ttl_id is None:
-    #         raise ValueError("timebase.ttl_id is required when source='ttl'")
-    #     if v.source == "neuropixels" and v.neuropixels_stream is None:
-    #         raise ValueError("timebase.neuropixels_stream is required when source='neuropixels'")
-    #     return v
 
 
 # =============================================================================
@@ -386,7 +386,7 @@ def load_config(path: Union[str, Path]) -> Config:
     Example:
         >>> config = load_config("config.toml")
         >>> print(config.project.name)
-        >>> print(config.timebase.source)
+        >>> print(config.synchronization.strategy)
     """
     data = read_toml(path)
 
@@ -437,22 +437,23 @@ def _validate_config_enums(data: Dict[str, Any]) -> None:
     Raises:
         ValueError: If any enum value is invalid.
     """
-    timebase = data.get("timebase", {})
+    sync = data.get("synchronization", {})
+    alignment = sync.get("alignment", {})
 
-    # Validate timebase.source
-    source = timebase.get("source")
-    if source and source not in VALID_TIMEBASE_SOURCES:
-        raise ValueError(f"Invalid timebase.source: '{source}'. " f"Must be one of {sorted(VALID_TIMEBASE_SOURCES)}")
+    # Validate synchronization.strategy
+    strategy = sync.get("strategy")
+    if strategy and strategy not in VALID_SYNC_STRATEGIES:
+        raise ValueError(f"Invalid synchronization.strategy: '{strategy}'. " f"Must be one of {sorted(VALID_SYNC_STRATEGIES)}")
 
-    # Validate timebase.mapping
-    mapping = timebase.get("mapping")
-    if mapping and mapping not in VALID_TIMEBASE_MAPPINGS:
-        raise ValueError(f"Invalid timebase.mapping: '{mapping}'. " f"Must be one of {sorted(VALID_TIMEBASE_MAPPINGS)}")
+    # Validate synchronization.alignment.method
+    method = alignment.get("method")
+    if method and method not in VALID_ALIGNMENT_METHODS:
+        raise ValueError(f"Invalid synchronization.alignment.method: '{method}'. " f"Must be one of {sorted(VALID_ALIGNMENT_METHODS)}")
 
-    # Validate jitter_budget_s >= 0
-    jitter_budget = timebase.get("jitter_budget_s")
-    if jitter_budget is not None and jitter_budget < 0:
-        raise ValueError(f"Invalid timebase.jitter_budget_s: {jitter_budget}. " f"Must be >= 0")
+    # Validate tolerance_s >= 0
+    tolerance = alignment.get("tolerance_s")
+    if tolerance is not None and tolerance < 0:
+        raise ValueError(f"Invalid synchronization.alignment.tolerance_s: {tolerance}. " f"Must be >= 0")
 
     # Validate logging.level
     logging_config = data.get("logging", {})
@@ -472,14 +473,14 @@ def _validate_config_conditionals(data: Dict[str, Any]) -> None:
     Raises:
         ValueError: If conditional requirements are not met.
     """
-    timebase = data.get("timebase", {})
-    source = timebase.get("source")
+    sync = data.get("synchronization", {})
+    strategy = sync.get("strategy")
 
-    if source == "ttl" and not timebase.get("ttl_id"):
-        raise ValueError("timebase.ttl_id is required when timebase.source='ttl'")
+    if strategy == "hardware_pulse" and not sync.get("reference_channel"):
+        raise ValueError("synchronization.reference_channel is required when synchronization.strategy='hardware_pulse'")
 
-    if source == "neuropixels" and not timebase.get("neuropixels_stream"):
-        raise ValueError("timebase.neuropixels_stream is required when " "timebase.source='neuropixels'")
+    if strategy == "network_stream" and not sync.get("reference_channel"):
+        raise ValueError("synchronization.reference_channel is required when " "synchronization.strategy='network_stream'")
 
 
 # =============================================================================
@@ -504,8 +505,9 @@ if __name__ == "__main__":
 
         print(f"✓ Loaded: {config_path}")
         print(f"  Project: {config.project.name}")
-        print(f"  Timebase: {config.timebase.source} ({config.timebase.mapping})")
-        print(f"  Jitter budget: {config.timebase.jitter_budget_s}s")
+        print(f"  Strategy: {config.synchronization.strategy}")
+        print(f"  Method: {config.synchronization.alignment.method}")
+        print(f"  Tolerance: {config.synchronization.alignment.tolerance_s}s")
         print(f"  Logging: {config.logging.level}")
 
         config_hash = compute_config_hash(config)
@@ -528,7 +530,7 @@ if __name__ == "__main__":
     print("-" * 70)
 
     # Invalid enum
-    print("\n2a. Invalid timebase.source:")
+    print("\n2a. Invalid synchronization.strategy:")
     try:
         test_data = {
             "project": {"name": "test"},
@@ -537,10 +539,12 @@ if __name__ == "__main__":
                 "intermediate_root": "data/interim",
                 "output_root": "data/processed",
             },
-            "timebase": {
-                "source": "invalid",
-                "mapping": "nearest",
-                "jitter_budget_s": 0.01,
+            "synchronization": {
+                "strategy": "invalid",
+                "alignment": {
+                    "method": "nearest",
+                    "tolerance_s": 0.01,
+                },
             },
         }
         _validate_config_enums(test_data)
@@ -548,13 +552,15 @@ if __name__ == "__main__":
         print(f"  ✓ Caught: {e}")
 
     # Missing conditional field
-    print("\n2b. Missing conditional field (ttl_id):")
+    print("\n2b. Missing conditional field (reference_channel):")
     try:
         test_data = {
-            "timebase": {
-                "source": "ttl",
-                "mapping": "nearest",
-                "jitter_budget_s": 0.01,
+            "synchronization": {
+                "strategy": "hardware_pulse",
+                "alignment": {
+                    "method": "nearest",
+                    "tolerance_s": 0.01,
+                },
             }
         }
         _validate_config_conditionals(test_data)
@@ -565,10 +571,12 @@ if __name__ == "__main__":
     print("\n2c. Invalid numeric constraint:")
     try:
         test_data = {
-            "timebase": {
-                "source": "nominal_rate",
-                "mapping": "nearest",
-                "jitter_budget_s": -0.01,
+            "synchronization": {
+                "strategy": "rate_based",
+                "alignment": {
+                    "method": "nearest",
+                    "tolerance_s": -0.01,
+                },
             }
         }
         _validate_config_enums(test_data)

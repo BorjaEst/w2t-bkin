@@ -196,3 +196,23 @@ description = "Processed behavioral data including pose estimates and synchroniz
 [[processing_modules]]
 name = "sync"
 description = "Synchronization data between Bpod and cameras"
+
+# =============================================================================
+# PIPELINE SOURCE DEFINITIONS (Not NWB Metadata)
+# =============================================================================
+
+# TTL synchronization channels
+[[TTLs]]
+id = "ttl_camera"
+file_pattern = "*_frame.txt"
+description = "Camera exposure pulses (frame sync)"
+
+[[TTLs]]
+id = "ttl_cue"
+file_pattern = "*_cue.txt"
+description = "Audio cue onset pulses"
+
+[[TTLs]]
+id = "ttl_hitmiss"
+file_pattern = "*_hitmiss.txt"
+description = "Trial outcome signals"

@@ -133,10 +133,15 @@ def build_metadata_paths(
     if subject_meta.exists():
         paths.append(subject_meta)
 
-    # 4. Session metadata
+    # 4. Session metadata (try session.toml first, then metadata.toml as fallback)
     session_meta = raw_root / subject_id / session_id / "session.toml"
     if session_meta.exists():
         paths.append(session_meta)
+    else:
+        # Fallback to metadata.toml (synthetic sessions use this name)
+        metadata_file = raw_root / subject_id / session_id / "metadata.toml"
+        if metadata_file.exists():
+            paths.append(metadata_file)
 
     return paths
 

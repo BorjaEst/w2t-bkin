@@ -7,6 +7,15 @@ intermediate_root = "data/interim" # Intermediate processing outputs
 output_root = "data/processed"     # Output data root
 models_root = "models"             # Directory containing pose estimation models
 
+[synchronization]
+strategy = "hardware_pulse"
+reference_channel = "ttl_camera"
+
+[synchronization.alignment]
+method = "nearest"
+tolerance_s = 0.002
+global_offset_s = 0.0
+
 # Trial synchronization configuration for aligning Bpod to TTL timeline
 # Maps Bpod trial types to sync signals and TTL channels
 [[bpod.sync.trial_types]]
