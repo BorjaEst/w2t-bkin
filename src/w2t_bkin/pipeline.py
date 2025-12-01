@@ -93,6 +93,56 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Session Discovery
+# =============================================================================
+
+
+def discover_sessions(raw_root: Path) -> List[tuple[str, str]]:
+    """Discover all (subject_id, session_id) pairs in raw_root.
+
+    Scans the raw_root directory for the expected two-level hierarchy:
+    raw_root/subject_*/session_*/
+
+    Parameters
+    ----------
+    raw_root : Path
+        Root directory containing raw data
+
+    Returns
+    -------
+    List[tuple[str, str]]
+        Sorted list of (subject_id, session_id) tuples
+
+    Example
+    -------
+    >>> sessions = discover_sessions(Path("data/raw"))
+    >>> print(sessions)
+    [('subject_01', 'session_01'), ('subject_01', 'session_02'),
+     ('subject_02', 'session_01')]
+    """
+    sessions = []
+
+    if not raw_root.exists():
+        logger.warning(f"Raw root does not exist: {raw_root}")
+        return sessions
+
+    for subject_dir in raw_root.iterdir():
+        if not subject_dir.is_dir():
+            continue
+
+        subject_id = subject_dir.name
+
+        for session_dir in subject_dir.iterdir():
+            if not session_dir.is_dir():
+                continue
+
+            session_id = session_dir.name
+            sessions.append((subject_id, session_id))
+
+    return sorted(sessions)
+
+
+# =============================================================================
 # Result Models
 # =============================================================================
 
@@ -149,6 +199,7 @@ class ValidationResult(TypedDict):
 
 def run_session(
     config_path: Union[str, Path],
+    subject_id: str,
     session_id: str,
     options: Optional[Dict[str, Any]] = None,
 ) -> RunResult:
@@ -169,7 +220,8 @@ def run_session(
 
     Args:
         config_path: Path to config.toml
-        session_id: Session identifier (must match metadata.toml session.id)
+        subject_id: Subject identifier (directory name in raw_root)
+        session_id: Session identifier (directory name in subject folder)
         options: Optional execution options:
             - skip_nwb: Skip NWB assembly (default: False)
             - skip_validation: Skip verification stage (default: False)
@@ -189,10 +241,10 @@ def run_session(
     Example:
         >>> result = run_session(
         ...     config_path="config.toml",
-        ...     session_id="Session-000001"
+        ...     subject_id="subject_01",
+        ...     session_id="session_01"
         ... )
-        >>> print(f"Cameras: {len(result['manifest'].cameras)}")
-        >>> print(f"Max jitter: {result['alignment_stats'].max_jitter_s:.6f}s")
+        >>> print(f"NWB file: {result['nwb_path']}")
     """
     # Parse options
     options = options or {}
@@ -201,32 +253,33 @@ def run_session(
     transcode_videos = options.get("transcode_videos", False)
 
     logger.info("=" * 70)
-    logger.info("W2T-BKIN Pipeline - Session Processing (NWB-First)")
+    logger.info("W2T-BKIN Pipeline - Session Processing")
     logger.info("=" * 70)
     logger.info(f"Config: {config_path}")
+    logger.info(f"Subject: {subject_id}")
     logger.info(f"Session: {session_id}")
     logger.info("=" * 70)
 
     # -------------------------------------------------------------------------
-    # Phase 0: Load Configuration and Create NWBFile
+    # Phase 0: Load Configuration and Metadata
     # -------------------------------------------------------------------------
-    logger.info("\n[Phase 0] Loading configuration and creating NWBFile...")
+    logger.info("\n[Phase 0] Loading configuration and metadata...")
     config_path = Path(config_path)
     config = load_config(config_path)
     logger.info(f"  ✓ Config loaded: {config.project.name}")
 
-    # Find metadata.toml and create NWBFile (NWB-first architecture)
-    session_dir = Path(config.paths.raw_root) / session_id
-    session_path = session_dir / config.paths.metadata_file
-    nwbfile = create_nwb_file(session_path)
-    logger.info(f"  ✓ NWBFile created: {nwbfile.identifier}")
+    # Load hierarchical metadata and create NWBFile
+    from w2t_bkin.utils import load_session_metadata_and_nwb
 
-    # Verify session_id matches
-    if nwbfile.identifier != session_id:
-        raise ValueError(f"Session ID mismatch: requested '{session_id}', " f"found '{nwbfile.identifier}' in {session_path}")
+    metadata, nwbfile = load_session_metadata_and_nwb(
+        config=config,
+        subject_id=subject_id,
+        session_id=session_id,
+    )
+    logger.info(f"  ✓ Metadata loaded and NWBFile created: {nwbfile.identifier}")
 
-    # NWBFile is already created (NWB-first architecture)
-    logger.info(f"  ✓ NWBFile created: {nwbfile.identifier}")
+    # Session directory for file discovery
+    session_dir = config.paths.raw_root / subject_id / session_id
 
     # -------------------------------------------------------------------------
     # Phase 1: Discover Files and Add Acquisition Data

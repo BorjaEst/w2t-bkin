@@ -14,4 +14,4 @@ identifier = "Session-000001"
 
 # The start date and time of the recording session (ISO 8601 format)
 # Format: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS
-session_start_time = "2025-01-15T14:30:00"
+session_start_time = "2025-01-15T14:30:00Z"

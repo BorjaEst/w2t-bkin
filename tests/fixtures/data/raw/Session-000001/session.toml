@@ -29,7 +29,7 @@ genotype = "WT"
 sex = "M"
 species = "Mus musculus"
 strain = "C57BL/6J"
-date_of_birth = "2024-11-02"
+date_of_birth = "2024-11-02Z"
 
 # =============================================================================
 # LEGACY FIELDS (for backward compatibility)

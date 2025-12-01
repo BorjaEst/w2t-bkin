@@ -59,15 +59,17 @@ class PathsConfig(BaseModel, extra="forbid"):
         raw_root: Path to raw data directory.
         intermediate_root: Path for intermediate processing outputs.
         output_root: Path for final outputs.
-        metadata_file: Filename for session metadata (default: metadata.toml).
         models_root: Directory containing pose estimation models (default: models).
+        root_metadata: Optional path to global metadata file outside raw_root.
+                      This metadata is loaded first (base layer) and is overridden
+                      by any metadata files within raw_root hierarchy.
     """
 
     raw_root: Path = Field(..., description="Raw data root directory")
     intermediate_root: Path = Field(..., description="Intermediate processing outputs")
     output_root: Path = Field(..., description="Output data root directory")
-    metadata_file: Path = Field(default="metadata.toml", description="Session metadata filename")
     models_root: Path = Field(default="models", description="Pose estimation models directory")
+    root_metadata: Optional[Path] = Field(None, description="Optional global metadata file (base layer)")
 
 
 class TimebaseConfig(BaseModel, extra="forbid"):
@@ -478,52 +480,6 @@ def _validate_config_conditionals(data: Dict[str, Any]) -> None:
 
     if source == "neuropixels" and not timebase.get("neuropixels_stream"):
         raise ValueError("timebase.neuropixels_stream is required when " "timebase.source='neuropixels'")
-
-
-# =============================================================================
-# Session Loading Functions (backward compatibility)
-# =============================================================================
-
-
-def load_session(path: Union[str, Path]) -> Dict[str, Any]:
-    """Load session metadata from TOML file.
-
-    Args:
-        path: Path to metadata.toml or metadata.toml file.
-
-    Returns:
-        Parsed session metadata dictionary.
-
-    Raises:
-        FileNotFoundError: If file doesn't exist.
-
-    Example:
-        >>> session = load_session("data/raw/Session-000001/metadata.toml")
-        >>> print(session["identifier"])
-    """
-    session_path = Path(path)
-
-    if not session_path.exists():
-        raise FileNotFoundError(f"Session file not found: {session_path}")
-
-    return read_toml(session_path)
-
-
-def compute_session_hash(session: Dict[str, Any]) -> str:
-    """Compute deterministic SHA256 hash of session metadata.
-
-    Args:
-        session: Session metadata dictionary.
-
-    Returns:
-        SHA256 hex digest (64 characters).
-
-    Example:
-        >>> session = load_session("metadata.toml")
-        >>> hash_value = compute_session_hash(session)
-        >>> print(f"Session hash: {hash_value[:16]}...")
-    """
-    return compute_hash(session)
 
 
 # =============================================================================

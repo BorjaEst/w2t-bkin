@@ -149,14 +149,15 @@ class TestLoadSessionMetadata:
 class TestCreateNWBFile:
     """Test NWBFile creation from session metadata."""
 
-    def test_create_nwb_from_path(self):
-        """Test creating NWBFile from metadata.toml path."""
+    def test_create_nwb_from_metadata_loaded_from_path(self):
+        """Test creating NWBFile from metadata loaded from path."""
         session_path = Path("data/raw/Session-000001/metadata.toml")
 
         if not session_path.exists():
             pytest.skip("Session file not found")
 
-        nwbfile = create_nwb_file(session_path)
+        metadata = load_metadata(session_path)
+        nwbfile = create_nwb_file(metadata)
 
         assert isinstance(nwbfile, NWBFile)
         assert nwbfile.identifier == "Session-000001"

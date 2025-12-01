@@ -35,4 +35,4 @@ strain = "C57BL/6J"
 weight = "0.025 kg"
 
 # Date of birth (ISO 8601 format)
-date_of_birth = "2024-10-23T00:00:00"
+date_of_birth = "2024-10-23T00:00:00Z"

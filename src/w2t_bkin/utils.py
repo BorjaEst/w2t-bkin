@@ -105,10 +105,49 @@ except ImportError:
     from importlib_metadata import version
 
 
-def parse_datetime(dt_str: str) -> datetime:
-    """Parse ISO 8601 datetime string.
+def recursive_dict_update(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively update base dictionary with values from update dictionary.
 
-    Supports formats: YYYY-MM-DDTHH:MM:SS and YYYY-MM-DD HH:MM:SS
+    Performs deep merge where nested dictionaries are recursively merged rather
+    than replaced. Lists and other types are replaced.
+
+    Parameters
+    ----------
+    base : Dict[str, Any]
+        Base dictionary to update
+    update : Dict[str, Any]
+        Dictionary with values to merge into base
+
+    Returns
+    -------
+    Dict[str, Any]
+        Merged dictionary (modifies base in-place and returns it)
+
+    Example
+    -------
+    >>> base = {"a": 1, "b": {"x": 10, "y": 20}}
+    >>> update = {"b": {"y": 25, "z": 30}, "c": 3}
+    >>> recursive_dict_update(base, update)
+    {"a": 1, "b": {"x": 10, "y": 25, "z": 30}, "c": 3}
+    """
+    for key, value in update.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            # Recursively merge nested dictionaries
+            recursive_dict_update(base[key], value)
+        else:
+            # Replace value (for non-dict types or new keys)
+            base[key] = value
+    return base
+
+
+def parse_datetime(dt_str: str) -> datetime:
+    """Parse ISO 8601 datetime string with timezone support.
+
+    Supports formats:
+    - YYYY-MM-DDTHH:MM:SS (naive datetime)
+    - YYYY-MM-DDTHH:MM:SS+HH:MM (timezone offset)
+    - YYYY-MM-DDTHH:MM:SSZ (UTC timezone)
+    - YYYY-MM-DD HH:MM:SS (space separator, naive)
 
     Parameters
     ----------
@@ -118,9 +157,20 @@ def parse_datetime(dt_str: str) -> datetime:
     Returns
     -------
     datetime
-        Parsed datetime object
+        Parsed datetime object (timezone-aware if timezone was specified)
+
+    Example
+    -------
+    >>> parse_datetime("2025-11-21T14:30:00Z")
+    datetime.datetime(2025, 11, 21, 14, 30, tzinfo=datetime.timezone.utc)
+    >>> parse_datetime("2025-11-21T14:30:00")
+    datetime.datetime(2025, 11, 21, 14, 30)
     """
-    # Try with 'T' separator first
+    # Normalize 'Z' suffix to '+00:00' for Python < 3.11 compatibility
+    if dt_str.endswith("Z"):
+        dt_str = dt_str[:-1] + "+00:00"
+
+    # Try with 'T' separator first (ISO 8601 standard)
     try:
         return datetime.fromisoformat(dt_str)
     except ValueError:
@@ -130,7 +180,7 @@ def parse_datetime(dt_str: str) -> datetime:
     try:
         return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
     except ValueError:
-        raise ValueError(f"Invalid datetime format: {dt_str}. " "Expected ISO 8601: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS")
+        raise ValueError(f"Invalid datetime format: {dt_str}. " f"Expected ISO 8601: YYYY-MM-DDTHH:MM:SS[Z|+HH:MM] or YYYY-MM-DD HH:MM:SS")
 
 
 def get_source_script() -> Optional[str]:
@@ -1091,3 +1141,76 @@ def count_ttl_pulses(ttl_path: Path) -> int:
             return len([line for line in lines if line.strip()])
     except Exception:
         return 0
+
+
+def load_session_metadata_and_nwb(
+    config: "Config",
+    subject_id: str,
+    session_id: str,
+) -> tuple[Dict[str, Any], "NWBFile"]:
+    """Load hierarchical metadata and create NWBFile for a session.
+
+    This is a convenience function for the pipeline that:
+    1. Builds the metadata path list from config and session identifiers
+    2. Loads and merges metadata hierarchically
+    3. Creates an NWBFile from the merged metadata
+
+    Parameters
+    ----------
+    config : Config
+        Pipeline configuration
+    subject_id : str
+        Subject identifier (directory name)
+    session_id : str
+        Session identifier (directory name)
+
+    Returns
+    -------
+    tuple[Dict[str, Any], NWBFile]
+        Merged metadata dictionary and created NWBFile
+
+    Raises
+    ------
+    ValueError
+        If no metadata files are found
+    FileNotFoundError
+        If a metadata file in the path list doesn't exist
+
+    Example
+    -------
+    >>> from w2t_bkin.config import load_config
+    >>> from w2t_bkin.utils import load_session_metadata_and_nwb
+    >>>
+    >>> config = load_config("config.toml")
+    >>> metadata, nwbfile = load_session_metadata_and_nwb(
+    ...     config=config,
+    ...     subject_id="subject_01",
+    ...     session_id="session_01"
+    ... )
+    >>> print(f"NWB identifier: {nwbfile.identifier}")
+    """
+    # Import here to avoid circular dependency
+    from w2t_bkin.session import build_metadata_paths, create_nwb_file, load_metadata
+
+    # Build metadata paths
+    metadata_paths = build_metadata_paths(
+        raw_root=config.paths.raw_root,
+        subject_id=subject_id,
+        session_id=session_id,
+        root_metadata=config.paths.root_metadata,
+    )
+
+    if not metadata_paths:
+        raise ValueError(
+            f"No metadata files found for subject '{subject_id}', session '{session_id}'. "
+            f"Expected at least one of: root_metadata, raw_root/metadata.toml, "
+            f"raw_root/{subject_id}/subject.toml, raw_root/{subject_id}/{session_id}/session.toml"
+        )
+
+    # Load and merge metadata
+    metadata = load_metadata(metadata_paths)
+
+    # Create NWBFile
+    nwbfile = create_nwb_file(metadata)
+
+    return metadata, nwbfile

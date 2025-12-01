@@ -132,7 +132,7 @@ def build_metadata(*, options: Optional[SessionSynthOptions] = None, **overrides
             birth_date = session_date - timedelta(days=days_old)
             date_of_birth = birth_date.strftime("%Y-%m-%dT00:00:00")
         else:
-            date_of_birth = "2024-01-01T00:00:00"  # Fallback
+            date_of_birth = "2024-01-01T00:00:00Z"  # Fallback
 
     # Build experimenter list (convert string to list if needed)
     experimenter_list = [base.experimenter] if isinstance(base.experimenter, str) else base.experimenter

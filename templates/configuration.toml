@@ -5,8 +5,8 @@ name = "w2t-bkin-pipeline"
 raw_root = "data/raw"  # Points to real test data with Session-000001
 intermediate_root = "data/interim"  # Intermediate processing outputs
 output_root = "data/processed"      # Output data root
-metadata_file = "metadata.toml"      # Session metadata file name within each session directory
 models_root = "models"              # Directory containing pose estimation models
+root_metadata = "/home/user/configs/metadata.toml"  # Global metadata file path
 
 # Hardware sync policy: software does not compute per-frame timestamps; it verifies counts
 [verification]

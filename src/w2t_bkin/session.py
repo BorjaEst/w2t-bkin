@@ -7,18 +7,23 @@ files and NWB file generation.
 Key Features:
 -------------
 - **TOML Loading**: Parse metadata.toml with validation
+- **Hierarchical Configuration**: Merge multiple TOML files (global->subject->session)
 - **NWBFile Creation**: Convert session metadata to pynwb.NWBFile
 - **Subject Metadata**: Full pynwb.file.Subject object creation
 - **Device Management**: Create Device objects from config
-- **Flexible Input**: Accept Path, str, or dict
+- **Flexible Input**: Accept Path, str, dict, or list of paths
 - **ISO 8601 Support**: Parse datetime strings correctly
 
 Main Functions:
 ---------------
-- load_metadata: Load and parse metadata.toml file
-- create_nwb_file: Create pynwb.NWBFile from session metadata
+- load_metadata: Load and merge metadata.toml file(s) hierarchically
+- create_nwb_file: Create pynwb.NWBFile from session metadata dictionary
 - create_subject: Create pynwb.file.Subject from metadata
-- create_devices: Create Device objects from device list
+- create_device: Create pynwb.device.Device from metadata
+
+Helper Functions:
+-----------------
+For recursive dictionary merging, see utils.recursive_dict_update()
 
 Requirements:
 -------------
@@ -36,6 +41,13 @@ Example:
 >>> session_path = Path("data/raw/Session-000001/metadata.toml")
 >>> metadata = load_metadata(session_path)
 >>>
+>>> # Or load with hierarchical merging
+>>> metadata = load_metadata([
+...     Path("data/raw/metadata.toml"),              # Global
+...     Path("data/raw/subject_01/subject.toml"),    # Subject
+...     Path("data/raw/subject_01/session_01/session.toml")  # Session
+... ])
+>>>
 >>> # Create NWBFile object
 >>> nwbfile = create_nwb_file(metadata)
 >>> print(f"Session: {nwbfile.session_id}")
@@ -51,68 +63,181 @@ from pynwb import NWBHDF5IO, NWBFile
 from pynwb.device import Device, DeviceModel
 from pynwb.file import Subject
 from pynwb.image import ImageSeries
-import tomli
 
 from w2t_bkin import utils
 
 
-def load_metadata(session_path: Union[str, Path]) -> Dict[str, Any]:
-    """Load session metadata from TOML file.
+def build_metadata_paths(
+    raw_root: Path,
+    subject_id: str,
+    session_id: str,
+    root_metadata: Optional[Path] = None,
+) -> List[Path]:
+    """Build ordered list of metadata paths for hierarchical loading.
 
-    Reads and parses a metadata.toml file containing NWB metadata.
+    Constructs the metadata file path hierarchy from configuration, checking
+    for file existence at each level. Only existing files are included.
+
+    Hierarchy order (first to last, later overrides earlier):
+    1. root_metadata (if provided) - Lab/project-wide defaults
+    2. raw_root/metadata.toml - Experiment-wide settings
+    3. raw_root/subject_id/subject.toml - Subject-specific metadata
+    4. raw_root/subject_id/session_id/session.toml - Session-specific metadata
 
     Parameters
     ----------
-    session_path : Union[str, Path]
-        Path to metadata.toml file
+    raw_root : Path
+        Root directory containing raw data
+    subject_id : str
+        Subject identifier (directory name)
+    session_id : str
+        Session identifier (directory name)
+    root_metadata : Optional[Path], optional
+        Path to global metadata file outside raw_root (default: None)
+
+    Returns
+    -------
+    List[Path]
+        Ordered list of existing metadata file paths
+
+    Example
+    -------
+    >>> from pathlib import Path
+    >>> paths = build_metadata_paths(
+    ...     raw_root=Path("data/raw"),
+    ...     subject_id="subject_01",
+    ...     session_id="session_01",
+    ...     root_metadata=Path("config/lab_defaults.toml")
+    ... )
+    >>> print(paths)
+    [Path('config/lab_defaults.toml'),
+     Path('data/raw/metadata.toml'),
+     Path('data/raw/subject_01/subject.toml'),
+     Path('data/raw/subject_01/session_01/session.toml')]
+    """
+    paths = []
+
+    # 1. Root metadata (lab/project-wide defaults)
+    if root_metadata is not None:
+        root_meta = Path(root_metadata)
+        if root_meta.exists():
+            paths.append(root_meta)
+
+    # 2. Raw root global metadata (experiment-wide)
+    raw_meta = raw_root / "metadata.toml"
+    if raw_meta.exists():
+        paths.append(raw_meta)
+
+    # 3. Subject metadata
+    subject_meta = raw_root / subject_id / "subject.toml"
+    if subject_meta.exists():
+        paths.append(subject_meta)
+
+    # 4. Session metadata
+    session_meta = raw_root / subject_id / session_id / "session.toml"
+    if session_meta.exists():
+        paths.append(session_meta)
+
+    return paths
+
+
+def load_metadata(session_path: Union[str, Path, List[Union[str, Path]]]) -> Dict[str, Any]:
+    """Load session metadata from TOML file(s) with hierarchical merging.
+
+    Reads and parses metadata from one or more TOML files. When multiple paths
+    are provided, configurations are merged hierarchically where later files
+    override earlier ones. This enables a cascade configuration pattern:
+    - Global metadata (e.g., experiment-wide settings)
+    - Subject metadata (e.g., subject-specific information)
+    - Session metadata (e.g., session-specific details)
+
+    Nested dictionaries are recursively merged, allowing partial overrides.
+    Lists and scalar values are replaced entirely by later configurations.
+
+    Parameters
+    ----------
+    session_path : Union[str, Path, List[Union[str, Path]]]
+        Path to metadata.toml file, or list of paths to merge hierarchically.
+        When a list is provided, files are merged in order (first to last),
+        with later files taking precedence.
 
     Returns
     -------
     Dict[str, Any]
-        Parsed session metadata dictionary
+        Parsed and merged session metadata dictionary
 
     Raises
     ------
     FileNotFoundError
-        If metadata.toml does not exist
+        If any metadata file does not exist
     ValueError
         If TOML is invalid or malformed
 
     Example
     -------
+    >>> # Single file
     >>> metadata = load_metadata("Session-000001/metadata.toml")
     >>> print(metadata["identifier"])
     Session-000001
+
+    >>> # Hierarchical merge: global -> subject -> session
+    >>> metadata = load_metadata([
+    ...     "data/raw/metadata.toml",          # Global settings
+    ...     "data/raw/subject_01/subject.toml", # Subject info
+    ...     "data/raw/subject_01/session_01/session.toml"  # Session specifics
+    ... ])
+    >>> # Session-specific values override subject and global values
     """
-    session_path = Path(session_path)
+    # Normalize input to list of paths
+    if isinstance(session_path, (str, Path)):
+        paths = [Path(session_path)]
+    else:
+        paths = [Path(p) for p in session_path]
 
-    if not session_path.exists():
-        raise FileNotFoundError(f"Session file not found: {session_path}")
+    # Start with empty metadata dictionary
+    metadata: Dict[str, Any] = {}
 
-    with open(session_path, "rb") as f:
-        metadata = tomli.load(f)
+    # Load and merge each configuration file in order
+    for path in paths:
+        if not path.exists():
+            raise FileNotFoundError(f"Metadata file not found: {path}")
+
+        # Load TOML file using utils for consistency
+        file_data = utils.read_toml(path)
+
+        # Recursively merge into accumulated metadata
+        utils.recursive_dict_update(metadata, file_data)
 
     return metadata
 
 
-def create_nwb_file(session_file: Union[str, Path, Dict[str, Any]]) -> NWBFile:
-    """Create NWBFile object from session metadata.
+def create_nwb_file(metadata: Dict[str, Any]) -> NWBFile:
+    """Create NWBFile object from session metadata dictionary.
+
+    Parameters
+    ----------
+    metadata : Dict[str, Any]
+        Session metadata dictionary (from load_metadata())
+
+    Returns
+    -------
+    NWBFile
+        Configured NWBFile object
 
     Example
     -------
-    >>> # From file path
-    >>> nwbfile = create_nwb_file("Session-000001/metadata.toml")
+    >>> # Load metadata first, then create NWBFile
+    >>> metadata = load_metadata("Session-000001/metadata.toml")
+    >>> nwbfile = create_nwb_file(metadata)
     >>>
-    >>> # From metadata dict
-    >>> metadata = {"identifier": "S001", "session_start_time": "2025-01-15T14:30:00", ...}
+    >>> # Or with hierarchical merge
+    >>> metadata = load_metadata([
+    ...     "data/raw/metadata.toml",
+    ...     "data/raw/subject_01/subject.toml",
+    ...     "data/raw/subject_01/session_01/session.toml"
+    ... ])
     >>> nwbfile = create_nwb_file(metadata)
     """
-    # Load metadata if path provided, otherwise use dict directly
-    if isinstance(session_file, dict):
-        metadata = session_file
-    else:
-        metadata = load_metadata(session_file)
-
     # Create NWBFile with all metadata
     nwbfile = NWBFile(
         session_description=metadata.get("session_description"),
@@ -353,8 +478,9 @@ def add_video_acquisition(
 
     Example
     -------
-    >>> from w2t_bkin.session import create_nwb_file, add_video_acquisition
-    >>> nwbfile = create_nwb_file("metadata.toml")
+    >>> from w2t_bkin.session import create_nwb_file, add_video_acquisition, load_metadata
+    >>> metadata = load_metadata("metadata.toml")
+    >>> nwbfile = create_nwb_file(metadata)
     >>> nwbfile = add_video_acquisition(
     ...     nwbfile,
     ...     camera_id="camera_0",
@@ -403,10 +529,11 @@ def write_nwb_file(nwbfile: NWBFile, output_path: Path) -> Path:
 
     Example
     -------
-    >>> from w2t_bkin.session import create_nwb_file, write_nwb_file
+    >>> from w2t_bkin.session import create_nwb_file, write_nwb_file, load_metadata
     >>> from pathlib import Path
     >>>
-    >>> nwbfile = create_nwb_file("metadata.toml")
+    >>> metadata = load_metadata("metadata.toml")
+    >>> nwbfile = create_nwb_file(metadata)
     >>> output_path = Path("output/session.nwb")
     >>> write_nwb_file(nwbfile, output_path)
     >>> print(f"Written: {output_path}")

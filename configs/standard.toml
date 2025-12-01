@@ -2,18 +2,17 @@
 name = "w2t-bkin-pipeline"
 
 [paths]
-raw_root = "data/raw"  # Points to real test data with Session-000001
-intermediate_root = "data/interim"  # Intermediate processing outputs
-output_root = "data/processed"      # Output data root
-metadata_file = "metadata.toml"      # Session metadata file name within each session directory
-models_root = "models"              # Directory containing pose estimation models
+raw_root = "data/raw"              # Points to real test data with Session-000001
+intermediate_root = "data/interim" # Intermediate processing outputs
+output_root = "data/processed"     # Output data root
+models_root = "models"             # Directory containing pose estimation models
 
 # Trial synchronization configuration for aligning Bpod to TTL timeline
 # Maps Bpod trial types to sync signals and TTL channels
 [[bpod.sync.trial_types]]
 trial_type = 1
-sync_signal = "W2T_Audio"          # Bpod state that triggers TTL
-sync_ttl = "ttl_cue"               # TTL channel ID (must match [[TTLs]].id in session)
+sync_signal = "W2T_Audio" # Bpod state that triggers TTL
+sync_ttl = "ttl_cue"      # TTL channel ID (must match [[TTLs]].id in session)
 
 [[bpod.sync.trial_types]]
 trial_type = 2
@@ -27,5 +26,5 @@ sync_ttl = "ttl_cue"
 
 # Logging defaults
 [logging]
-level = "INFO"              # DEBUG | INFO | WARNING | ERROR | CRITICAL
-structured = false          # whether to use structured (e.g., JSON) logging
+level = "INFO"     # DEBUG | INFO | WARNING | ERROR | CRITICAL
+structured = false # whether to use structured (e.g., JSON) logging
