@@ -97,7 +97,7 @@ Example `session.toml`:
 session_description = "Behavioral training with pose tracking"
 identifier = "session-001"
 session_start_time = "2025-11-21T14:30:00Z"
-experimenter = ["John Doe"]
+experimenter = ["Esteban, Borja"]
 institution = "My Lab"
 lab = "Neuroscience Lab"
 

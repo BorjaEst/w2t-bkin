@@ -454,7 +454,7 @@ class SessionPipeline:
         }
 
         # Write NWB file
-        output_dir = self.config.paths.output_root / self.session_id
+        output_dir = self.config.paths.output_root / self.subject_id / self.session_id
         output_dir.mkdir(parents=True, exist_ok=True)
         nwb_path = output_dir / f"{self.session_id}.nwb"
 
