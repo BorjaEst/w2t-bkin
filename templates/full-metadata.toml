@@ -204,15 +204,15 @@ description = "Synchronization data between Bpod and cameras"
 # TTL synchronization channels
 [[TTLs]]
 id = "ttl_camera"
-file_pattern = "*_frame.txt"
+paths = "TTLs/*_frame.txt"
 description = "Camera exposure pulses (frame sync)"
 
 [[TTLs]]
 id = "ttl_cue"
-file_pattern = "*_cue.txt"
+paths = "TTLs/*_cue.txt"
 description = "Audio cue onset pulses"
 
 [[TTLs]]
 id = "ttl_hitmiss"
-file_pattern = "*_hitmiss.txt"
+paths = "TTLs/*_hitmiss.txt"
 description = "Trial outcome signals"

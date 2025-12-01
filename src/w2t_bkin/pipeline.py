@@ -12,7 +12,7 @@ This module implements the high-level pipeline orchestration following the
 Phase 0: Initialization - Load config, create NWBFile
 Phase 1: Discovery & Verification - Find files, verify consistency
 Phase 2: Ingestion - Process Bpod, Pose, TTL data
-Phase 3: Synchronization - Align data streams to common timebase
+Phase 3: Synchronization - Align data streams to reference timeline
 Phase 4: Assembly - Add all objects to NWBFile
 Phase 5: Finalization - Write NWB file, validate, and create sidecars
 
@@ -558,7 +558,7 @@ def run_session(
         RunResult with NWB path, NWBFile object, and statistics
 
     Example:
-        >>> from w2t_bkin.pipeline_v2 import run_session
+        >>> from w2t_bkin.pipeline import run_session
         >>> result = run_session(
         ...     config_path="config.toml",
         ...     subject_id="subject-001",
