@@ -13,7 +13,7 @@ post_date: "2025-11-11"
 
 ## Overview
 
-**Implementation Status**: This document describes the target architecture. Current implementation (Phase 1) focuses on core workflow: Bpod behavioral data + camera acquisition + pose estimation → NWB. Additional features (QC, validation, facemap, transcode) are planned for future phases.
+**Implementation Status**: This document describes the target architecture. Current implementation (Phase 1) focuses on core workflow: Bpod behavioral data + camera acquisition + pose estimation + TTL synchronization → NWB. Additional features (facemap, transcode) are in progress as standalone modules. Validation and QC are planned for future phases.
 
 Concise architecture ensuring all Functional (FR) and Non-Functional (NFR) requirements are met with minimal surface area. Core themes: strict schemas, early verification, single reference timebase for derived data (ImageSeries always rate-based), deterministic/idempotent outputs, and pluggable optional stages.
 
@@ -21,9 +21,11 @@ Concise architecture ensuring all Functional (FR) and Non-Functional (NFR) requi
 
 ## Scope
 
-**Current implementation (Phase 1)**: ingest → verify → bpod → pose → align (timebase) → assemble NWB.
+**Current implementation (Phase 1)**: ingest → verify → bpod → pose → ttl → align (timebase) → assemble NWB (session).
 
-**Planned features (Future phases)**: transcode, facemap, validate (nwbinspector), QC HTML reports.
+**Work in Progress**: transcode, facemap (implemented as standalone, pending integration).
+
+**Planned features (Future phases)**: validate (nwbinspector), QC HTML reports.
 
 **Out of scope**: calibration, triangulation, embedding raw videos internally.
 
@@ -44,10 +46,10 @@ This pipeline uses NWB as its foundational data layer rather than treating it as
 - `pynwb~=3.1.0`: Base NWB data types (TimeSeries, TimeIntervals, NWBFile, ImageSeries)
 - `hdmf~=4.1.0`: Hierarchical Data Modeling Framework underlying NWB
 - `ndx-pose~=0.2.0`: Pose estimation extension (PoseEstimation, PoseEstimationSeries, Skeleton)
-- `ndx-events~=0.4.0`: Behavioral events extension
-- `ndx-structured-behavior~=0.1.0`: Trial structure extension
+- `ndx-events~=0.4.0`: TTL/Hardware events extension
+- `ndx-structured-behavior~=0.1.0`: Trial structure and behavioral events extension
 
-**Architecture Impact**: Processing modules (pose, facemap, events) import from pynwb/ndx packages and produce NWB objects directly. The nwb module becomes an assembly-only layer that aggregates pre-built NWB objects into a single file.
+**Architecture Impact**: Processing modules (pose, facemap, ttl) import from pynwb/ndx packages and produce NWB objects directly. The `session` module handles the assembly of pre-built NWB objects into a single file.
 
 ## Architecture (simplified)
 
@@ -82,18 +84,21 @@ Principles:
 
 Low-level modules operate on raw files and simple arguments (e.g., glob patterns, sort order, ROI specs). Modules produce NWB-native data structures directly.
 
-| Module          | Key Input                                                   | Output / Contract                                       | FR/NFR Coverage        | Status         |
-| --------------- | ----------------------------------------------------------- | ------------------------------------------------------- | ---------------------- | -------------- |
-| utils           | primitives, file paths                                      | hashing, path safety, subprocess wrappers, logging      | NFR-1/2/3              | ✅ Implemented |
-| bpod.code       | Bpod `.mat` file paths, `order`, trial-type specs           | Parsed Bpod data structures (raw dict format)           | FR-11                  | ✅ Implemented |
-| behavior        | parsed Bpod data, trial offsets                             | TaskRecording, TrialsTable (ndx-structured-behavior)    | FR-11/14               | ✅ Implemented |
-| dlc             | video file paths, model config path, GPU selection          | H5 pose files, inference results, batch processing      | FR-5, NFR-1/2          | ✅ Implemented |
-| pose            | pose H5 files, skeleton maps, tuple API: `(data, metadata)` | PoseEstimation objects (ndx-pose), Skeleton definitions | FR-5                   | ✅ Implemented |
-| facemap         | video file paths, ROI specs, frame/idx ranges               | BehavioralTimeSeries (pynwb), motion energy traces      | FR-6                   | 🔵 Planned     |
-| transcode       | input video file paths, codec/format options                | transcoded/mezzanine video file paths                   | FR-4, NFR-2            | 🔵 Planned     |
-| sync.primitives | numeric sequences (timestamps, indices), timebase options   | alignment indices/weights, jitter statistics            | FR-TB-1..6, FR-17, A17 | ✅ Implemented |
+**Strict Separation**: Low-level tools accept only primitives (str, int, float) or file paths. They NEVER accept `Config` objects.
 
-**Note**: All neuroscience data outputs (pose, behavior, facemap) are NWB-native structures. Only infrastructure outputs (transcode paths, sync stats) remain as primitives or simple models.
+| Module          | Key Input                                                   | Output / Contract                                       | FR/NFR Coverage        | Status                  |
+| --------------- | ----------------------------------------------------------- | ------------------------------------------------------- | ---------------------- | ----------------------- |
+| utils           | primitives, file paths                                      | hashing, path safety, subprocess wrappers, logging      | NFR-1/2/3              | ✅ Implemented          |
+| bpod.code       | Bpod `.mat` file paths, `order`, trial-type specs           | Parsed Bpod data structures (raw dict format)           | FR-11                  | ✅ Implemented          |
+| behavior        | parsed Bpod data, trial offsets                             | TaskRecording, TrialsTable (ndx-structured-behavior)    | FR-11/14               | ✅ Implemented          |
+| dlc             | video file paths, model config path, GPU selection          | H5 pose files, inference results, batch processing      | FR-5, NFR-1/2          | ✅ Implemented          |
+| pose            | pose H5 files, skeleton maps, tuple API: `(data, metadata)` | PoseEstimation objects (ndx-pose), Skeleton definitions | FR-5                   | ✅ Implemented          |
+| ttl             | TTL pulse files, channel map                                | Events (ndx-events)                                     | FR-17                  | ✅ Implemented          |
+| facemap         | video file paths, ROI specs, frame/idx ranges               | BehavioralTimeSeries (pynwb), motion energy traces      | FR-6                   | ⚠️ Partial (Standalone) |
+| transcode       | input video file paths, codec/format options                | transcoded/mezzanine video file paths                   | FR-4, NFR-2            | ⚠️ Partial (Standalone) |
+| sync.primitives | numeric sequences (timestamps, indices), timebase options   | alignment indices/weights, jitter statistics            | FR-TB-1..6, FR-17, A17 | ✅ Implemented          |
+
+**Note**: All neuroscience data outputs (pose, behavior, facemap, ttl) are NWB-native structures. Only infrastructure outputs (transcode paths, sync stats) remain as primitives or simple models.
 
 **Pose API Design (Phase 1)**: The `pose` module uses a tuple-based API where import functions (`import_dlc_pose`, `import_sleap_pose`) return `(pose_data, metadata)` tuples that can be passed directly to `build_pose_estimation(data=(pose_data, metadata), ...)`. This eliminates separate metadata parameters and simplifies the API.
 
@@ -103,15 +108,11 @@ Low-level APIs SHOULD offer arguments shaped to be easy to call from orchestrati
 
 Mid-level modules compose low-level outputs and implement cross-cutting policies such as timebase selection, jitter budgets, and NWB layout. They also own their own models where needed (e.g., alignment stats).
 
-| Module | Key Input                                                              | Output / Contract                                            | FR/NFR Coverage        | Status         |
-| ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------- | -------------- |
-| sync   | timebase config (primitives), TTL timestamps, camera frame times       | alignment indices, alignment stats models, timebase provider | FR-TB-1..6, FR-17, A17 | ✅ Implemented |
-| events | TTL pulse timestamps (Dict[str, List[float]]), TTL descriptions        | EventsTable (ndx-events)                                     | FR-17                  | 🔵 Planned     |
-| nwb    | NWB objects from processing modules, camera/video metadata, provenance | Assembled NWBFile (aggregates pre-built NWB objects)         | FR-7 NFR-6             | ⚠️ Partial     |
+| Module | Key Input                                                        | Output / Contract                                            | FR/NFR Coverage        | Status         |
+| ------ | ---------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------- | -------------- |
+| sync   | timebase config (primitives), TTL timestamps, camera frame times | alignment indices, alignment stats models, timebase provider | FR-TB-1..6, FR-17, A17 | ✅ Implemented |
 
 Mid-level tools operate on NWB objects and primitive values only. They never load TOML or know how files are laid out on disk for a session.
-
-**Note**: The nwb module is assembly-only; it aggregates pre-built NWB objects (PoseEstimation, TimeIntervals, TimeSeries) into a single file. No data transformation or format conversion occurs at this layer.
 
 ### High-level orchestration (session-aware)
 
@@ -119,14 +120,14 @@ High-level modules understand `Config` models, NWBFile, and filesystem layout pe
 
 **Config Model Status (Phase 1)**: Currently active fields are `project`, `paths`, `bpod`, and `logging`. Fields for `timebase`, `acquisition`, `verification`, `video`, `nwb`, `qc`, `labels`, and `facemap` are defined but commented out in the Config model, reserved for future phases.
 
-| Module        | Key Input                      | Output / Contract                                                                        | FR/NFR Coverage                  | Status         |
-| ------------- | ------------------------------ | ---------------------------------------------------------------------------------------- | -------------------------------- | -------------- |
-| config        | N/A                            | Pydantic config models (active: project, paths, bpod, logging)                           | FR-10, FR-15, FR-TB-\* NFR-10/11 | ⚠️ Partial     |
-| config_loader | `config.toml`                  | validated `Config` instances, content hashing                                            | FR-10, FR-15, FR-TB-\* NFR-10/11 | ✅ Implemented |
-| session       | `Config`, metadata             | NWBFile creation, video acquisition helpers, NWB file writing                            | FR-7, NFR-6                      | ✅ Implemented |
-| pipeline/cli  | `Config`, NWBFile, CLI options | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         | ⚠️ Partial     |
-| validate      | NWB                            | `validation_report.json` (nwbinspector report)                                           | FR-9                             | 🔵 Planned     |
-| qc            | NWB + sidecars                 | QC HTML                                                                                  | FR-8/14 NFR-3                    | 🔵 Planned     |
+| Module        | Key Input                       | Output / Contract                                                                        | FR/NFR Coverage                  | Status         |
+| ------------- | ------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------- | -------------- |
+| config        | N/A                             | Pydantic config models (active: project, paths, bpod, logging)                           | FR-10, FR-15, FR-TB-\* NFR-10/11 | ⚠️ Partial     |
+| config_loader | `config.toml`                   | validated `Config` instances, content hashing                                            | FR-10, FR-15, FR-TB-\* NFR-10/11 | ✅ Implemented |
+| session       | `Config`, metadata, NWB objects | NWBFile creation, assembly, writing                                                      | FR-7, NFR-6                      | ✅ Implemented |
+| pipeline/cli  | `Config`, NWBFile, CLI options  | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         | ⚠️ Partial     |
+| validate      | NWB                             | `validation_report.json` (nwbinspector report)                                           | FR-9                             | 🔵 Planned     |
+| qc            | NWB + sidecars                  | QC HTML                                                                                  | FR-8/14 NFR-3                    | 🔵 Planned     |
 
 ## Sidecar Schemas (summary)
 
@@ -179,7 +180,7 @@ per A17. ImageSeries timing remains rate-based and independent of timebase choic
 2. Utils, config package (15 Config models), config_loader (TOML loading + hashing)
 3. Session module (NWBFile creation, video acquisition, NWB writing)
 4. Sync (timebase + alignment, owns AlignmentStats model)
-5. Optional modalities (transcode, pose, facemap, bpod, behavior) - produce NWB-native structures (PoseEstimation, TimeIntervals, TimeSeries, TaskRecording)
+5. Optional modalities (transcode, pose, facemap, bpod, behavior, ttl) - produce NWB-native structures (PoseEstimation, TimeIntervals, TimeSeries, TaskRecording)
 6. Pipeline orchestration (inlines file discovery, creates NWBFile early, coordinates processing)
 7. Validation + QC (operate on NWB + sidecar models)
 
@@ -195,7 +196,7 @@ surface that owns `Config`, `Session`, and session layout. Example shapes:
   - Inlines file discovery using `discover_files()`, `count_video_frames()`, `count_ttl_pulses()`.
   - Performs inline verification: compares frame counts vs TTL pulse counts.
   - Adds video acquisition to NWBFile via `add_video_acquisition()`.
-  - Calls low-level tools (bpod, behavior, pose, facemap, transcode) with raw file paths
+  - Calls low-level tools (bpod, behavior, pose, facemap, transcode, ttl) with raw file paths
     and primitive options derived from `Session`.
   - Low-level tools return NWB objects (PoseEstimation, TimeIntervals, TimeSeries, TaskRecording).
   - Calls `sync` to select a timebase and compute alignment models.
