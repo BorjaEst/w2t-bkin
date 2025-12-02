@@ -26,14 +26,6 @@ from pydantic import BaseModel, Field
 from ..exceptions import SyncError
 from ..utils import write_json
 
-__all__ = [
-    "AlignmentStats",
-    "create_alignment_stats",
-    "write_alignment_stats",
-    "load_alignment_manifest",
-    "compute_alignment",
-]
-
 logger = logging.getLogger(__name__)
 
 
