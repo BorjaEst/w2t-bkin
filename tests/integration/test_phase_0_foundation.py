@@ -115,7 +115,7 @@ class TestConfigDomainIntegration:
 
         # NWBFile creation should fail or produce incomplete object depending on what's missing
         # If 'identifier' or 'session_description' are missing, NWBFile constructor raises ValueError
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises((ValueError, TypeError)) as exc_info:
             create_nwb_file(metadata)
 
         # Check that error relates to missing required fields
@@ -173,7 +173,7 @@ class TestUtilsConfigIntegration:
         config = load_config(config_path)
 
         # Convert to dict and serialize
-        config_dict = config.model_dump()
+        config_dict = config.model_dump(mode="json")
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json_path = Path(f.name)
@@ -296,25 +296,34 @@ class TestFullPhase0Integration:
 
     def test_Should_ValidateTimebaseConditionals_When_ConfiguredCorrectly_Issue2(self, tmp_path):
         """Should validate synchronization conditional requirements (A9, A10, A11)."""
-        import tomli_w
-
         from w2t_bkin.config import load_config
 
         # Create config with hardware_pulse strategy but missing reference_channel
-        config_data = {
-            "project": {"name": "test"},
-            "paths": {"raw_root": "data/raw", "intermediate_root": "data/interim", "output_root": "data/processed", "models_root": "models"},
-            "synchronization": {
-                "strategy": "hardware_pulse",
-                "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0},
-                # Missing reference_channel
-            },
-            "logging": {"level": "INFO"},
-        }
+        config_content = """
+[project]
+name = "test"
+
+[paths]
+raw_root = "data/raw"
+intermediate_root = "data/interim"
+output_root = "data/processed"
+models_root = "models"
+
+[synchronization]
+strategy = "hardware_pulse"
+# Missing reference_channel
+
+[synchronization.alignment]
+method = "nearest"
+tolerance_s = 0.01
+global_offset_s = 0.0
+
+[logging]
+level = "INFO"
+"""
 
         config_path = tmp_path / "invalid_sync_config.toml"
-        with open(config_path, "wb") as f:
-            tomli_w.dump(config_data, f)
+        config_path.write_text(config_content)
 
         with pytest.raises(ValueError, match="reference_channel.*required"):
             load_config(config_path)

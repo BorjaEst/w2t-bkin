@@ -46,8 +46,8 @@ def fixture_session_path(fixtures_raw_root: Path) -> Path:
 
 @pytest.fixture(scope="session")
 def fixture_session_toml(fixture_session_path: Path) -> Path:
-    """Path to metadata.toml for Session-000001."""
-    return fixture_session_path / "metadata.toml"
+    """Path to session.toml for Session-000001."""
+    return fixture_session_path / "session.toml"
 
 
 # ============================================================================

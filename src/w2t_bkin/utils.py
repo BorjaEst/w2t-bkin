@@ -103,6 +103,15 @@ logger = logging.getLogger(__name__)
 from importlib.metadata import version
 
 
+class PathEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles Path objects."""
+
+    def default(self, obj):
+        if isinstance(obj, Path):
+            return str(obj)
+        return super().default(obj)
+
+
 def recursive_dict_update(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively update base dictionary with values from update dictionary.
 
@@ -286,6 +295,7 @@ def compute_hash(data: Union[str, Dict[str, Any]]) -> str:
     """Compute deterministic SHA256 hash of input data.
 
     For dictionaries, canonicalizes by sorting keys before hashing.
+    Handles Path objects by converting them to strings.
 
     Args:
         data: String or dictionary to hash
@@ -295,7 +305,7 @@ def compute_hash(data: Union[str, Dict[str, Any]]) -> str:
     """
     if isinstance(data, dict):
         # Canonicalize: sort keys and convert to compact JSON
-        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), cls=PathEncoder)
         data_bytes = canonical.encode("utf-8")
     else:
         data_bytes = data.encode("utf-8")
@@ -701,15 +711,6 @@ def write_json(data: Dict[str, Any], path: Union[str, Path], indent: int = 2) ->
         path: Output file path
         indent: JSON indentation (default: 2 spaces)
     """
-
-    class PathEncoder(json.JSONEncoder):
-        """Custom JSON encoder that handles Path objects."""
-
-        def default(self, obj):
-            if isinstance(obj, Path):
-                return str(obj)
-            return super().default(obj)
-
     path_obj = Path(path)
     path_obj.parent.mkdir(parents=True, exist_ok=True)
 

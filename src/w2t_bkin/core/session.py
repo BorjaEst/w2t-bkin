@@ -278,6 +278,15 @@ def create_nwb_file(metadata: Dict[str, Any]) -> NWBFile:
         for device_info in metadata["devices"]:
             nwbfile.add_device(create_device(device_info))
 
+    # Add cameras as devices if provided (and not already added)
+    if "cameras" in metadata:
+        for camera_info in metadata["cameras"]:
+            # Check if device with this name already exists
+            if camera_info["id"] not in nwbfile.devices:
+                # Create device info from camera info
+                device_info = {"name": camera_info["id"], "description": camera_info.get("description", "Camera device"), "manufacturer": "unknown"}
+                nwbfile.add_device(create_device(device_info))
+
     # Add electrode groups if provided
     if "electrode_groups" in metadata:
         for eg_info in metadata["electrode_groups"]:

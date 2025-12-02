@@ -1,11 +1,15 @@
-[session]
-id = "Session-000001"
-subject_id = "mouse_001"
-date = "2025-01-01"
+identifier = "Session-000001"
+session_description = "Test session for unit tests"
+session_start_time = "2025-01-01T12:00:00"
 experimenter = "Test User"
-description = "Test session for unit tests"
+institution = "Test Institution"
+lab = "Test Lab"
+
+[subject]
+subject_id = "mouse_001"
+species = "Mus musculus"
 sex = "M"
-age = "P60"
+age = "P60D"
 genotype = "WT"
 
 [bpod]
@@ -28,15 +32,17 @@ description = "Cue signal from behavior"
 paths = "TTLs/*nidq.xia_3_0*.txt"
 
 [[cameras]]
-id = "cam0"
+id = "cam0_top"
 description = "Top camera"
 paths = "Video/top/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
+fps = 30.0
 
 [[cameras]]
-id = "cam1"
-description = "Pupil left camera"
-paths = "Video/pupil_left/*.avi"
+id = "cam1_side"
+description = "Side camera"
+paths = "Video/side/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
+fps = 60.0
