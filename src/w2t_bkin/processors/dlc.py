@@ -36,8 +36,8 @@ Example:
     ...         print(f"Failed: {result.error_message}")
 """
 
-import logging
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 

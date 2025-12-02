@@ -16,13 +16,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .. import utils
-from ..processors.dlc import (
-    DLCInferenceOptions,
-    DLCModelInfo,
-    predict_output_paths,
-    run_dlc_inference_batch,
-    validate_dlc_model,
-)
+from ..processors.dlc import DLCInferenceOptions, DLCModelInfo, predict_output_paths, run_dlc_inference_batch, validate_dlc_model
 from .base import PipelineTask, TaskConfig, TaskStatus
 
 logger = logging.getLogger(__name__)

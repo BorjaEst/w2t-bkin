@@ -52,10 +52,10 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from rich.table import Table
 
 from . import session, validate
-from ..ingest import behavior, bpod, ttl
 from .. import config as config_pkg
 from .. import sync, utils
 from ..exceptions import IngestError, SyncError
+from ..ingest import behavior, bpod, ttl
 
 # Setup rich console and logging
 console = Console()
