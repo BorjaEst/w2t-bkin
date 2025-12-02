@@ -34,8 +34,8 @@ Public API:
 
 Example:
     >>> from pathlib import Path
-    >>> from w2t_bkin.bpod.code import parse_bpod
-    >>> from w2t_bkin.behavior import (
+    >>> from w2t_bkin.ingest.bpod import parse_bpod
+    >>> from w2t_bkin.ingest.behavior import (
     ...     extract_state_types, extract_states,
     ...     extract_event_types, extract_events,
     ...     extract_action_types, extract_actions,
@@ -64,21 +64,6 @@ Example:
     >>> task_arguments = extract_task_arguments(bpod_data)  # optional
     >>> task = build_task(state_types, event_types, action_types,
     ...                   task_arguments=task_arguments)
-"""
-
-"""Core transformation functions: Bpod data → ndx-structured-behavior.
-
-This module implements the transformation layer that converts parsed Bpod .mat
-files into ndx-structured-behavior NWB classes. All functions produce NWB-native
-objects directly, following the NWB-first architecture from Phase 1.
-
-Architecture:
-    - Low-level: Parse Bpod .mat files (events.bpod module)
-    - Mid-level: Transform to ndx-structured-behavior (this module)
-    - High-level: Integrate with pipeline and NWB assembly (pipeline.py, nwb.py)
-
-Data Flow:
-    Bpod .mat → parse_bpod() → extract_*_types() → extract_*() → build_trials_table() → TaskRecording → NWBFile
 """
 
 import logging

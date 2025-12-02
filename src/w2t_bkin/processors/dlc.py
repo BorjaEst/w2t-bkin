@@ -13,18 +13,13 @@ on video files. It follows the 3-tier architecture:
 - Partial failure handling: Gracefully handle individual video failures in batch
 - Idempotency: Content-addressed outputs, skip inference if unchanged
 
-**Architecture**:
-- ``dlc/core.py``: Low-level inference functions
-- ``dlc/models.py``: Module-local data models
-- ``dlc/__init__.py``: Public API surface
-
 Requirements:
     - FR-5: Optional pose estimation
     - NFR-1: Determinism (idempotent outputs)
     - NFR-2: Performance (batch processing)
 
 Example:
-    >>> from w2t_bkin.dlc import run_dlc_inference_batch, DLCInferenceOptions
+    >>> from w2t_bkin.processors.dlc import run_dlc_inference_batch, DLCInferenceOptions
     >>> from pathlib import Path
     >>>
     >>> videos = [Path("cam0.mp4"), Path("cam1.mp4")]
@@ -41,37 +36,14 @@ Example:
     ...         print(f"Failed: {result.error_message}")
 """
 
-"""DLC inference core functions.
-
-Low-level inference functions that accept primitives only. These functions
-never import config, Session, or Manifest and operate on raw file paths and
-simple arguments.
-
-Requirements:
-    - REQ-DLC-1: Accept primitive arguments only
-    - REQ-DLC-2: Never import config/Session/Manifest
-    - REQ-DLC-3: Support batch inference
-    - REQ-DLC-4: Return deterministic H5 output paths
-    - REQ-DLC-5: Validate model before inference
-
-Architecture:
-    - Low-level: Accepts Path, int, bool, str, List primitives
-    - No high-level dependencies
-    - Module-local models only
-"""
-
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
 
 logger = logging.getLogger(__name__)
-
-
-from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Optional
 
 
 @dataclass(frozen=True)

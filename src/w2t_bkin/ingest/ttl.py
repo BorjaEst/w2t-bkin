@@ -6,7 +6,7 @@ convert to standardized NWB EventsTable format using ndx-events.
 
 Public API
 ----------
-from w2t_bkin.ttl import (
+from w2t_bkin.ingest.ttl import (
     # Loading functions (migrated from sync.ttl)
     load_ttl_file,
     get_ttl_pulses,
@@ -25,7 +25,7 @@ from w2t_bkin.ttl import (
 Usage Example
 -------------
 ```python
-from w2t_bkin.ttl import get_ttl_pulses, extract_ttl_table
+from w2t_bkin.ingest.ttl import get_ttl_pulses, extract_ttl_table
 
 # Load TTL pulses from files
 ttl_patterns = {"ttl_camera": "TTLs/cam*.txt", "ttl_cue": "TTLs/cue*.txt"}
@@ -93,6 +93,8 @@ from ndx_events import EventsTable
 import numpy as np
 import pandas as pd
 from pynwb import NWBFile
+
+from ..exceptions import SyncError
 
 logger = logging.getLogger(__name__)
 
