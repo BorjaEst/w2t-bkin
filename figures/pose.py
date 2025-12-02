@@ -60,7 +60,7 @@ def plot_ttl_detection_from_pose(
         raise ValueError("out_path is required when display=False")
 
     # Import here to avoid hard dependency
-    from w2t_bkin.pose.ttl_mock import load_dlc_likelihood_series
+    from w2t_bkin.sync.ttl_mock import load_dlc_likelihood_series
 
     if out_path is not None and not display:
         _ensure_parent(out_path)

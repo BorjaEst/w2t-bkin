@@ -204,9 +204,8 @@ class TestOptionalModalitiesIntegration:
         import numpy as np
         from pynwb import NWBHDF5IO
 
+        from w2t_bkin.ingest.pose import PoseMetadata, build_pose_estimation, create_skeleton
         from w2t_bkin.nwb import assemble_nwb
-        from w2t_bkin.pose import build_pose_estimation, create_skeleton
-        from w2t_bkin.pose.io import PoseMetadata
 
         # Create harmonized pose data
         harmonized_data = [

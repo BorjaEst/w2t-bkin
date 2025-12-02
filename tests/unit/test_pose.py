@@ -15,8 +15,16 @@ import numpy as np
 import pytest
 
 from w2t_bkin.exceptions import PoseError
-from w2t_bkin.pose import build_pose_estimation, build_pose_estimation_series, create_skeleton, harmonize_to_canonical, import_dlc_pose, import_sleap_pose, validate_skeleton_edges
-from w2t_bkin.pose.io import PoseMetadata
+from w2t_bkin.ingest.pose import (
+    PoseMetadata,
+    build_pose_estimation,
+    build_pose_estimation_series,
+    create_skeleton,
+    harmonize_to_canonical,
+    import_dlc_pose,
+    import_sleap_pose,
+    validate_skeleton_edges,
+)
 
 # ============================================================================
 # Fixtures

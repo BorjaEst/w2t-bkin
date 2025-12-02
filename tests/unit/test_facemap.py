@@ -14,7 +14,7 @@ from typing import List
 import numpy as np
 import pytest
 
-from w2t_bkin.facemap import (
+from w2t_bkin.processors.facemap import (
     FacemapBundle,
     FacemapError,
     FacemapROI,

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.dlc import (
+from w2t_bkin.processors.dlc import (
     DLCInferenceError,
     DLCInferenceOptions,
     DLCInferenceResult,

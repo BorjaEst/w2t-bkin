@@ -51,10 +51,11 @@ from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from . import config as config_pkg
-from . import session, sync, utils, validate
-from .exceptions import IngestError, SyncError
-from .ingest import behavior, bpod, ttl
+from . import session, validate
+from .. import behavior, bpod
+from .. import config as config_pkg
+from .. import sync, ttl, utils
+from ..exceptions import IngestError, SyncError
 
 # Setup rich console and logging
 console = Console()
@@ -384,8 +385,8 @@ class SessionPipeline:
         logger.info("Running preprocessing tasks...")
 
         # Import task framework
-        from .tasks import DLCPoseTask, TaskConfig
-        from .tasks.base import TaskStatus
+        from ..tasks import DLCPoseTask, TaskConfig
+        from ..tasks.base import TaskStatus
 
         # Create interim directory structure
         interim_dir = context.config.paths.intermediate_root / context.session_id

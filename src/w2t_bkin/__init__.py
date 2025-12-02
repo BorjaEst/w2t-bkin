@@ -67,10 +67,12 @@ Documentation:
 See docs/ for detailed module documentation and design principles.
 """
 
-from . import config, facemap, pipeline, pose, session, sync, transcode, utils
+from . import config, sync, transcode, utils
+from .core import pipeline, session
 
 # Import main modules for convenient access
-from .ingest import behavior, bpod, ttl
+from .ingest import behavior, bpod, pose, ttl
+from .processors import facemap
 
 __all__ = [
     "behavior",

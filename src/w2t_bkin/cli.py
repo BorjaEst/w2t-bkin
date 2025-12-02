@@ -26,7 +26,7 @@ from rich.panel import Panel
 from rich.table import Table
 import typer
 
-from .pipeline import RunOptions, SessionPipeline
+from .core.pipeline import RunOptions, SessionPipeline
 
 app = typer.Typer(
     name="w2t-bkin",

@@ -1188,7 +1188,7 @@ def load_session_metadata_and_nwb(
     >>> print(f"NWB identifier: {nwbfile.identifier}")
     """
     # Import here to avoid circular dependency
-    from w2t_bkin.session import build_metadata_paths, create_nwb_file, load_metadata
+    from w2t_bkin.core.session import build_metadata_paths, create_nwb_file, load_metadata
 
     # Build metadata paths
     metadata_paths = build_metadata_paths(

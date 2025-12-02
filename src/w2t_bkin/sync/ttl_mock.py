@@ -32,7 +32,7 @@ One floating-point timestamp per line (seconds), sorted ascending:
 Example:
 --------
 >>> from pathlib import Path
->>> from w2t_bkin.pose.ttl_mock import (
+>>> from w2t_bkin.sync.ttl_mock import (
 ...     TTLMockOptions,
 ...     generate_ttl_from_dlc_likelihood,
 ...     write_ttl_timestamps
@@ -80,7 +80,7 @@ See Also:
 ---------
 - synthetic.ttl_synth: Pure synthetic TTL generation with deterministic RNG
 - w2t_bkin.sync.ttl: TTL pulse loading and validation
-- w2t_bkin.pose.core: DLC pose data import
+- w2t_bkin.ingest.pose: DLC pose data import
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
-from w2t_bkin.pose.core import PoseError
+from w2t_bkin.exceptions import PoseError
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 # FacemapBundle will be deprecated in Phase 4 - kept for now
-from w2t_bkin.facemap import FacemapBundle
+from w2t_bkin.processors.facemap import FacemapBundle
 from w2t_bkin.transcode import TranscodedVideo
 
 
@@ -68,7 +68,7 @@ class TestPoseIntegration:
         """Should import DLC pose and align to timebase (FR-5)."""
         from ndx_pose import PoseEstimation
 
-        from w2t_bkin.pose import align_pose_to_timebase, harmonize_to_canonical, import_dlc_pose
+        from w2t_bkin.ingest.pose import align_pose_to_timebase, harmonize_to_canonical, import_dlc_pose
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -104,7 +104,7 @@ class TestPoseIntegration:
         """Should import SLEAP pose and align to timebase (FR-5)."""
         from ndx_pose import PoseEstimation
 
-        from w2t_bkin.pose import align_pose_to_timebase, harmonize_to_canonical, import_sleap_pose
+        from w2t_bkin.ingest.pose import align_pose_to_timebase, harmonize_to_canonical, import_sleap_pose
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -141,7 +141,7 @@ class TestFacemapIntegration:
     @pytest.mark.skip(reason="Blocked: requires Phase 2 alignment implementation, test uses non-spec config keys, and FacemapSignal subscriptability issue")
     def test_Should_ComputeFacemap_When_Enabled_Issue4(self, minimal_config_dict):
         """Should compute Facemap signals and align to timebase (FR-6)."""
-        from w2t_bkin.facemap import align_facemap_to_timebase, compute_facemap_signals, define_rois
+        from w2t_bkin.processors.facemap import align_facemap_to_timebase, compute_facemap_signals, define_rois
         from w2t_bkin.sync import load_alignment_manifest
 
         # Load alignment from Phase 2
@@ -253,9 +253,9 @@ class TestRealSessionIntegration:
     @pytest.mark.skip(reason="Blocked: test uses non-spec config keys and requires complete Phase 1/2 implementations")
     def test_Should_AlignAllModalities_When_UsingRealSession_Issue4(self, minimal_config_dict):
         """Should align pose + facemap + videos using real Session-000001 (FR-5, FR-6)."""
-        from w2t_bkin.facemap import align_facemap_to_timebase, compute_facemap_signals, define_rois
         from w2t_bkin.ingest import discover_sessions, ingest_session, load_config
-        from w2t_bkin.pose import align_pose_to_timebase, import_dlc_pose
+        from w2t_bkin.ingest.pose import align_pose_to_timebase, import_dlc_pose
+        from w2t_bkin.processors.facemap import align_facemap_to_timebase, compute_facemap_signals, define_rois
         from w2t_bkin.sync import compute_alignment
 
         # Phase 1: Ingest

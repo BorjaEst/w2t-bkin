@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Example: Pose Estimation + Camera → NWB (simplified).
 
-Demonstrates the modern w2t_bkin.pose API for building NWB files from
+Demonstrates the modern w2t_bkin.ingest.pose API for building NWB files from
 DeepLabCut pose tracking data.
 
 Goal
@@ -68,7 +68,7 @@ from pynwb import NWBHDF5IO, NWBFile
 
 from figures.pose import plot_pose_keypoints_grid
 from synthetic import build_interim_pose, build_raw_folder
-from w2t_bkin.pose import build_pose_estimation, create_skeleton, harmonize_to_canonical, import_dlc_pose
+from w2t_bkin.ingest.pose import build_pose_estimation, create_skeleton, harmonize_to_canonical, import_dlc_pose
 
 
 class ExampleSettings(BaseSettings):

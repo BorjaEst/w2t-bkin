@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .exceptions import MismatchExceedsToleranceError
+from ..exceptions import MismatchExceedsToleranceError
 
 logger = logging.getLogger(__name__)
 

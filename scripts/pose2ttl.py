@@ -43,7 +43,7 @@ Process multiple files with shell loop:
 
 See Also
 --------
-- w2t_bkin.pose.ttl_mock: Core TTL generation functions
+- w2t_bkin.sync.ttl_mock: Core TTL generation functions
 - w2t_bkin.sync: TTL synchronization utilities
 - scripts/mat2json.py: Similar script structure pattern
 """
@@ -61,7 +61,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from figures.pose import plot_ttl_detection_from_pose
-from w2t_bkin.pose import TTLMockOptions, generate_ttl_from_dlc_likelihood, write_ttl_timestamps
+from w2t_bkin.sync.ttl_mock import TTLMockOptions, generate_ttl_from_dlc_likelihood, write_ttl_timestamps
 
 
 class TTLConverterSettings(BaseSettings):
