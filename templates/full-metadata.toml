@@ -201,6 +201,20 @@ description = "Synchronization data between Bpod and cameras"
 # PIPELINE SOURCE DEFINITIONS (Not NWB Metadata)
 # =============================================================================
 
+# Camera configuration for file discovery and NWB acquisition
+# 'id' must match a device name defined in [[devices]]
+[[cameras]]
+id = "camera_0"
+paths = "Video/cam0_*.avi"
+fps = 150.0
+ttl_id = "ttl_camera"
+
+[[cameras]]
+id = "camera_1"
+paths = "Video/cam1_*.avi"
+fps = 150.0
+ttl_id = "ttl_camera"
+
 # TTL synchronization channels
 [[TTLs]]
 id = "ttl_camera"

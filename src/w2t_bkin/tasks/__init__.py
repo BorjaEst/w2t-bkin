@@ -12,11 +12,12 @@ Public API:
     - DLCPoseTask: DeepLabCut pose estimation task
 """
 
-from .base import PipelineTask, TaskStatus
+from .base import PipelineTask, TaskConfig, TaskStatus
 from .dlc import DLCPoseTask
 
 __all__ = [
     "PipelineTask",
+    "TaskConfig",
     "TaskStatus",
     "DLCPoseTask",
 ]

@@ -318,11 +318,19 @@ class SessionPipeline:
             else:
                 logger.warning(f"    Device '{camera_id}' not found in NWBFile devices")
 
+            # Determine frame rate with warning if missing
+            fps = camera.get("fps")
+            if fps is None:
+                logger.warning(f"    Camera '{camera_id}': 'fps' not configured in metadata, defaulting to 30.0 Hz")
+                fps = 30.0
+            else:
+                logger.debug(f"    Camera '{camera_id}': configured fps={fps} Hz")
+
             session.add_video_acquisition(
                 context.nwbfile,
                 camera_id=camera_id,
                 video_files=[str(p) for p in video_paths],
-                frame_rate=camera.get("fps", 30.0),
+                frame_rate=fps,
                 device=device,
             )
 

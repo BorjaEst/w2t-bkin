@@ -65,12 +65,12 @@ class TimebaseConfigProtocol(Protocol):
     from domain.config.TimebaseConfig.
 
     Attributes:
-        mapping: Alignment strategy ("nearest" or "linear")
-        jitter_budget_s: Maximum acceptable jitter in seconds
+        method: Alignment strategy ("nearest" or "linear")
+        tolerance_s: Maximum acceptable jitter in seconds
     """
 
-    mapping: Literal["nearest", "linear"]
-    jitter_budget_s: float
+    method: Literal["nearest", "linear"]
+    tolerance_s: float
 
 
 # =============================================================================
@@ -283,12 +283,12 @@ def align_samples(
         JitterExceedsBudgetError: Jitter exceeds budget
         SyncError: Alignment failed
     """
-    if config.mapping == "nearest":
+    if config.method == "nearest":
         indices = map_nearest(sample_times, reference_times)
         jitter_stats = compute_jitter_stats(sample_times, reference_times, indices)
         result = {"indices": indices, "jitter_stats": jitter_stats, "mapping": "nearest"}
 
-    elif config.mapping == "linear":
+    elif config.method == "linear":
         indices, weights = map_linear(sample_times, reference_times)
         # Jitter stats for linear interpolation are complex, using nearest for budget check
         # This is a simplification - ideally we'd compute residual from interpolation
@@ -297,13 +297,13 @@ def align_samples(
         result = {"indices": indices, "weights": weights, "jitter_stats": jitter_stats, "mapping": "linear"}
 
     else:
-        raise SyncError(f"Unknown mapping strategy: {config.mapping}")
+        raise SyncError(f"Unknown mapping strategy: {config.method}")
 
     if enforce_budget:
         enforce_jitter_budget(
             max_jitter=jitter_stats["max_jitter_s"],
             p95_jitter=jitter_stats["p95_jitter_s"],
-            budget=config.jitter_budget_s,
+            budget=config.tolerance_s,
         )
 
     return result
@@ -439,10 +439,10 @@ def sync_stream_to_timebase(
     # IMPORTANT: These are NOT just copying reference_times!
     # They are reference_times at the indices/interpolation points
     # that correspond to each sample_time
-    if config.mapping == "nearest":
+    if config.method == "nearest":
         # Snap each sample to nearest reference point
         aligned_times = [reference_times[idx] for idx in indices]
-    elif config.mapping == "linear":
+    elif config.method == "linear":
         # Interpolate between reference points
         aligned_times = []
         weights = result.get("weights", [])

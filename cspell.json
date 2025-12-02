@@ -53,6 +53,7 @@
         "gputouse",
         "hasattr",
         "hdmf",
+        "hitmiss",
         "IACUC",
         "imec",
         "inlines",

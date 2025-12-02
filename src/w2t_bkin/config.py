@@ -381,16 +381,16 @@ class Config(BaseModel, extra="forbid"):
     project: ProjectConfig
     paths: PathsConfig
     synchronization: SynchronizationConfig
-    # acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
-    # verification: VerificationConfig = Field(default_factory=VerificationConfig)
+    acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
+    verification: VerificationConfig = Field(default_factory=VerificationConfig)
     bpod: BpodConfig = Field(default_factory=BpodConfig)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
-    # video: VideoConfig = Field(default_factory=VideoConfig)
-    # nwb: NWBConfig = Field(default_factory=NWBConfig)
-    # qc: QCConfig = Field(default_factory=QCConfig)
+    video: VideoConfig = Field(default_factory=VideoConfig)
+    nwb: NWBConfig = Field(default_factory=NWBConfig)
+    qc: QCConfig = Field(default_factory=QCConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    # labels: LabelsConfig = Field(default_factory=LabelsConfig)
-    # facemap: FacemapConfig = Field(default_factory=FacemapConfig)
+    labels: LabelsConfig = Field(default_factory=LabelsConfig)
+    facemap: FacemapConfig = Field(default_factory=FacemapConfig)
 
 
 # =============================================================================

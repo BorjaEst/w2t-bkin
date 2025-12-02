@@ -108,6 +108,13 @@ subject_id = "subject-001"
 species = "Mus musculus"
 sex = "M"
 age = "P90D"
+
+# Camera configuration
+[[cameras]]
+id = "camera_0"             # Must match a device name in [[devices]]
+paths = "Video/cam0_*.avi"  # Glob pattern for video files
+fps = 150.0                 # Acquisition frame rate (defaults to 30.0 if omitted)
+ttl_id = "ttl_camera"       # Associated TTL stream for synchronization
 ```
 
 ## Quick Start
