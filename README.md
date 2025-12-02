@@ -70,11 +70,13 @@ output_root = "data/processed"
 models_root = "models"
 root_metadata = "data/raw/metadata.toml"  # Optional global metadata
 
-[timebase]
-source = "ttl"
-ttl_id = "ttl_camera"
-mapping = "nearest"
-jitter_budget_s = 0.001
+[synchronization]
+strategy = "hardware_pulse"
+reference_channel = "ttl_camera"
+
+[synchronization.alignment]
+method = "nearest"
+tolerance_s = 0.001
 
 [[bpod.sync.trial_types]]
 trial_type = 1
