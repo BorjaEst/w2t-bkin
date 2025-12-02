@@ -494,7 +494,7 @@ class SessionPipeline:
                 session_dir=context.session_dir,
                 pattern=bpod_config["path"],
                 order=bpod_config.get("order", "time_asc"),
-                continuous_time=bpod_config.get("continuous_time", True),
+                continuous_time=bpod_config.get("continuous_time", False),
             )
 
             session_data = utils.convert_matlab_struct(context.bpod_data.get("SessionData", {}))
