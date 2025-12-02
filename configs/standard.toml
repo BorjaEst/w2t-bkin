@@ -16,6 +16,11 @@ method = "nearest"
 tolerance_s = 0.002
 global_offset_s = 0.0
 
+# Verification configuration
+[verification]
+mismatch_tolerance_frames = 0 # Max allowed frame/TTL count mismatch before abort
+warn_on_mismatch = false      # Warn instead of abort if within tolerance
+
 # Preprocessing configuration for intermediate artifact generation
 [preprocessing]
 force_rerun = false # Set to true to regenerate all intermediate files

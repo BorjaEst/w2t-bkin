@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 # FacemapBundle will be deprecated in Phase 4 - kept for now
-from w2t_bkin.processors.facemap import FacemapBundle
-from w2t_bkin.transcode import TranscodedVideo
+# from w2t_bkin.processors.facemap import FacemapBundle
+# from w2t_bkin.transcode import TranscodedVideo
 
 
 class TestEventsIntegration:

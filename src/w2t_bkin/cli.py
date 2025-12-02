@@ -46,6 +46,8 @@ def run(
     skip_ttl: bool = typer.Option(False, "--skip-ttl", help="Skip TTL processing"),
     skip_verification: bool = typer.Option(False, "--skip-verification", help="Skip frame/TTL verification"),
     skip_validation: bool = typer.Option(False, "--skip-validation", help="Skip NWB validation"),
+    tolerance: Optional[int] = typer.Option(None, "--tolerance", help="Override verification tolerance (frames)"),
+    warn_on_mismatch: Optional[bool] = typer.Option(None, "--warn-on-mismatch", help="Warn instead of fail on mismatch"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing outputs"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"),
 ):
@@ -77,6 +79,8 @@ def run(
         skip_verification=skip_verification,
         skip_nwb_validation=skip_validation,
         force_overwrite=force,
+        verification_tolerance=tolerance,
+        warn_on_mismatch=warn_on_mismatch,
     )
 
     pipeline = SessionPipeline(config_path, subject_id, session_id, options)

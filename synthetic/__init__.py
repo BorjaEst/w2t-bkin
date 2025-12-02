@@ -203,11 +203,24 @@ def build_raw_folder(
         number_of_trial_types=1,
     )
     session_model = build_session(options=session_opts)
-    session_path = write_session_toml(session_dir / "metadata.toml", session_model)
-
-    # Generate NWB-compliant metadata.toml
     metadata_model = build_metadata(options=session_opts)
-    metadata_path = write_metadata_toml(session_dir / "metadata.toml", metadata_model)
+
+    # Merge and write to metadata.toml
+    # We concatenate the TOML output of both models
+    from .session_synth import metadata_to_toml, session_to_toml
+
+    session_toml = session_to_toml(session_model)
+    metadata_toml = metadata_to_toml(metadata_model)
+
+    # Metadata TOML must come first because it contains root-level keys.
+    # In TOML, root keys must appear before any table definitions.
+    # session_toml starts with [session], so if it comes first, root keys
+    # in metadata_toml would be assigned to the last table in session_toml.
+    merged_toml = metadata_toml + "\n" + session_toml
+
+    metadata_path = session_dir / "metadata.toml"
+    metadata_path.write_text(merged_toml, encoding="utf-8")
+    session_path = metadata_path  # They are the same file now
 
     # 3) Videos
     vid_opts = VideoGenerationOptions(
@@ -268,6 +281,7 @@ def build_raw_folder(
         sync_delay_s=bpod_sync_delay_s,
         clock_jitter_ppm=bpod_clock_jitter_ppm,
         seed=seed,
+        sync_signal_name="W2T_Audio",
     )
     bpod_paths = write_bpod_mat_files_for_session(session_model, session_dir, options=bpod_opts)
 

@@ -35,7 +35,7 @@ class TestConfigDomainIntegration:
         # Verify it's a proper Config domain object
         assert isinstance(config, Config)
         assert config.project.name == "w2t-bkin-pipeline"
-        assert config.timebase.source == "nominal_rate"
+        assert config.synchronization.strategy == "hardware_pulse"
         assert config.verification.mismatch_tolerance_frames == 0
 
         # Test deterministic hashing (A18)
@@ -44,34 +44,33 @@ class TestConfigDomainIntegration:
         assert hash1 == hash2
         assert len(hash1) == 64  # SHA256 hex digest
 
-    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
     def test_Should_LoadValidSession_When_AllRequiredFieldsProvided_Issue2(self):
         """Should successfully load and validate a complete session file.
 
-        DEPRECATED: Session model and compute_session_hash() deprecated in favor of NWB-first architecture.
-        Use create_nwb_file() from session module instead.
+        Tests the NWB-first approach: metadata loading → NWBFile creation.
         """
-        from w2t_bkin.config import compute_session_hash, load_session
-        from w2t_bkin.domain import Session
+        from pynwb import NWBFile
+
+        from w2t_bkin.core.session import create_nwb_file, load_metadata
 
         # Use the fixtures provided in the test suite
         session_path = Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml"
 
-        # Load session
-        session = load_session(session_path)
+        # Load metadata
+        metadata = load_metadata(session_path)
 
-        # Verify it's a proper Session domain object
-        assert isinstance(session, Session)
-        assert session.session.id == "Session-000001"
-        assert session.session.subject_id == "mouse_001"
-        assert len(session.cameras) == 2
-        assert len(session.TTLs) == 3
+        # Create NWBFile
+        nwbfile = create_nwb_file(metadata)
 
-        # Test deterministic hashing (A18)
-        hash1 = compute_session_hash(session)
-        hash2 = compute_session_hash(session)
-        assert hash1 == hash2
-        assert len(hash1) == 64  # SHA256 hex digest
+        # Verify it's a proper NWBFile object
+        assert isinstance(nwbfile, NWBFile)
+        assert nwbfile.identifier == "Session-000001"
+        assert nwbfile.subject.subject_id == "mouse_001"
+
+        # Check devices (cameras)
+        assert len(nwbfile.devices) == 2
+        assert "cam0_top" in nwbfile.devices
+        assert "cam1_side" in nwbfile.devices
 
     def test_Should_FailValidation_When_ConfigMissingRequiredSection_Issue2(self):
         """Should fail when config file is missing required sections (A13)."""
@@ -99,21 +98,29 @@ class TestConfigDomainIntegration:
         error_str = str(exc_info.value).lower()
         assert "extra" in error_str or "forbidden" in error_str
 
-    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
     def test_Should_FailValidation_When_SessionMissingRequiredSection_Issue2(self):
         """Should fail when session file is missing required sections (A14).
 
-        DEPRECATED: Session model deprecated in favor of NWB-first architecture.
+        Tests that NWBFile creation fails if essential metadata is missing.
         """
-        from w2t_bkin.config import load_session
+        from pynwb import NWBFile
+
+        from w2t_bkin.core.session import create_nwb_file, load_metadata
 
         # Use fixture missing required 'session' section
         session_path = Path(__file__).parent.parent / "fixtures" / "sessions" / "session_missing_required.toml"
 
-        with pytest.raises(ValidationError) as exc_info:
-            load_session(session_path)
+        # Load metadata (this might succeed if it's just a dict)
+        metadata = load_metadata(session_path)
 
-        assert "session" in str(exc_info.value).lower()
+        # NWBFile creation should fail or produce incomplete object depending on what's missing
+        # If 'identifier' or 'session_description' are missing, NWBFile constructor raises ValueError
+        with pytest.raises(ValueError) as exc_info:
+            create_nwb_file(metadata)
+
+        # Check that error relates to missing required fields
+        error_str = str(exc_info.value).lower()
+        assert "identifier" in error_str or "description" in error_str
 
 
 class TestUtilsConfigIntegration:
@@ -189,28 +196,28 @@ class TestDomainUtilsIntegration:
     @pytest.mark.skip(reason="Pydantic models are mutable by default unless frozen=True")
     def test_Should_ValidateImmutability_When_DomainModelsCreated_Issue2(self):
         """Should ensure domain models are immutable (FR-12)."""
-        from w2t_bkin.config import Config, TimebaseConfig
+        from w2t_bkin.config import AlignmentConfig, Config
 
         # Create a minimal config
-        timebase_config = TimebaseConfig(source="nominal_rate", mapping="nearest", jitter_budget_s=0.01, offset_s=0.0)
+        alignment_config = AlignmentConfig(method="nearest", tolerance_s=0.01, global_offset_s=0.0)
 
         # Should not be able to modify
         with pytest.raises((ValidationError, AttributeError)):
-            timebase_config.source = "ttl"
+            alignment_config.method = "linear"
 
     def test_Should_ComputeStableHashes_When_DomainObjectsUsed_Issue2(self):
         """Should produce stable hashes for domain objects (NFR-1, A18)."""
-        from w2t_bkin.config import TimebaseConfig
+        from w2t_bkin.config import AlignmentConfig
         from w2t_bkin.utils import compute_hash
 
-        # Create identical timebase configs
-        timebase1 = TimebaseConfig(source="nominal_rate", mapping="nearest", jitter_budget_s=0.01, offset_s=0.0)
+        # Create identical alignment configs
+        alignment1 = AlignmentConfig(method="nearest", tolerance_s=0.01, global_offset_s=0.0)
 
-        timebase2 = TimebaseConfig(source="nominal_rate", mapping="nearest", jitter_budget_s=0.01, offset_s=0.0)
+        alignment2 = AlignmentConfig(method="nearest", tolerance_s=0.01, global_offset_s=0.0)
 
         # Should produce identical hashes
-        hash1 = compute_hash(timebase1.model_dump())
-        hash2 = compute_hash(timebase2.model_dump())
+        hash1 = compute_hash(alignment1.model_dump())
+        hash2 = compute_hash(alignment2.model_dump())
         assert hash1 == hash2
 
 
@@ -223,8 +230,11 @@ class TestFullPhase0Integration:
         This tests the complete foundation: config loading → domain validation →
         hashing → JSON serialization → path handling.
         """
-        from w2t_bkin.config import Config, compute_config_hash, compute_session_hash, load_config, load_session
-        from w2t_bkin.utils import configure_logger, read_json, write_json
+        from pynwb import NWBFile
+
+        from w2t_bkin.config import Config, compute_config_hash, load_config
+        from w2t_bkin.core.session import create_nwb_file, load_metadata
+        from w2t_bkin.utils import compute_hash, configure_logger, read_json, write_json
 
         # Setup logger (utils)
         logger = configure_logger("test", level="INFO", structured=False)
@@ -235,14 +245,17 @@ class TestFullPhase0Integration:
         config = load_config(config_path)
         assert isinstance(config, Config)
 
-        # Load and validate session (config + domain)
+        # Load and validate session (metadata + NWB)
         session_path = Path(__file__).parent.parent / "fixtures" / "sessions" / "valid_session.toml"
-        session = load_session(session_path)
-        assert isinstance(session, Session)
+        metadata = load_metadata(session_path)
+        nwbfile = create_nwb_file(metadata)
+        assert isinstance(nwbfile, NWBFile)
 
         # Compute deterministic hashes (config + utils)
         config_hash = compute_config_hash(config)
-        session_hash = compute_session_hash(session)
+        # For session/metadata, we hash the dictionary
+        session_hash = compute_hash(metadata)
+
         assert len(config_hash) == 64
         assert len(session_hash) == 64
 
@@ -265,7 +278,8 @@ class TestFullPhase0Integration:
         Tests error handling integration between config loading, domain validation,
         and utility functions.
         """
-        from w2t_bkin.config import load_config, load_session
+        from w2t_bkin.config import load_config
+        from w2t_bkin.core.session import load_metadata
         from w2t_bkin.utils import sanitize_path
 
         # Test config file not found
@@ -274,18 +288,33 @@ class TestFullPhase0Integration:
 
         # Test session file not found
         with pytest.raises(FileNotFoundError):
-            load_session(Path("/nonexistent/metadata.toml"))
+            load_metadata(Path("/nonexistent/metadata.toml"))
 
         # Test path traversal security
         with pytest.raises(ValueError, match="Directory traversal not allowed"):
             sanitize_path("../../../sensitive/file")
 
-    def test_Should_ValidateTimebaseConditionals_When_ConfiguredCorrectly_Issue2(self):
-        """Should validate timebase conditional requirements (A9, A10, A11)."""
+    def test_Should_ValidateTimebaseConditionals_When_ConfiguredCorrectly_Issue2(self, tmp_path):
+        """Should validate synchronization conditional requirements (A9, A10, A11)."""
+        import tomli_w
+
         from w2t_bkin.config import load_config
 
-        # Use fixture with ttl source but missing ttl_id
-        config_path = Path(__file__).parent.parent / "fixtures" / "configs" / "config_ttl_missing_ttl_id.toml"
+        # Create config with hardware_pulse strategy but missing reference_channel
+        config_data = {
+            "project": {"name": "test"},
+            "paths": {"raw_root": "data/raw", "intermediate_root": "data/interim", "output_root": "data/processed", "models_root": "models"},
+            "synchronization": {
+                "strategy": "hardware_pulse",
+                "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0},
+                # Missing reference_channel
+            },
+            "logging": {"level": "INFO"},
+        }
 
-        with pytest.raises(ValueError, match="ttl_id.*required"):
+        config_path = tmp_path / "invalid_sync_config.toml"
+        with open(config_path, "wb") as f:
+            tomli_w.dump(config_data, f)
+
+        with pytest.raises(ValueError, match="reference_channel.*required"):
             load_config(config_path)

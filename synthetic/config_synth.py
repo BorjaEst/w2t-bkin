@@ -39,12 +39,12 @@ from w2t_bkin.config import (
     ProjectConfig,
     QCConfig,
     SLEAPConfig,
-    TimebaseConfig,
+    SynchronizationConfig,
     TranscodeConfig,
     VerificationConfig,
     VideoConfig,
 )
-from w2t_bkin.config import AcquisitionConfig, BpodConfig, BpodSyncConfig, BpodSyncTrialType
+from w2t_bkin.config import AcquisitionConfig, AlignmentConfig, BpodConfig, BpodSyncConfig, BpodSyncTrialType
 from w2t_bkin.config import Config as ConfigModel
 
 
@@ -63,13 +63,12 @@ class SynthConfigOptions(BaseModel):
     output_root: str = Field(default="data/processed")
     models_root: str = Field(default="models")
 
-    # Timebase
-    timebase_source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(default="nominal_rate")
-    timebase_mapping: Literal["nearest", "linear"] = Field(default="nearest")
-    jitter_budget_s: float = Field(default=0.01, gt=0)
-    offset_s: float = Field(default=0.0)
-    timebase_ttl_id: Optional[str] = Field(default=None)
-    neuropixels_stream: Optional[str] = Field(default=None)
+    # Synchronization
+    sync_strategy: Literal["rate_based", "hardware_pulse", "network_stream"] = Field(default="rate_based")
+    alignment_method: Literal["nearest", "linear"] = Field(default="nearest")
+    alignment_tolerance_s: float = Field(default=0.01, ge=0)
+    alignment_global_offset_s: float = Field(default=0.0)
+    reference_channel: Optional[str] = Field(default=None)
 
     # Logging
     logging_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
@@ -115,7 +114,7 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
     Usage patterns:
     - Preferred: `build_config(options=SynthConfigOptions(...))`
     - Convenience: pass any field as a keyword override, e.g.
-      `build_config(project_name="demo", timebase_source="ttl", timebase_ttl_id="cam0")`
+      `build_config(project_name="demo", sync_strategy="hardware_pulse", reference_channel="cam0")`
     """
 
     # Merge defaults with overrides (and explicit options if provided)
@@ -132,13 +131,16 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
         models_root=base.models_root,
     )
 
-    timebase = TimebaseConfig(
-        source=base.timebase_source,
-        mapping=base.timebase_mapping,
-        jitter_budget_s=base.jitter_budget_s,
-        offset_s=base.offset_s,
-        ttl_id=base.timebase_ttl_id,
-        neuropixels_stream=base.neuropixels_stream,
+    alignment = AlignmentConfig(
+        method=base.alignment_method,
+        tolerance_s=base.alignment_tolerance_s,
+        global_offset_s=base.alignment_global_offset_s,
+    )
+
+    synchronization = SynchronizationConfig(
+        strategy=base.sync_strategy,
+        reference_channel=base.reference_channel,
+        alignment=alignment,
     )
 
     acquisition = AcquisitionConfig(concat_strategy=base.concat_strategy)
@@ -214,6 +216,7 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
     return ConfigModel(
         project=project,
         paths=paths,
+        synchronization=synchronization,
         bpod=bpod,
         logging=logging,
     )
@@ -256,6 +259,20 @@ def config_to_toml(config: ConfigModel) -> str:
     lines.append(_toml_kv("intermediate_root", config.paths.intermediate_root))
     lines.append(_toml_kv("output_root", config.paths.output_root))
     lines.append(_toml_kv("models_root", config.paths.models_root))
+    lines.append("\n")
+
+    # [synchronization]
+    lines.append("[synchronization]\n")
+    lines.append(_toml_kv("strategy", config.synchronization.strategy))
+    if config.synchronization.reference_channel:
+        lines.append(_toml_kv("reference_channel", config.synchronization.reference_channel))
+    lines.append("\n")
+
+    # [synchronization.alignment]
+    lines.append("[synchronization.alignment]\n")
+    lines.append(_toml_kv("method", config.synchronization.alignment.method))
+    lines.append(_toml_kv("tolerance_s", config.synchronization.alignment.tolerance_s))
+    lines.append(_toml_kv("global_offset_s", config.synchronization.alignment.global_offset_s))
     lines.append("\n")
 
     # [bpod] - only active section

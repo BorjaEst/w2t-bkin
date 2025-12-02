@@ -54,7 +54,7 @@ from rich.table import Table
 from . import session, validate
 from .. import config as config_pkg
 from .. import sync, utils
-from ..exceptions import IngestError, SyncError
+from ..exceptions import IngestError, MismatchExceedsToleranceError, SyncError
 from ..ingest import behavior, bpod, ttl
 
 # Setup rich console and logging
@@ -87,6 +87,8 @@ class RunOptions:
     skip_verification: bool = False
     skip_nwb_validation: bool = False
     force_overwrite: bool = False
+    verification_tolerance: Optional[int] = None
+    warn_on_mismatch: Optional[bool] = None
 
 
 @dataclass
@@ -251,6 +253,16 @@ class SessionPipeline:
 
         # Load configuration (paths now auto-resolved by Pydantic validators)
         context.config = config_pkg.load_config(context.config_path)
+
+        # Apply CLI overrides
+        if context.options.verification_tolerance is not None:
+            context.config.verification.mismatch_tolerance_frames = context.options.verification_tolerance
+            logger.info(f"  Overriding verification tolerance: {context.options.verification_tolerance}")
+
+        if context.options.warn_on_mismatch is not None:
+            context.config.verification.warn_on_mismatch = context.options.warn_on_mismatch
+            logger.info(f"  Overriding warn_on_mismatch: {context.options.warn_on_mismatch}")
+
         logger.info(f"  Project: {context.config.project.name}")
         logger.info(f"  Raw root: {context.config.paths.raw_root}")
         logger.info(f"  Output root: {context.config.paths.output_root}")
@@ -378,13 +390,19 @@ class SessionPipeline:
 
                 logger.debug(f"  Verifying '{camera_id}' ({frame_count} frames) vs '{ttl_id}' ({pulse_count} pulses)")
 
-                validate.verify_synchronization(
-                    camera_id=camera_id,
-                    ttl_id=ttl_id,
-                    frame_count=frame_count,
-                    pulse_count=pulse_count,
-                    tolerance=0,
-                )
+                try:
+                    validate.verify_synchronization(
+                        camera_id=camera_id,
+                        ttl_id=ttl_id,
+                        frame_count=frame_count,
+                        pulse_count=pulse_count,
+                        tolerance=context.config.verification.mismatch_tolerance_frames,
+                    )
+                except MismatchExceedsToleranceError as e:
+                    if context.config.verification.warn_on_mismatch:
+                        logger.warning(f"  Synchronization mismatch (warning only): {e}")
+                    else:
+                        raise
 
             if progress and task_id is not None:
                 progress.advance(task_id)
