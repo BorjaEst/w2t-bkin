@@ -79,7 +79,7 @@ class SessionSynthOptions(BaseModel):
 
     # Cameras
     camera_ids: List[str] = Field(default_factory=lambda: ["cam0", "cam1"])
-    camera_paths_template: str = Field(default="Video/{camera_id}_*.avi")
+    camera_paths_template: str = Field(default="Video/{camera_id}/{camera_id}_*.avi")
     camera_description_template: str = Field(default="Camera {camera_id} view")
     camera_order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(default="name_asc")
 

@@ -31,11 +31,13 @@ from pydantic import BaseModel, Field
 
 from w2t_bkin.config import (
     DLCConfig,
+    DLCPreprocessingConfig,
     FacemapConfig,
     LabelsConfig,
     LoggingConfig,
     NWBConfig,
     PathsConfig,
+    PreprocessingConfig,
     ProjectConfig,
     QCConfig,
     SLEAPConfig,
@@ -97,6 +99,10 @@ class SynthConfigOptions(BaseModel):
     qc_generate_report: bool = Field(default=False)
     qc_out_template: str = Field(default="{session_id}_qc.html")
     qc_include_verification: bool = Field(default=True)
+
+    # Preprocessing
+    preprocessing_dlc_enabled: bool = Field(default=False)
+    preprocessing_force_rerun: bool = Field(default=False)
 
     # Labels/Facemap
     dlc_run_inference: bool = Field(default=False)
@@ -195,6 +201,11 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
         include_verification=base.qc_include_verification,
     )
 
+    preprocessing = PreprocessingConfig(
+        force_rerun=base.preprocessing_force_rerun,
+        dlc=DLCPreprocessingConfig(enabled=base.preprocessing_dlc_enabled),
+    )
+
     logging = LoggingConfig(level=base.logging_level, structured=base.logging_structured)
 
     labels = LabelsConfig(
@@ -218,6 +229,7 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
         paths=paths,
         synchronization=synchronization,
         bpod=bpod,
+        preprocessing=preprocessing,
         logging=logging,
     )
 
@@ -287,6 +299,16 @@ def config_to_toml(config: ConfigModel) -> str:
         lines.append(_toml_kv("sync_signal", tt.sync_signal))
         lines.append(_toml_kv("sync_ttl", tt.sync_ttl))
         lines.append("\n")
+
+    # [preprocessing]
+    lines.append("[preprocessing]\n")
+    lines.append(_toml_kv("force_rerun", config.preprocessing.force_rerun))
+    lines.append("\n")
+
+    # [preprocessing.dlc]
+    lines.append("[preprocessing.dlc]\n")
+    lines.append(_toml_kv("enabled", config.preprocessing.dlc.enabled))
+    lines.append("\n")
 
     # [logging]
     lines.append("[logging]\n")

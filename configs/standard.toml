@@ -26,7 +26,7 @@ warn_on_mismatch = false      # Warn instead of abort if within tolerance
 force_rerun = false # Set to true to regenerate all intermediate files
 
 [preprocessing.dlc]
-enabled = false     # Enable DLC pose estimation preprocessing
+enabled = true     # Enable DLC pose estimation preprocessing
 model_path = "models/iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"
 # gpu = 0            # GPU index (comment out for auto-detect)
 save_csv = false    # Generate CSV in addition to H5

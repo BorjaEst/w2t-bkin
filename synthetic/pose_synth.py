@@ -192,6 +192,74 @@ def create_dlc_pose_h5(output_path: Union[str, Path], params: PoseH5Params, seed
     return output_path
 
 
+def create_sleap_pose_h5(output_path: Union[str, Path], params: PoseH5Params, seed: int | None = None) -> Path:
+    """Create a synthetic SLEAP H5 file.
+
+    SLEAP format:
+    - node_names: dataset of strings
+    - instances/points: (frames, instances, nodes, 2)
+    - instances/point_scores: (frames, instances, nodes)
+    - provenance: attribute
+
+    Args:
+        output_path: Where to save the H5 file
+        params: Generation parameters
+        seed: Optional seed override
+
+    Returns:
+        Path to created H5 file
+    """
+    import json
+
+    import h5py
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    seed = seed if seed is not None else params.seed
+    rng = np.random.RandomState(seed)
+
+    n_nodes = len(params.keypoints)
+    n_frames = params.n_frames
+    n_instances = 1  # Single instance support for now
+
+    # Generate trajectories
+    points = np.zeros((n_frames, n_instances, n_nodes, 2), dtype=np.float64)
+    scores = np.zeros((n_frames, n_instances, n_nodes), dtype=np.float64)
+
+    for i, keypoint in enumerate(params.keypoints):
+        # Generate trajectory (same logic as DLC)
+        angle = (i / n_nodes) * 2 * np.pi
+        center_x = params.video_width / 2 + params.motion_radius * np.cos(angle)
+        center_y = params.video_height / 2 + params.motion_radius * np.sin(angle)
+
+        motion_type = "circular" if i % 2 == 0 else "sinusoidal"
+        x, y = generate_smooth_trajectory(n_frames, (center_x, center_y), params.motion_radius * 0.5, seed + i, motion_type)
+
+        confidence = generate_confidence_scores(n_frames, params.confidence_mean, params.confidence_std, params.dropout_rate, seed + i + 1000)
+
+        points[:, 0, i, 0] = x
+        points[:, 0, i, 1] = y
+        scores[:, 0, i] = confidence
+
+    with h5py.File(output_path, "w") as f:
+        # Node names
+        # h5py requires special handling for strings
+        dt = h5py.special_dtype(vlen=str)
+        dset = f.create_dataset("node_names", (n_nodes,), dtype=dt)
+        dset[:] = params.keypoints
+
+        # Points and scores
+        f.create_dataset("instances/points", data=points)
+        f.create_dataset("instances/point_scores", data=scores)
+
+        # Provenance
+        prov = {"model": "SLEAP_synthetic_model_v1"}
+        f.attrs["provenance"] = json.dumps(prov)
+
+    return output_path
+
+
 if __name__ == "__main__":
     """CLI for synthetic pose generation."""
     import argparse

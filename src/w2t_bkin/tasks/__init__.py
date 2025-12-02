@@ -10,14 +10,17 @@ Public API:
     - PipelineTask: Base class for all preprocessing tasks
     - TaskStatus: Enumeration of task execution states
     - DLCPoseTask: DeepLabCut pose estimation task
+    - SLEAPPoseTask: SLEAP pose estimation task
 """
 
 from .base import PipelineTask, TaskConfig, TaskStatus
 from .dlc import DLCPoseTask
+from .sleap import SLEAPPoseTask
 
 __all__ = [
     "PipelineTask",
     "TaskConfig",
     "TaskStatus",
     "DLCPoseTask",
+    "SLEAPPoseTask",
 ]

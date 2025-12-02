@@ -114,7 +114,7 @@ class DLCPoseTask(PipelineTask):
         """Check if DLC pose outputs already exist in interim folder.
 
         This checks for DLC H5 files matching the expected naming convention
-        for each camera video.
+        for each camera video in the camera-specific subfolder.
 
         Args:
             task_config: Task configuration
@@ -127,9 +127,6 @@ class DLCPoseTask(PipelineTask):
         if not cameras:
             return False
 
-        # Build interim DLC output directory
-        interim_dlc_dir = task_config.interim_dir / "dlc"
-
         # Check outputs for each camera
         all_outputs_exist = True
         missing_outputs = []
@@ -137,6 +134,10 @@ class DLCPoseTask(PipelineTask):
         for camera in cameras:
             camera_id = camera["id"]
             pattern = camera["paths"]
+
+            # Build interim DLC output directory for this camera
+            # Structure: interim/session/dlc-pose/{camera_id}/
+            camera_dlc_dir = task_config.interim_dir / "dlc-pose" / camera_id
 
             # Discover video files
             video_paths = utils.discover_files(task_config.session_dir, pattern, sort=True)
@@ -150,12 +151,12 @@ class DLCPoseTask(PipelineTask):
                 video_stem = video_path.stem
                 # Look for any H5 file starting with video_stem and containing "DLC"
                 pattern_dlc = f"{video_stem}DLC_*.h5"
-                existing_h5 = list(interim_dlc_dir.glob(pattern_dlc))
+                existing_h5 = list(camera_dlc_dir.glob(pattern_dlc))
 
                 if not existing_h5:
                     all_outputs_exist = False
                     missing_outputs.append(f"{camera_id}/{video_path.name}")
-                    logger.debug(f"Missing DLC output for {camera_id}/{video_path.name}")
+                    logger.debug(f"Missing DLC output for {camera_id}/{video_path.name} in {camera_dlc_dir}")
                 else:
                     logger.debug(f"Found existing DLC output: {existing_h5[0].name}")
 
@@ -170,7 +171,7 @@ class DLCPoseTask(PipelineTask):
         """Execute DLC inference to generate pose outputs.
 
         Runs DLC inference on all camera videos and stores outputs in
-        interim/dlc folder.
+        interim/dlc-pose/{camera_id} folder.
 
         Args:
             task_config: Task configuration
@@ -187,10 +188,6 @@ class DLCPoseTask(PipelineTask):
             dlc_config = task_config.config.preprocessing.dlc
             self._model_info = validate_dlc_model(dlc_config.model_path)
 
-        # Build interim DLC output directory
-        interim_dlc_dir = task_config.interim_dir / "dlc"
-        interim_dlc_dir.mkdir(parents=True, exist_ok=True)
-
         # Get DLC inference options from config
         dlc_config = task_config.config.preprocessing.dlc
         inference_options = DLCInferenceOptions(
@@ -201,43 +198,45 @@ class DLCPoseTask(PipelineTask):
 
         # Collect all video paths from all cameras
         cameras = task_config.metadata.get("cameras", [])
-        all_video_paths = []
-        camera_video_map = {}  # Track which videos belong to which camera
+
+        output_paths = []
+        failed_videos = []
+        total_videos = 0
 
         for camera in cameras:
             camera_id = camera["id"]
             pattern = camera["paths"]
+
+            # Build interim DLC output directory for this camera
+            camera_dlc_dir = task_config.interim_dir / "dlc-pose" / camera_id
+            camera_dlc_dir.mkdir(parents=True, exist_ok=True)
+
             video_paths = utils.discover_files(task_config.session_dir, pattern, sort=True)
-            all_video_paths.extend(video_paths)
-            for vp in video_paths:
-                camera_video_map[vp] = camera_id
+            if not video_paths:
+                continue
 
-        logger.info(f"Running DLC inference on {len(all_video_paths)} video(s)")
+            total_videos += len(video_paths)
+            logger.info(f"Running DLC inference for camera '{camera_id}' on {len(video_paths)} video(s)")
 
-        # Run batch inference
-        results = run_dlc_inference_batch(
-            video_paths=all_video_paths,
-            model_config_path=self._model_info.config_path,
-            output_dir=interim_dlc_dir,
-            options=inference_options,
-        )
+            # Run batch inference for this camera
+            results = run_dlc_inference_batch(
+                video_paths=video_paths,
+                model_config_path=self._model_info.config_path,
+                output_dir=camera_dlc_dir,
+                options=inference_options,
+            )
 
-        # Collect output paths and report failures
-        output_paths = []
-        failed_videos = []
-
-        for result in results:
-            if result.success and result.h5_output_path:
-                output_paths.append(result.h5_output_path)
-                camera_id = camera_video_map.get(result.video_path, "unknown")
-                logger.debug(f"  ✓ {camera_id}/{result.video_path.name}: " f"{result.frame_count} frames in {result.inference_time_s:.1f}s")
-            else:
-                failed_videos.append((result.video_path.name, result.error_message))
-                camera_id = camera_video_map.get(result.video_path, "unknown")
-                logger.warning(f"  ✗ {camera_id}/{result.video_path.name}: {result.error_message}")
+            # Collect output paths and report failures
+            for result in results:
+                if result.success and result.h5_output_path:
+                    output_paths.append(result.h5_output_path)
+                    logger.debug(f"  ✓ {camera_id}/{result.video_path.name}: " f"{result.frame_count} frames in {result.inference_time_s:.1f}s")
+                else:
+                    failed_videos.append((result.video_path.name, result.error_message))
+                    logger.warning(f"  ✗ {camera_id}/{result.video_path.name}: {result.error_message}")
 
         # Log summary
-        logger.info(f"DLC inference completed: {len(output_paths)}/{len(all_video_paths)} succeeded")
+        logger.info(f"DLC inference completed: {len(output_paths)}/{total_videos} succeeded")
 
         if failed_videos:
             logger.warning(f"Failed videos: {len(failed_videos)}")
@@ -247,7 +246,7 @@ class DLCPoseTask(PipelineTask):
                 logger.warning(f"  ... and {len(failed_videos) - 5} more")
 
         # If all videos failed, raise exception
-        if not output_paths:
+        if not output_paths and total_videos > 0:
             raise Exception("DLC inference failed for all videos")
 
         return output_paths
@@ -261,10 +260,11 @@ class DLCPoseTask(PipelineTask):
         Returns:
             List of H5 file paths found
         """
-        interim_dlc_dir = task_config.interim_dir / "dlc"
+        interim_dlc_dir = task_config.interim_dir / "dlc-pose"
         if not interim_dlc_dir.exists():
             return []
 
-        # Find all DLC H5 files
-        h5_files = list(interim_dlc_dir.glob("*DLC_*.h5"))
+        # Find all DLC H5 files in all camera subdirectories
+        # Structure: interim/session/dlc-pose/{camera_id}/*.h5
+        h5_files = list(interim_dlc_dir.glob("*/*DLC_*.h5"))
         return sorted(h5_files)

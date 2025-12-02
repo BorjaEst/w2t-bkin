@@ -336,6 +336,22 @@ class DLCPreprocessingConfig(BaseModel, extra="forbid"):
     save_csv: bool = Field(default=False, description="Generate CSV outputs")
 
 
+class SLEAPPreprocessingConfig(BaseModel, extra="forbid"):
+    """SLEAP preprocessing task configuration.
+
+    Controls SLEAP pose estimation in the preprocessing phase.
+
+    Attributes:
+        enabled: Enable SLEAP preprocessing task (default: False).
+        model_path: Path to SLEAP model file (e.g., models/sleap_model.h5).
+        gpu: GPU index to use (None = auto-detect).
+    """
+
+    enabled: bool = Field(default=False, description="Enable SLEAP preprocessing")
+    model_path: Optional[Path] = Field(None, description="Path to SLEAP model file")
+    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect)")
+
+
 class PreprocessingConfig(BaseModel, extra="forbid"):
     """Preprocessing phase configuration.
 
@@ -345,10 +361,12 @@ class PreprocessingConfig(BaseModel, extra="forbid"):
     Attributes:
         force_rerun: Force regeneration of all intermediate files (default: False).
         dlc: DLC pose estimation task configuration.
+        sleap: SLEAP pose estimation task configuration.
     """
 
     force_rerun: bool = Field(default=False, description="Force rerun of all preprocessing tasks")
     dlc: DLCPreprocessingConfig = Field(default_factory=DLCPreprocessingConfig, description="DLC preprocessing config")
+    sleap: SLEAPPreprocessingConfig = Field(default_factory=SLEAPPreprocessingConfig, description="SLEAP preprocessing config")
 
 
 # =============================================================================

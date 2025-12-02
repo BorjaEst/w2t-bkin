@@ -55,7 +55,7 @@ from . import session, validate
 from .. import config as config_pkg
 from .. import sync, utils
 from ..exceptions import IngestError, MismatchExceedsToleranceError, SyncError
-from ..ingest import behavior, bpod, ttl
+from ..ingest import behavior, bpod, pose, ttl
 
 # Setup rich console and logging
 console = Console()
@@ -136,6 +136,7 @@ class PipelineContext:
     camera_files: Dict[str, List[Path]] = field(default_factory=dict)
     bpod_files: Dict[str, List[Path]] = field(default_factory=dict)
     ttl_files: Dict[str, List[Path]] = field(default_factory=dict)
+    pose_data: Dict[str, Any] = field(default_factory=dict)
     bpod_data: Optional[Dict[str, Any]] = None
     trial_offsets: Optional[Dict[int, float]] = None
     ttl_pulses: Dict[str, List[float]] = field(default_factory=dict)
@@ -434,7 +435,7 @@ class SessionPipeline:
             progress.update(task_id, total=1)
 
         # Import task framework
-        from ..tasks import DLCPoseTask, TaskConfig
+        from ..tasks import DLCPoseTask, SLEAPPoseTask, TaskConfig
         from ..tasks.base import TaskStatus
 
         # Create interim directory structure
@@ -444,7 +445,7 @@ class SessionPipeline:
 
         # Build task configuration
         task_config = TaskConfig(
-            enabled=context.config.preprocessing.dlc.enabled,
+            enabled=context.config.preprocessing.dlc.enabled,  # Base enabled flag (will be overridden per task if needed)
             force_rerun=context.config.preprocessing.force_rerun,
             session_dir=context.session_dir,
             interim_dir=interim_dir,
@@ -455,10 +456,13 @@ class SessionPipeline:
         # Execute DLC preprocessing if enabled
         if context.config.preprocessing.dlc.enabled:
             logger.info("  DLC pose estimation enabled")
-            dlc_task = DLCPoseTask(task_config)
+            dlc_task = DLCPoseTask()
+
+            # Update enabled flag for DLC specifically
+            task_config.enabled = True
 
             # Run task with full lifecycle (check deps, check output, execute if needed)
-            status = dlc_task.run()
+            status, _ = dlc_task.run(task_config)
 
             if status == TaskStatus.COMPLETED:
                 logger.info("  DLC: Completed successfully")
@@ -476,14 +480,41 @@ class SessionPipeline:
         else:
             logger.info("  DLC pose estimation disabled")
 
+        # Execute SLEAP preprocessing if enabled
+        if context.config.preprocessing.sleap.enabled:
+            logger.info("  SLEAP pose estimation enabled")
+            sleap_task = SLEAPPoseTask()
+
+            # Update enabled flag for SLEAP specifically
+            task_config.enabled = True
+
+            # Run task with full lifecycle
+            status, _ = sleap_task.run(task_config)
+
+            if status == TaskStatus.COMPLETED:
+                logger.info("  SLEAP: Completed successfully")
+            elif status == TaskStatus.CACHED:
+                logger.info("  SLEAP: Using cached results from interim folder")
+            elif status == TaskStatus.SKIP:
+                logger.info("  SLEAP: Skipped (dependencies not met or disabled)")
+            elif status == TaskStatus.FAILED:
+                logger.error("  SLEAP: Task failed")
+                raise IngestError(
+                    message="SLEAP preprocessing task failed",
+                    context={"task": "SLEAPPoseTask", "status": status.name},
+                    hint="Check SLEAP model configuration and video files",
+                )
+        else:
+            logger.info("  SLEAP pose estimation disabled")
+
         if progress and task_id is not None:
             progress.advance(task_id)
 
     def _phase_3_ingestion(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
-        """Phase 3: Ingest Bpod and TTL data."""
-        logger.info("Processing Bpod and TTL data...")
+        """Phase 3: Ingest Bpod, Pose, and TTL data."""
+        logger.info("Processing Bpod, Pose, and TTL data...")
 
-        total_steps = 3
+        total_steps = 4
         if progress and task_id is not None:
             progress.update(task_id, total=total_steps)
 
@@ -507,6 +538,77 @@ class SessionPipeline:
             logger.debug(f"    SessionData keys: {list(session_data.keys())}")
         elif context.options.skip_bpod:
             logger.info("Skipping Bpod processing (requested by options)")
+
+        if progress and task_id is not None:
+            progress.advance(task_id)
+
+        # Process Pose (DLC)
+        if not context.options.skip_pose and context.config.preprocessing.dlc.enabled:
+            logger.debug("Ingesting DLC pose estimation data...")
+
+            for camera_id, video_paths in context.camera_files.items():
+                # Interim directory for this camera: interim/session/dlc-pose/{camera_id}/
+                camera_dlc_dir = context.config.paths.intermediate_root / context.subject_id / context.session_id / "dlc-pose" / camera_id
+
+                camera_pose_data = []
+                for video_path in video_paths:
+                    video_stem = video_path.stem
+                    # Pattern from DLCPoseTask: f"{video_stem}DLC_*.h5"
+                    # Also support plain .h5 files if manually placed: f"{video_stem}.h5"
+                    dlc_files = list(camera_dlc_dir.glob(f"{video_stem}DLC_*.h5"))
+
+                    if not dlc_files:
+                        # Fallback: try to find any H5 file starting with the video stem
+                        # This supports manually placed files like "video.h5"
+                        dlc_files = list(camera_dlc_dir.glob(f"{video_stem}*.h5"))
+
+                    if dlc_files:
+                        dlc_path = dlc_files[0]  # Take the first match
+                        logger.debug(f"  Found DLC output for '{camera_id}': {dlc_path.name}")
+
+                        try:
+                            frames, metadata = pose.import_dlc_pose(dlc_path)
+                            camera_pose_data.append({"video_path": video_path, "frames": frames, "metadata": metadata})
+                        except Exception as e:
+                            logger.warning(f"  Failed to import DLC pose for {video_path.name}: {e}")
+                    else:
+                        logger.debug(f"  No DLC output found for '{camera_id}' video: {video_path.name} in {camera_dlc_dir}")
+
+                if camera_pose_data:
+                    context.pose_data.setdefault(camera_id, []).extend(camera_pose_data)
+                    logger.info(f"  DLC Pose '{camera_id}': Loaded data for {len(camera_pose_data)} video(s)")
+
+        # Process Pose (SLEAP)
+        if not context.options.skip_pose and context.config.preprocessing.sleap.enabled:
+            logger.debug("Ingesting SLEAP pose estimation data...")
+
+            for camera_id, video_paths in context.camera_files.items():
+                # Interim directory for this camera: interim/session/sleap-pose/{camera_id}/
+                camera_sleap_dir = context.config.paths.intermediate_root / context.subject_id / context.session_id / "sleap-pose" / camera_id
+
+                camera_pose_data = []
+                for video_path in video_paths:
+                    video_stem = video_path.stem
+                    # Pattern from SLEAPPoseTask: *{video_stem}*.h5
+                    sleap_files = list(camera_sleap_dir.glob(f"*{video_stem}*.h5"))
+
+                    if sleap_files:
+                        sleap_path = sleap_files[0]  # Take the first match
+                        logger.debug(f"  Found SLEAP output for '{camera_id}': {sleap_path.name}")
+
+                        try:
+                            frames, metadata = pose.import_sleap_pose(sleap_path)
+                            camera_pose_data.append({"video_path": video_path, "frames": frames, "metadata": metadata})
+                        except Exception as e:
+                            logger.warning(f"  Failed to import SLEAP pose for {video_path.name}: {e}")
+                    else:
+                        logger.debug(f"  No SLEAP output found for '{camera_id}' video: {video_path.name} in {camera_sleap_dir}")
+
+                if camera_pose_data:
+                    context.pose_data.setdefault(camera_id, []).extend(camera_pose_data)
+                    logger.info(f"  SLEAP Pose '{camera_id}': Loaded data for {len(camera_pose_data)} video(s)")
+        elif context.options.skip_pose:
+            logger.info("Skipping pose processing (requested by options)")
 
         if progress and task_id is not None:
             progress.advance(task_id)
@@ -576,9 +678,9 @@ class SessionPipeline:
 
     def _phase_5_assembly(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 5: Assemble NWB objects."""
-        logger.info("Building behavior tables...")
+        logger.info("Building behavior tables and pose estimation...")
 
-        total_steps = 3
+        total_steps = 4
         if progress and task_id is not None:
             progress.update(task_id, total=total_steps)
 
@@ -630,7 +732,126 @@ class SessionPipeline:
         else:
             logger.warning("Skipping behavior table assembly (missing Bpod data or trial offsets)")
             if progress and task_id is not None:
-                progress.update(task_id, completed=total_steps)
+                progress.update(task_id, completed=3)
+
+        # Add Pose Estimation
+        if context.pose_data:
+            logger.debug("Building PoseEstimation objects...")
+
+            # Ensure behavior processing module exists
+            if "behavior" not in context.nwbfile.processing:
+                context.nwbfile.create_processing_module(name="behavior", description="Behavioral data including pose estimation")
+
+            behavior_module = context.nwbfile.processing["behavior"]
+
+            # Collect skeletons to add to NWB
+            skeletons_to_add = []
+
+            for camera_id, video_pose_list in context.pose_data.items():
+                if not video_pose_list:
+                    continue
+
+                # Find camera config
+                camera_config = next((c for c in context.metadata.get("cameras", []) if c["id"] == camera_id), None)
+                fps = camera_config.get("fps", 30.0) if camera_config else 30.0
+                ttl_id = camera_config.get("ttl_id") if camera_config else None
+                target_skel_id = camera_config.get("skeleton_id") if camera_config else None
+
+                # Determine Skeleton
+                # 1. Default from H5 metadata
+                first_meta = video_pose_list[0]["metadata"]
+                skeleton_nodes = first_meta.bodyparts
+                skeleton_edges = []
+                skeleton_name = f"skeleton_{camera_id}"
+
+                # 2. Override from metadata['skeletons'] if configured
+                skeletons_config = context.metadata.get("skeletons", {})
+                # Handle list format [[skeletons]] -> convert to dict
+                if isinstance(skeletons_config, list):
+                    skeletons_config = {s.get("id", f"skel_{i}"): s for i, s in enumerate(skeletons_config)}
+
+                if target_skel_id and target_skel_id in skeletons_config:
+                    user_skel = skeletons_config[target_skel_id]
+                    skeleton_nodes = user_skel.get("nodes", skeleton_nodes)
+                    skeleton_edges = user_skel.get("edges", [])
+                    skeleton_name = target_skel_id
+                    logger.debug(f"  Using user-defined skeleton '{skeleton_name}' for {camera_id}")
+
+                # Create Skeleton object
+                try:
+                    skeleton = pose.create_skeleton(name=skeleton_name, nodes=skeleton_nodes, edges=skeleton_edges)
+                    skeletons_to_add.append(skeleton)
+                except Exception as e:
+                    logger.warning(f"  Failed to create skeleton for {camera_id}: {e}")
+                    continue
+
+                # Process each video
+                for i, item in enumerate(video_pose_list):
+                    frames = item["frames"]
+                    metadata = item["metadata"]
+                    video_path = item["video_path"]
+                    n_frames = len(frames)
+
+                    # Timestamp Logic
+                    timestamps = None
+
+                    # Strategy 1: TTL Alignment
+                    if ttl_id and ttl_id in context.ttl_pulses:
+                        pulses = context.ttl_pulses[ttl_id]
+                        # Exact match check (simple case)
+                        if len(pulses) == n_frames:
+                            timestamps = np.array(pulses)
+                            logger.info(f"  Using TTL timestamps for {camera_id}/{video_path.name} ({n_frames} frames)")
+                        else:
+                            # TODO: Handle complex cases (split videos, etc.)
+                            logger.warning(f"  TTL count ({len(pulses)}) != Frame count ({n_frames}) for {camera_id}. Falling back to FPS.")
+
+                    # Strategy 2: FPS Generation
+                    if timestamps is None:
+                        # Generate timestamps based on FPS
+                        # Note: This assumes start time is 0.0 relative to session start
+                        timestamps = np.arange(n_frames) / fps
+                        logger.info(f"  Using FPS timestamps ({fps} Hz) for {camera_id}/{video_path.name}")
+
+                    try:
+                        # Use device if available
+                        device = context.nwbfile.devices.get(camera_id)
+
+                        pe = pose.build_pose_estimation(
+                            data=(frames, metadata),
+                            reference_times=timestamps,
+                            skeleton=skeleton,
+                            original_videos=[str(video_path)],
+                            labeled_videos=None,
+                            devices=[device] if device else None,
+                        )
+
+                        # Ensure unique name if multiple videos per camera
+                        if len(video_pose_list) > 1:
+                            pe.name = f"{pe.name}_{i}"
+
+                        behavior_module.add(pe)
+                        logger.info(f"  Added PoseEstimation: {pe.name} ({n_frames} frames)")
+
+                    except Exception as e:
+                        logger.warning(f"  Failed to build PoseEstimation for {camera_id} (video {video_path.name}): {e}")
+
+            # Add Skeletons container to NWB
+            if skeletons_to_add:
+                try:
+                    # Deduplicate skeletons by name
+                    unique_skeletons = {s.name: s for s in skeletons_to_add}.values()
+                    skeletons_container = pose.create_skeletons_container(name="Skeletons", skeletons=list(unique_skeletons))
+
+                    # Add to behavior processing module instead of lab_meta_data
+                    # Skeletons inherits from NWBDataInterface, not LabMetaData
+                    behavior_module.add(skeletons_container)
+                    logger.debug(f"  Added Skeletons container with {len(unique_skeletons)} skeletons")
+                except Exception as e:
+                    logger.warning(f"  Failed to add Skeletons container: {e}")
+
+        if progress and task_id is not None:
+            progress.advance(task_id)
 
     def _phase_6_finalization(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 6: Write NWB, validate, and create sidecars."""

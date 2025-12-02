@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Union
 
 from .bpod_synth import BpodSynthOptions, write_bpod_mat_files_for_session
 from .config_synth import SynthConfigOptions, build_config, write_config_toml
-from .pose_synth import PoseH5Params, create_dlc_pose_h5
+from .pose_synth import PoseH5Params, create_dlc_pose_h5, create_sleap_pose_h5
 from .session_synth import SessionSynthOptions, build_metadata, build_session, write_metadata_toml, write_session_toml
 from .ttl_synth import TTLGenerationOptions, generate_and_write_ttls_for_session, generate_ttl_pulses, write_ttl_pulse_files
 from .video_synth import VideoGenerationOptions, generate_video_files_for_session
@@ -47,6 +47,7 @@ __all__ = [
     # Pose
     "PoseH5Params",
     "create_dlc_pose_h5",
+    "create_sleap_pose_h5",
     # Bpod
     "BpodSynthOptions",
     "write_bpod_mat_files_for_session",
@@ -350,7 +351,7 @@ def build_interim_pose(
 
     # Create subject_id/session_id structure
     session_dir = interim_root / subject_id / session_id
-    pose_dir = session_dir / "Pose"
+    pose_dir = session_dir / "dlc-pose"
     pose_paths = []
 
     keypoints = keypoints or ["nose", "left_ear", "right_ear"]
