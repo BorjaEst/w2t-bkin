@@ -265,7 +265,9 @@ class SessionPipeline:
 
         logger.info(f"  Project: {context.config.project.name}")
         logger.info(f"  Raw root: {context.config.paths.raw_root}")
+        logger.info(f"  Interim root: {context.config.paths.intermediate_root}")
         logger.info(f"  Output root: {context.config.paths.output_root}")
+        logger.info(f"  Preprocessing: DLC={context.config.preprocessing.dlc.enabled}, force_rerun={context.config.preprocessing.force_rerun}")
         logger.debug(f"  Full config: {context.config.model_dump_json(indent=2)}")
 
         # Load metadata and create NWBFile
@@ -436,7 +438,7 @@ class SessionPipeline:
         from ..tasks.base import TaskStatus
 
         # Create interim directory structure
-        interim_dir = context.config.paths.intermediate_root / context.session_id
+        interim_dir = context.config.paths.intermediate_root / context.subject_id / context.session_id
         interim_dir.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Interim directory: {interim_dir}")
 
