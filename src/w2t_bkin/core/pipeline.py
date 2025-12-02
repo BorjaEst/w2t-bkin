@@ -48,7 +48,7 @@ from pynwb import NWBFile
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TaskProgressColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
 from . import session, validate
@@ -201,38 +201,33 @@ class SessionPipeline:
 
                 # Phase 0: Initialization
                 task = progress.add_task("[cyan]Phase 0: Initialization", total=1)
-                self._phase_0_initialization(self.context)
-                progress.update(task, advance=1)
+                self._phase_0_initialization(self.context, progress, task)
+                progress.update(task, completed=1)
 
                 # Phase 1: Discovery & Verification
-                task = progress.add_task("[cyan]Phase 1: Discovery & Verification", total=1)
-                self._phase_1_discovery(self.context)
-                progress.update(task, advance=1)
+                task = progress.add_task("[cyan]Phase 1: Discovery & Verification", total=None)
+                self._phase_1_discovery(self.context, progress, task)
 
                 # Phase 2: Preprocessing
-                task = progress.add_task("[cyan]Phase 2: Preprocessing", total=1)
-                self._phase_2_preprocessing(self.context)
-                progress.update(task, advance=1)
+                task = progress.add_task("[cyan]Phase 2: Preprocessing", total=None)
+                self._phase_2_preprocessing(self.context, progress, task)
 
                 # Phase 3: Ingestion
-                task = progress.add_task("[cyan]Phase 3: Ingestion", total=1)
-                self._phase_3_ingestion(self.context)
-                progress.update(task, advance=1)
+                task = progress.add_task("[cyan]Phase 3: Ingestion", total=None)
+                self._phase_3_ingestion(self.context, progress, task)
 
                 # Phase 4: Synchronization
                 task = progress.add_task("[cyan]Phase 4: Synchronization", total=1)
-                self._phase_4_synchronization(self.context)
-                progress.update(task, advance=1)
+                self._phase_4_synchronization(self.context, progress, task)
+                progress.update(task, completed=1)
 
                 # Phase 5: Assembly
-                task = progress.add_task("[cyan]Phase 5: Assembly", total=1)
-                self._phase_5_assembly(self.context)
-                progress.update(task, advance=1)
+                task = progress.add_task("[cyan]Phase 5: Assembly", total=None)
+                self._phase_5_assembly(self.context, progress, task)
 
                 # Phase 6: Finalization
-                task = progress.add_task("[cyan]Phase 6: Finalization & Validation", total=1)
-                self._phase_6_finalization(self.context)
-                progress.update(task, advance=1)
+                task = progress.add_task("[cyan]Phase 6: Finalization & Validation", total=None)
+                self._phase_6_finalization(self.context, progress, task)
 
             console.print("\n[bold green]✓ Pipeline completed successfully[/bold green]")
 
@@ -249,7 +244,7 @@ class SessionPipeline:
             console.print(f"\n[bold red]✗ Pipeline failed: {e}[/bold red]")
             return RunResult(nwb_path=Path(""), success=False, error=str(e))
 
-    def _phase_0_initialization(self, context: PipelineContext) -> None:
+    def _phase_0_initialization(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 0: Load configuration and create NWBFile."""
         logger.info("Loading configuration and creating NWBFile...")
         logger.debug(f"Config path: {context.config_path}")
@@ -275,12 +270,25 @@ class SessionPipeline:
             logger.info(f"  Subject: {context.nwbfile.subject.subject_id}")
             logger.debug(f"  Subject metadata: {context.nwbfile.subject}")
 
-    def _phase_1_discovery(self, context: PipelineContext) -> None:
+    def _phase_1_discovery(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 1: Discover and verify files."""
         logger.info("Discovering files and verifying synchronization...")
 
         # Discover cameras
         cameras = context.metadata.get("cameras", [])
+        ttls = context.metadata.get("TTLs", [])
+        bpod_config = context.metadata.get("bpod")
+
+        # Calculate total steps
+        total_steps = len(cameras) + len(ttls)
+        if not context.options.skip_verification:
+            total_steps += 1
+        if bpod_config:
+            total_steps += 1
+
+        if progress and task_id is not None:
+            progress.update(task_id, total=total_steps)
+
         logger.debug(f"Searching for {len(cameras)} camera(s)")
 
         for camera in cameras:
@@ -318,8 +326,10 @@ class SessionPipeline:
                 device=device,
             )
 
+            if progress and task_id is not None:
+                progress.advance(task_id)
+
         # Discover TTL files
-        ttls = context.metadata.get("TTLs", [])
         logger.debug(f"Searching for {len(ttls)} TTL source(s)")
 
         for ttl in ttls:
@@ -336,6 +346,9 @@ class SessionPipeline:
             else:
                 logger.warning(f"  TTL '{ttl_id}': No files found (pattern: {pattern})")
                 context.ttl_files[ttl_id] = []
+
+            if progress and task_id is not None:
+                progress.advance(task_id)
 
         # Verification: Check frame/TTL synchronization
         if not context.options.skip_verification:
@@ -364,11 +377,13 @@ class SessionPipeline:
                     pulse_count=pulse_count,
                     tolerance=0,
                 )
+
+            if progress and task_id is not None:
+                progress.advance(task_id)
         else:
             logger.info("Skipping synchronization verification (requested by options)")
 
         # Discover Bpod files
-        bpod_config = context.metadata.get("bpod")
         if bpod_config:
             pattern = bpod_config["path"]
             logger.debug(f"Scanning Bpod with pattern: {pattern}")
@@ -380,9 +395,15 @@ class SessionPipeline:
             else:
                 logger.warning(f"  Bpod: No files found (pattern: {pattern})")
 
-    def _phase_2_preprocessing(self, context: PipelineContext) -> None:
+            if progress and task_id is not None:
+                progress.advance(task_id)
+
+    def _phase_2_preprocessing(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 2: Execute preprocessing tasks to generate intermediate artifacts."""
         logger.info("Running preprocessing tasks...")
+
+        if progress and task_id is not None:
+            progress.update(task_id, total=1)
 
         # Import task framework
         from ..tasks import DLCPoseTask, TaskConfig
@@ -427,9 +448,16 @@ class SessionPipeline:
         else:
             logger.info("  DLC pose estimation disabled")
 
-    def _phase_3_ingestion(self, context: PipelineContext) -> None:
+        if progress and task_id is not None:
+            progress.advance(task_id)
+
+    def _phase_3_ingestion(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 3: Ingest Bpod and TTL data."""
         logger.info("Processing Bpod and TTL data...")
+
+        total_steps = 3
+        if progress and task_id is not None:
+            progress.update(task_id, total=total_steps)
 
         # Process Bpod
         if not context.options.skip_bpod and context.bpod_files:
@@ -452,6 +480,9 @@ class SessionPipeline:
         elif context.options.skip_bpod:
             logger.info("Skipping Bpod processing (requested by options)")
 
+        if progress and task_id is not None:
+            progress.advance(task_id)
+
         # Process TTL
         ttl_patterns = {ttl_id: context.metadata["TTLs"][i]["paths"] for i, ttl_id in enumerate(context.ttl_files.keys()) if i < len(context.metadata.get("TTLs", []))}
 
@@ -463,6 +494,9 @@ class SessionPipeline:
                     logger.debug(f"    First 5 timestamps: {timestamps[:5]}")
             else:
                 logger.warning(f"  TTL '{ttl_id}': No pulses extracted")
+
+        if progress and task_id is not None:
+            progress.advance(task_id)
 
         # Compute trial offsets
         if context.bpod_data and context.config.bpod.sync.trial_types:
@@ -482,7 +516,10 @@ class SessionPipeline:
         else:
             logger.debug("Skipping trial alignment (missing Bpod data or sync config)")
 
-    def _phase_4_synchronization(self, context: PipelineContext) -> None:
+        if progress and task_id is not None:
+            progress.advance(task_id)
+
+    def _phase_4_synchronization(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 4: Synchronization and jitter checking."""
         logger.info("Computing alignment statistics...")
 
@@ -509,9 +546,13 @@ class SessionPipeline:
         else:
             logger.warning("  No trial offsets computed - synchronization statistics are empty")
 
-    def _phase_5_assembly(self, context: PipelineContext) -> None:
+    def _phase_5_assembly(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 5: Assemble NWB objects."""
         logger.info("Building behavior tables...")
+
+        total_steps = 3
+        if progress and task_id is not None:
+            progress.update(task_id, total=total_steps)
 
         if context.bpod_data and context.trial_offsets:
             # Extract type tables
@@ -521,6 +562,9 @@ class SessionPipeline:
             action_types = behavior.extract_action_types(context.bpod_data)
             logger.debug(f"  Found {len(state_types)} state types, {len(event_types)} event types, {len(action_types)} action types")
 
+            if progress and task_id is not None:
+                progress.advance(task_id)
+
             # Extract data tables
             logger.debug("Extracting trial data...")
             states, state_indices = behavior.extract_states(context.bpod_data, state_types, trial_offsets=context.trial_offsets)
@@ -528,6 +572,9 @@ class SessionPipeline:
             actions, action_indices = behavior.extract_actions(context.bpod_data, action_types, trial_offsets=context.trial_offsets)
 
             logger.info(f"  States: {len(states)}, Events: {len(events)}, Actions: {len(actions)}")
+
+            if progress and task_id is not None:
+                progress.advance(task_id)
 
             # Build and add to NWBFile
             logger.debug("Building NWB tables...")
@@ -549,12 +596,21 @@ class SessionPipeline:
             context.nwbfile.add_lab_meta_data(task)
 
             logger.info(f"  Added TrialsTable ({len(trials_table)} trials), TaskRecording, and Task to NWBFile")
+
+            if progress and task_id is not None:
+                progress.advance(task_id)
         else:
             logger.warning("Skipping behavior table assembly (missing Bpod data or trial offsets)")
+            if progress and task_id is not None:
+                progress.update(task_id, completed=total_steps)
 
-    def _phase_6_finalization(self, context: PipelineContext) -> None:
+    def _phase_6_finalization(self, context: PipelineContext, progress: Optional[Progress] = None, task_id: Optional[TaskID] = None) -> None:
         """Phase 6: Write NWB, validate, and create sidecars."""
         logger.info("Writing NWB file and creating sidecars...")
+
+        total_steps = 3
+        if progress and task_id is not None:
+            progress.update(task_id, total=total_steps)
 
         # Prepare provenance
         provenance = {
@@ -576,6 +632,9 @@ class SessionPipeline:
         nwb_size_mb = nwb_path.stat().st_size / (1024 * 1024)
         logger.info(f"  NWB file: {nwb_path.name} ({nwb_size_mb:.1f} MB)")
 
+        if progress and task_id is not None:
+            progress.advance(task_id)
+
         # Write sidecars
         if context.alignment_stats:
             stats_path = output_dir / "alignment_stats.json"
@@ -587,6 +646,9 @@ class SessionPipeline:
         provenance_path = output_dir / "provenance.json"
         utils.write_json(provenance, provenance_path)
         logger.info(f"  Provenance: {provenance_path.name}")
+
+        if progress and task_id is not None:
+            progress.advance(task_id)
 
         # Validate NWB file with nwbinspector
         validation_results = None
@@ -615,3 +677,6 @@ class SessionPipeline:
             logger.info("Skipping NWB validation (requested by options)")
 
         context.validation_results = validation_results
+
+        if progress and task_id is not None:
+            progress.advance(task_id)
