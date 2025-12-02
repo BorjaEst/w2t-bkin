@@ -134,7 +134,9 @@ metadata, nwbfile = load_session_metadata_and_nwb(
 
 ```python
 from pathlib import Path
-from w2t_bkin import behavior, bpod, config, session, sync, ttl
+from w2t_bkin import config, sync
+from w2t_bkin.core import session
+from w2t_bkin.ingest import behavior, bpod, ttl
 
 # 1. Load Configuration
 settings = config.load_config("config.toml")
@@ -205,16 +207,16 @@ python examples/pose_camera_nwb.py
 
 ## Module Overview
 
-| Module                 | Description                                                                                        |
-| :--------------------- | :------------------------------------------------------------------------------------------------- |
-| `w2t_bkin.behavior`    | Converts Bpod data into `ndx-structured-behavior` classes (StatesTable, EventsTable, TrialsTable). |
-| `w2t_bkin.bpod`        | Low-level parsing and validation of Bpod `.mat` files.                                             |
-| `w2t_bkin.ingest.pose` | Imports pose estimation data (DLC/SLEAP) and builds `ndx-pose` objects (PoseEstimation, Skeleton). |
-| `w2t_bkin.sync`        | Handles timebase alignment, jitter calculation, and synchronization of video/behavior to TTLs.     |
-| `w2t_bkin.ttl`         | Loads hardware TTL pulse timestamps and creates `ndx-events` tables.                               |
-| `w2t_bkin.session`     | Loads metadata hierarchically and assembles the root `NWBFile`.                                    |
-| `w2t_bkin.utils`       | Shared utilities including datetime parsing, dictionary merging, and helper functions.             |
-| `w2t_bkin.pipeline`    | High-level orchestration of the entire workflow.                                                   |
+| Module                     | Description                                                                                        |
+| :------------------------- | :------------------------------------------------------------------------------------------------- |
+| `w2t_bkin.ingest.behavior` | Converts Bpod data into `ndx-structured-behavior` classes (StatesTable, EventsTable, TrialsTable). |
+| `w2t_bkin.ingest.bpod`     | Low-level parsing and validation of Bpod `.mat` files.                                             |
+| `w2t_bkin.ingest.pose`     | Imports pose estimation data (DLC/SLEAP) and builds `ndx-pose` objects (PoseEstimation, Skeleton). |
+| `w2t_bkin.ingest.ttl`      | Loads hardware TTL pulse timestamps and creates `ndx-events` tables.                               |
+| `w2t_bkin.sync`            | Handles timebase alignment, jitter calculation, and synchronization of video/behavior to TTLs.     |
+| `w2t_bkin.core.session`    | Loads metadata hierarchically and assembles the root `NWBFile`.                                    |
+| `w2t_bkin.core.pipeline`   | High-level orchestration of the entire workflow.                                                   |
+| `w2t_bkin.utils`           | Shared utilities including datetime parsing, dictionary merging, and helper functions.             |
 
 ## CLI Utilities
 

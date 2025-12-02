@@ -30,23 +30,20 @@ graph TD
         
         utils["✅ utils<br/>━━━━━<br/>hashing, path safety,<br/>subprocess wrappers,<br/>logging, JSON I/O"]
         
-        subgraph BpodModule["✅ bpod (Parsing Only)"]
-            bpod_code["✅ code<br/>Parse Bpod .mat → raw dict"]
+        subgraph Ingest["✅ ingest (Data Loading)"]
+            bpod["✅ bpod<br/>Parse Bpod .mat → raw dict"]
+            behavior["✅ behavior<br/>Bpod data → ndx-structured-behavior<br/>TrialsTable, TaskRecording, Task"]
+            pose["✅ pose<br/>H5 files → PoseEstimation<br/>tuple API: (data, metadata)<br/>skeleton harmonization"]
+            ttl["✅ ttl<br/>TTL pulse files → Events<br/>(ndx-events)"]
+        end
+
+        subgraph Processors["✅ processors (Pure Functional)"]
+            dlc["✅ dlc<br/>GPU batch inference<br/>video paths → H5 pose files"]
+            facemap["⚠️ facemap (WIP)<br/>ROI specs → BehavioralTimeSeries<br/>motion energy computation"]
+            transcode["⚠️ transcode (WIP)<br/>FFmpeg video transcoding<br/>content addressing"]
         end
         
-        behavior["✅ behavior<br/>━━━━━<br/>Bpod data → ndx-structured-behavior<br/>TrialsTable, TaskRecording, Task"]
-        
-        dlc["✅ dlc<br/>━━━━━<br/>GPU batch inference<br/>video paths → H5 pose files"]
-        
-        pose["✅ pose<br/>━━━━━<br/>H5 files → PoseEstimation<br/>tuple API: (data, metadata)<br/>skeleton harmonization"]
-        
-        ttl["✅ ttl<br/>━━━━━<br/>TTL pulse files → Events<br/>(ndx-events)"]
-
-        facemap["⚠️ facemap (WIP)<br/>━━━━━<br/>ROI specs → BehavioralTimeSeries<br/>motion energy computation"]
-        
-        transcode["⚠️ transcode (WIP)<br/>━━━━━<br/>FFmpeg video transcoding<br/>content addressing"]
-        
-        sync_primitives["✅ sync.primitives<br/>━━━━━<br/>alignment algorithms<br/>nearest/linear mapping<br/>jitter computation"]
+        sync_primitives["✅ sync (internal)<br/>━━━━━<br/>alignment algorithms<br/>nearest/linear mapping<br/>jitter computation"]
     end
 
     %% ============================================================================
@@ -70,9 +67,12 @@ graph TD
         
         tasks["✅ tasks<br/>━━━━━<br/>Preprocessing Framework<br/>Dependency Management<br/>Caching"]
 
-        session_mod["✅ session<br/>━━━━━<br/>NWBFile creation & Assembly<br/>Video acquisition<br/>NWB file writing"]
+        subgraph Core["✅ core (Orchestration)"]
+            session_mod["✅ session<br/>NWBFile creation & Assembly<br/>Video acquisition<br/>NWB file writing"]
+            pipeline["✅ pipeline<br/>Orchestration entrypoint<br/>7-Phase Workflow<br/>Rich Logging"]
+        end
         
-        pipeline["✅ pipeline/cli<br/>━━━━━<br/>Orchestration entrypoint<br/>7-Phase Workflow<br/>Rich Logging"]
+        cli["✅ cli<br/>━━━━━<br/>Entry point<br/>Argument parsing<br/>Logging setup"]
         
         validate["🔵 validate (Planned)<br/>━python libraries to orchestrate pipelines━━━━<br/>NWB validation<br/>(nwbinspector)"]
         
@@ -102,9 +102,9 @@ graph TD
     
     %% Low-level → Foundation + Utils
     utils --> Foundation
-    bpod_code --> utils
+    bpod --> utils
     behavior --> Foundation
-    behavior --> bpod_code
+    behavior --> bpod
     dlc --> Foundation
     pose --> Foundation
     ttl --> Foundation
@@ -128,6 +128,7 @@ graph TD
     tasks --> config_pkg
     validate --> Foundation
     qc --> Foundation
+    cli --> pipeline
 
     %% Orchestration → High-Level
     prefect_flow --> pipeline
@@ -139,7 +140,7 @@ graph TD
     %% ============================================================================
     
     tasks -.->|"video paths,<br/>model config,<br/>GPU index"| dlc
-    pipeline -.->|"Bpod file paths,<br/>order string,<br/>trial specs"| BpodModule
+    pipeline -.->|"Bpod file paths,<br/>order string,<br/>trial specs"| bpod
     pipeline -.->|"parsed Bpod data,<br/>trial offsets"| behavior
     pipeline -.->|"pose file paths,<br/>skeleton maps,<br/>frame ranges"| pose
     pipeline -.->|"TTL files,<br/>channel map"| ttl
@@ -152,7 +153,7 @@ graph TD
     %% DATA FLOW (NWB objects through system)
     %% ============================================================================
     
-    BpodModule -->|"raw Bpod dict"| behavior
+    bpod -->|"raw Bpod dict"| behavior
     behavior -->|"TrialsTable,<br/>TaskRecording,<br/>Task"| session_mod
     pose -->|"PoseEstimation"| session_mod
     ttl -->|"Events (ndx-events)"| session_mod

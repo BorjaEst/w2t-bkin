@@ -86,17 +86,17 @@ Low-level modules operate on raw files and simple arguments (e.g., glob patterns
 
 **Strict Separation**: Low-level tools accept only primitives (str, int, float) or file paths. They NEVER accept `Config` objects.
 
-| Module          | Key Input                                                   | Output / Contract                                       | FR/NFR Coverage        | Status                  |
-| --------------- | ----------------------------------------------------------- | ------------------------------------------------------- | ---------------------- | ----------------------- |
-| utils           | primitives, file paths                                      | hashing, path safety, subprocess wrappers, logging      | NFR-1/2/3              | ✅ Implemented          |
-| bpod.code       | Bpod `.mat` file paths, `order`, trial-type specs           | Parsed Bpod data structures (raw dict format)           | FR-11                  | ✅ Implemented          |
-| behavior        | parsed Bpod data, trial offsets                             | TaskRecording, TrialsTable (ndx-structured-behavior)    | FR-11/14               | ✅ Implemented          |
-| dlc             | video file paths, model config path, GPU selection          | H5 pose files, inference results, batch processing      | FR-5, NFR-1/2          | ✅ Implemented          |
-| pose            | pose H5 files, skeleton maps, tuple API: `(data, metadata)` | PoseEstimation objects (ndx-pose), Skeleton definitions | FR-5                   | ✅ Implemented          |
-| ttl             | TTL pulse files, channel map                                | Events (ndx-events)                                     | FR-17                  | ✅ Implemented          |
-| facemap         | video file paths, ROI specs, frame/idx ranges               | BehavioralTimeSeries (pynwb), motion energy traces      | FR-6                   | ⚠️ Partial (Standalone) |
-| transcode       | input video file paths, codec/format options                | transcoded/mezzanine video file paths                   | FR-4, NFR-2            | ⚠️ Partial (Standalone) |
-| sync.primitives | numeric sequences (timestamps, indices), timebase options   | alignment indices/weights, jitter statistics            | FR-TB-1..6, FR-17, A17 | ✅ Implemented          |
+| Module               | Key Input                                                   | Output / Contract                                       | FR/NFR Coverage        | Status                  |
+| -------------------- | ----------------------------------------------------------- | ------------------------------------------------------- | ---------------------- | ----------------------- |
+| utils                | primitives, file paths                                      | hashing, path safety, subprocess wrappers, logging      | NFR-1/2/3              | ✅ Implemented          |
+| ingest.bpod          | Bpod `.mat` file paths, `order`, trial-type specs           | Parsed Bpod data structures (raw dict format)           | FR-11                  | ✅ Implemented          |
+| ingest.behavior      | parsed Bpod data, trial offsets                             | TaskRecording, TrialsTable (ndx-structured-behavior)    | FR-11/14               | ✅ Implemented          |
+| processors.dlc       | video file paths, model config path, GPU selection          | H5 pose files, inference results, batch processing      | FR-5, NFR-1/2          | ✅ Implemented          |
+| ingest.pose          | pose H5 files, skeleton maps, tuple API: `(data, metadata)` | PoseEstimation objects (ndx-pose), Skeleton definitions | FR-5                   | ✅ Implemented          |
+| ingest.ttl           | TTL pulse files, channel map                                | Events (ndx-events)                                     | FR-17                  | ✅ Implemented          |
+| processors.facemap   | video file paths, ROI specs, frame/idx ranges               | BehavioralTimeSeries (pynwb), motion energy traces      | FR-6                   | ⚠️ Partial (Standalone) |
+| processors.transcode | input video file paths, codec/format options                | transcoded/mezzanine video file paths                   | FR-4, NFR-2            | ⚠️ Partial (Standalone) |
+| sync                 | numeric sequences (timestamps, indices), timebase options   | alignment indices/weights, jitter statistics            | FR-TB-1..6, FR-17, A17 | ✅ Implemented          |
 
 **Note**: All neuroscience data outputs (pose, behavior, facemap, ttl) are NWB-native structures. Only infrastructure outputs (transcode paths, sync stats) remain as primitives or simple models.
 
@@ -120,14 +120,15 @@ High-level modules understand `Config` models, NWBFile, and filesystem layout pe
 
 **Config Model Status (Phase 1)**: Currently active fields are `project`, `paths`, `bpod`, `preprocessing`, and `logging`. Fields for `timebase`, `acquisition`, `verification`, `video`, `nwb`, `qc`, `labels`, and `facemap` are defined but commented out in the Config model, reserved for future phases.
 
-| Module       | Key Input                       | Output / Contract                                                                        | FR/NFR Coverage                  | Status                |
-| ------------ | ------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------- | --------------------- |
-| config       | `config.toml`                   | Pydantic models, `load_config()`, content hashing                                        | FR-10, FR-15, FR-TB-\* NFR-10/11 | ✅ Implemented (Core) |
-| tasks        | `Config`, metadata, paths       | Task execution, dependency checking, caching, intermediate files                         | FR-5, NFR-2                      | ✅ Implemented        |
-| session      | `Config`, metadata, NWB objects | NWBFile creation, assembly, writing                                                      | FR-7, NFR-6                      | ✅ Implemented        |
-| pipeline/cli | `Config`, NWBFile, CLI options  | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         | ✅ Implemented        |
-| validate     | NWB                             | `validation_report.json` (nwbinspector report)                                           | FR-9                             | 🔵 Planned            |
-| qc           | NWB + sidecars                  | QC HTML                                                                                  | FR-8/14 NFR-3                    | 🔵 Planned            |
+| Module        | Key Input                       | Output / Contract                                                                        | FR/NFR Coverage                  | Status         |
+| ------------- | ------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------- | -------------- |
+| config        | `config.toml`                   | Pydantic models, `load_config()`, content hashing                                        | FR-10, FR-15, FR-TB-\* NFR-10/11 | ✅ Implemented |
+| tasks         | `Config`, metadata, paths       | Task execution, dependency checking, caching, intermediate files                         | FR-5, NFR-2                      | ✅ Implemented |
+| core.session  | `Config`, metadata, NWB objects | NWBFile creation, assembly, writing                                                      | FR-7, NFR-6                      | ✅ Implemented |
+| core.pipeline | `Config`, NWBFile, CLI options  | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         | ✅ Implemented |
+| cli           | CLI args                        | Entry point, argument parsing, logging setup                                             | FR-10                            | ✅ Implemented |
+| validate      | NWB                             | `validation_report.json` (nwbinspector report)                                           | FR-9                             | 🔵 Planned     |
+| qc            | NWB + sidecars                  | QC HTML                                                                                  | FR-8/14 NFR-3                    | 🔵 Planned     |
 
 ## Orchestration Layer (Prefect)
 
