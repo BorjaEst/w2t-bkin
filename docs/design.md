@@ -21,7 +21,7 @@ Concise architecture ensuring all Functional (FR) and Non-Functional (NFR) requi
 
 ## Scope
 
-**Current implementation (Phase 1)**: ingest → verify → bpod → pose → ttl → align (timebase) → assemble NWB (session).
+**Current implementation (Phase 1)**: verify → preprocessing (tasks) → ingest → bpod → pose → ttl → align (timebase) → assemble NWB (session).
 
 **Work in Progress**: transcode, facemap (implemented as standalone, pending integration).
 
@@ -118,13 +118,14 @@ Mid-level tools operate on NWB objects and primitive values only. They never loa
 
 High-level modules understand `Config` models, NWBFile, and filesystem layout per session. They are responsible for wiring together low- and mid-level tools.
 
-**Config Model Status (Phase 1)**: Currently active fields are `project`, `paths`, `bpod`, and `logging`. Fields for `timebase`, `acquisition`, `verification`, `video`, `nwb`, `qc`, `labels`, and `facemap` are defined but commented out in the Config model, reserved for future phases.
+**Config Model Status (Phase 1)**: Currently active fields are `project`, `paths`, `bpod`, `preprocessing`, and `logging`. Fields for `timebase`, `acquisition`, `verification`, `video`, `nwb`, `qc`, `labels`, and `facemap` are defined but commented out in the Config model, reserved for future phases.
 
 | Module       | Key Input                       | Output / Contract                                                                        | FR/NFR Coverage                  | Status                |
 | ------------ | ------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------- | --------------------- |
 | config       | `config.toml`                   | Pydantic models, `load_config()`, content hashing                                        | FR-10, FR-15, FR-TB-\* NFR-10/11 | ✅ Implemented (Core) |
+| tasks        | `Config`, metadata, paths       | Task execution, dependency checking, caching, intermediate files                         | FR-5, NFR-2                      | ✅ Implemented        |
 | session      | `Config`, metadata, NWB objects | NWBFile creation, assembly, writing                                                      | FR-7, NFR-6                      | ✅ Implemented        |
-| pipeline/cli | `Config`, NWBFile, CLI options  | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         | ⚠️ Partial            |
+| pipeline/cli | `Config`, NWBFile, CLI options  | orchestrated runs: inline file discovery, calls low-level tools with raw paths + options | FR-1..7, FR-10/11, FR-17         | ✅ Implemented        |
 | validate     | NWB                             | `validation_report.json` (nwbinspector report)                                           | FR-9                             | 🔵 Planned            |
 | qc           | NWB + sidecars                  | QC HTML                                                                                  | FR-8/14 NFR-3                    | 🔵 Planned            |
 

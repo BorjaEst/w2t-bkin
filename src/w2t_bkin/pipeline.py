@@ -1,26 +1,29 @@
 """Pipeline orchestration for W2T Body Kinematics.
 
-This module implements the high-level pipeline orchestration following the
-6-phase workflow defined in docs/pipeline-design.md with improvements:
+This module implements the high-level pipeline orchestration following a
+7-phase workflow with improvements:
 
 - Class-based orchestrator (SessionPipeline) for state management
 - Rich logging with progress bars and formatted output
 - NWB validation with nwbinspector
 - Centralized path logic in config validators
 - Typer CLI for enhanced command-line interface
+- Preprocessing phase for intermediate artifact generation
 
 Phase 0: Initialization - Load config, create NWBFile
 Phase 1: Discovery & Verification - Find files, verify consistency
-Phase 2: Ingestion - Process Bpod, Pose, TTL data
-Phase 3: Synchronization - Align data streams to reference timeline
-Phase 4: Assembly - Add all objects to NWBFile
-Phase 5: Finalization - Write NWB file, validate, and create sidecars
+Phase 2: Preprocessing - Generate intermediate artifacts (e.g., DLC pose)
+Phase 3: Ingestion - Process Bpod, Pose, TTL data
+Phase 4: Synchronization - Align data streams to reference timeline
+Phase 5: Assembly - Add all objects to NWBFile
+Phase 6: Finalization - Write NWB file, validate, and create sidecars
 
 Architecture:
 - SessionPipeline class encapsulates config, metadata, and nwbfile
 - Rich console for beautiful progress tracking and logging
 - Typer for CLI commands: run, validate, inspect
 - In-memory NWB → Atomic write → Validation strategy
+- Task-based preprocessing with dependency checking and caching
 
 Example:
     >>> from w2t_bkin.pipeline import SessionPipeline
@@ -48,10 +51,10 @@ from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
-from . import behavior, bpod
 from . import config as config_pkg
-from . import session, sync, ttl, utils, validate
+from . import session, sync, utils, validate
 from .exceptions import IngestError, SyncError
+from .ingest import behavior, bpod, ttl
 
 # Setup rich console and logging
 console = Console()
@@ -205,24 +208,29 @@ class SessionPipeline:
                 self._phase_1_discovery(self.context)
                 progress.update(task, advance=1)
 
-                # Phase 2: Ingestion
-                task = progress.add_task("[cyan]Phase 2: Ingestion", total=1)
-                self._phase_2_ingestion(self.context)
+                # Phase 2: Preprocessing
+                task = progress.add_task("[cyan]Phase 2: Preprocessing", total=1)
+                self._phase_2_preprocessing(self.context)
                 progress.update(task, advance=1)
 
-                # Phase 3: Synchronization
-                task = progress.add_task("[cyan]Phase 3: Synchronization", total=1)
-                self._phase_3_synchronization(self.context)
+                # Phase 3: Ingestion
+                task = progress.add_task("[cyan]Phase 3: Ingestion", total=1)
+                self._phase_3_ingestion(self.context)
                 progress.update(task, advance=1)
 
-                # Phase 4: Assembly
-                task = progress.add_task("[cyan]Phase 4: Assembly", total=1)
-                self._phase_4_assembly(self.context)
+                # Phase 4: Synchronization
+                task = progress.add_task("[cyan]Phase 4: Synchronization", total=1)
+                self._phase_4_synchronization(self.context)
                 progress.update(task, advance=1)
 
-                # Phase 5: Finalization
-                task = progress.add_task("[cyan]Phase 5: Finalization & Validation", total=1)
-                self._phase_5_finalization(self.context)
+                # Phase 5: Assembly
+                task = progress.add_task("[cyan]Phase 5: Assembly", total=1)
+                self._phase_5_assembly(self.context)
+                progress.update(task, advance=1)
+
+                # Phase 6: Finalization
+                task = progress.add_task("[cyan]Phase 6: Finalization & Validation", total=1)
+                self._phase_6_finalization(self.context)
                 progress.update(task, advance=1)
 
             console.print("\n[bold green]✓ Pipeline completed successfully[/bold green]")
@@ -371,8 +379,55 @@ class SessionPipeline:
             else:
                 logger.warning(f"  Bpod: No files found (pattern: {pattern})")
 
-    def _phase_2_ingestion(self, context: PipelineContext) -> None:
-        """Phase 2: Ingest Bpod and TTL data."""
+    def _phase_2_preprocessing(self, context: PipelineContext) -> None:
+        """Phase 2: Execute preprocessing tasks to generate intermediate artifacts."""
+        logger.info("Running preprocessing tasks...")
+
+        # Import task framework
+        from .tasks import DLCPoseTask, TaskConfig
+        from .tasks.base import TaskStatus
+
+        # Create interim directory structure
+        interim_dir = context.config.paths.intermediate_root / context.session_id
+        interim_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Interim directory: {interim_dir}")
+
+        # Build task configuration
+        task_config = TaskConfig(
+            enabled=context.config.preprocessing.dlc.enabled,
+            force_rerun=context.config.preprocessing.force_rerun,
+            session_dir=context.session_dir,
+            interim_dir=interim_dir,
+            metadata=context.metadata,
+            config=context.config,
+        )
+
+        # Execute DLC preprocessing if enabled
+        if context.config.preprocessing.dlc.enabled:
+            logger.info("  DLC pose estimation enabled")
+            dlc_task = DLCPoseTask(task_config)
+
+            # Run task with full lifecycle (check deps, check output, execute if needed)
+            status = dlc_task.run()
+
+            if status == TaskStatus.COMPLETED:
+                logger.info("  DLC: Completed successfully")
+            elif status == TaskStatus.CACHED:
+                logger.info("  DLC: Using cached results from interim folder")
+            elif status == TaskStatus.SKIP:
+                logger.info("  DLC: Skipped (dependencies not met or disabled)")
+            elif status == TaskStatus.FAILED:
+                logger.error("  DLC: Task failed")
+                raise IngestError(
+                    message="DLC preprocessing task failed",
+                    context={"task": "DLCPoseTask", "status": status.name},
+                    hint="Check DLC model configuration and video files",
+                )
+        else:
+            logger.info("  DLC pose estimation disabled")
+
+    def _phase_3_ingestion(self, context: PipelineContext) -> None:
+        """Phase 3: Ingest Bpod and TTL data."""
         logger.info("Processing Bpod and TTL data...")
 
         # Process Bpod
@@ -426,8 +481,8 @@ class SessionPipeline:
         else:
             logger.debug("Skipping trial alignment (missing Bpod data or sync config)")
 
-    def _phase_3_synchronization(self, context: PipelineContext) -> None:
-        """Phase 3: Synchronization and jitter checking."""
+    def _phase_4_synchronization(self, context: PipelineContext) -> None:
+        """Phase 4: Synchronization and jitter checking."""
         logger.info("Computing alignment statistics...")
 
         context.alignment_stats = {
@@ -453,8 +508,8 @@ class SessionPipeline:
         else:
             logger.warning("  No trial offsets computed - synchronization statistics are empty")
 
-    def _phase_4_assembly(self, context: PipelineContext) -> None:
-        """Phase 4: Assemble NWB objects."""
+    def _phase_5_assembly(self, context: PipelineContext) -> None:
+        """Phase 5: Assemble NWB objects."""
         logger.info("Building behavior tables...")
 
         if context.bpod_data and context.trial_offsets:
@@ -496,8 +551,8 @@ class SessionPipeline:
         else:
             logger.warning("Skipping behavior table assembly (missing Bpod data or trial offsets)")
 
-    def _phase_5_finalization(self, context: PipelineContext) -> None:
-        """Phase 5: Write NWB file, validate, and create sidecars."""
+    def _phase_6_finalization(self, context: PipelineContext) -> None:
+        """Phase 6: Write NWB, validate, and create sidecars."""
         logger.info("Writing NWB file and creating sidecars...")
 
         # Prepare provenance

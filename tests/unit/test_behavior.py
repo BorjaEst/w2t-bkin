@@ -5,7 +5,7 @@ Tests the transformation from Bpod data to ndx-structured-behavior NWB classes.
 
 import pytest
 
-from w2t_bkin.behavior import (
+from w2t_bkin.ingest.behavior import (
     build_task,
     build_task_recording,
     build_trials_table,
@@ -245,7 +245,7 @@ class TestEndToEnd:
 
     def test_extract_trials_table_convenience(self, parsed_bpod_data):
         """Test high-level extract_trials_table convenience function."""
-        from w2t_bkin.behavior import extract_trials_table
+        from w2t_bkin.ingest.behavior import extract_trials_table
 
         # Use convenience function
         trials = extract_trials_table(parsed_bpod_data)
@@ -275,7 +275,7 @@ class TestEndToEnd:
 
     def test_extract_trials_table_with_offsets(self, parsed_bpod_data):
         """Test extract_trials_table with time offsets."""
-        from w2t_bkin.behavior import extract_trials_table
+        from w2t_bkin.ingest.behavior import extract_trials_table
 
         # Create trial offsets
         n_trials = parsed_bpod_data["SessionData"]["nTrials"]
@@ -296,7 +296,7 @@ class TestEndToEnd:
 
     def test_extract_task_recording_convenience(self, parsed_bpod_data):
         """Test high-level extract_task_recording convenience function."""
-        from w2t_bkin.behavior import extract_task_recording
+        from w2t_bkin.ingest.behavior import extract_task_recording
 
         # Use convenience function
         task_recording = extract_task_recording(parsed_bpod_data)
@@ -313,7 +313,7 @@ class TestEndToEnd:
 
     def test_extract_task_recording_with_offsets(self, parsed_bpod_data):
         """Test extract_task_recording with time offsets."""
-        from w2t_bkin.behavior import extract_task_recording
+        from w2t_bkin.ingest.behavior import extract_task_recording
 
         # Create trial offsets
         n_trials = parsed_bpod_data["SessionData"]["nTrials"]
@@ -331,7 +331,7 @@ class TestEndToEnd:
 
     def test_extract_task_convenience(self, parsed_bpod_data):
         """Test high-level extract_task convenience function."""
-        from w2t_bkin.behavior import extract_task
+        from w2t_bkin.ingest.behavior import extract_task
 
         # Use convenience function
         task = extract_task(parsed_bpod_data)
@@ -468,7 +468,7 @@ class TestTaskMetadata:
 
         # If no args from data, create minimal ones
         if task_args is None:
-            from w2t_bkin.behavior import TaskArgumentsTable
+            from w2t_bkin.ingest.behavior import TaskArgumentsTable
 
             task_args = TaskArgumentsTable(description="Test arguments")
             task_args.add_row(

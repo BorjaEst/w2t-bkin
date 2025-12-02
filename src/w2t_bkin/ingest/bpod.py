@@ -1,3 +1,20 @@
+"""Behavioral data parsing from Bpod .mat files.
+
+Provides low-level Bpod file operations:
+- Parsing and merging Bpod .mat files
+- Validating Bpod data structure
+- File indexing and manipulation
+
+For behavioral data extraction, use the behavior module with ndx-structured-behavior.
+
+Example:
+    >>> from pathlib import Path
+    >>> from w2t_bkin.bpod import parse_bpod
+    >>> from w2t_bkin.behavior import extract_trials_table
+    >>> bpod_data = parse_bpod(Path("data"), "Bpod/*.mat", "name_asc")
+    >>> trials = extract_trials_table(bpod_data)
+"""
+
 """Low-level Bpod .mat file I/O operations.
 
 Provides functions to parse, merge, validate, index, and write Bpod data files.

@@ -28,7 +28,8 @@ from ndx_structured_behavior import Task, TrialsTable
 import numpy as np
 import pandas as pd
 
-from w2t_bkin import behavior, bpod, config, sync, ttl
+from w2t_bkin import config, sync
+from w2t_bkin.ingest import behavior, bpod, ttl
 
 
 def trials_to_dataframe(trials: TrialsTable, task: Task) -> pd.DataFrame:

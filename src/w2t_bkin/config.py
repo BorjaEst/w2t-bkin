@@ -318,6 +318,39 @@ class FacemapConfig(BaseModel, extra="forbid"):
     ROIs: List[str] = Field(default_factory=lambda: ["face", "left_eye", "right_eye"], description="ROIs to process")
 
 
+class DLCPreprocessingConfig(BaseModel, extra="forbid"):
+    """DLC preprocessing task configuration.
+
+    Controls DLC pose estimation in the preprocessing phase.
+
+    Attributes:
+        enabled: Enable DLC preprocessing task (default: False).
+        model_path: Path to DLC project config.yaml.
+        gpu: GPU index to use (None = auto-detect).
+        save_csv: Generate CSV output in addition to H5 (default: False).
+    """
+
+    enabled: bool = Field(default=False, description="Enable DLC preprocessing")
+    model_path: Optional[Path] = Field(None, description="Path to DLC config.yaml")
+    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect)")
+    save_csv: bool = Field(default=False, description="Generate CSV outputs")
+
+
+class PreprocessingConfig(BaseModel, extra="forbid"):
+    """Preprocessing phase configuration.
+
+    Controls preprocessing tasks that generate intermediate artifacts
+    stored in the interim folder.
+
+    Attributes:
+        force_rerun: Force regeneration of all intermediate files (default: False).
+        dlc: DLC pose estimation task configuration.
+    """
+
+    force_rerun: bool = Field(default=False, description="Force rerun of all preprocessing tasks")
+    dlc: DLCPreprocessingConfig = Field(default_factory=DLCPreprocessingConfig, description="DLC preprocessing config")
+
+
 # =============================================================================
 # Main Configuration Model
 # =============================================================================
@@ -336,6 +369,7 @@ class Config(BaseModel, extra="forbid"):
         acquisition: Data acquisition policies.
         verification: Hardware sync verification.
         bpod: Bpod behavioral control settings.
+        preprocessing: Preprocessing phase configuration.
         video: Video processing configuration.
         nwb: NWB export settings.
         qc: Quality control configuration.
@@ -350,6 +384,7 @@ class Config(BaseModel, extra="forbid"):
     # acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
     # verification: VerificationConfig = Field(default_factory=VerificationConfig)
     bpod: BpodConfig = Field(default_factory=BpodConfig)
+    preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     # video: VideoConfig = Field(default_factory=VideoConfig)
     # nwb: NWBConfig = Field(default_factory=NWBConfig)
     # qc: QCConfig = Field(default_factory=QCConfig)

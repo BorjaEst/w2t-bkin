@@ -595,7 +595,7 @@ def valid_bpod_file(tmp_path, monkeypatch):
 
     bpod_file.write_text("")
 
-    from w2t_bkin import bpod
+    from w2t_bkin.ingest import bpod
 
     monkeypatch.setattr(bpod, "loadmat", mock_loadmat)
 

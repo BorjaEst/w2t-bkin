@@ -68,9 +68,11 @@ graph TD
         
         config_pkg["✅ config<br/>━━━━━<br/>Pydantic Config models<br/>TOML loading + hashing<br/>Active: project, paths, bpod, logging"]
         
+        tasks["✅ tasks<br/>━━━━━<br/>Preprocessing Framework<br/>Dependency Management<br/>Caching"]
+
         session_mod["✅ session<br/>━━━━━<br/>NWBFile creation & Assembly<br/>Video acquisition<br/>NWB file writing"]
         
-        pipeline["⚠️ pipeline/cli<br/>━━━━━<br/>Orchestration entrypoint<br/>Current: Bpod + Pose + TTL + NWB<br/>Planned: full pipeline"]
+        pipeline["✅ pipeline/cli<br/>━━━━━<br/>Orchestration entrypoint<br/>7-Phase Workflow<br/>Rich Logging"]
         
         validate["🔵 validate (Planned)<br/>━python libraries to orchestrate pipelines━━━━<br/>NWB validation<br/>(nwbinspector)"]
         
@@ -122,6 +124,8 @@ graph TD
     pipeline --> config_pkg
     pipeline --> session_mod
     pipeline --> utils
+    pipeline --> tasks
+    tasks --> config_pkg
     validate --> Foundation
     qc --> Foundation
 
@@ -134,7 +138,7 @@ graph TD
     %% Pipeline calls low/mid-level with paths, strings, numbers (NO Session/Manifest)
     %% ============================================================================
     
-    pipeline -.->|"video paths,<br/>model config,<br/>GPU index"| dlc
+    tasks -.->|"video paths,<br/>model config,<br/>GPU index"| dlc
     pipeline -.->|"Bpod file paths,<br/>order string,<br/>trial specs"| BpodModule
     pipeline -.->|"parsed Bpod data,<br/>trial offsets"| behavior
     pipeline -.->|"pose file paths,<br/>skeleton maps,<br/>frame ranges"| pose
@@ -172,7 +176,7 @@ graph TD
     class pynwb,hdmf,ndx_pose,ndx_events,ndx_behavior foundationStyle
     class utils,bpod_code,behavior,dlc,pose,ttl,sync_primitives,session_mod lowLevelStyle
     class sync midLevelStyle
-    class config_pkg,pipeline highLevelStyle
+    class config_pkg,pipeline,tasks highLevelStyle
     class validate,qc,prefect_flow,prefect_tasks plannedStyle
     class facemap,transcode wipStyle
     class runners orchStyle

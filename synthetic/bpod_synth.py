@@ -36,7 +36,7 @@ try:
 except Exception as e:  # pragma: no cover - scipy is required by project
     savemat = None  # type: ignore
 
-from w2t_bkin.bpod.core import write_bpod_mat
+from w2t_bkin.ingest.bpod.core import write_bpod_mat
 
 
 class BpodSynthOptions(BaseModel):

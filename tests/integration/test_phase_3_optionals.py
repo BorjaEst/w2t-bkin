@@ -31,7 +31,7 @@ class TestEventsIntegration:
 
         DEPRECATED: Use w2t_bkin.behavior module instead.
         """
-        from w2t_bkin.bpod import parse_bpod_mat
+        from w2t_bkin.ingest.bpod import parse_bpod_mat
 
         # Use test fixture Bpod file if available
         bpod_file = fixtures_root / "sessions" / "valid_session.toml"

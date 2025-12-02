@@ -16,6 +16,16 @@ method = "nearest"
 tolerance_s = 0.002
 global_offset_s = 0.0
 
+# Preprocessing configuration for intermediate artifact generation
+[preprocessing]
+force_rerun = false # Set to true to regenerate all intermediate files
+
+[preprocessing.dlc]
+enabled = false                                                                       # Enable DLC pose estimation preprocessing
+model_path = "models/iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"
+# gpu = 0            # GPU index (comment out for auto-detect)
+save_csv = false # Generate CSV in addition to H5
+
 # Trial synchronization configuration for aligning Bpod to TTL timeline
 # Maps Bpod trial types to sync signals and TTL channels
 [[bpod.sync.trial_types]]

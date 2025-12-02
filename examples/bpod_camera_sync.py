@@ -42,7 +42,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="hdmf.container")
 
 from figures import plot_alignment_example, plot_alignment_grid, plot_trial_offsets, plot_ttl_timeline
 from synthetic import build_raw_folder
-from w2t_bkin.behavior import (
+from w2t_bkin.config import load_config
+from w2t_bkin.ingest.behavior import (
     build_task,
     build_task_recording,
     build_trials_table,
@@ -54,10 +55,9 @@ from w2t_bkin.behavior import (
     extract_states,
     extract_task_arguments,
 )
-from w2t_bkin.bpod import parse_bpod
-from w2t_bkin.config import load_config
+from w2t_bkin.ingest.bpod import parse_bpod
+from w2t_bkin.ingest.ttl import get_ttl_pulses
 from w2t_bkin.sync import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
-from w2t_bkin.ttl import get_ttl_pulses
 from w2t_bkin.utils import convert_matlab_struct, count_ttl_pulses, count_video_frames, discover_files, load_session_metadata_and_nwb, to_scalar
 
 
