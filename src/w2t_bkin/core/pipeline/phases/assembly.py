@@ -2,6 +2,7 @@
 
 import logging
 from typing import Optional
+import warnings
 
 import numpy as np
 from rich.progress import Progress, TaskID
@@ -49,22 +50,42 @@ def _assemble_behavior(context: PipelineContext, progress: Optional[Progress], t
 
         # Build and add to NWBFile
         logger.debug("Building NWB tables...")
-        task_recording = behavior.build_task_recording(states, events, actions)
-        trials_table = behavior.build_trials_table(
-            context.bpod_data,
-            task_recording,
-            state_indices,
-            event_indices,
-            action_indices,
-            trial_offsets=context.trial_offsets,
-        )
+
+        # Suppress expected HDMF warnings about DynamicTableRegion ancestry
+        # These occur when TrialsTable references tables inside TaskRecording (different hierarchy branches)
+        # This is valid NWB structure but triggers HDMF validation warnings during table construction
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=".*does not share an ancestor.*",
+                category=UserWarning,
+                module="hdmf.container",
+            )
+            task_recording = behavior.build_task_recording(states, events, actions)
+            trials_table = behavior.build_trials_table(
+                context.bpod_data,
+                task_recording,
+                state_indices,
+                event_indices,
+                action_indices,
+                trial_offsets=context.trial_offsets,
+            )
 
         task_arguments = behavior.extract_task_arguments(context.bpod_data)
         task = behavior.build_task(state_types, event_types, action_types, task_arguments=task_arguments)
 
-        context.nwbfile.trials = trials_table
-        context.nwbfile.add_acquisition(task_recording)
-        context.nwbfile.add_lab_meta_data(task)
+        # Suppress HDMF warnings when adding tables to NWB file
+        # Additional warnings occur during parent assignment
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=".*does not share an ancestor.*",
+                category=UserWarning,
+                module="hdmf.container",
+            )
+            context.nwbfile.trials = trials_table
+            context.nwbfile.add_acquisition(task_recording)
+            context.nwbfile.add_lab_meta_data(task)
 
         logger.info(f"  Added TrialsTable ({len(trials_table)} trials), TaskRecording, and Task to NWBFile")
 

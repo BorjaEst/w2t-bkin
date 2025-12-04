@@ -47,16 +47,24 @@ def _discover_cameras(context: PipelineContext, cameras: list, progress: Optiona
         camera_id = camera["id"]
         pattern = camera["paths"]
         order = camera.get("order", "name_asc")  # Default to name_asc if not specified
-        logger.debug(f"  Scanning camera '{camera_id}' with pattern: {pattern}, order: {order}")
+        optional = camera.get("optional", False)  # Default to required camera
+        logger.info(f"  Scanning camera '{camera_id}' (optional={optional}): pattern={pattern}, order={order}")
 
         video_paths = utils.discover_files(context.session_dir, pattern, sort=False)
         if not video_paths:
-            logger.error(f"No video files found for camera '{camera_id}'")
-            raise IngestError(
-                message=f"No video files found for camera '{camera_id}'",
-                context={"camera_id": camera_id, "pattern": pattern},
-                hint=f"Check that files exist matching pattern: {pattern}",
-            )
+            if optional:
+                logger.warning(f"⊘ Camera '{camera_id}' is optional and no files found - skipping")
+                # Mark as empty to skip later processing
+                context.camera_files[camera_id] = []
+                context.camera_frame_counts[camera_id] = []
+                continue
+            else:
+                logger.error(f"No video files found for camera '{camera_id}'")
+                raise IngestError(
+                    message=f"No video files found for camera '{camera_id}'",
+                    context={"camera_id": camera_id, "pattern": pattern},
+                    hint=f"Check that files exist matching pattern: {pattern}. If this camera is optional, set 'optional = true' in session metadata.",
+                )
 
         # Sort files according to specified order
         video_paths = utils.sort_files(video_paths, order)
@@ -192,6 +200,13 @@ def _verify_synchronization(context: PipelineContext, cameras: list, progress: O
         for camera in cameras:
             camera_id = camera["id"]
             ttl_id = camera.get("ttl_id")
+            optional = camera.get("optional", False)
+
+            # Skip verification for optional cameras with no files
+            if optional and not context.camera_files.get(camera_id):
+                logger.debug(f"  ⊘ '{camera_id}': Optional camera skipped (no files)")
+                skipped_count += 1
+                continue
 
             if not ttl_id:
                 logger.debug(f"  ⊘ '{camera_id}': No TTL configured (camera.ttl_id not set)")

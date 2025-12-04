@@ -1,45 +1,54 @@
+# =============================================================================
+# Project Configuration
+# =============================================================================
+
 [project]
 name = "w2t-bkin-pipeline"
 
 [paths]
-raw_root = "data/raw"  # Points to real test data with Session-000001
-intermediate_root = "data/interim"  # Intermediate processing outputs
-output_root = "data/processed"      # Output data root
-models_root = "models"              # Directory containing pose estimation models
-root_metadata = "/home/user/configs/metadata.toml"  # Global metadata file path
+raw_root = "data/raw"
+intermediate_root = "data/interim"
+output_root = "data/processed"
+models_root = "models"
+root_metadata = "/home/user/configs/metadata.toml"  # Optional: global metadata override
+
+# =============================================================================
+# Synchronization Strategy
+# =============================================================================
 
 [synchronization]
-strategy = "hardware_pulse"  # Options: "rate_based", "hardware_pulse", "network_stream"
-reference_channel = "ttl_camera"  # TTL channel ID to use as master clock
+strategy = "hardware_pulse"          # Options: rate_based | hardware_pulse | network_stream
+reference_channel = "ttl_camera"      # Master clock TTL channel
 
 [synchronization.alignment]
-method = "nearest"  # Options: "nearest", "linear"
-tolerance_s = 0.002  # Maximum allowed jitter in seconds
-global_offset_s = 0.0  # Global time offset before mapping
+method = "nearest"                    # Options: nearest | linear
+tolerance_s = 0.002                   # Max allowed timing jitter (seconds)
+global_offset_s = 0.0                 # Global time offset correction
 
-# Hardware sync policy: software does not compute per-frame timestamps; it verifies counts
-# Verification controls various checks during pipeline execution:
-# - enabled: Master switch - disables all checks when false
-# - check_frame_counts: Count frames in videos (slow but accurate, uses ffprobe)
-# - check_sync_mismatch: Verify frame count matches TTL pulse count
-# - skip_nwb_requirements: Skip NWB-required frame counting for multi-file videos
-#   (uses FPS-based estimation instead, not recommended for production)
-# Performance tip: Disable check_frame_counts for faster execution with large videos
+# =============================================================================
+# Verification & Validation
+# Pipeline verifies data integrity but does NOT compute timestamps (uses hardware sync)
+# Session logs auto-created: {output_root}/{subject}/{session}/pipeline.log
+# =============================================================================
+
 [verification]
-enabled = true                      # Master switch for all verification checks
-check_frame_counts = true           # Count video frames (can be slow for large videos)
-check_sync_mismatch = true          # Verify frame/TTL synchronization
-skip_nwb_requirements = false       # Skip NWB frame count requirements (use FPS estimates)
-mismatch_tolerance_frames = 0       # abort if video_frame_count - ttl_pulse_count > tolerance
-warn_on_mismatch = false            # when true, warn instead of abort if within tolerance
+enabled = true                        # Master switch (disables all checks when false)
+check_frame_counts = true             # Count frames via ffprobe (slow but accurate)
+check_sync_mismatch = true            # Verify frame/TTL counts match (false = skip TTL checks)
+skip_nwb_requirements = false         # Use FPS estimates instead of exact counts (not recommended)
+mismatch_tolerance_frames = 0         # Max allowed frame/pulse difference
+warn_on_mismatch = false              # Warn instead of fail when within tolerance
 
-# Trial synchronization configuration for aligning Bpod to TTL timeline
-# Maps Bpod trial types to sync signals and TTL channels
+# =============================================================================
+# Bpod Trial Synchronization
+# Maps trial types to TTL channels for behavioral alignment
+# =============================================================================
+
 [[bpod.sync.trial_types]]
 trial_type = 1
 description = "Active whisker touch trials"
-sync_signal = "W2T_Audio"          # Bpod state that triggers TTL
-sync_ttl = "ttl_cue"               # TTL channel ID (must match [[TTLs]].id in session)
+sync_signal = "W2T_Audio"             # Bpod state triggering TTL
+sync_ttl = "ttl_cue"                  # TTL channel (must exist in session metadata)
 
 [[bpod.sync.trial_types]]
 trial_type = 2
@@ -53,16 +62,22 @@ description = "Microstim trials"
 sync_signal = "Microstim"
 sync_ttl = "ttl_cue"
 
-# Global video defaults (legacy fallback; generally superseded by per-camera probing)
+# =============================================================================
+# Video Transcoding (Global Defaults)
+# =============================================================================
+
 [video.transcode]
 enabled = true
-codec = "h264"                      # ffmpeg codec name
-crf = 20                            # quality factor (0-51)
-preset = "fast"                     # ffmpeg preset
-keyint = 15                         # GOP length
+codec = "h264"                        # ffmpeg codec
+crf = 20                              # Quality: 0 (best) - 51 (worst)
+preset = "fast"                       # Encoding speed preset
+keyint = 15                           # GOP size (frames)
 
-# Logging defaults
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+
 [logging]
-level = "INFO"              # DEBUG | INFO | WARNING | ERROR | CRITICAL
-structured = false          # whether to use structured (e.g., JSON) logging
+level = "INFO"                        # DEBUG | INFO | WARNING | ERROR | CRITICAL
+structured = false                    # Use JSON format
 

@@ -23,6 +23,7 @@ class RunOptions:
         skip_nwb_validation: Skip NWB validation with nwbinspector (default: False)
         force_overwrite: Overwrite existing output files (default: False)
         generate_figures: Generate diagnostic figures (default: True)
+        quiet_mode: Suppress Rich UI elements (progress bars, panels) (default: False)
         verification_enabled: Enable verification checks (default: None = use config)
         verification_check_frames: Count video frames (default: None = use config)
         verification_check_sync: Check frame/TTL sync (default: None = use config)
@@ -37,6 +38,7 @@ class RunOptions:
     skip_nwb_validation: bool = False
     force_overwrite: bool = False
     generate_figures: bool = True
+    quiet_mode: bool = False
     verification_enabled: Optional[bool] = None
     verification_check_frames: Optional[bool] = None
     verification_check_sync: Optional[bool] = None

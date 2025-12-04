@@ -1,11 +1,19 @@
+# =============================================================================
+# Project Configuration
+# =============================================================================
+
 [project]
 name = "w2t-bkin-pipeline"
 
 [paths]
-raw_root = "data/raw"              # Points to real test data with Session-000001
-intermediate_root = "data/interim" # Intermediate processing outputs
-output_root = "data/processed"     # Output data root
-models_root = "models"             # Directory containing pose estimation models
+raw_root = "data/raw"
+intermediate_root = "data/interim"
+output_root = "data/processed"
+models_root = "models"
+
+# =============================================================================
+# Synchronization Strategy
+# =============================================================================
 
 [synchronization]
 strategy = "hardware_pulse"
@@ -16,31 +24,40 @@ method = "nearest"
 tolerance_s = 0.002
 global_offset_s = 0.0
 
-# Verification configuration
-[verification]
-enabled = true                    # Master switch for all verification checks
-check_frame_counts = true         # Count video frames (can be slow for large videos)
-check_sync_mismatch = true        # Verify frame/TTL synchronization
-skip_nwb_requirements = false     # Skip NWB-required frame counting (use FPS estimates, not recommended)
-mismatch_tolerance_frames = 0     # Max allowed frame/TTL count mismatch before abort
-warn_on_mismatch = false          # Warn instead of abort if within tolerance
+# =============================================================================
+# Verification & Validation
+# Session logs auto-created: {output_root}/{subject}/{session}/pipeline.log
+# =============================================================================
 
-# Preprocessing configuration for intermediate artifact generation
+[verification]
+enabled = true                        # Master switch
+check_frame_counts = true             # Count frames via ffprobe (slow)
+check_sync_mismatch = true            # Verify frame/TTL sync (false = skip TTL checks)
+skip_nwb_requirements = false         # Use FPS estimates (not recommended)
+mismatch_tolerance_frames = 0         # Max allowed frame/pulse difference
+warn_on_mismatch = false              # Warn instead of fail
+
+# =============================================================================
+# Preprocessing Configuration
+# =============================================================================
+
 [preprocessing]
-force_rerun = false # Set to true to regenerate all intermediate files
+force_rerun = false                   # Regenerate all intermediate files
 
 [preprocessing.dlc]
-enabled = true     # Enable DLC pose estimation preprocessing
+enabled = true
 model_path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to models_root
-# gpu = 0            # GPU index (comment out for auto-detect)
-save_csv = false    # Generate CSV in addition to H5
+# gpu = 0                               # GPU index (omit for auto-detect)
+save_csv = false                      # Generate CSV in addition to H5
 
-# Trial synchronization configuration for aligning Bpod to TTL timeline
-# Maps Bpod trial types to sync signals and TTL channels
+# =============================================================================
+# Bpod Trial Synchronization
+# =============================================================================
+
 [[bpod.sync.trial_types]]
 trial_type = 1
-sync_signal = "W2T_Audio" # Bpod state that triggers TTL
-sync_ttl = "ttl_cue"      # TTL channel ID (must match [[TTLs]].id in session)
+sync_signal = "W2T_Audio"             # Bpod state triggering TTL
+sync_ttl = "ttl_cue"                  # TTL channel (must exist in metadata)
 
 [[bpod.sync.trial_types]]
 trial_type = 2
@@ -52,7 +69,10 @@ trial_type = 3
 sync_signal = "Microstim"
 sync_ttl = "ttl_cue"
 
-# Logging defaults
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+
 [logging]
-level = "INFO"     # DEBUG | INFO | WARNING | ERROR | CRITICAL
-structured = false # whether to use structured (e.g., JSON) logging
+level = "INFO"                        # DEBUG | INFO | WARNING | ERROR | CRITICAL
+structured = false                    # Use JSON format

@@ -221,7 +221,7 @@ def align_bpod_trials_to_ttl(
 
         if ttl_ptr >= len(ttl_channel):
             warnings_list.append(f"Trial {trial_num}: No more TTL pulses available for '{sync_ttl_id}', skipping")
-            logger.warning(warnings_list[-1])
+            # Don't log each trial individually - will summarize at the end
             continue
 
         ttl_pulse_time = ttl_channel[ttl_ptr]
@@ -249,6 +249,11 @@ def align_bpod_trials_to_ttl(
         if unused > 0:
             warnings_list.append(f"TTL channel '{ttl_id}' has {unused} unused pulses")
             logger.warning(warnings_list[-1])
+
+    # Log summary of alignment issues if any
+    skipped_trials = [w for w in warnings_list if "No more TTL pulses available" in w]
+    if skipped_trials:
+        logger.warning(f"⚠ {len(skipped_trials)} trial(s) skipped due to missing TTL pulses (check session log for details)")
 
     logger.info(f"Computed offsets for {len(trial_offsets)} out of {n_trials} trials using TTL sync")
     return trial_offsets, warnings_list

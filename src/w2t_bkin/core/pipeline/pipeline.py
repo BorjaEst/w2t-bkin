@@ -61,7 +61,14 @@ from .phases.synchronization import run_phase_4
 
 # Setup rich console and logging
 console = Console()
-logging.basicConfig(level=logging.INFO, format="%(message)s", datefmt="[%X]", handlers=[RichHandler(console=console, rich_tracebacks=True)])
+
+# Configure console handler for high-level output only (WARNING+)
+console_handler = RichHandler(console=console, rich_tracebacks=True, show_path=False)
+console_handler.setLevel(logging.WARNING)  # Only show warnings and errors in terminal
+
+# Configure root logger (DEBUG level for file handlers)
+logging.basicConfig(level=logging.DEBUG, format="%(message)s", datefmt="[%X]", handlers=[console_handler])  # Capture all levels for file handlers
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,6 +98,7 @@ class SessionPipeline:
             session_id=session_id,
             options=options or RunOptions(),
         )
+        self._session_log_handlers = []  # Track session-specific log handlers for cleanup
 
     def run(self) -> RunResult:
         """Run complete pipeline workflow.
@@ -106,15 +114,16 @@ class SessionPipeline:
         Raises:
             Exception: Any phase failure is caught and returned in RunResult
         """
-        console.print(
-            Panel.fit(
-                f"[bold cyan]W2T Body Kinematics Pipeline[/bold cyan]\n"
-                f"Subject: [yellow]{self.context.subject_id}[/yellow]\n"
-                f"Session: [yellow]{self.context.session_id}[/yellow]\n"
-                f"Config: [dim]{self.context.config_path}[/dim]",
-                border_style="cyan",
+        if not self.context.options.quiet_mode:
+            console.print(
+                Panel.fit(
+                    f"[bold cyan]W2T Body Kinematics Pipeline[/bold cyan]\n"
+                    f"Subject: [yellow]{self.context.subject_id}[/yellow]\n"
+                    f"Session: [yellow]{self.context.session_id}[/yellow]\n"
+                    f"Config: [dim]{self.context.config_path}[/dim]",
+                    border_style="cyan",
+                )
             )
-        )
 
         # Initialize profiler
         profile = PipelineProfile(
@@ -125,7 +134,7 @@ class SessionPipeline:
 
         try:
             columns = SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), TaskProgressColumn(), TimeRemainingColumn()
-            with Progress(*columns, console=console) as progress:
+            with Progress(*columns, console=console, disable=self.context.options.quiet_mode) as progress:
 
                 # Phase 0: Initialization
                 with PhaseTimer(profile, phase_index=0, phase_name="Initialization"):
@@ -133,42 +142,68 @@ class SessionPipeline:
                     run_phase_0(self.context, progress, task)
                     progress.update(task, completed=1)
 
+                # Setup session-specific log files AFTER config is loaded
+                self._setup_session_logging()
+                if not self.context.options.quiet_mode:
+                    console.print("[green]✓[/green] Configuration loaded")
+
                 # Phase 1: Discovery & Verification
                 with PhaseTimer(profile, phase_index=1, phase_name="Discovery & Verification"):
                     task = progress.add_task("[cyan]Phase 1: Discovery & Verification", total=None)
                     run_phase_1(self.context, progress, task)
 
+                # Summary after Phase 1
+                camera_count = len([c for c in self.context.camera_files.values() if c])
+                ttl_count = len([t for t in self.context.ttl_files.values() if t])
+                if not self.context.options.quiet_mode:
+                    console.print(f"[green]✓[/green] Discovered {camera_count} camera(s), {ttl_count} TTL channel(s)")
+
                 # Phase 2: Preprocessing
                 with PhaseTimer(profile, phase_index=2, phase_name="Preprocessing"):
                     task = progress.add_task("[cyan]Phase 2: Preprocessing", total=None)
                     run_phase_2(self.context, progress, task)
+                if not self.context.options.quiet_mode:
+                    console.print("[green]✓[/green] Preprocessing complete")
 
                 # Phase 3: Ingestion
                 with PhaseTimer(profile, phase_index=3, phase_name="Ingestion"):
                     task = progress.add_task("[cyan]Phase 3: Ingestion", total=None)
                     run_phase_3(self.context, progress, task)
 
+                # Summary after Phase 3
+                pose_count = len(self.context.pose_data)
+                bpod_trials = len(self.context.bpod_data.get("trials", [])) if self.context.bpod_data else 0
+                if not self.context.options.quiet_mode:
+                    console.print(f"[green]✓[/green] Ingested pose data for {pose_count} camera(s), {bpod_trials} Bpod trial(s)")
+
                 # Phase 4: Synchronization
                 with PhaseTimer(profile, phase_index=4, phase_name="Synchronization"):
                     task = progress.add_task("[cyan]Phase 4: Synchronization", total=1)
                     run_phase_4(self.context, progress, task)
                     progress.update(task, completed=1)
+                if not self.context.options.quiet_mode:
+                    console.print("[green]✓[/green] Synchronization complete")
 
                 # Phase 5: Assembly
                 with PhaseTimer(profile, phase_index=5, phase_name="Assembly"):
                     task = progress.add_task("[cyan]Phase 5: Assembly", total=None)
                     run_phase_5(self.context, progress, task)
+                if not self.context.options.quiet_mode:
+                    console.print("[green]✓[/green] NWB assembly complete")
 
                 # Phase 6: Finalization
                 with PhaseTimer(profile, phase_index=6, phase_name="Finalization & Validation"):
                     task = progress.add_task("[cyan]Phase 6: Finalization & Validation", total=None)
                     run_phase_6(self.context, progress, task)
+                if not self.context.options.quiet_mode:
+                    console.print("[green]✓[/green] NWB file written and validated")
 
             # Finalize profiling
             profile.finalize()
 
-            console.print("\n[bold green]✓ Pipeline completed successfully[/bold green]")
-            console.print(f"[dim]Total execution time: {profile.total_duration:.2f}s[/dim]")
+            if not self.context.options.quiet_mode:
+                console.print("\n[bold green]✓ Pipeline completed successfully[/bold green]")
+                console.print(f"[dim]Total execution time: {profile.total_duration:.2f}s[/dim]")
 
             # Generate diagnostic figures and save profiling data
             self._save_profiling_artifacts(profile)
@@ -184,7 +219,8 @@ class SessionPipeline:
 
         except Exception as e:
             logger.error(f"Pipeline failed: {e}", exc_info=True)
-            console.print(f"\n[bold red]✗ Pipeline failed: {e}[/bold red]")
+            if not self.context.options.quiet_mode:
+                console.print(f"\n[bold red]✗ Pipeline failed: {e}[/bold red]")
             profile.finalize()
             return RunResult(
                 nwb_path=Path(""),
@@ -192,6 +228,64 @@ class SessionPipeline:
                 success=False,
                 error=str(e),
             )
+        finally:
+            # Remove session log handlers
+            self._cleanup_session_logging()
+
+    def _setup_session_logging(self) -> None:
+        """Setup session-specific log files for warnings and errors.
+
+        Creates pipeline.log files in both output and intermediate directories
+        to capture all WARNING and ERROR messages specific to this session.
+        Also creates a detailed debug log with all DEBUG+ messages.
+        """
+        # Directories to write logs to
+        output_dir = self.context.config.paths.output_root / self.context.subject_id / self.context.session_id
+        interim_dir = self.context.config.paths.intermediate_root / self.context.subject_id / self.context.session_id
+
+        # Create directories if they don't exist
+        output_dir.mkdir(parents=True, exist_ok=True)
+        interim_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create log file handlers
+        log_format = logging.Formatter(fmt="%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+        # Add handler for output directory (WARNING+)
+        output_log_path = output_dir / "pipeline.log"
+        output_handler = logging.FileHandler(output_log_path, mode="w", encoding="utf-8")
+        output_handler.setLevel(logging.WARNING)  # Only WARNING and ERROR
+        output_handler.setFormatter(log_format)
+
+        # Add handler for intermediate directory (WARNING+)
+        interim_log_path = interim_dir / "pipeline.log"
+        interim_handler = logging.FileHandler(interim_log_path, mode="w", encoding="utf-8")
+        interim_handler.setLevel(logging.WARNING)  # Only WARNING and ERROR
+        interim_handler.setFormatter(log_format)
+
+        # Add detailed debug log handler (DEBUG+)
+        debug_log_path = output_dir / "pipeline-debug.log"
+        debug_handler = logging.FileHandler(debug_log_path, mode="w", encoding="utf-8")
+        debug_handler.setLevel(logging.DEBUG)  # All messages
+        debug_handler.setFormatter(log_format)
+
+        # Add handlers to root logger (affects all w2t_bkin loggers)
+        root_logger = logging.getLogger("w2t_bkin")
+        root_logger.addHandler(output_handler)
+        root_logger.addHandler(interim_handler)
+        root_logger.addHandler(debug_handler)
+
+        # Track handlers for cleanup
+        self._session_log_handlers = [output_handler, interim_handler, debug_handler]
+
+        logger.debug(f"Session logging enabled: {output_log_path}, {interim_log_path}, {debug_log_path}")
+
+    def _cleanup_session_logging(self) -> None:
+        """Remove session-specific log handlers."""
+        root_logger = logging.getLogger("w2t_bkin")
+        for handler in self._session_log_handlers:
+            handler.close()
+            root_logger.removeHandler(handler)
+        self._session_log_handlers = []
 
     def _save_profiling_artifacts(self, profile: PipelineProfile) -> None:
         """Save profiling data and diagnostic figures to output directory.

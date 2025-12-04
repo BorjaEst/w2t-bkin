@@ -1,3 +1,5 @@
+# Test Fixture: Valid Session
+
 identifier = "Session-000001"
 session_description = "Test session for unit tests"
 session_start_time = "2025-01-01T12:00:00"
@@ -18,7 +20,7 @@ order = "name_asc"
 
 [[TTLs]]
 id = "ttl_hitmiss"
-description = "Hit/Miss signal from behavior"
+description = "Hit/Miss signal"
 paths = "TTLs/*nidq.xa_1_0*.txt"
 
 [[TTLs]]
@@ -28,7 +30,7 @@ paths = "TTLs/*nidq.xa_7_0*.txt"
 
 [[TTLs]]
 id = "ttl_cue"
-description = "Cue signal from behavior"
+description = "Cue signal"
 paths = "TTLs/*nidq.xia_3_0*.txt"
 
 [[cameras]]
@@ -38,6 +40,7 @@ paths = "Video/top/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
 fps = 30.0
+optional = false
 
 [[cameras]]
 id = "cam1_side"
@@ -46,3 +49,4 @@ paths = "Video/side/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
 fps = 60.0
+optional = false

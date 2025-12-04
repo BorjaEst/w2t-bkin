@@ -1,29 +1,24 @@
-# NWB Session Configuration File (Test Fixture)
-# Based on pynwb.file.NWBFile specification
+# =============================================================================
+# NWB Session Metadata (Test Fixture)
+# =============================================================================
 
-# =============================================================================
-# REQUIRED FIELDS
-# =============================================================================
+# --- Required Fields ---
 
 session_description = "Test session for integration tests"
 identifier = "Session-000001"
 session_start_time = "2025-01-01T00:00:00"
 
-# =============================================================================
-# OPTIONAL METADATA FIELDS
-# =============================================================================
+# --- Optional Metadata ---
 
 session_id = "000001"
 experimenter = ["Borja Esteban"]
 experiment_description = "Test session with behavioral and pose data"
 
-# =============================================================================
-# SUBJECT INFORMATION
-# =============================================================================
+# --- Subject Information ---
 
 [subject]
 subject_id = "mouse_001"
-age = "P60D"                                       # ISO 8601 duration format
+age = "P60D"
 description = "Test mouse for integration testing"
 genotype = "WT"
 sex = "M"
@@ -31,11 +26,8 @@ species = "Mus musculus"
 strain = "C57BL/6J"
 date_of_birth = "2024-11-02Z"
 
-# =============================================================================
-# LEGACY FIELDS (for backward compatibility)
-# =============================================================================
+# --- Legacy Session Metadata (Backward Compatibility) ---
 
-# Session metadata used for templating and identification
 [session]
 id = "Session-000001"
 subject_id = "mouse_001"
@@ -46,8 +38,8 @@ sex = "M"
 age = "P60"
 genotype = "WT"
 
+# --- Bpod Configuration ---
 
-# Behaviour information for the experiment 
 [bpod]
 path = "Bpod/*.mat"
 order = "name_asc"
@@ -71,8 +63,8 @@ trial_type = 3
 sync_signal = "Microstim"
 sync_ttl = "ttl_cue"
 
+# --- TTL Channels ---
 
-# TTL/edge patterns specific to this session
 [[TTLs]]
 id = "ttl_hitmiss"
 description = "Hit/Miss signal from behavior"
@@ -88,14 +80,15 @@ id = "ttl_cue"
 description = "Cue signal from behavior"
 paths = "TTLs/*nidq.xia_3_0*.txt"
 
+# --- Camera Configuration ---
 
-# Camera configurations for this session
 [[cameras]]
 id = "cam0"
 description = "Top-down camera view of mouse"
 paths = "Video/top/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
+optional = false                      # Required camera
 
 [[cameras]]
 id = "cam1"
@@ -103,3 +96,4 @@ description = "Left eye pupil camera"
 paths = "Video/pupil_left/*.avi"
 order = "name_asc"
 ttl_id = "ttl_camera"
+optional = false                      # Required camera

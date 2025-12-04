@@ -58,6 +58,11 @@ def _ingest_pose(context: PipelineContext, progress: Optional[Progress], task_id
         interim_dlc_dir = context.config.paths.intermediate_root / context.subject_id / context.session_id / "dlc"
 
         for camera_id, video_paths in context.camera_files.items():
+            # Skip optional cameras with no files
+            if not video_paths:
+                logger.debug(f"  Skipping '{camera_id}' (optional camera with no files)")
+                continue
+
             camera_pose_data = []
             for video_path in video_paths:
                 video_stem = video_path.stem
@@ -86,6 +91,11 @@ def _ingest_pose(context: PipelineContext, progress: Optional[Progress], task_id
         interim_sleap_dir = context.config.paths.intermediate_root / context.subject_id / context.session_id / "sleap"
 
         for camera_id, video_paths in context.camera_files.items():
+            # Skip optional cameras with no files
+            if not video_paths:
+                logger.debug(f"  Skipping '{camera_id}' (optional camera with no files)")
+                continue
+
             camera_pose_data = []
             for video_path in video_paths:
                 video_stem = video_path.stem
@@ -143,12 +153,13 @@ def _compute_trial_offsets(context: PipelineContext, progress: Optional[Progress
             ttl_pulses=context.ttl_pulses,
         )
         logger.info(f"  Aligned {len(context.trial_offsets)} trials")
+
+        # Log detailed warnings to debug log
         if warnings:
-            logger.warning(f"  {len(warnings)} alignment warnings")
-            for w in warnings[:5]:  # Show first 5 warnings
-                logger.debug(f"    Warning: {w}")
-            if len(warnings) > 5:
-                logger.debug(f"    ... and {len(warnings) - 5} more")
+            logger.debug(f"  Trial alignment warnings ({len(warnings)} total):")
+            for warning in warnings:
+                logger.debug(f"    {warning}")
+            logger.warning(f"  {len(warnings)} alignment warnings")  # Summary to console
     else:
         logger.debug("Skipping trial alignment (missing Bpod data or sync config)")
 

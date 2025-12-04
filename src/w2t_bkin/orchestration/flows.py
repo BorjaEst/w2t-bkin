@@ -68,10 +68,16 @@ def _process_with_retry(
 
     for attempt in range(max_retries + 1):
         try:
+            # Create options with quiet_mode=True to suppress Rich UI during batch processing
+            from ..core.pipeline.models import RunOptions
+
+            options = RunOptions(quiet_mode=True)
+
             pipeline = SessionPipeline(
                 config_path=config_path,
                 subject_id=subject_id,
                 session_id=session_id,
+                options=options,
             )
 
             result = pipeline.run()
