@@ -18,8 +18,12 @@ global_offset_s = 0.0
 
 # Verification configuration
 [verification]
-mismatch_tolerance_frames = 0 # Max allowed frame/TTL count mismatch before abort
-warn_on_mismatch = false      # Warn instead of abort if within tolerance
+enabled = true                    # Master switch for all verification checks
+check_frame_counts = true         # Count video frames (can be slow for large videos)
+check_sync_mismatch = true        # Verify frame/TTL synchronization
+skip_nwb_requirements = false     # Skip NWB-required frame counting (use FPS estimates, not recommended)
+mismatch_tolerance_frames = 0     # Max allowed frame/TTL count mismatch before abort
+warn_on_mismatch = false          # Warn instead of abort if within tolerance
 
 # Preprocessing configuration for intermediate artifact generation
 [preprocessing]

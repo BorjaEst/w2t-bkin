@@ -465,12 +465,17 @@ def add_video_acquisition(
     video_files: List[str],
     frame_rate: float = 30.0,
     device: Optional[Device] = None,
+    frame_counts: Optional[List[int]] = None,
 ) -> NWBFile:
     """Add video ImageSeries to NWBFile acquisition.
 
     Creates an ImageSeries object with external video file links (videos are not
     embedded in the NWB file) and adds it to the acquisition section. Uses
     rate-based timing for efficiency.
+
+    Supports multiple video files per camera (e.g., split recordings, experiment pauses).
+    When multiple files are provided, computes starting_frame indices by counting frames
+    in each video file sequentially.
 
     Parameters
     ----------
@@ -479,11 +484,13 @@ def add_video_acquisition(
     camera_id : str
         Camera identifier (becomes ImageSeries name)
     video_files : List[str]
-        List of absolute paths to video files
+        List of absolute paths to video files (in correct order)
     frame_rate : float, optional
         Video frame rate in Hz (default: 30.0)
     device : Device, optional
         pynwb Device object representing the camera
+    frame_counts : List[int], optional
+        Frame count for each video file (if None, will count frames - slower)
 
     Returns
     -------
@@ -499,10 +506,30 @@ def add_video_acquisition(
     ...     nwbfile,
     ...     camera_id="camera_0",
     ...     video_files=["/path/to/video1.avi", "/path/to/video2.avi"],
-    ...     frame_rate=30.0
+    ...     frame_rate=30.0,
+    ...     frame_counts=[30, 25]  # Optional, avoids recounting
     ... )
     >>> print(nwbfile.acquisition["camera_0"])
     """
+    from pathlib import Path
+
+    from .. import utils
+
+    # For multiple video files, compute starting_frame indices
+    # PyNWB requires starting_frame array when external_file has multiple files
+    starting_frame = None
+    if len(video_files) > 1:
+        # Get frame counts (either provided or count now)
+        if frame_counts is None or not frame_counts:
+            raise ValueError(
+                f"Frame counts required for multi-file ImageSeries '{camera_id}' with {len(video_files)} files. " "This should have been computed during the discovery phase."
+            )
+
+        # starting_frame[i] is the cumulative frame count up to file i
+        # e.g., files with [30, 25, 40] frames -> starting_frame = [0, 30, 55]
+        starting_frame = [0]
+        for i in range(len(frame_counts) - 1):
+            starting_frame.append(starting_frame[-1] + frame_counts[i])
 
     image_series = ImageSeries(
         name=camera_id,
@@ -510,6 +537,7 @@ def add_video_acquisition(
         format="external",
         rate=frame_rate,
         starting_time=0.0,
+        starting_frame=starting_frame,  # None for single file, array for multiple
         unit="n/a",
         device=device,
     )

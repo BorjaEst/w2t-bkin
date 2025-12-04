@@ -113,10 +113,13 @@ age = "P90D"
 # Camera configuration
 [[cameras]]
 id = "camera_0"             # Must match a device name in [[devices]]
-paths = "Video/cam0_*.avi"  # Glob pattern for video files
+paths = "Video/cam0_*.avi"  # Glob pattern for video files (supports multiple files per camera)
+order = "name_asc"          # Sort order for multiple files: name_asc, name_desc, time_asc, time_desc
 fps = 150.0                 # Acquisition frame rate (defaults to 30.0 if omitted)
 ttl_id = "ttl_camera"       # Associated TTL stream for synchronization
 ```
+
+**Note:** Cameras can produce multiple video files (e.g., due to recording size limits, experiment pauses, or multi-segment recordings). The `order` field specifies how these files should be sorted before processing. The pipeline will automatically handle frame counting and synchronization across all files for each camera.
 
 ## Quick Start
 

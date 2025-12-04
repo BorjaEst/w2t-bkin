@@ -45,8 +45,10 @@ def run(
     skip_bpod: bool = typer.Option(False, "--skip-bpod", help="Skip Bpod processing"),
     skip_pose: bool = typer.Option(False, "--skip-pose", help="Skip pose estimation"),
     skip_ttl: bool = typer.Option(False, "--skip-ttl", help="Skip TTL processing"),
-    skip_verification: bool = typer.Option(False, "--skip-verification", help="Skip frame/TTL verification"),
     skip_validation: bool = typer.Option(False, "--skip-validation", help="Skip NWB validation"),
+    no_verification: bool = typer.Option(False, "--no-verification", help="Disable all verification checks"),
+    no_frame_count: bool = typer.Option(False, "--no-frame-count", help="Skip video frame counting (faster)"),
+    no_sync_check: bool = typer.Option(False, "--no-sync-check", help="Skip frame/TTL synchronization check"),
     tolerance: Optional[int] = typer.Option(None, "--tolerance", help="Override verification tolerance (frames)"),
     warn_on_mismatch: Optional[bool] = typer.Option(None, "--warn-on-mismatch", help="Warn instead of fail on mismatch"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing outputs"),
@@ -65,12 +67,18 @@ def run(
     5. Assembly - Build NWB behavior tables
     6. Finalization - Write, validate, and create sidecars
 
+    Verification Controls:
+        --no-verification: Disable all verification checks (master switch)
+        --no-frame-count: Skip video frame counting (faster, recommended for large videos)
+        --no-sync-check: Skip frame/TTL synchronization verification
+
     By default, diagnostic figures are generated showing pipeline execution
     timing and synchronization quality metrics. Use --no-figures to skip.
 
     Example:
         $ python -m w2t_bkin.cli run config.toml subject-001 session-001
-        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --skip-validation
+        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-frame-count
+        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-verification
         $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-figures
     """
     # Set logging level
@@ -86,14 +94,21 @@ def run(
     # Use CLI timeout if provided, otherwise use config value
     timeout = video_frame_timeout if video_frame_timeout is not None else config.video.analysis.frame_count_timeout
 
+    # Convert verification flags: no_* flags disable checks
+    verification_enabled = None if not no_verification else False
+    verification_check_frames = None if not no_frame_count else False
+    verification_check_sync = None if not no_sync_check else False
+
     options = RunOptions(
         skip_bpod=skip_bpod,
         skip_pose=skip_pose,
         skip_ttl=skip_ttl,
-        skip_verification=skip_verification,
         skip_nwb_validation=skip_validation,
         force_overwrite=force,
         generate_figures=not no_figures,
+        verification_enabled=verification_enabled,
+        verification_check_frames=verification_check_frames,
+        verification_check_sync=verification_check_sync,
         verification_tolerance=tolerance,
         warn_on_mismatch=warn_on_mismatch,
         video_frame_timeout=timeout,

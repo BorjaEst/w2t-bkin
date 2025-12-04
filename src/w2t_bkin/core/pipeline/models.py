@@ -20,10 +20,12 @@ class RunOptions:
         skip_bpod: Skip Bpod processing (default: False)
         skip_pose: Skip pose processing (default: False)
         skip_ttl: Skip TTL processing (default: False)
-        skip_verification: Skip file verification (default: False)
         skip_nwb_validation: Skip NWB validation with nwbinspector (default: False)
         force_overwrite: Overwrite existing output files (default: False)
         generate_figures: Generate diagnostic figures (default: True)
+        verification_enabled: Enable verification checks (default: None = use config)
+        verification_check_frames: Count video frames (default: None = use config)
+        verification_check_sync: Check frame/TTL sync (default: None = use config)
         verification_tolerance: Optional tolerance for frame/pulse mismatch
         warn_on_mismatch: Warn instead of fail on mismatch
         video_frame_timeout: Timeout for video frame counting operations in seconds (default: 30)
@@ -32,10 +34,12 @@ class RunOptions:
     skip_bpod: bool = False
     skip_pose: bool = False
     skip_ttl: bool = False
-    skip_verification: bool = False
     skip_nwb_validation: bool = False
     force_overwrite: bool = False
     generate_figures: bool = True
+    verification_enabled: Optional[bool] = None
+    verification_check_frames: Optional[bool] = None
+    verification_check_sync: Optional[bool] = None
     verification_tolerance: Optional[int] = None
     warn_on_mismatch: Optional[bool] = None
     video_frame_timeout: int = 30
@@ -86,6 +90,7 @@ class PipelineContext:
 
     # Intermediate results
     camera_files: Dict[str, List[Path]] = field(default_factory=dict)
+    camera_frame_counts: Dict[str, List[int]] = field(default_factory=dict)  # Frame counts per video file per camera
     bpod_files: Dict[str, List[Path]] = field(default_factory=dict)
     ttl_files: Dict[str, List[Path]] = field(default_factory=dict)
     pose_data: Dict[str, Any] = field(default_factory=dict)

@@ -24,7 +24,8 @@ def run_phase_1(context: PipelineContext, progress: Optional[Progress] = None, t
 
     # Calculate total steps
     total_steps = len(cameras) + len(ttls)
-    if not context.options.skip_verification:
+    should_verify = context.config.verification.enabled and context.config.verification.check_sync_mismatch
+    if should_verify:
         total_steps += 1
     if bpod_config:
         total_steps += 1
@@ -32,8 +33,9 @@ def run_phase_1(context: PipelineContext, progress: Optional[Progress] = None, t
     if progress and task_id is not None:
         progress.update(task_id, total=total_steps)
 
-    _discover_cameras(context, cameras, progress, task_id)
+    # Discover TTLs BEFORE cameras so we can use TTL counts for frame estimation
     _discover_ttls(context, ttls, progress, task_id)
+    _discover_cameras(context, cameras, progress, task_id)
     _verify_synchronization(context, cameras, progress, task_id)
     _discover_bpod(context, bpod_config, progress, task_id)
 
@@ -44,9 +46,10 @@ def _discover_cameras(context: PipelineContext, cameras: list, progress: Optiona
     for camera in cameras:
         camera_id = camera["id"]
         pattern = camera["paths"]
-        logger.debug(f"  Scanning camera '{camera_id}' with pattern: {pattern}")
+        order = camera.get("order", "name_asc")  # Default to name_asc if not specified
+        logger.debug(f"  Scanning camera '{camera_id}' with pattern: {pattern}, order: {order}")
 
-        video_paths = utils.discover_files(context.session_dir, pattern, sort=True)
+        video_paths = utils.discover_files(context.session_dir, pattern, sort=False)
         if not video_paths:
             logger.error(f"No video files found for camera '{camera_id}'")
             raise IngestError(
@@ -55,11 +58,77 @@ def _discover_cameras(context: PipelineContext, cameras: list, progress: Optiona
                 hint=f"Check that files exist matching pattern: {pattern}",
             )
 
+        # Sort files according to specified order
+        video_paths = utils.sort_files(video_paths, order)
         context.camera_files[camera_id] = video_paths
-        timeout = context.options.video_frame_timeout
-        frame_count = sum(utils.count_video_frames(p, timeout=timeout) for p in video_paths)
 
-        logger.info(f"  Camera '{camera_id}': {len(video_paths)} file(s), {frame_count} frames")
+        # Verification logic hierarchy:
+        # 1. verification.enabled = false -> skip all verification (master switch)
+        # 2. verification.enabled = true:
+        #    a. check_frame_counts = true -> always count frames
+        #    b. check_frame_counts = false:
+        #       - Single file: skip counting
+        #       - Multi-file: skip if skip_nwb_requirements=true, else count (NWB requirement)
+
+        if not context.config.verification.enabled:
+            # Master switch OFF - skip all verification including NWB requirements
+            logger.debug(f"    Skipping frame count (verification.enabled=False)")
+            context.camera_frame_counts[camera_id] = []
+            frame_count = 0
+            should_count_frames = False
+
+        elif context.config.verification.check_frame_counts:
+            # Frame counting explicitly enabled
+            timeout = context.options.video_frame_timeout
+            frame_counts = [utils.count_video_frames(p, timeout=timeout) for p in video_paths]
+            context.camera_frame_counts[camera_id] = frame_counts
+            frame_count = sum(frame_counts)
+            should_count_frames = True
+
+        elif len(video_paths) > 1 and not context.config.verification.skip_nwb_requirements:
+            # Multi-file video: NWB requires frame counts even if check_frame_counts=false
+            logger.debug(f"    Counting frames (required for multi-file NWB ImageSeries)")
+            timeout = context.options.video_frame_timeout
+            frame_counts = [utils.count_video_frames(p, timeout=timeout) for p in video_paths]
+            context.camera_frame_counts[camera_id] = frame_counts
+            frame_count = sum(frame_counts)
+            should_count_frames = True
+
+        elif len(video_paths) > 1 and context.config.verification.skip_nwb_requirements:
+            # Multi-file: use TTL pulse count for estimation (much more accurate than FPS)
+            ttl_id = camera.get("ttl_id")
+            if ttl_id and ttl_id in context.ttl_files and context.ttl_files[ttl_id]:
+                # Use TTL pulse count as frame count estimate
+                total_pulses = sum(utils.count_ttl_pulses(p) for p in context.ttl_files[ttl_id])
+                frames_per_file = total_pulses // len(video_paths)
+                frame_counts = [frames_per_file] * len(video_paths)
+                # Adjust last file to account for rounding
+                frame_counts[-1] = total_pulses - (frames_per_file * (len(video_paths) - 1))
+                frame_count = sum(frame_counts)
+                logger.info(f"    Camera '{camera_id}': Using TTL-based frame estimation " f"({frame_count} frames from {total_pulses} TTL pulses)")
+            else:
+                # Fallback to crude FPS estimation if no TTL available
+                logger.warning(f"    Camera '{camera_id}': No TTL data available for estimation. " "Using FPS-based estimation - this may cause synchronization issues!")
+                fps = camera.get("fps", 30.0)
+                estimated_frames_per_file = int(fps * 600)  # Assume 10-minute files
+                frame_counts = [estimated_frames_per_file] * len(video_paths)
+                frame_count = sum(frame_counts)
+                logger.warning(f"    Estimated {frame_count} total frames (may be inaccurate)")
+
+            context.camera_frame_counts[camera_id] = frame_counts
+            should_count_frames = False
+
+        else:
+            # Single file with check_frame_counts=false: skip counting
+            logger.debug(f"    Skipping frame count (verification.check_frame_counts=False)")
+            context.camera_frame_counts[camera_id] = []
+            frame_count = 0
+            should_count_frames = False
+
+        if should_count_frames:
+            logger.info(f"  Camera '{camera_id}': {len(video_paths)} file(s), {frame_count} frames")
+        else:
+            logger.info(f"  Camera '{camera_id}': {len(video_paths)} file(s)")
         logger.debug(f"    Files: {[p.name for p in video_paths]}")
 
         # Add video acquisition to NWBFile
@@ -83,6 +152,7 @@ def _discover_cameras(context: PipelineContext, cameras: list, progress: Optiona
             video_files=[str(p) for p in video_paths],
             frame_rate=fps,
             device=device,
+            frame_counts=context.camera_frame_counts[camera_id] if context.camera_frame_counts[camera_id] else None,
         )
 
         if progress and task_id is not None:
@@ -112,7 +182,9 @@ def _discover_ttls(context: PipelineContext, ttls: list, progress: Optional[Prog
 
 
 def _verify_synchronization(context: PipelineContext, cameras: list, progress: Optional[Progress], task_id: Optional[TaskID]) -> None:
-    if not context.options.skip_verification:
+    should_verify = context.config.verification.enabled and context.config.verification.check_sync_mismatch
+
+    if should_verify:
         logger.debug("Verifying synchronization between cameras and TTLs...")
         for camera in cameras:
             camera_id = camera["id"]
@@ -126,8 +198,13 @@ def _verify_synchronization(context: PipelineContext, cameras: list, progress: O
                 logger.warning(f"  Skipping verification for '{camera_id}': TTL source '{ttl_id}' not found")
                 continue
 
-            timeout = context.options.video_frame_timeout
-            frame_count = sum(utils.count_video_frames(p, timeout=timeout) for p in context.camera_files[camera_id])
+            # Get frame count from cache if available, otherwise count now
+            if camera_id in context.camera_frame_counts and context.camera_frame_counts[camera_id]:
+                frame_count = sum(context.camera_frame_counts[camera_id])
+            else:
+                timeout = context.options.video_frame_timeout
+                frame_count = sum(utils.count_video_frames(p, timeout=timeout) for p in context.camera_files[camera_id])
+
             pulse_count = sum(utils.count_ttl_pulses(p) for p in context.ttl_files[ttl_id])
 
             logger.debug(f"  Verifying '{camera_id}' ({frame_count} frames) vs '{ttl_id}' ({pulse_count} pulses)")
@@ -149,7 +226,7 @@ def _verify_synchronization(context: PipelineContext, cameras: list, progress: O
         if progress and task_id is not None:
             progress.advance(task_id)
     else:
-        logger.info("Skipping synchronization verification (requested by options)")
+        logger.info("Skipping synchronization verification (verification.check_sync_mismatch=False)")
 
 
 def _discover_bpod(context: PipelineContext, bpod_config: dict, progress: Optional[Progress], task_id: Optional[TaskID]) -> None:

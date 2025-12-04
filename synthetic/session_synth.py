@@ -257,7 +257,7 @@ def build_session(*, options: Optional[SessionSynthOptions] = None, **overrides)
                 "id": cid,
                 "description": base.camera_description_template.format(camera_id=cid),
                 "paths": base.camera_paths_template.format(camera_id=cid),
-                "order": base.camera_order,
+                "order": base.camera_order,  # Order for sorting multiple video files per camera
                 "ttl_id": camera_ttl,
             }
         )

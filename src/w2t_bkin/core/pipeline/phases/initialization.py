@@ -21,6 +21,18 @@ def run_phase_0(context: PipelineContext, progress: Optional[Progress] = None, t
     context.config = config_pkg.load_config(context.config_path)
 
     # Apply CLI overrides
+    if context.options.verification_enabled is not None:
+        context.config.verification.enabled = context.options.verification_enabled
+        logger.info(f"  Overriding verification.enabled: {context.options.verification_enabled}")
+
+    if context.options.verification_check_frames is not None:
+        context.config.verification.check_frame_counts = context.options.verification_check_frames
+        logger.info(f"  Overriding verification.check_frame_counts: {context.options.verification_check_frames}")
+
+    if context.options.verification_check_sync is not None:
+        context.config.verification.check_sync_mismatch = context.options.verification_check_sync
+        logger.info(f"  Overriding verification.check_sync_mismatch: {context.options.verification_check_sync}")
+
     if context.options.verification_tolerance is not None:
         context.config.verification.mismatch_tolerance_frames = context.options.verification_tolerance
         logger.info(f"  Overriding verification tolerance: {context.options.verification_tolerance}")

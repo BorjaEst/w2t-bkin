@@ -129,7 +129,7 @@ if __name__ == "__main__":
         ttl_ids=[],  # No TTLs needed for pose example
         n_frames=settings.n_frames,
         fps=settings.fps,
-        segments_per_camera=1,
+        segments_per_camera=2,
         seed=settings.seed,
     )
 

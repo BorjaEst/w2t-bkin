@@ -203,15 +203,18 @@ description = "Synchronization data between Bpod and cameras"
 
 # Camera configuration for file discovery and NWB acquisition
 # 'id' must match a device name defined in [[devices]]
+# Multiple video files per camera are supported (e.g., split recordings, experiment pauses)
 [[cameras]]
 id = "camera_0"
-paths = "Video/cam0_*.avi"
+paths = "Video/cam0_*.avi"  # Glob pattern - may match multiple files per camera
+order = "name_asc"  # Sort order for multiple files: name_asc, name_desc, time_asc, time_desc
 fps = 150.0
 ttl_id = "ttl_camera"
 
 [[cameras]]
 id = "camera_1"
 paths = "Video/cam1_*.avi"
+order = "name_asc"
 fps = 150.0
 ttl_id = "ttl_camera"
 

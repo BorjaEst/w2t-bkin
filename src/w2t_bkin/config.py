@@ -129,10 +129,18 @@ class VerificationConfig(BaseModel, extra="forbid"):
     """Hardware synchronization verification.
 
     Attributes:
+        enabled: Master switch to enable/disable all verification checks.
+        check_frame_counts: Count and verify video frame counts (slow for large videos).
+        check_sync_mismatch: Verify frame/TTL count synchronization.
+        skip_nwb_requirements: Skip NWB-required frame counting for multi-file videos (use estimates).
         mismatch_tolerance_frames: Max allowed frame/TTL count mismatch before abort.
         warn_on_mismatch: If True, warn instead of abort when within tolerance.
     """
 
+    enabled: bool = Field(default=True, description="Master switch for all verification checks")
+    check_frame_counts: bool = Field(default=True, description="Count video frames (can be slow)")
+    check_sync_mismatch: bool = Field(default=True, description="Verify frame/TTL synchronization")
+    skip_nwb_requirements: bool = Field(default=False, description="Skip NWB frame count requirements (use FPS estimates)")
     mismatch_tolerance_frames: int = Field(default=0, ge=0, description="Abort if frame_count - ttl_pulse_count > tolerance")
     warn_on_mismatch: bool = Field(default=False, description="Warn instead of abort if within tolerance")
 
