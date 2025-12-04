@@ -13,12 +13,12 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # Install system dependencies
 # - ffmpeg: Video processing
-# - libgl1-mesa-glx: OpenGL support for video analysis
+# - libgl1: OpenGL support for video analysis (replaces libgl1-mesa-glx in newer Debian)
 # - libglib2.0-0: GLib for various libraries
 # - curl: Health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     curl \
     ca-certificates \
@@ -32,6 +32,14 @@ RUN useradd -m -u 1000 -s /bin/bash w2t && \
 
 # Set working directory
 WORKDIR /app
+
+# Copy NWB extensions and install them first
+COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
+RUN pip install --no-cache-dir \
+    ./nwb-extensions/ndx-events \
+    ./nwb-extensions/ndx-pose \
+    ./nwb-extensions/ndx-structured-behavior \
+    && pip cache purge
 
 # Copy Python package files
 COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./

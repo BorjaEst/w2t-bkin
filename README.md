@@ -39,10 +39,10 @@ sudo dnf install podman podman-compose      # Fedora/RHEL
 pip install w2t-bkin[prefect]
 
 # 3. Start server (CLI auto-detects Podman or Docker)
-w2t-bkin container start-server
+python -m w2t_bkin.cli container start-server
 
 # 4. Start workers
-w2t-bkin container start-worker --workers 4
+python -m w2t_bkin.cli container start-worker --workers 4
 
 # 5. Access web UI at http://localhost:4200
 ```
@@ -298,6 +298,42 @@ python examples/pose_camera_nwb.py
 
 ## CLI Utilities
 
+### Data Management Commands
+
+The pipeline includes comprehensive data management commands to help you organize experiments safely and efficiently.
+
+```bash
+# Initialize new experiment structure
+python -m w2t_bkin.cli data init /data/my-experiment \
+  --lab "Larkum Lab" \
+  --institution "Humboldt University" \
+  --experimenters "Alice,Bob"
+
+# Add subject
+python -m w2t_bkin.cli data add-subject /data/my-experiment subject-001 \
+  --species "Mus musculus" \
+  --sex M \
+  --age P90D
+
+# Add session
+python -m w2t_bkin.cli data add-session /data/my-experiment subject-001 session-001 \
+  --date 2024-01-15 \
+  --description "Baseline recording" \
+  --experimenter "Alice"
+
+# Import existing raw data (SAFE - uses symbolic links)
+python -m w2t_bkin.cli data import-raw /raw-storage/2024-01-15 \
+  --experiment /data/my-experiment \
+  --subject subject-001 \
+  --session session-001 \
+  --confirm
+
+# Validate experiment structure
+python -m w2t_bkin.cli data validate /data/my-experiment
+```
+
+📚 **See**: [Data Management CLI Guide](docs/data-management-cli.md) for complete documentation
+
 ### Basic Commands
 
 ```bash
@@ -320,19 +356,19 @@ The CLI automatically detects available container runtime (Podman → Docker →
 
 ```bash
 # Start orchestration server (uses Podman/Docker automatically)
-w2t-bkin container start-server
+python -m w2t_bkin.cli container start-server
 
 # Start worker containers
-w2t-bkin container start-worker --workers 4
+python -m w2t_bkin.cli container start-worker --workers 4
 
 # View container status
-w2t-bkin container status
+python -m w2t_bkin.cli container status
 
 # View logs
-w2t-bkin container logs server --follow
+python -m w2t_bkin.cli container logs server --follow
 
 # Stop all containers
-w2t-bkin container stop
+python -m w2t_bkin.cli container stop
 ```
 
 **Alternative: Direct compose commands** (if you prefer manual control):

@@ -85,8 +85,5 @@ categories.txt
 # License (keep LICENSE, exclude others)
 LICENSE.txt
 
-# NWB extensions (if not needed at runtime)
-nwb-extensions/
-
 # Scripts (unless needed at runtime)
 scripts/
