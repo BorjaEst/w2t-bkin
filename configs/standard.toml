@@ -31,7 +31,7 @@ force_rerun = false # Set to true to regenerate all intermediate files
 
 [preprocessing.dlc]
 enabled = true     # Enable DLC pose estimation preprocessing
-model_path = "models/iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"
+model_path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to models_root
 # gpu = 0            # GPU index (comment out for auto-detect)
 save_csv = false    # Generate CSV in addition to H5
 

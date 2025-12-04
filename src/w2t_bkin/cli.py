@@ -356,6 +356,100 @@ def inspect(
 
 
 @app.command()
+def discover(
+    config_path: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path to configuration TOML file",
+    ),
+    subject_filter: Optional[str] = typer.Option(
+        None,
+        "--subject",
+        "-s",
+        help="Filter by specific subject ID",
+    ),
+    session_filter: Optional[str] = typer.Option(
+        None,
+        "--session",
+        "-x",
+        help="Filter by specific session ID",
+    ),
+    output_format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Output format: json, tsv, or plain",
+    ),
+):
+    """Discover all available subject/session combinations in the raw data directory.
+    
+    Scans the raw_root directory specified in the config file and outputs all
+    valid subject/session combinations that can be processed by the pipeline.
+    
+    Examples:
+        # List all sessions as JSON (default)
+        python -m w2t_bkin.cli discover config.toml
+        
+        # List sessions as TSV for piping to parallel
+        python -m w2t_bkin.cli discover config.toml --format tsv
+        
+        # Filter by subject
+        python -m w2t_bkin.cli discover config.toml --subject subject-001
+        
+        # Process all sessions in parallel (GNU Parallel)
+        python -m w2t_bkin.cli discover config.toml --format tsv | \\
+            parallel --col-sep '\\t' python -m w2t_bkin.cli run config.toml {1} {2}
+    """
+    import json as json_module
+
+    from w2t_bkin.utils import discover_sessions
+
+    try:
+        # Use programmatic API
+        discoveries = discover_sessions(
+            config_path=config_path,
+            subject_filter=subject_filter,
+            session_filter=session_filter,
+        )
+
+        # Output results
+        if not discoveries:
+            if subject_filter or session_filter:
+                console.print("[yellow]No matching sessions found with the specified filters[/yellow]")
+            else:
+                console.print("[yellow]No sessions found in raw_root[/yellow]")
+            raise typer.Exit(0)
+
+        if output_format == "json":
+            # JSON format (for programmatic use)
+            output = json_module.dumps(discoveries, indent=2)
+            console.print(output)
+
+        elif output_format == "tsv":
+            # TSV format (for piping to parallel)
+            for item in discoveries:
+                console.print(f"{item['subject']}\t{item['session']}")
+
+        elif output_format == "plain":
+            # Human-readable format
+            console.print(f"[bold]Found {len(discoveries)} session(s):[/bold]\n")
+            for item in discoveries:
+                console.print(f"  {item['subject']:20s} / {item['session']:30s} ({item['metadata_file']})")
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown format '{output_format}'. Use json, tsv, or plain.")
+            raise typer.Exit(1)
+
+    except Exception as e:
+        console.print(f"[bold red]Error during discovery:[/bold red] {e}")
+        logging.exception("Discovery failed")
+        raise typer.Exit(1)
+
+
+@app.command()
 def version():
     """Show version information."""
     try:

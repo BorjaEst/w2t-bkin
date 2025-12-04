@@ -3,8 +3,12 @@
 Provides:
 - Fixture data paths and session configurations
 - Temporary directory management
-- Mock configuration builders
-- Common test utilities
+- Mock configuration builders (using current Config schema)
+- Common test utilities for pipeline testing
+
+Note:
+    Configuration fixtures use the refactored config schema without legacy
+    labels/facemap sections. Pose estimation is configured via preprocessing.
 """
 
 import json
@@ -227,15 +231,11 @@ def valid_config(tmp_path):
         AcquisitionConfig,
         BpodConfig,
         Config,
-        DLCConfig,
-        FacemapConfig,
-        LabelsConfig,
         LoggingConfig,
         NWBConfig,
         PathsConfig,
         ProjectConfig,
         QCConfig,
-        SLEAPConfig,
         TimebaseConfig,
         TranscodeConfig,
         VerificationConfig,
@@ -270,11 +270,6 @@ def valid_config(tmp_path):
         ),
         qc=QCConfig(generate_report=True, out_template="qc/{session.id}", include_verification=True),
         logging=LoggingConfig(level="INFO", structured=False),
-        labels=LabelsConfig(
-            dlc=DLCConfig(run_inference=False, model="dlc.pb"),
-            sleap=SLEAPConfig(run_inference=False, model="sleap.h5"),
-        ),
-        facemap=FacemapConfig(run_inference=False, ROIs=["face"]),
     )
 
 

@@ -233,6 +233,45 @@ python examples/pose_camera_nwb.py
 
 ## CLI Utilities
 
+### Basic Commands
+
+```bash
+# Run pipeline for a specific subject/session
+python -m w2t_bkin.cli run config.toml subject-001 session-001
+
+# Validate NWB file integrity
+python -m w2t_bkin.cli validate output.nwb
+
+# Inspect NWB file contents
+python -m w2t_bkin.cli inspect output.nwb
+
+# Check version
+python -m w2t_bkin.cli version
+```
+
+### Batch Processing
+
+The pipeline includes a discovery command for batch processing multiple subjects/sessions:
+
+```bash
+# Discover all available sessions
+python -m w2t_bkin.cli discover config.toml --format plain
+
+# Process all sessions in parallel with GNU Parallel
+python -m w2t_bkin.cli discover config.toml --format tsv | \
+    parallel --bar --col-sep '\t' python -m w2t_bkin.cli run config.toml {1} {2}
+```
+
+See [docs/batch-processing.md](docs/batch-processing.md) for comprehensive batch processing guides including:
+
+- Discovery command usage and filtering
+- Parallel processing with GNU Parallel
+- Shell scripting examples
+- Python programmatic APIs
+- Future orchestration (Prefect, Kubernetes)
+
+### Script Utilities
+
 The `scripts/` directory contains useful utilities:
 
 - `mat2json.py`: Converts MATLAB `.mat` files to JSON, handling nested structures and arrays.

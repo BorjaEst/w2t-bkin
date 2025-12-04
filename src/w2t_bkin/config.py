@@ -6,12 +6,36 @@ and functions for loading, validating, and hashing configurations.
 The configuration system enforces strict schema validation to catch errors early,
 supports deterministic hashing for reproducibility, and provides clear error messages.
 
+Key Configuration Sections:
+    - Project: Project identification and metadata
+    - Paths: File system paths for data, models, and outputs
+    - Synchronization: Hardware sync strategy and alignment settings
+    - Preprocessing: Pose estimation (DLC, SLEAP) and other preprocessing tasks
+    - Verification: Runtime checks for frame counts and sync validation
+    - Video: Video analysis and transcoding settings
+    - Bpod: Behavioral trial synchronization mappings
+    - NWB: Neurodata Without Borders export configuration
+    - QC: Quality control report generation
+    - Logging: Log level and format settings
+
+Model Path Resolution:
+    Pose estimation model paths in PreprocessingConfig are resolved relative
+    to paths.models_root. Use the resolve_model_path() method on DLCConfig
+    or SLEAPConfig to get absolute paths.
+
 Typical usage example:
     >>> from w2t_bkin.config import load_config
     >>>
     >>> config = load_config("config.toml")
     >>> print(config.project.name)
-    >>> print(config.timebase.source)
+    >>> print(config.synchronization.strategy)
+    >>>
+    >>> # Resolve DLC model path
+    >>> if config.preprocessing.dlc.enabled:
+    ...     model_path = config.preprocessing.dlc.resolve_model_path(
+    ...         config.paths.models_root
+    ...     )
+    ...     print(f"DLC model: {model_path}")
 """
 
 from __future__ import annotations
@@ -285,99 +309,84 @@ class LoggingConfig(BaseModel, extra="forbid"):
 
 
 # =============================================================================
-# Configuration Models - Inference
+# Configuration Models - Pose Estimation (Preprocessing)
 # =============================================================================
 
 
 class DLCConfig(BaseModel, extra="forbid"):
     """DeepLabCut pose estimation configuration.
 
+    Controls DLC pose estimation execution and model configuration.
+    Model paths are resolved relative to paths.models_root if relative,
+    or used as-is if absolute.
+
     Attributes:
-        run_inference: Enable DLC inference.
-        model: Path to DLC model file.
-        gputouse: GPU device index (-1 for CPU, None for auto-select).
+        enabled: Enable DLC pose estimation (default: False).
+        model_path: Path to DLC project config.yaml (relative to models_root or absolute).
+        gpu: GPU index to use (None = auto-detect, -1 = CPU).
+        save_csv: Generate CSV output in addition to H5 (default: False).
     """
 
-    run_inference: bool = Field(default=False, description="Run DLC inference")
-    model: str = Field(default="model.pb", description="DLC model path")
-    gputouse: Optional[int] = Field(None, description="GPU index (-1=CPU, None=auto)")
+    enabled: bool = Field(default=False, description="Enable DLC pose estimation")
+    model_path: Optional[Path] = Field(None, description="Path to DLC config.yaml")
+    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect, -1 = CPU)")
+    save_csv: bool = Field(default=False, description="Generate CSV outputs")
+
+    def resolve_model_path(self, models_root: Path) -> Optional[Path]:
+        """Resolve model_path relative to models_root.
+
+        Args:
+            models_root: Base directory for pose estimation models.
+
+        Returns:
+            Absolute path to model file, or None if model_path not set.
+        """
+        if self.model_path is None:
+            return None
+        if self.model_path.is_absolute():
+            return self.model_path
+        return (models_root / self.model_path).resolve()
 
 
 class SLEAPConfig(BaseModel, extra="forbid"):
     """SLEAP pose estimation configuration.
 
-    Attributes:
-        run_inference: Enable SLEAP inference.
-        model: Path to SLEAP model file.
-    """
-
-    run_inference: bool = Field(default=False, description="Run SLEAP inference")
-    model: str = Field(default="sleap.h5", description="SLEAP model path")
-
-
-class LabelsConfig(BaseModel, extra="forbid"):
-    """Pose labeling configuration.
+    Controls SLEAP pose estimation execution and model configuration.
+    Model paths are resolved relative to paths.models_root if relative,
+    or used as-is if absolute.
 
     Attributes:
-        dlc: DeepLabCut configuration.
-        sleap: SLEAP configuration.
+        enabled: Enable SLEAP pose estimation (default: False).
+        model_path: Path to SLEAP model file (relative to models_root or absolute).
+        gpu: GPU index to use (None = auto-detect, -1 = CPU).
     """
 
-    dlc: DLCConfig = Field(default_factory=DLCConfig, description="DLC config")
-    sleap: SLEAPConfig = Field(default_factory=SLEAPConfig, description="SLEAP config")
-
-
-class FacemapConfig(BaseModel, extra="forbid"):
-    """Facemap facial motion tracking configuration.
-
-    Attributes:
-        run_inference: Enable Facemap inference.
-        ROIs: Regions of interest to process.
-    """
-
-    run_inference: bool = Field(default=False, description="Run Facemap inference")
-    ROIs: List[str] = Field(default_factory=lambda: ["face", "left_eye", "right_eye"], description="ROIs to process")
-
-
-class DLCPreprocessingConfig(BaseModel, extra="forbid"):
-    """DLC preprocessing task configuration.
-
-    Controls DLC pose estimation in the preprocessing phase.
-
-    Attributes:
-        enabled: Enable DLC preprocessing task (default: False).
-        model_path: Path to DLC project config.yaml.
-        gpu: GPU index to use (None = auto-detect).
-        save_csv: Generate CSV output in addition to H5 (default: False).
-    """
-
-    enabled: bool = Field(default=False, description="Enable DLC preprocessing")
-    model_path: Optional[Path] = Field(None, description="Path to DLC config.yaml")
-    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect)")
-    save_csv: bool = Field(default=False, description="Generate CSV outputs")
-
-
-class SLEAPPreprocessingConfig(BaseModel, extra="forbid"):
-    """SLEAP preprocessing task configuration.
-
-    Controls SLEAP pose estimation in the preprocessing phase.
-
-    Attributes:
-        enabled: Enable SLEAP preprocessing task (default: False).
-        model_path: Path to SLEAP model file (e.g., models/sleap_model.h5).
-        gpu: GPU index to use (None = auto-detect).
-    """
-
-    enabled: bool = Field(default=False, description="Enable SLEAP preprocessing")
+    enabled: bool = Field(default=False, description="Enable SLEAP pose estimation")
     model_path: Optional[Path] = Field(None, description="Path to SLEAP model file")
-    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect)")
+    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect, -1 = CPU)")
+
+    def resolve_model_path(self, models_root: Path) -> Optional[Path]:
+        """Resolve model_path relative to models_root.
+
+        Args:
+            models_root: Base directory for pose estimation models.
+
+        Returns:
+            Absolute path to model file, or None if model_path not set.
+        """
+        if self.model_path is None:
+            return None
+        if self.model_path.is_absolute():
+            return self.model_path
+        return (models_root / self.model_path).resolve()
 
 
 class PreprocessingConfig(BaseModel, extra="forbid"):
     """Preprocessing phase configuration.
 
     Controls preprocessing tasks that generate intermediate artifacts
-    stored in the interim folder.
+    stored in the interim folder. Model paths in DLC and SLEAP configs
+    are resolved relative to paths.models_root.
 
     Attributes:
         force_rerun: Force regeneration of all intermediate files (default: False).
@@ -386,8 +395,8 @@ class PreprocessingConfig(BaseModel, extra="forbid"):
     """
 
     force_rerun: bool = Field(default=False, description="Force rerun of all preprocessing tasks")
-    dlc: DLCPreprocessingConfig = Field(default_factory=DLCPreprocessingConfig, description="DLC preprocessing config")
-    sleap: SLEAPPreprocessingConfig = Field(default_factory=SLEAPPreprocessingConfig, description="SLEAP preprocessing config")
+    dlc: DLCConfig = Field(default_factory=DLCConfig, description="DLC pose estimation config")
+    sleap: SLEAPConfig = Field(default_factory=SLEAPConfig, description="SLEAP pose estimation config")
 
 
 # =============================================================================
@@ -413,8 +422,6 @@ class Config(BaseModel, extra="forbid"):
         nwb: NWB export settings.
         qc: Quality control configuration.
         logging: Logging configuration.
-        labels: Pose labeling configuration.
-        facemap: Facemap tracking configuration.
     """
 
     project: ProjectConfig
@@ -428,8 +435,6 @@ class Config(BaseModel, extra="forbid"):
     nwb: NWBConfig = Field(default_factory=NWBConfig)
     qc: QCConfig = Field(default_factory=QCConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    labels: LabelsConfig = Field(default_factory=LabelsConfig)
-    facemap: FacemapConfig = Field(default_factory=FacemapConfig)
 
 
 # =============================================================================
@@ -442,15 +447,15 @@ def load_config(path: Union[str, Path]) -> Config:
 
     Performs comprehensive validation including:
     - Schema validation with extra="forbid" to prevent typos
-    - Enum validation for source, mapping, and level fields
-    - Numeric constraints (e.g., jitter_budget_s >= 0)
-    - Conditional requirements (e.g., ttl_id when source='ttl')
+    - Enum validation for strategy, method, and level fields
+    - Numeric constraints (e.g., tolerance_s >= 0)
+    - Conditional requirements (e.g., reference_channel when strategy='hardware_pulse')
 
     Args:
         path: Path to config.toml file.
 
     Returns:
-        Validated Config instance.
+        Validated Config instance with all paths resolved to absolute.
 
     Raises:
         FileNotFoundError: If config file doesn't exist.
@@ -461,6 +466,12 @@ def load_config(path: Union[str, Path]) -> Config:
         >>> config = load_config("config.toml")
         >>> print(config.project.name)
         >>> print(config.synchronization.strategy)
+        >>>
+        >>> # Access preprocessing config
+        >>> if config.preprocessing.dlc.enabled:
+        ...     model_path = config.preprocessing.dlc.resolve_model_path(
+        ...         config.paths.models_root
+        ...     )
     """
     data = read_toml(path)
 

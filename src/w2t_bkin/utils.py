@@ -1214,3 +1214,117 @@ def load_session_metadata_and_nwb(
     nwbfile = create_nwb_file(metadata)
 
     return metadata, nwbfile
+
+
+def discover_sessions(
+    config_path: Union[str, Path],
+    subject_filter: Optional[str] = None,
+    session_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Discover all available subject/session combinations in the raw data directory.
+
+    Scans the raw_root directory and returns a list of valid subject/session
+    combinations that can be processed by the pipeline. A valid session must
+    have either a session.toml or metadata.toml file.
+
+    Parameters
+    ----------
+    config_path : Union[str, Path]
+        Path to configuration TOML file
+    subject_filter : Optional[str], optional
+        Filter results to specific subject ID only (default: None)
+    session_filter : Optional[str], optional
+        Filter results to specific session ID only (default: None)
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        List of dictionaries with keys:
+        - subject: Subject identifier
+        - session: Session identifier
+        - has_subject_metadata: Whether subject.toml exists
+        - metadata_file: Name of metadata file ("session.toml" or "metadata.toml")
+
+    Raises
+    ------
+    FileNotFoundError
+        If config file does not exist
+    ValueError
+        If raw_root does not exist
+
+    Example
+    -------
+    >>> from pathlib import Path
+    >>> from w2t_bkin.utils import discover_sessions
+    >>>
+    >>> # Discover all sessions
+    >>> sessions = discover_sessions("config.toml")
+    >>> print(f"Found {len(sessions)} sessions")
+    >>>
+    >>> # Filter by subject
+    >>> sessions = discover_sessions("config.toml", subject_filter="subject-001")
+    >>>
+    >>> # Process all sessions
+    >>> for item in sessions:
+    ...     print(f"Processing {item['subject']}/{item['session']}")
+    ...     # run_pipeline(config, item['subject'], item['session'])
+    """
+    from w2t_bkin.config import load_config
+
+    # Load configuration
+    config = load_config(Path(config_path))
+    raw_root = config.paths.raw_root
+
+    if not raw_root.exists():
+        raise ValueError(f"raw_root does not exist: {raw_root}")
+
+    # Discover subjects and sessions
+    discoveries = []
+
+    # Iterate through subjects
+    for subject_dir in sorted(raw_root.iterdir()):
+        if not subject_dir.is_dir():
+            continue
+        if subject_dir.name.startswith("."):
+            continue
+
+        subject_id = subject_dir.name
+
+        # Apply subject filter
+        if subject_filter and subject_id != subject_filter:
+            continue
+
+        # Check for subject.toml
+        subject_toml = subject_dir / "subject.toml"
+        has_subject_metadata = subject_toml.exists()
+
+        # Iterate through sessions
+        for session_dir in sorted(subject_dir.iterdir()):
+            if not session_dir.is_dir():
+                continue
+            if session_dir.name.startswith("."):
+                continue
+
+            session_id = session_dir.name
+
+            # Apply session filter
+            if session_filter and session_id != session_filter:
+                continue
+
+            # Check for session metadata (session.toml or metadata.toml)
+            session_toml = session_dir / "session.toml"
+            metadata_toml = session_dir / "metadata.toml"
+            has_session_metadata = session_toml.exists() or metadata_toml.exists()
+
+            # Valid session must have metadata
+            if has_session_metadata:
+                discoveries.append(
+                    {
+                        "subject": subject_id,
+                        "session": session_id,
+                        "has_subject_metadata": has_subject_metadata,
+                        "metadata_file": "session.toml" if session_toml.exists() else "metadata.toml",
+                    }
+                )
+
+    return discoveries

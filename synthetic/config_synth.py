@@ -6,19 +6,30 @@ experimentation where a minimal-yet-valid configuration is needed.
 
 Key capabilities:
 - Construct a `Config` model with sensible defaults.
-- Customize key knobs (project name, paths, timebase source, logging).
+- Customize key knobs (project name, paths, synchronization strategy, logging).
+- Configure preprocessing tasks (DLC/SLEAP pose estimation).
 - Render the model deterministically to TOML without extra dependencies.
 - Save the TOML to disk.
+
+Configuration Structure:
+- Uses PreprocessingConfig for pose estimation (DLC/SLEAP)
+- Model paths are relative to paths.models_root
+- Supports hardware_pulse, rate_based, and network_stream synchronization
 
 Notes:
 - We avoid third-party TOML writers to keep dependencies minimal.
 - The writer here only covers the fields used by the `Config` schema.
+- Legacy labels/facemap configs have been removed in favor of preprocessing.
 
 Example:
         from pathlib import Path
         from synthetic.config_synth import build_config, write_config_toml
 
-        cfg = build_config(project_name="demo-project")
+        cfg = build_config(
+            project_name="demo-project",
+            sync_strategy="hardware_pulse",
+            preprocessing_dlc_enabled=True
+        )
         write_config_toml(Path("output/synthetic-config.toml"), cfg)
 """
 
@@ -31,9 +42,6 @@ from pydantic import BaseModel, Field
 
 from w2t_bkin.config import (
     DLCConfig,
-    DLCPreprocessingConfig,
-    FacemapConfig,
-    LabelsConfig,
     LoggingConfig,
     NWBConfig,
     PathsConfig,
@@ -104,7 +112,8 @@ class SynthConfigOptions(BaseModel):
     preprocessing_dlc_enabled: bool = Field(default=False)
     preprocessing_force_rerun: bool = Field(default=False)
 
-    # Labels/Facemap
+    # Legacy fields (deprecated - kept for backward compatibility with existing test code)
+    # These fields are no longer used in config generation
     dlc_run_inference: bool = Field(default=False)
     dlc_model: str = Field(default="models/dlc/model.yaml")
     dlc_gputouse: Optional[int] = Field(default=None)
@@ -117,10 +126,26 @@ class SynthConfigOptions(BaseModel):
 def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -> ConfigModel:
     """Create a valid `Config` model from `SynthConfigOptions`.
 
+    Builds a complete Config instance suitable for testing or demonstration.
+    Uses PreprocessingConfig for pose estimation (DLC/SLEAP) with model paths
+    relative to paths.models_root.
+
+    Args:
+        options: SynthConfigOptions instance with configuration values.
+        **overrides: Keyword arguments to override specific option fields.
+
+    Returns:
+        ConfigModel: Fully validated Config instance.
+
     Usage patterns:
-    - Preferred: `build_config(options=SynthConfigOptions(...))`
-    - Convenience: pass any field as a keyword override, e.g.
-      `build_config(project_name="demo", sync_strategy="hardware_pulse", reference_channel="cam0")`
+        - Preferred: `build_config(options=SynthConfigOptions(...))`
+        - Convenience: pass any field as a keyword override, e.g.
+          `build_config(project_name="demo", sync_strategy="hardware_pulse",
+                       reference_channel="cam0", preprocessing_dlc_enabled=True)`
+
+    Note:
+        Legacy labels/facemap fields in SynthConfigOptions are ignored.
+        Use preprocessing_dlc_enabled and preprocessing_sleap_enabled instead.
     """
 
     # Merge defaults with overrides (and explicit options if provided)
@@ -203,24 +228,10 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
 
     preprocessing = PreprocessingConfig(
         force_rerun=base.preprocessing_force_rerun,
-        dlc=DLCPreprocessingConfig(enabled=base.preprocessing_dlc_enabled),
+        dlc=DLCConfig(enabled=base.preprocessing_dlc_enabled),
     )
 
     logging = LoggingConfig(level=base.logging_level, structured=base.logging_structured)
-
-    labels = LabelsConfig(
-        dlc=DLCConfig(
-            run_inference=base.dlc_run_inference,
-            model=base.dlc_model,
-            gputouse=base.dlc_gputouse,
-        ),
-        sleap=SLEAPConfig(run_inference=base.sleap_run_inference, model=base.sleap_model),
-    )
-
-    facemap = FacemapConfig(
-        run_inference=base.facemap_run_inference,
-        ROIs=list(base.facemap_rois),
-    )
 
     # Only pass fields that are active in Config model
     # (other fields are commented out in config.py)
@@ -252,10 +263,19 @@ def config_to_toml(config: ConfigModel) -> str:
     """Convert Config model to TOML string.
 
     This writer is schema-aware and intentionally minimal.
-    It preserves a logical section order and omits no required fields.
+    It preserves a logical section order and outputs all active fields.
 
-    NOTE: Only writes sections that are currently active in the Config model.
-    Many sections are commented out in config.py, so we only write what exists.
+    Sections written:
+        - project: Project identification
+        - paths: File system paths
+        - synchronization: Sync strategy and alignment
+        - bpod: Behavioral trial synchronization (if configured)
+        - preprocessing: Pose estimation tasks (DLC, SLEAP)
+        - logging: Log level and format
+
+    Note:
+        Does not write deprecated sections (labels, facemap).
+        Model paths in preprocessing are relative to paths.models_root.
     """
 
     lines: list[str] = []
@@ -322,15 +342,20 @@ def config_to_toml(config: ConfigModel) -> str:
 def write_config_toml(path: Union[str, Path], config: ConfigModel) -> Path:
     """Write the provided `Config` model to a TOML file.
 
-    Parameters
-    ----------
-    path: Output path for the TOML file.
-    config: Validated configuration model to serialize.
+    Serializes the configuration to TOML format with proper section ordering
+    and formatting. Creates parent directories if they don't exist.
 
-    Returns
-    -------
-    Path
-            The resolved output path.
+    Args:
+        path: Output path for the TOML file.
+        config: Validated configuration model to serialize.
+
+    Returns:
+        Path: The resolved output path where the file was written.
+
+    Example:
+        >>> from synthetic.config_synth import build_config, write_config_toml
+        >>> cfg = build_config(project_name="test", preprocessing_dlc_enabled=True)
+        >>> write_config_toml("output/test-config.toml", cfg)
     """
 
     path = Path(path)

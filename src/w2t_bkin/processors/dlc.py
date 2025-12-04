@@ -420,7 +420,7 @@ def run_dlc_inference_batch(
     Requirements:
         - REQ-DLC-1: Accept primitives only
         - REQ-DLC-3: Support batch inference
-        - REQ-DLC-6: Execute when config.labels.dlc.run_inference is true
+        - REQ-DLC-6: Execute when config.preprocessing.dlc.enabled is true
         - REQ-DLC-10: Continue processing on individual video failure
         - REQ-DLC-13: Graceful partial failure handling
 

@@ -228,15 +228,11 @@ class TestConfigHashing:
             AcquisitionConfig,
             BpodConfig,
             Config,
-            DLCConfig,
-            FacemapConfig,
-            LabelsConfig,
             LoggingConfig,
             NWBConfig,
             PathsConfig,
             ProjectConfig,
             QCConfig,
-            SLEAPConfig,
             TimebaseConfig,
             TranscodeConfig,
             VerificationConfig,
@@ -262,8 +258,6 @@ class TestConfigHashing:
             ),
             qc=QCConfig(generate_report=True, out_template="qc/{session.id}", include_verification=True),
             logging=LoggingConfig(level="INFO", structured=False),
-            labels=LabelsConfig(dlc=DLCConfig(run_inference=False, model="model.pb"), sleap=SLEAPConfig(run_inference=False, model="sleap.h5")),
-            facemap=FacemapConfig(run_inference=False, ROIs=["face"]),
         )
 
         config2 = Config(
@@ -283,8 +277,6 @@ class TestConfigHashing:
             ),
             qc=QCConfig(generate_report=True, out_template="qc/{session.id}", include_verification=True),
             logging=LoggingConfig(level="INFO", structured=False),
-            labels=LabelsConfig(dlc=DLCConfig(run_inference=False, model="model.pb"), sleap=SLEAPConfig(run_inference=False, model="sleap.h5")),
-            facemap=FacemapConfig(run_inference=False, ROIs=["face"]),
         )
 
         hash1 = compute_config_hash(config1)

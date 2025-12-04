@@ -54,18 +54,3 @@ include_verification = true         # include frame/TTL counts and mismatches in
 [logging]
 level = "INFO"              # DEBUG | INFO | WARNING | ERROR | CRITICAL
 structured = false          # whether to use structured (e.g., JSON) logging
-
-# Pose labels inference defaults
-[labels.dlc]
-run_inference = false       
-model = "model.pb"          # DLC model directory name (contains config.yaml)
-# gputouse = 0              # Optional: GPU index (0, 1, ...), -1 for CPU, None/omit for auto-detect
-
-[labels.sleap]
-run_inference = false
-model = "sleap.h5"          # path to SLEAP model file
-
-# Facemap defaults
-[facemap]
-run_inference = false
-ROIs = ["face", "left_eye", "right_eye"]    # list of ROIs to process
