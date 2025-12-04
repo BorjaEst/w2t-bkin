@@ -2,11 +2,14 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pynwb import NWBFile
 
 from ... import config as config_pkg
+
+if TYPE_CHECKING:
+    from ...figures.profiling import PipelineProfile
 
 
 @dataclass
@@ -43,6 +46,7 @@ class RunResult:
         nwbfile: In-memory NWBFile object
         alignment_stats: Synchronization alignment statistics
         validation_results: NWB validation results from nwbinspector
+        profile: Pipeline profiling data (timing and phase statistics)
         success: Whether pipeline completed successfully
         error: Error message if failed
     """
@@ -51,6 +55,7 @@ class RunResult:
     nwbfile: Optional[NWBFile] = None
     alignment_stats: Optional[Dict[str, Any]] = None
     validation_results: Optional[List[Dict[str, Any]]] = None
+    profile: Optional["PipelineProfile"] = None
     success: bool = True
     error: Optional[str] = None
 

@@ -10,6 +10,7 @@ A modular, reproducible Python pipeline for processing multi-camera rodent behav
 - **Pose Estimation**: Imports and harmonizes data from DeepLabCut and SLEAP into `ndx-pose`.
 - **Synchronization**: Robust alignment of behavioral data and video frames to a common timebase using TTL pulses.
 - **Modular Design**: Distinct modules for behavior, pose, sync, and session management.
+- **Built-in Profiling**: Automatic timing and diagnostic figures for each pipeline run (see [docs/profiling.md](docs/profiling.md)).
 
 ## Installation
 

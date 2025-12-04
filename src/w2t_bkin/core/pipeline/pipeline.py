@@ -9,6 +9,7 @@ This module implements the high-level pipeline orchestration following a
 - Centralized path logic in config validators
 - Typer CLI for enhanced command-line interface
 - Preprocessing phase for intermediate artifact generation
+- Built-in profiling and diagnostic figure generation
 
 Phase 0: Initialization - Load config, create NWBFile
 Phase 1: Discovery & Verification - Find files, verify consistency
@@ -24,6 +25,7 @@ Architecture:
 - Typer for CLI commands: run, validate, inspect
 - In-memory NWB → Atomic write → Validation strategy
 - Task-based preprocessing with dependency checking and caching
+- Automatic profiling with timing and diagnostic figures
 
 Example:
     >>> from w2t_bkin.core.pipeline import SessionPipeline
@@ -37,6 +39,7 @@ Example:
     >>> print(f"NWB written to: {result.nwb_path}")
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -46,6 +49,7 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
+from ...figures.profiling import PhaseTimer, PipelineProfile, plot_pipeline_execution, plot_synchronization_stats
 from .models import PipelineContext, RunOptions, RunResult
 from .phases.assembly import run_phase_5
 from .phases.discovery import run_phase_1
@@ -91,10 +95,13 @@ class SessionPipeline:
     def run(self) -> RunResult:
         """Run complete pipeline workflow.
 
-        Executes all 6 phases with rich progress tracking and error handling.
+        Executes all 7 phases with rich progress tracking, error handling,
+        and automatic profiling. Generates diagnostic figures in the output
+        directory showing phase timing and pipeline statistics.
 
         Returns:
-            RunResult with paths, NWBFile, statistics, and validation results
+            RunResult with paths, NWBFile, statistics, validation results,
+            and profiling data
 
         Raises:
             Exception: Any phase failure is caught and returned in RunResult
@@ -109,51 +116,123 @@ class SessionPipeline:
             )
         )
 
+        # Initialize profiler
+        profile = PipelineProfile(
+            subject_id=self.context.subject_id,
+            session_id=self.context.session_id,
+            config_path=str(self.context.config_path),
+        )
+
         try:
             columns = SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), TaskProgressColumn(), TimeRemainingColumn()
             with Progress(*columns, console=console) as progress:
 
                 # Phase 0: Initialization
-                task = progress.add_task("[cyan]Phase 0: Initialization", total=1)
-                run_phase_0(self.context, progress, task)
-                progress.update(task, completed=1)
+                with PhaseTimer(profile, phase_index=0, phase_name="Initialization"):
+                    task = progress.add_task("[cyan]Phase 0: Initialization", total=1)
+                    run_phase_0(self.context, progress, task)
+                    progress.update(task, completed=1)
 
                 # Phase 1: Discovery & Verification
-                task = progress.add_task("[cyan]Phase 1: Discovery & Verification", total=None)
-                run_phase_1(self.context, progress, task)
+                with PhaseTimer(profile, phase_index=1, phase_name="Discovery & Verification"):
+                    task = progress.add_task("[cyan]Phase 1: Discovery & Verification", total=None)
+                    run_phase_1(self.context, progress, task)
 
                 # Phase 2: Preprocessing
-                task = progress.add_task("[cyan]Phase 2: Preprocessing", total=None)
-                run_phase_2(self.context, progress, task)
+                with PhaseTimer(profile, phase_index=2, phase_name="Preprocessing"):
+                    task = progress.add_task("[cyan]Phase 2: Preprocessing", total=None)
+                    run_phase_2(self.context, progress, task)
 
                 # Phase 3: Ingestion
-                task = progress.add_task("[cyan]Phase 3: Ingestion", total=None)
-                run_phase_3(self.context, progress, task)
+                with PhaseTimer(profile, phase_index=3, phase_name="Ingestion"):
+                    task = progress.add_task("[cyan]Phase 3: Ingestion", total=None)
+                    run_phase_3(self.context, progress, task)
 
                 # Phase 4: Synchronization
-                task = progress.add_task("[cyan]Phase 4: Synchronization", total=1)
-                run_phase_4(self.context, progress, task)
-                progress.update(task, completed=1)
+                with PhaseTimer(profile, phase_index=4, phase_name="Synchronization"):
+                    task = progress.add_task("[cyan]Phase 4: Synchronization", total=1)
+                    run_phase_4(self.context, progress, task)
+                    progress.update(task, completed=1)
 
                 # Phase 5: Assembly
-                task = progress.add_task("[cyan]Phase 5: Assembly", total=None)
-                run_phase_5(self.context, progress, task)
+                with PhaseTimer(profile, phase_index=5, phase_name="Assembly"):
+                    task = progress.add_task("[cyan]Phase 5: Assembly", total=None)
+                    run_phase_5(self.context, progress, task)
 
                 # Phase 6: Finalization
-                task = progress.add_task("[cyan]Phase 6: Finalization & Validation", total=None)
-                run_phase_6(self.context, progress, task)
+                with PhaseTimer(profile, phase_index=6, phase_name="Finalization & Validation"):
+                    task = progress.add_task("[cyan]Phase 6: Finalization & Validation", total=None)
+                    run_phase_6(self.context, progress, task)
+
+            # Finalize profiling
+            profile.finalize()
 
             console.print("\n[bold green]✓ Pipeline completed successfully[/bold green]")
+            console.print(f"[dim]Total execution time: {profile.total_duration:.2f}s[/dim]")
+
+            # Generate diagnostic figures and save profiling data
+            self._save_profiling_artifacts(profile)
 
             return RunResult(
                 nwb_path=self.context.nwb_path or Path(""),
                 nwbfile=self.context.nwbfile,
                 alignment_stats=self.context.alignment_stats,
                 validation_results=self.context.validation_results,
+                profile=profile,
                 success=True,
             )
 
         except Exception as e:
             logger.error(f"Pipeline failed: {e}", exc_info=True)
             console.print(f"\n[bold red]✗ Pipeline failed: {e}[/bold red]")
-            return RunResult(nwb_path=Path(""), success=False, error=str(e))
+            profile.finalize()
+            return RunResult(
+                nwb_path=Path(""),
+                profile=profile,
+                success=False,
+                error=str(e),
+            )
+
+    def _save_profiling_artifacts(self, profile: PipelineProfile) -> None:
+        """Save profiling data and diagnostic figures to output directory.
+
+        Args:
+            profile: Pipeline profiling data with phase timings
+        """
+        if self.context.nwb_path is None:
+            logger.warning("NWB path not set, skipping profiling artifacts")
+            return
+
+        # Determine output directory (same as NWB file)
+        output_dir = self.context.nwb_path.parent
+        figures_dir = output_dir / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save profiling JSON data
+        profile_path = output_dir / "pipeline_profile.json"
+        try:
+            with open(profile_path, "w") as f:
+                json.dump(profile.to_dict(), f, indent=2)
+            logger.info(f"Profiling data saved to: {profile_path}")
+        except Exception as e:
+            logger.warning(f"Failed to save profiling data: {e}")
+
+        # Generate diagnostic figures
+        try:
+            # Pipeline execution (merged timing + timeline)
+            execution_fig_path = figures_dir / "pipeline_execution.png"
+            plot_pipeline_execution(profile, save_path=execution_fig_path)
+            logger.info(f"Pipeline execution figure saved to: {execution_fig_path}")
+
+            # Synchronization statistics (if available)
+            if self.context.alignment_stats:
+                sync_fig_path = figures_dir / "synchronization_stats.png"
+                plot_synchronization_stats(self.context.alignment_stats, save_path=sync_fig_path)
+                logger.info(f"Synchronization statistics figure saved to: {sync_fig_path}")
+
+            console.print(f"\n[green]✓ Diagnostic figures saved to: {figures_dir}[/green]")
+
+        except ImportError:
+            logger.warning("matplotlib not installed, skipping diagnostic figures")
+        except Exception as e:
+            logger.warning(f"Failed to generate diagnostic figures: {e}")
