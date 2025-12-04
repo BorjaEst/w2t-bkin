@@ -62,6 +62,17 @@ import typer
 
 from .config import load_config
 from .core.pipeline import RunOptions, SessionPipeline
+from .data_manager import (
+    ExperimentConfig,
+    SessionConfig,
+    SubjectConfig,
+    ValidationResult,
+    add_session,
+    add_subject,
+    import_raw_data,
+    init_experiment,
+    validate_experiment_structure,
+)
 
 app = typer.Typer(
     name="w2t-bkin",
@@ -775,6 +786,305 @@ def container_logs(
         raise typer.Exit(1)
 
     logs(runtime, service=service, follow=follow, tail=tail)
+
+
+# =============================================================================
+# Data Management Commands
+# =============================================================================
+
+data_app = typer.Typer(
+    name="data",
+    help="Data management commands for experiment setup and organization",
+)
+app.add_typer(data_app, name="data")
+
+
+@data_app.command(name="init")
+def data_init(
+    experiment_root: Path = typer.Argument(..., help="Path to experiment root directory"),
+    lab: Optional[str] = typer.Option(None, "--lab", help="Lab name"),
+    institution: Optional[str] = typer.Option(None, "--institution", help="Institution name"),
+    experimenters: Optional[str] = typer.Option(None, "--experimenters", help="Comma-separated experimenter names"),
+    protocol: Optional[str] = typer.Option(None, "--protocol", help="Protocol ID (e.g., IACUC number)"),
+    description: Optional[str] = typer.Option(None, "--description", help="Experiment description"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts"),
+):
+    """Initialize a new experiment folder structure.
+
+    Creates the standard directory layout:
+    - raw/          (raw data storage)
+    - interim/      (intermediate processing artifacts)
+    - processed/    (final outputs)
+    - models/       (trained models)
+
+    Also creates:
+    - raw/metadata.toml  (NWB metadata)
+    - config.toml        (pipeline configuration)
+
+    Example:
+        $ w2t-bkin data init /data/my-experiment \\
+            --lab "Larkum Lab" \\
+            --institution "Humboldt University" \\
+            --experimenters "Alice,Bob"
+
+        $ w2t-bkin data init /data/my-experiment -y  # Skip prompts
+    """
+    # Interactive mode if parameters not provided
+    if not lab:
+        lab = typer.prompt("Lab name")
+    if not institution:
+        institution = typer.prompt("Institution name")
+    if not experimenters:
+        experimenters = typer.prompt("Experimenter names (comma-separated)")
+
+    experimenter_list = [e.strip() for e in experimenters.split(",")]
+
+    success = init_experiment(
+        root_path=experiment_root,
+        lab=lab,
+        institution=institution,
+        experimenters=experimenter_list,
+        protocol=protocol,
+        experiment_description=description,
+        interactive=not yes,
+    )
+
+    if not success:
+        raise typer.Exit(1)
+
+
+@data_app.command(name="add-subject")
+def data_add_subject(
+    experiment_root: Path = typer.Argument(..., help="Path to experiment root directory"),
+    subject_id: str = typer.Argument(..., help="Subject identifier (e.g., 'subject-001')"),
+    species: str = typer.Option("Mus musculus", "--species", help="Species name"),
+    sex: str = typer.Option("U", "--sex", help="Sex (F|M|U|O)"),
+    age: Optional[str] = typer.Option(None, "--age", help="Age in ISO 8601 duration (e.g., P84D)"),
+    genotype: Optional[str] = typer.Option(None, "--genotype", help="Genotype"),
+    strain: Optional[str] = typer.Option(None, "--strain", help="Strain"),
+    date_of_birth: Optional[str] = typer.Option(None, "--date-of-birth", help="Date of birth (ISO 8601)"),
+    weight: Optional[str] = typer.Option(None, "--weight", help="Weight"),
+    description: Optional[str] = typer.Option(None, "--description", help="Subject description"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts"),
+):
+    """Add a new subject to the experiment.
+
+    Creates:
+    - raw/{subject_id}/
+    - raw/{subject_id}/subject.toml
+
+    Example:
+        $ w2t-bkin data add-subject /data/my-experiment subject-001 \\
+            --species "Mus musculus" \\
+            --sex M \\
+            --age P84D
+
+        $ w2t-bkin data add-subject /data/my-experiment subject-002 -y
+    """
+    subject_config = SubjectConfig(
+        subject_id=subject_id,
+        species=species,
+        sex=sex,
+        age=age,
+        genotype=genotype,
+        strain=strain,
+        date_of_birth=date_of_birth,
+        weight=weight,
+        description=description,
+    )
+
+    success = add_subject(
+        experiment_root=experiment_root,
+        subject_config=subject_config,
+        interactive=not yes,
+    )
+
+    if not success:
+        raise typer.Exit(1)
+
+
+@data_app.command(name="add-session")
+def data_add_session(
+    experiment_root: Path = typer.Argument(..., help="Path to experiment root directory"),
+    subject_id: str = typer.Argument(..., help="Subject identifier"),
+    session_id: str = typer.Argument(..., help="Session identifier (e.g., 'session-001')"),
+    date: Optional[str] = typer.Option(None, "--date", help="Session date (ISO 8601, e.g., 2024-01-15)"),
+    description: Optional[str] = typer.Option(None, "--description", help="Session description"),
+    experimenter: Optional[str] = typer.Option(None, "--experimenter", help="Experimenter name"),
+    start_time: Optional[str] = typer.Option(None, "--start-time", help="Session start time (ISO 8601)"),
+    no_subdirs: bool = typer.Option(False, "--no-subdirs", help="Don't create Video/TTLs/Bpod folders"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts"),
+):
+    """Add a new session for a subject.
+
+    Creates:
+    - raw/{subject_id}/{session_id}/
+    - raw/{subject_id}/{session_id}/session.toml
+    - raw/{subject_id}/{session_id}/Video/  (optional)
+    - raw/{subject_id}/{session_id}/TTLs/   (optional)
+    - raw/{subject_id}/{session_id}/Bpod/   (optional)
+
+    Example:
+        $ w2t-bkin data add-session /data/my-experiment subject-001 session-001 \\
+            --date 2024-01-15 \\
+            --description "Baseline recording" \\
+            --experimenter "Alice"
+
+        $ w2t-bkin data add-session /data/my-experiment subject-001 session-002 -y
+    """
+    # Interactive mode
+    if not date:
+        from datetime import date as date_cls
+
+        date = str(date_cls.today())
+    if not description:
+        description = typer.prompt("Session description", default="Behavioral session")
+    if not experimenter:
+        experimenter = typer.prompt("Experimenter name")
+
+    session_config = SessionConfig(
+        session_id=session_id,
+        session_date=date,
+        session_description=description,
+        experimenter=experimenter,
+        session_start_time=start_time,
+    )
+
+    success = add_session(
+        experiment_root=experiment_root,
+        subject_id=subject_id,
+        session_config=session_config,
+        create_subdirs=not no_subdirs,
+        interactive=not yes,
+    )
+
+    if not success:
+        raise typer.Exit(1)
+
+
+@data_app.command(name="import-raw")
+def data_import_raw(
+    source: Path = typer.Argument(..., help="Source directory containing raw data"),
+    experiment_root: Path = typer.Option(..., "--experiment", "-e", help="Experiment root directory"),
+    subject_id: str = typer.Option(..., "--subject", "-s", help="Target subject ID"),
+    session_id: str = typer.Option(..., "--session", help="Target session ID"),
+    no_detect: bool = typer.Option(False, "--no-detect", help="Skip automatic file pattern detection"),
+    confirm: bool = typer.Option(False, "--confirm", help="Execute import (required for actual operation)"),
+):
+    """Import existing raw data using symbolic links (SAFE - preserves originals).
+
+    This command NEVER moves or deletes original data. It creates symbolic links
+    in the target session directory that point to your original files.
+
+    Process:
+    1. Scans source directory for recognizable files (videos, TTLs, Bpod .mat)
+    2. Auto-detects file patterns and camera/TTL IDs
+    3. Shows preview of what will be imported
+    4. Creates symbolic links in target session (only if --confirm)
+
+    Dry-run by default:
+    - Without --confirm: Shows preview only (safe)
+    - With --confirm: Creates symbolic links
+
+    Example:
+        # Preview import (dry-run)
+        $ w2t-bkin data import-raw /raw-data/2024-01-15 \\
+            --experiment /data/my-experiment \\
+            --subject subject-001 \\
+            --session session-001
+
+        # Execute import (creates symlinks)
+        $ w2t-bkin data import-raw /raw-data/2024-01-15 \\
+            --experiment /data/my-experiment \\
+            --subject subject-001 \\
+            --session session-001 \\
+            --confirm
+
+    Safety features:
+    - Uses symbolic links (preserves originals)
+    - Dry-run by default
+    - Explicit --confirm required for execution
+    - Auto-updates session.toml with detected cameras/TTLs
+    """
+    success = import_raw_data(
+        source_dir=source,
+        experiment_root=experiment_root,
+        subject_id=subject_id,
+        session_id=session_id,
+        auto_detect=not no_detect,
+        dry_run=not confirm,
+    )
+
+    if not success:
+        raise typer.Exit(1)
+
+
+@data_app.command(name="validate")
+def data_validate(
+    experiment_root: Path = typer.Argument(..., help="Path to experiment root directory"),
+    subject: Optional[str] = typer.Option(None, "--subject", "-s", help="Filter by subject ID"),
+    session: Optional[str] = typer.Option(None, "--session", help="Filter by session ID"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed validation info"),
+):
+    """Validate experiment folder structure and metadata.
+
+    Checks:
+    - Required folders exist (raw/, interim/, processed/)
+    - Root metadata.toml is valid
+    - Subject folders have subject.toml
+    - Session folders have session.toml with required fields
+    - Camera/TTL file patterns match actual files
+    - TOML syntax is correct
+
+    Example:
+        # Validate entire experiment
+        $ w2t-bkin data validate /data/my-experiment
+
+        # Validate specific subject
+        $ w2t-bkin data validate /data/my-experiment --subject subject-001
+
+        # Validate specific session
+        $ w2t-bkin data validate /data/my-experiment \\
+            --subject subject-001 \\
+            --session session-001 \\
+            --verbose
+    """
+    result: ValidationResult = validate_experiment_structure(
+        experiment_root=experiment_root,
+        subject_filter=subject,
+        session_filter=session,
+        verbose=verbose,
+    )
+
+    # Display results
+    console.print(f"\n[bold]Validation Results[/bold]")
+    console.print(f"Experiment: [cyan]{experiment_root}[/cyan]\n")
+
+    if result.errors:
+        console.print(f"[red]✗ {len(result.errors)} Error(s):[/red]")
+        for error in result.errors:
+            console.print(f"  • {error}")
+        console.print()
+
+    if result.warnings:
+        console.print(f"[yellow]⚠ {len(result.warnings)} Warning(s):[/yellow]")
+        for warning in result.warnings:
+            console.print(f"  • {warning}")
+        console.print()
+
+    if verbose and result.info:
+        console.print(f"[dim]ℹ Info:[/dim]")
+        for info in result.info:
+            console.print(f"  {info}")
+        console.print()
+
+    if result.valid:
+        console.print(f"[bold green]✓ Validation passed![/bold green]")
+        if result.warnings:
+            console.print(f"  ({len(result.warnings)} warning(s) - review recommended)")
+    else:
+        console.print(f"[bold red]✗ Validation failed ({len(result.errors)} error(s))[/bold red]")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
