@@ -34,16 +34,21 @@ dependencies = [
     "tables~=3.8.0",
     "nwbinspector~=0.6.5",
     "typer~=0.20.0",
-    "rich~=14.2.0",
-    "prefect~=3.6.0"
+    "rich~=14.2.0"
 ]
-optional-dependencies = { dev = [
+
+[project.optional-dependencies]
+dev = [
     "black~=25.9.0",
     "isort~=7.0.0",
     "pytest~=9.0.0",
     "matplotlib~=3.8.0",
     "numpy~=1.26.0",
-] }
+]
+prefect = [
+    "prefect~=3.6.0"
+]
+
 requires-python = "~=3.10.0"
 
 [tool.black]

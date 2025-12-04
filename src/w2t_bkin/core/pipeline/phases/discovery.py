@@ -185,18 +185,33 @@ def _verify_synchronization(context: PipelineContext, cameras: list, progress: O
     should_verify = context.config.verification.enabled and context.config.verification.check_sync_mismatch
 
     if should_verify:
-        logger.debug("Verifying synchronization between cameras and TTLs...")
+        logger.info("📋 Verifying camera-TTL synchronization...")
+        verified_count = 0
+        skipped_count = 0
+
         for camera in cameras:
             camera_id = camera["id"]
             ttl_id = camera.get("ttl_id")
 
             if not ttl_id:
-                logger.debug(f"  Skipping verification for '{camera_id}' (no ttl_id configured)")
+                logger.debug(f"  ⊘ '{camera_id}': No TTL configured (camera.ttl_id not set)")
+                skipped_count += 1
                 continue
 
             if ttl_id not in context.ttl_files:
-                logger.warning(f"  Skipping verification for '{camera_id}': TTL source '{ttl_id}' not found")
+                logger.warning(f"  ⊘ '{camera_id}': TTL '{ttl_id}' not in session metadata " f"(add [[TTLs]] section with id='{ttl_id}')")
+                skipped_count += 1
                 continue
+
+            # CRITICAL FIX: Check if TTL files were actually discovered
+            if not context.ttl_files[ttl_id]:
+                logger.warning(
+                    f"  ⊘ '{camera_id}': No TTL files found for '{ttl_id}' "
+                    f"→ Skipping verification (cannot verify without sync data). "
+                    f"Set verification.check_sync_mismatch=false if this is expected."
+                )
+                skipped_count += 1
+                continue  # SKIP VERIFICATION - this is the key fix
 
             # Get frame count from cache if available, otherwise count now
             if camera_id in context.camera_frame_counts and context.camera_frame_counts[camera_id]:
@@ -207,8 +222,6 @@ def _verify_synchronization(context: PipelineContext, cameras: list, progress: O
 
             pulse_count = sum(utils.count_ttl_pulses(p) for p in context.ttl_files[ttl_id])
 
-            logger.debug(f"  Verifying '{camera_id}' ({frame_count} frames) vs '{ttl_id}' ({pulse_count} pulses)")
-
             try:
                 validate.verify_synchronization(
                     camera_id=camera_id,
@@ -217,16 +230,26 @@ def _verify_synchronization(context: PipelineContext, cameras: list, progress: O
                     pulse_count=pulse_count,
                     tolerance=context.config.verification.mismatch_tolerance_frames,
                 )
+                logger.info(f"  ✓ '{camera_id}' ↔ '{ttl_id}': Synchronized ({frame_count} frames, {pulse_count} pulses)")
+                verified_count += 1
             except MismatchExceedsToleranceError as e:
                 if context.config.verification.warn_on_mismatch:
-                    logger.warning(f"  Synchronization mismatch (warning only): {e}")
+                    logger.warning(f"  ⚠ '{camera_id}' ↔ '{ttl_id}': {e} (continuing with warning)")
+                    skipped_count += 1
                 else:
+                    logger.error(f"  ✗ '{camera_id}' ↔ '{ttl_id}': Verification failed")
                     raise
+
+        # Summary with actionable advice
+        if verified_count > 0:
+            logger.info(f"✓ Synchronization: {verified_count} verified, {skipped_count} skipped")
+        elif skipped_count > 0:
+            logger.warning(f"⚠ Synchronization: All {skipped_count} camera(s) skipped (no TTL data). " f"→ Consider setting verification.check_sync_mismatch=false in config.")
 
         if progress and task_id is not None:
             progress.advance(task_id)
     else:
-        logger.info("Skipping synchronization verification (verification.check_sync_mismatch=False)")
+        logger.info("⊘ Skipping synchronization verification (verification.check_sync_mismatch=false)")
 
 
 def _discover_bpod(context: PipelineContext, bpod_config: dict, progress: Optional[Progress], task_id: Optional[TaskID]) -> None:

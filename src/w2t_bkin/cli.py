@@ -1,17 +1,51 @@
 """Command-line interface for W2T Body Kinematics Pipeline.
 
 This module provides a Typer-based CLI with commands for running the pipeline,
-validating NWB files, and inspecting session outputs.
+validating NWB files, inspecting session outputs, and batch processing automation.
 
 Commands:
-    run: Execute pipeline for a session
+    run: Execute pipeline for a single subject/session
     validate: Validate an existing NWB file
     inspect: Display NWB file contents and metadata
+    discover: Find all available subject/session combinations for batch processing
+    batch: Process multiple sessions in parallel using multiprocessing
+    version: Display version information
+
+Batch Processing:
+    The batch command provides parallel batch processing using multiprocessing:
+    - Automatic retries (2 attempts) with exponential backoff
+    - Parallel execution with configurable worker count
+    - Graceful error handling (partial failures)
+    - Simple and dependency-free (no external services required)
+    
+    The discover command enables shell-based batch processing with GNU Parallel:
+    - Scans raw_root directory for valid session metadata
+    - Outputs in JSON, TSV, or plain format
+    - Supports filtering by subject or session
 
 Example:
+    # Single session processing
     $ python -m w2t_bkin.cli run config.toml subject-001 session-001
+    
+    # Batch processing with multiprocessing
+    $ python -m w2t_bkin.cli batch config.toml --max-workers 4
+    
+    # Filter specific subject or session
+    $ python -m w2t_bkin.cli batch config.toml --subject SNA-144233 --max-workers 2
+    
+    # Shell-based batch processing (GNU Parallel - for advanced users)
+    $ python -m w2t_bkin.cli discover config.toml --format tsv | \
+        parallel --bar --col-sep '\t' python -m w2t_bkin.cli run config.toml {1} {2}
+    
+    # Validation and inspection
     $ python -m w2t_bkin.cli validate output/session-001/session-001.nwb
     $ python -m w2t_bkin.cli inspect output/session-001/session-001.nwb
+
+See Also:
+    - docs/batch-processing.md: Comprehensive batch processing guide
+    - docs/quick-start-batch.md: Quick start guide for batch operations
+    - w2t_bkin.utils.discover_sessions: Programmatic discovery API
+    - w2t_bkin.orchestration: Prefect orchestration module
 """
 
 import json
@@ -446,6 +480,120 @@ def discover(
     except Exception as e:
         console.print(f"[bold red]Error during discovery:[/bold red] {e}")
         logging.exception("Discovery failed")
+        raise typer.Exit(1)
+
+
+@app.command()
+def batch(
+    config_path: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path to configuration TOML file",
+    ),
+    subject_filter: Optional[str] = typer.Option(
+        None,
+        "--subject",
+        "-s",
+        help="Filter by specific subject ID",
+    ),
+    session_filter: Optional[str] = typer.Option(
+        None,
+        "--session",
+        "-x",
+        help="Filter by specific session ID",
+    ),
+    max_workers: int = typer.Option(
+        4,
+        "--max-workers",
+        "-j",
+        help="Maximum concurrent sessions (default: 4)",
+    ),
+):
+    """Process multiple sessions in parallel using multiprocessing.
+
+    This command provides automatic retries, parallel execution, and graceful
+    error handling for batch processing. Uses Python's ProcessPoolExecutor
+    for parallel execution (no external services required).
+
+    Examples:
+        # Process all sessions with 4 parallel workers
+        python -m w2t_bkin.cli batch config.toml --max-workers 4
+
+        # Process specific subject
+        python -m w2t_bkin.cli batch config.toml --subject subject-001
+
+        # Process with 8 workers (adjust based on CPU cores)
+        python -m w2t_bkin.cli batch config.toml --max-workers 8
+
+    Features:
+        - Automatic retries (2 attempts with exponential backoff)
+        - Parallel execution using multiprocessing
+        - Graceful error handling (continues on partial failures)
+        - Structured logging and error tracking
+        - Resource management via max_workers
+        - No external dependencies (Prefect optional for advanced users)
+
+    See Also:
+        - discover: Find available sessions
+        - run: Process single session
+        - docs/batch-processing.md: Full batch processing guide
+    """
+    from w2t_bkin.orchestration import batch_process_sessions
+
+    try:
+        console.print("[cyan]╭─────────────────────────────────────────────╮[/cyan]")
+        console.print("[cyan]│  Batch Processing (Multiprocessing)         │[/cyan]")
+        console.print("[cyan]╰─────────────────────────────────────────────╯[/cyan]")
+        console.print()
+        console.print(f"  Config: [dim]{config_path}[/dim]")
+        console.print(f"  Max workers: [yellow]{max_workers}[/yellow]")
+        if subject_filter:
+            console.print(f"  Subject filter: [yellow]{subject_filter}[/yellow]")
+        if session_filter:
+            console.print(f"  Session filter: [yellow]{session_filter}[/yellow]")
+        console.print()
+
+        # Run batch processing
+        result = batch_process_sessions(
+            config_path=config_path,
+            subject_filter=subject_filter,
+            session_filter=session_filter,
+            max_workers=max_workers,
+        )
+
+        # Display results
+        console.print()
+        console.print("[cyan]╭─────────────────────────────────────────────╮[/cyan]")
+        console.print("[cyan]│  Batch Processing Complete                  │[/cyan]")
+        console.print("[cyan]╰─────────────────────────────────────────────╯[/cyan]")
+        console.print()
+        console.print(f"  Total sessions: [bold]{result['total']}[/bold]")
+        console.print(f"  Successful: [bold green]{result['successful']}[/bold green]")
+        console.print(f"  Failed: [bold {'red' if result['failed'] > 0 else 'dim'}]{result['failed']}[/bold {'red' if result['failed'] > 0 else 'dim'}]")
+
+        if result["failed"] > 0:
+            console.print()
+            console.print("[yellow]Failed sessions:[/yellow]")
+            for r in result["results"]:
+                if not r["success"]:
+                    console.print(f"  [red]✗[/red] {r['subject_id']:15s} / {r['session_id']:30s}")
+                    console.print(f"    [dim]{r['error']}[/dim]")
+            console.print()
+            console.print("[yellow]💡 Check logs for detailed error information[/yellow]")
+            raise typer.Exit(1)
+
+        console.print()
+        console.print("[bold green]✓ All sessions processed successfully![/bold green]")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print()
+        console.print(f"[bold red]Batch processing failed:[/bold red] {e}")
+        logging.exception("Batch processing error")
         raise typer.Exit(1)
 
 
