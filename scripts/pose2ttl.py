@@ -60,7 +60,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Add project root to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from figures.pose import plot_ttl_detection_from_pose
+from w2t_bkin.figures.pose import plot_ttl_detection_from_pose
 from w2t_bkin.sync.ttl_mock import TTLMockOptions, generate_ttl_from_dlc_likelihood, write_ttl_timestamps
 
 

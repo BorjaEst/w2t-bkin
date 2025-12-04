@@ -973,7 +973,7 @@ if __name__ == "__main__":
 # =============================================================================
 
 
-def count_video_frames(video_path: Path) -> int:
+def count_video_frames(video_path: Path, timeout: int = 30) -> int:
     """Count frames in a video file using ffprobe or synthetic stub.
 
     This function counts video frames using ffprobe. It includes special
@@ -982,6 +982,7 @@ def count_video_frames(video_path: Path) -> int:
 
     Args:
         video_path: Path to video file
+        timeout: Maximum time in seconds to wait for ffprobe (default: 30)
 
     Returns:
         Number of frames in video (0 if file not found or empty)
@@ -1019,7 +1020,7 @@ def count_video_frames(video_path: Path) -> int:
 
     # Use ffprobe to count frames
     try:
-        frame_count = run_ffprobe(video_path)
+        frame_count = run_ffprobe(video_path, timeout=timeout)
         logger.debug(f"Counted {frame_count} frames in {video_path.name}")
         return frame_count
     except Exception as e:

@@ -217,7 +217,11 @@ class SessionPipeline:
         except Exception as e:
             logger.warning(f"Failed to save profiling data: {e}")
 
-        # Generate diagnostic figures
+        # Generate diagnostic figures (if enabled)
+        if not self.context.options.generate_figures:
+            logger.info("Figure generation disabled, skipping diagnostic plots")
+            return
+
         try:
             # Pipeline execution (merged timing + timeline)
             execution_fig_path = figures_dir / "pipeline_execution.png"

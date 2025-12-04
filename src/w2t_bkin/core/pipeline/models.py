@@ -23,8 +23,10 @@ class RunOptions:
         skip_verification: Skip file verification (default: False)
         skip_nwb_validation: Skip NWB validation with nwbinspector (default: False)
         force_overwrite: Overwrite existing output files (default: False)
+        generate_figures: Generate diagnostic figures (default: True)
         verification_tolerance: Optional tolerance for frame/pulse mismatch
         warn_on_mismatch: Warn instead of fail on mismatch
+        video_frame_timeout: Timeout for video frame counting operations in seconds (default: 30)
     """
 
     skip_bpod: bool = False
@@ -33,8 +35,10 @@ class RunOptions:
     skip_verification: bool = False
     skip_nwb_validation: bool = False
     force_overwrite: bool = False
+    generate_figures: bool = True
     verification_tolerance: Optional[int] = None
     warn_on_mismatch: Optional[bool] = None
+    video_frame_timeout: int = 30
 
 
 @dataclass

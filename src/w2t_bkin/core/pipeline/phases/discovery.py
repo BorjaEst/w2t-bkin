@@ -56,7 +56,8 @@ def _discover_cameras(context: PipelineContext, cameras: list, progress: Optiona
             )
 
         context.camera_files[camera_id] = video_paths
-        frame_count = sum(utils.count_video_frames(p) for p in video_paths)
+        timeout = context.options.video_frame_timeout
+        frame_count = sum(utils.count_video_frames(p, timeout=timeout) for p in video_paths)
 
         logger.info(f"  Camera '{camera_id}': {len(video_paths)} file(s), {frame_count} frames")
         logger.debug(f"    Files: {[p.name for p in video_paths]}")
@@ -125,7 +126,8 @@ def _verify_synchronization(context: PipelineContext, cameras: list, progress: O
                 logger.warning(f"  Skipping verification for '{camera_id}': TTL source '{ttl_id}' not found")
                 continue
 
-            frame_count = sum(utils.count_video_frames(p) for p in context.camera_files[camera_id])
+            timeout = context.options.video_frame_timeout
+            frame_count = sum(utils.count_video_frames(p, timeout=timeout) for p in context.camera_files[camera_id])
             pulse_count = sum(utils.count_ttl_pulses(p) for p in context.ttl_files[ttl_id])
 
             logger.debug(f"  Verifying '{camera_id}' ({frame_count} frames) vs '{ttl_id}' ({pulse_count} pulses)")

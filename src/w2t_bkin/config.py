@@ -204,13 +204,26 @@ class TranscodeConfig(BaseModel, extra="forbid"):
     keyint: int = Field(default=15, ge=1, description="GOP length")
 
 
+class VideoAnalysisConfig(BaseModel, extra="forbid"):
+    """Video analysis configuration.
+
+    Attributes:
+        frame_count_timeout: Maximum time in seconds for frame counting operations (default: 30).
+                             Increase for very long videos that take longer to analyze.
+    """
+
+    frame_count_timeout: int = Field(default=30, ge=1, description="Frame counting timeout in seconds")
+
+
 class VideoConfig(BaseModel, extra="forbid"):
     """Video processing configuration.
 
     Attributes:
+        analysis: Video analysis settings.
         transcode: Transcoding settings.
     """
 
+    analysis: VideoAnalysisConfig = Field(default_factory=VideoAnalysisConfig, description="Analysis config")
     transcode: TranscodeConfig = Field(default_factory=TranscodeConfig, description="Transcoding config")
 
 

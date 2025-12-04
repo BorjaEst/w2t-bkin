@@ -26,6 +26,7 @@ from rich.panel import Panel
 from rich.table import Table
 import typer
 
+from .config import load_config
 from .core.pipeline import RunOptions, SessionPipeline
 
 app = typer.Typer(
@@ -49,21 +50,28 @@ def run(
     tolerance: Optional[int] = typer.Option(None, "--tolerance", help="Override verification tolerance (frames)"),
     warn_on_mismatch: Optional[bool] = typer.Option(None, "--warn-on-mismatch", help="Warn instead of fail on mismatch"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing outputs"),
+    no_figures: bool = typer.Option(False, "--no-figures", help="Skip generating diagnostic figures"),
+    video_frame_timeout: Optional[int] = typer.Option(None, "--video-timeout", help="Video frame counting timeout in seconds (overrides config)"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"),
 ):
     """Run the pipeline for a single session.
 
-    This command executes all 6 phases of the pipeline:
+    This command executes all 7 phases of the pipeline:
     0. Initialization - Load config and create NWBFile
     1. Discovery - Find and verify files
-    2. Ingestion - Process Bpod and TTL data
-    3. Synchronization - Compute alignment statistics
-    4. Assembly - Build NWB behavior tables
-    5. Finalization - Write, validate, and create sidecars
+    2. Preprocessing - Generate intermediate artifacts
+    3. Ingestion - Process Bpod, Pose, and TTL data
+    4. Synchronization - Compute alignment statistics
+    5. Assembly - Build NWB behavior tables
+    6. Finalization - Write, validate, and create sidecars
+
+    By default, diagnostic figures are generated showing pipeline execution
+    timing and synchronization quality metrics. Use --no-figures to skip.
 
     Example:
         $ python -m w2t_bkin.cli run config.toml subject-001 session-001
         $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --skip-validation
+        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-figures
     """
     # Set logging level
     logging.getLogger().setLevel(log_level.upper())
@@ -72,6 +80,12 @@ def run(
         console.print(f"[red]Error: Config file not found: {config_path}[/red]")
         raise typer.Exit(1)
 
+    # Load config to get default timeout value
+    config = load_config(config_path)
+
+    # Use CLI timeout if provided, otherwise use config value
+    timeout = video_frame_timeout if video_frame_timeout is not None else config.video.analysis.frame_count_timeout
+
     options = RunOptions(
         skip_bpod=skip_bpod,
         skip_pose=skip_pose,
@@ -79,8 +93,10 @@ def run(
         skip_verification=skip_verification,
         skip_nwb_validation=skip_validation,
         force_overwrite=force,
+        generate_figures=not no_figures,
         verification_tolerance=tolerance,
         warn_on_mismatch=warn_on_mismatch,
+        video_frame_timeout=timeout,
     )
 
     pipeline = SessionPipeline(config_path, subject_id, session_id, options)
