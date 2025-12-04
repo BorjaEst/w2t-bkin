@@ -8,6 +8,7 @@ version = "0.0.9"
 description = "Mouse wiskers body kinematics and behaviour"
 authors = [{ name = "Larkum Lab" }]
 license = { text = "Apache-2.0" }
+requires-python = "~=3.10.0"
 
 readme = "README.md"
 classifiers = [
@@ -34,7 +35,7 @@ dependencies = [
     "tables~=3.8.0",
     "nwbinspector~=0.6.5",
     "typer~=0.20.0",
-    "rich~=14.2.0"
+    "rich~=14.2.0",
 ]
 
 [project.optional-dependencies]
@@ -45,11 +46,7 @@ dev = [
     "matplotlib~=3.8.0",
     "numpy~=1.26.0",
 ]
-prefect = [
-    "prefect~=3.6.0"
-]
-
-requires-python = "~=3.10.0"
+prefect = ["prefect~=3.6.0"]
 
 [tool.black]
 line-length = 180
