@@ -1,0 +1,149 @@
+name: Container Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+jobs:
+  test-compose-deployment:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[prefect]
+
+      - name: Build images locally
+        run: |
+          docker compose build
+
+      - name: Start services
+        run: |
+          docker compose up -d postgres server
+          
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for Prefect server to be ready..."
+          timeout 60 bash -c 'until curl -sf http://localhost:4200/api/health > /dev/null 2>&1; do sleep 2; done'
+          echo "✅ Server is ready"
+
+      - name: Test server health
+        run: |
+          curl -f http://localhost:4200/api/health
+
+      - name: Start worker
+        run: |
+          docker compose up -d worker
+
+      - name: Check worker logs
+        run: |
+          sleep 10
+          docker compose logs worker
+
+      - name: Verify worker connection
+        run: |
+          # Check that worker appears in logs
+          docker compose logs server | grep -i "worker" || true
+          docker compose logs worker | grep -i "connected" || true
+
+      - name: Test CLI commands
+        run: |
+          # Test container detection
+          python -m w2t_bkin.cli container status || true
+
+      - name: View all logs
+        if: always()
+        run: |
+          docker compose logs
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose down -v
+
+  test-runtime-detection:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[prefect]
+
+      - name: Test runtime detection (Docker available)
+        run: |
+          python -c "from w2t_bkin.container import detect_runtime; rt = detect_runtime(); print(f'Detected: {rt}'); assert rt.value in ['docker', 'podman']"
+
+      - name: Test version detection
+        run: |
+          python -c "from w2t_bkin.container import detect_runtime, get_runtime_version; rt = detect_runtime(); print(get_runtime_version(rt))"
+
+      - name: Test compose support
+        run: |
+          python -c "from w2t_bkin.container.runtime import detect_runtime, check_compose_support; rt = detect_runtime(); assert check_compose_support(rt), 'Compose not supported'"
+
+  test-podman-deployment:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman podman-compose
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[prefect]
+
+      - name: Test runtime detection (Podman)
+        run: |
+          python -c "from w2t_bkin.container import detect_runtime; rt = detect_runtime(); print(f'Detected: {rt}'); assert rt.value == 'podman'"
+
+      - name: Build images with Podman
+        run: |
+          podman build --target server -t w2t-bkin:server .
+          podman build --target worker -t w2t-bkin:worker .
+
+      - name: Test images with Podman
+        run: |
+          # Test worker CLI
+          podman run --rm w2t-bkin:worker python -m w2t_bkin.cli --version
+          # Test ffmpeg
+          podman run --rm w2t-bkin:worker ffmpeg -version

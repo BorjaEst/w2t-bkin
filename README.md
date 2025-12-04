@@ -16,6 +16,55 @@ A modular, reproducible Python pipeline for processing multi-camera rodent behav
 
 The project requires Python ~3.10.
 
+### Option 1: Container Deployment (Recommended) 🐳
+
+The easiest way to get started is using containers. No manual dependency installation required!
+
+```bash
+# 1. Install container runtime (choose one):
+
+# Option A: Podman (Recommended - 100% free, no licensing restrictions)
+# Linux:
+sudo apt-get install podman podman-compose  # Debian/Ubuntu
+sudo dnf install podman podman-compose      # Fedora/RHEL
+# Windows/macOS: Download from https://podman-desktop.io/
+
+# Option B: Docker (requires paid license for large organizations)
+# See: https://docs.docker.com/get-docker/
+# Note: After installing Docker, add your user to docker group:
+#   sudo usermod -aG docker $USER
+#   newgrp docker  # or logout/login
+
+# 2. Install CLI
+pip install w2t-bkin[prefect]
+
+# 3. Start server (CLI auto-detects Podman or Docker)
+w2t-bkin container start-server
+
+# 4. Start workers
+w2t-bkin container start-worker --workers 4
+
+# 5. Access web UI at http://localhost:4200
+```
+
+**Benefits**:
+
+- ✅ No manual ffmpeg/system dependency installation
+- ✅ Multi-platform: Windows, macOS, Linux, HPC clusters
+- ✅ Free & open-source runtimes (Podman recommended)
+- ✅ Web UI for monitoring pipeline runs
+- ✅ Distributed execution across network
+
+📚 **Container Guides**:
+
+- [Quick Start](docs/containerization/deployment-guide.md)
+- [HPC/Apptainer Deployment](docs/containerization/hpc-guide.md)
+- [Architecture & Design](docs/containerization/design.md)
+
+### Option 2: Native Python Installation
+
+For users who prefer traditional installation:
+
 1. **Install `ndx-structured-behavior`** (currently required from source):
 
    ```bash
@@ -23,10 +72,26 @@ The project requires Python ~3.10.
    pip install -U ./ndx-structured-behavior
    ```
 
-2. **Install `w2t-bkin`**:
+2. **Install system dependencies**:
+
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install ffmpeg
+
+   # macOS
+   brew install ffmpeg
+
+   # Windows
+   # Download from https://ffmpeg.org/download.html
+   ```
+
+3. **Install `w2t-bkin`**:
 
    ```bash
    pip install w2t-bkin
+
+   # Optional: Install Prefect for batch orchestration
+   pip install w2t-bkin[prefect]
    ```
 
 ## Project Structure
@@ -247,6 +312,43 @@ python -m w2t_bkin.cli inspect output.nwb
 
 # Check version
 python -m w2t_bkin.cli version
+```
+
+### Container Commands
+
+The CLI automatically detects available container runtime (Podman → Docker → Apptainer, in priority order).
+
+```bash
+# Start orchestration server (uses Podman/Docker automatically)
+w2t-bkin container start-server
+
+# Start worker containers
+w2t-bkin container start-worker --workers 4
+
+# View container status
+w2t-bkin container status
+
+# View logs
+w2t-bkin container logs server --follow
+
+# Stop all containers
+w2t-bkin container stop
+```
+
+**Alternative: Direct compose commands** (if you prefer manual control):
+
+```bash
+# Using Podman
+podman compose up -d                    # Start all services
+podman compose ps                       # Check status
+podman compose logs -f server          # View logs
+podman compose down                     # Stop all
+
+# Using Docker
+docker compose up -d                    # Start all services
+docker compose ps                       # Check status
+docker compose logs -f server          # View logs
+docker compose down                     # Stop all
 ```
 
 ### Batch Processing

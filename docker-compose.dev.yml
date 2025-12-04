@@ -1,0 +1,52 @@
+version: '3.8'
+
+# Development overrides for docker-compose.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: server
+    image: w2t-bkin:dev-server
+    volumes:
+      # Hot-reload source code
+      - ./src:/app/src:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+    environment:
+      # Debug logging
+      PREFECT_LOGGING_LEVEL: DEBUG
+      PREFECT_LOGGING_TO_API_ENABLED: "true"
+      # Enable internal API logging
+      PREFECT_SERVER_LOGGING_LEVEL: DEBUG
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    image: w2t-bkin:dev-worker
+    volumes:
+      # Hot-reload source code
+      - ./src:/app/src:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      # Local development data directories
+      - ./data:/data:rw
+      - ./models:/models:ro
+      - ./configs:/configs:ro
+      - ./temp:/temp:rw
+      - ./output:/output:rw
+    environment:
+      # Debug logging
+      PREFECT_LOGGING_LEVEL: DEBUG
+      # Python development mode
+      PYTHONDONTWRITEBYTECODE: "1"
+    deploy:
+      # Single worker for easier debugging
+      replicas: 1
+      resources:
+        # Relaxed limits for development
+        limits:
+          cpus: '2'
+          memory: 4G

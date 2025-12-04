@@ -613,5 +613,169 @@ def version():
     console.print(f"CLI: typer + rich")
 
 
+# =============================================================================
+# Container Commands
+# =============================================================================
+
+container_app = typer.Typer(
+    name="container",
+    help="Container orchestration commands for containerized deployment",
+)
+app.add_typer(container_app, name="container")
+
+
+@container_app.command(name="start-server")
+def container_start_server(
+    port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"),
+    detach: bool = typer.Option(True, "--detach/--follow", "-d", help="Run in background"),
+):
+    """Start Prefect server and database.
+
+    This starts the orchestration server with a web UI for monitoring pipeline runs.
+    The server will be available at http://localhost:<port> (default: 4200).
+
+    Example:
+        $ w2t-bkin container start-server
+        $ w2t-bkin container start-server --port 4201
+        $ w2t-bkin container start-server --follow  # Watch logs in foreground
+    """
+    try:
+        from .container import detect_runtime, start_server
+    except ImportError:
+        console.print("[red]❌ Container module not available[/red]")
+        console.print("Install with: pip install w2t-bkin[prefect]")
+        raise typer.Exit(1)
+
+    runtime = detect_runtime()
+
+    # Import moved inside function to avoid import errors
+    from .container.runtime import ContainerRuntime
+
+    if runtime == ContainerRuntime.NONE:
+        console.print("[red]❌ No container runtime detected.[/red]")
+        console.print("\n[yellow]Please install one of the following:[/yellow]")
+        console.print("  • [cyan]Podman Desktop[/cyan] (recommended): https://podman-desktop.io/")
+        console.print("  • [cyan]Docker[/cyan]: https://docs.docker.com/get-docker/")
+        console.print("  • [cyan]Apptainer[/cyan]: https://apptainer.org/")
+        raise typer.Exit(1)
+
+    start_server(runtime, port=port, detach=detach)
+
+
+@container_app.command(name="start-worker")
+def container_start_worker(
+    workers: int = typer.Option(1, "--workers", "-w", help="Number of worker instances"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Path to config.toml"),
+):
+    """Start worker container(s) to execute pipeline tasks.
+
+    Workers connect to the Prefect server and execute pipeline runs in parallel.
+    Start as many workers as you have CPU cores available.
+
+    Example:
+        $ w2t-bkin container start-worker --workers 4
+        $ w2t-bkin container start-worker -w 2 --config ./configs/config.toml
+    """
+    try:
+        from .container import detect_runtime, start_workers
+    except ImportError:
+        console.print("[red]❌ Container module not available[/red]")
+        raise typer.Exit(1)
+
+    runtime = detect_runtime()
+
+    from .container.runtime import ContainerRuntime
+
+    if runtime == ContainerRuntime.NONE:
+        console.print("[red]❌ No container runtime detected.[/red]")
+        raise typer.Exit(1)
+
+    config_str = str(config) if config else None
+    start_workers(runtime, count=workers, config_path=config_str)
+
+
+@container_app.command(name="stop")
+def container_stop():
+    """Stop all w2t-bkin containers.
+
+    This stops the server, workers, and database containers.
+
+    Example:
+        $ w2t-bkin container stop
+    """
+    try:
+        from .container import detect_runtime, stop_all
+    except ImportError:
+        console.print("[red]❌ Container module not available[/red]")
+        raise typer.Exit(1)
+
+    runtime = detect_runtime()
+
+    from .container.runtime import ContainerRuntime
+
+    if runtime == ContainerRuntime.NONE:
+        console.print("[red]❌ No container runtime detected.[/red]")
+        raise typer.Exit(1)
+
+    stop_all(runtime)
+
+
+@container_app.command(name="status")
+def container_status():
+    """Show status of all w2t-bkin containers.
+
+    Displays which containers are running and their current state.
+
+    Example:
+        $ w2t-bkin container status
+    """
+    try:
+        from .container import detect_runtime, show_status
+    except ImportError:
+        console.print("[red]❌ Container module not available[/red]")
+        raise typer.Exit(1)
+
+    runtime = detect_runtime()
+
+    from .container.runtime import ContainerRuntime
+
+    if runtime == ContainerRuntime.NONE:
+        console.print("[red]❌ No container runtime detected.[/red]")
+        raise typer.Exit(1)
+
+    show_status(runtime)
+
+
+@container_app.command(name="logs")
+def container_logs(
+    service: str = typer.Argument("server", help="Service name (server, worker, postgres)"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output"),
+    tail: Optional[int] = typer.Option(None, "--tail", "-n", help="Number of lines to show"),
+):
+    """Show logs for a container service.
+
+    Example:
+        $ w2t-bkin container logs server
+        $ w2t-bkin container logs worker --follow
+        $ w2t-bkin container logs postgres --tail 100
+    """
+    try:
+        from .container import detect_runtime
+        from .container.orchestrator import logs
+    except ImportError:
+        console.print("[red]❌ Container module not available[/red]")
+        raise typer.Exit(1)
+
+    runtime = detect_runtime()
+
+    from .container.runtime import ContainerRuntime
+
+    if runtime == ContainerRuntime.NONE:
+        console.print("[red]❌ No container runtime detected.[/red]")
+        raise typer.Exit(1)
+
+    logs(runtime, service=service, follow=follow, tail=tail)
+
+
 if __name__ == "__main__":
     app()

@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for Prefect server
+  postgres:
+    image: postgres:14-alpine
+    container_name: w2t-bkin-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-prefect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prefect}
+      POSTGRES_DB: ${POSTGRES_DB:-prefect}
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prefect}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - w2t-network
+
+  # Prefect server (orchestrator)
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: server
+    image: ghcr.io/borjaest/w2t-bkin:latest-server
+    container_name: w2t-bkin-server
+    ports:
+      - "${PREFECT_UI_PORT:-4200}:4200"
+    environment:
+      # Database connection
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${POSTGRES_USER:-prefect}:${POSTGRES_PASSWORD:-prefect}@postgres:5432/${POSTGRES_DB:-prefect}
+      # Server configuration
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_SERVER_API_PORT: 4200
+      # Logging
+      PREFECT_LOGGING_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
+      PREFECT_LOGGING_SERVER_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4200/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - w2t-network
+
+  # Prefect worker (executor)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    image: ghcr.io/borjaest/w2t-bkin:latest-worker
+    environment:
+      # Prefect connection
+      PREFECT_API_URL: http://server:4200/api
+      WORK_POOL: ${WORK_POOL:-docker-pool}
+      # Logging
+      PREFECT_LOGGING_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
+    volumes:
+      # Mount data directories
+      # Read-only for raw data and models (safety)
+      - ${DATA_ROOT:-./data}:/data:ro
+      - ${MODELS_ROOT:-./models}:/models:ro
+      - ${CONFIG_ROOT:-./configs}:/configs:ro
+      # Read-write for intermediate and output data
+      - ${INTERIM_ROOT:-./data/interim}:/data/interim:rw
+      - ${OUTPUT_ROOT:-./data/processed}:/data/processed:rw
+    depends_on:
+      server:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: '${WORKER_CPU_LIMIT:-4}'
+          memory: ${WORKER_MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: '${WORKER_CPU_RESERVATION:-1}'
+          memory: ${WORKER_MEMORY_RESERVATION:-2G}
+    restart: unless-stopped
+    networks:
+      - w2t-network
+
+volumes:
+  # PostgreSQL data persistence
+  postgres_data:
+    driver: local
+    name: w2t-bkin-postgres-data
+
+networks:
+  # Isolated network for w2t-bkin services
+  w2t-network:
+    driver: bridge
+    name: w2t-bkin-network

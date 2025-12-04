@@ -1,0 +1,139 @@
+name: Build and Push Container Images
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    strategy:
+      matrix:
+        target: [server, worker]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch,suffix=-${{ matrix.target }}
+            type=ref,event=pr,suffix=-${{ matrix.target }}
+            type=semver,pattern={{version}},suffix=-${{ matrix.target }}
+            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.target }}
+            type=raw,value=latest-${{ matrix.target }},enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=w2t-bkin-${{ matrix.target }}
+            org.opencontainers.image.description=W2T Body Kinematics Pipeline - ${{ matrix.target }} container
+
+      - name: Build and push ${{ matrix.target }} image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+
+      - name: Run Trivy vulnerability scanner
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-${{ matrix.target }}
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.target }}.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results-${{ matrix.target }}.sarif'
+          category: 'trivy-${{ matrix.target }}'
+
+      - name: Image digest
+        if: github.event_name != 'pull_request'
+        run: echo "Image pushed with digest ${{ steps.build.outputs.digest }}"
+
+  test-images:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull images
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-server
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker
+
+      - name: Test server image
+        run: |
+          # Test that image runs and has correct dependencies
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-server python -c "import prefect; print(f'Prefect version: {prefect.__version__}')"
+          
+      - name: Test worker image
+        run: |
+          # Test that CLI is available
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker python -m w2t_bkin.cli --version
+          # Test ffmpeg
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker ffmpeg -version
+
+      - name: Test image size
+        run: |
+          SERVER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-server --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
+          WORKER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
+          echo "Server image size: ${SERVER_SIZE} GB"
+          echo "Worker image size: ${WORKER_SIZE} GB"
+          # Warn if over 2GB
+          if (( $(echo "$SERVER_SIZE > 2" | bc -l) )); then
+            echo "::warning::Server image exceeds 2GB"
+          fi
+          if (( $(echo "$WORKER_SIZE > 2" | bc -l) )); then
+            echo "::warning::Worker image exceeds 2GB"
+          fi
