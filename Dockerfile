@@ -33,25 +33,44 @@ RUN useradd -m -u 1000 -s /bin/bash w2t && \
 # Set working directory
 WORKDIR /app
 
-# Copy NWB extensions and install them first
-COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
+# =============================================================================
+# BUILD OPTIMIZATION: Install dependencies BEFORE copying source code
+# This creates cached layers for heavy packages (PyTorch, DeepLabCut, etc.)
+# Rebuilds only take 30 seconds instead of 10+ minutes when code changes
+# =============================================================================
+
+# Step 1: Copy only pyproject.toml to detect dependency changes
+COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
+
+# Step 2: Install all heavy dependencies explicitly
+# This layer is cached and only rebuilds when pyproject.toml changes
+# Let pip resolve exact versions to avoid conflicts
 RUN pip install --no-cache-dir \
-    ./nwb-extensions/ndx-events \
-    ./nwb-extensions/ndx-pose \
-    ./nwb-extensions/ndx-structured-behavior \
+    pynwb~=3.1.0 \
+    h5py~=3.15.0 \
+    deeplabcut[tf]~=2.3.0 \
+    # sleap-io~=0.1.0 \ sleap is not supported on Python 3.10
+    prefect~=3.6.0 \
     && pip cache purge
 
-# Copy Python package files
-COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
+# Step 3: Copy and install NWB extensions (lightweight, rarely change)
+COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
+RUN pip install --no-cache-dir \
+    -e ./nwb-extensions/ndx-events \
+    -e ./nwb-extensions/ndx-pose \
+    -e ./nwb-extensions/ndx-structured-behavior \
+    && pip cache purge
+
+# Step 4: NOW copy source code (changes frequently during development)
+# Since all dependencies are already installed, this is FAST
 COPY --chown=w2t:w2t src/ ./src/
 
-# Install Python package and dependencies
-# Using --no-cache-dir to reduce image size
-RUN pip install --no-cache-dir -e .[prefect] && \
+# Step 5: Install the package itself (just links the code, no downloads)
+RUN pip install --no-cache-dir -e . && \
     pip cache purge
 
 # Verify installation
-RUN python -m w2t_bkin.cli --version && \
+RUN python -m w2t_bkin.cli version && \
     ffmpeg -version | head -n 1
 
 # Switch to non-root user
@@ -71,19 +90,27 @@ ENV OUTPUT_ROOT=/output
 # =============================================================================
 FROM base AS server
 
-# Switch back to root to install additional packages
+# Stay as root to fix permissions for Prefect UI
 USER root
 
-# Install Prefect server dependencies
-RUN pip install --no-cache-dir \
-    prefect[server]>=3.0.0 \
-    asyncpg>=0.29.0 \
-    && pip cache purge
+# Prefect v3 is already installed in base layer
+# Just install asyncpg for PostgreSQL support
+RUN pip install --no-cache-dir asyncpg>=0.29.0 && \
+    pip cache purge
 
-# Copy server entrypoint script
+# Fix permissions for Prefect UI directory (Prefect v3 needs write access)
+RUN mkdir -p /usr/local/lib/python3.10/site-packages/prefect/server/ui_build && \
+    chown -R w2t:w2t /usr/local/lib/python3.10/site-packages/prefect/server/ui_build && \
+    chmod -R 755 /usr/local/lib/python3.10/site-packages/prefect/server/ui_build
+
+# Copy server scripts
 COPY --chown=w2t:w2t --chmod=755 docker/start-server.sh /usr/local/bin/start-server.sh
+COPY --chown=w2t:w2t --chmod=755 docker/deploy_flows.py /usr/local/bin/deploy_flows.py
 
-# Switch back to non-root user
+# Create Prefect home directory with correct permissions
+RUN mkdir -p /app/.prefect && chown -R w2t:w2t /app/.prefect
+
+# Switch to non-root user
 USER w2t
 
 # Expose Prefect UI port
@@ -92,11 +119,9 @@ EXPOSE 4200
 # Environment variables for Prefect server
 ENV PREFECT_SERVER_API_HOST=0.0.0.0
 ENV PREFECT_SERVER_API_PORT=4200
+ENV PREFECT_UI_API_URL=/api
 ENV PREFECT_HOME=/app/.prefect
 ENV PREFECT_LOGGING_LEVEL=INFO
-
-# Create Prefect home directory
-RUN mkdir -p /app/.prefect
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

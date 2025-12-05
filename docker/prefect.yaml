@@ -1,0 +1,21 @@
+# Prefect deployment configuration
+# This file defines how flows are deployed to the Prefect server
+
+# Deployment definition
+deployments:
+  - name: batch-processing
+    version: 1.0.0
+    description: Process multiple subjects/sessions in parallel
+    tags:
+      - w2t-bkin
+      - batch
+      - pipeline
+    entrypoint: w2t_bkin/orchestration/flows.py:batch_process_sessions_prefect
+    work_pool:
+      name: docker-pool
+      work_queue_name: default
+    parameters:
+      config_path: /app/config.toml
+      subject_filter: null
+      session_filter: null
+      max_workers: 4

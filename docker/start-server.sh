@@ -63,6 +63,14 @@ else
     echo "ℹ️  Work pool 'docker-pool' already exists"
 fi
 
+# Deploy flows using Python API
+echo "📦 Deploying flows..."
+if python /usr/local/bin/deploy_flows.py; then
+    echo "✅ Flows deployed successfully"
+else
+    echo "⚠️  Flow deployment failed (server will continue)"
+fi
+
 echo "🎉 Prefect server fully initialized"
 echo "📊 Web UI: http://localhost:${PREFECT_SERVER_API_PORT:-4200}"
 echo ""

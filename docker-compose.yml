@@ -28,7 +28,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: server
-    image: ghcr.io/borjaest/w2t-bkin:latest-server
+    image: w2t-bkin:server
     container_name: w2t-bkin-server
     ports:
       - "${PREFECT_UI_PORT:-4200}:4200"
@@ -41,6 +41,14 @@ services:
       # Logging
       PREFECT_LOGGING_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
       PREFECT_LOGGING_SERVER_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
+      # Deployment defaults (passed to deploy_flows.py)
+      DEFAULT_CONFIG_FILE: ${DEFAULT_CONFIG_FILE:-standard.toml}
+      DEFAULT_MAX_WORKERS: ${DEFAULT_MAX_WORKERS:-4}
+      DEFAULT_SUBJECT_FILTER: ${DEFAULT_SUBJECT_FILTER:-}
+      DEFAULT_SESSION_FILTER: ${DEFAULT_SESSION_FILTER:-}
+    volumes:
+      # Mount config directory for deployment script
+      - ${CONFIG_ROOT:-./configs}:/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,7 +68,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: worker
-    image: ghcr.io/borjaest/w2t-bkin:latest-worker
+    image: w2t-bkin:worker
     environment:
       # Prefect connection
       PREFECT_API_URL: http://server:4200/api

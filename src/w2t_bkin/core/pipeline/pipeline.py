@@ -49,7 +49,14 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
-from ...figures.profiling import PhaseTimer, PipelineProfile, plot_pipeline_execution, plot_synchronization_stats
+from ...figures.profiling import (
+    PhaseTimer,
+    PipelineProfile,
+    plot_pipeline_execution,
+    plot_sync_quality_and_completeness,
+    plot_synchronization_stats,
+    plot_ttl_inter_pulse_intervals,
+)
 from .models import PipelineContext, RunOptions, RunResult
 from .phases.assembly import run_phase_5
 from .phases.discovery import run_phase_1
@@ -327,6 +334,83 @@ class SessionPipeline:
                 sync_fig_path = figures_dir / "synchronization_stats.png"
                 plot_synchronization_stats(self.context.alignment_stats, save_path=sync_fig_path)
                 logger.info(f"Synchronization statistics figure saved to: {sync_fig_path}")
+
+            # TTL inter-pulse interval analysis (if TTL data available)
+            if self.context.ttl_pulses:
+                ipi_fig_path = figures_dir / "ttl_inter_pulse_intervals.png"
+
+                # Extract expected FPS from camera metadata
+                expected_fps = {}
+                for camera in self.context.metadata.get("cameras", []):
+                    ttl_id = camera.get("ttl_id")
+                    fps = camera.get("fps")
+                    if ttl_id and fps:
+                        expected_fps[ttl_id] = fps
+
+                result = plot_ttl_inter_pulse_intervals(
+                    self.context.ttl_pulses,
+                    expected_fps if expected_fps else None,
+                    save_path=ipi_fig_path,
+                )
+                if result:
+                    logger.info(f"TTL inter-pulse interval figure saved to: {ipi_fig_path}")
+
+            # Combined sync quality + completeness (if trial offsets available)
+            if self.context.trial_offsets and len(self.context.trial_offsets) >= 3:
+                combined_fig_path = figures_dir / "sync_quality_and_completeness.png"
+
+                # Build data streams availability (if available)
+                data_streams = None
+                if self.context.bpod_data:
+                    # Get ALL trial numbers from Bpod (not just successfully aligned ones)
+                    # Extract trial count from Bpod structure
+                    from w2t_bkin import utils
+
+                    session_data = utils.convert_matlab_struct(self.context.bpod_data.get("SessionData", {}))
+                    raw_events = utils.convert_matlab_struct(session_data.get("RawEvents", {}))
+                    trials = raw_events.get("Trial", [])
+                    n_trials = len(trials) if trials is not None else 0
+
+                    if n_trials == 0:
+                        logger.warning("No trials found in Bpod data, skipping completeness data streams")
+                        data_streams = None
+                    else:
+                        all_trial_numbers = list(range(1, n_trials + 1))
+
+                        # Check which trials were successfully aligned
+                        aligned_trials_set = set(self.context.trial_offsets.keys())
+
+                        data_streams = {}
+
+                        # Bpod availability: TRUE only for successfully aligned trials
+                        data_streams["Bpod"] = [trial_num in aligned_trials_set for trial_num in all_trial_numbers]
+
+                        # TTL channel availability: same as Bpod (if trial aligned, TTL was present)
+                        if self.context.ttl_pulses:
+                            for ttl_id in self.context.ttl_pulses.keys():
+                                data_streams[f"TTL_{ttl_id}"] = [trial_num in aligned_trials_set for trial_num in all_trial_numbers]
+
+                        # Camera/Pose availability: available for aligned trials (simplified)
+                        if self.context.pose_data:
+                            for camera_id, pose_list in self.context.pose_data.items():
+                                has_pose = len(pose_list) > 0
+                                data_streams[f"Pose_{camera_id}"] = [has_pose and (trial_num in aligned_trials_set) for trial_num in all_trial_numbers]
+
+                        # Only include data_streams if we have multiple streams
+                        if len(data_streams) <= 1:
+                            data_streams = None
+
+                result = plot_sync_quality_and_completeness(
+                    self.context.trial_offsets,
+                    data_streams=data_streams,
+                    save_path=combined_fig_path,
+                    csv_output_dir=output_dir,
+                )
+                if result:
+                    logger.info(f"Sync quality and completeness figure saved to: {combined_fig_path}")
+                    csv_path = output_dir / f"{combined_fig_path.stem}_validation.csv"
+                    if csv_path.exists():
+                        logger.info(f"Sync validation CSV saved to: {csv_path}")
 
             console.print(f"\n[green]✓ Diagnostic figures saved to: {figures_dir}[/green]")
 
