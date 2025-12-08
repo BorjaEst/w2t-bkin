@@ -1,4 +1,4 @@
-"""Integration tests for SLEAP Pose Ingestion in SessionPipeline."""
+"""Integration tests for SLEAP Pose Ingestion in flow orchestration."""
 
 from pathlib import Path
 import shutil
@@ -8,10 +8,10 @@ import pytest
 
 from synthetic import build_raw_folder
 from synthetic.pose_synth import PoseH5Params, create_sleap_pose_h5
-from w2t_bkin.core.pipeline import RunOptions, SessionPipeline
+from w2t_bkin.flows import process_session_flow
 
 
-class TestPipelineSLEAPIngestion:
+class TestFlowSLEAPIngestion:
     """Test SLEAP pose ingestion logic."""
 
     def test_Should_IngestSLEAPData_When_FilesExist(self, tmp_path):
@@ -71,27 +71,22 @@ class TestPipelineSLEAPIngestion:
 
         result.config_path.write_text(config_content)
 
-        # 3. Initialize pipeline
-        pipeline = SessionPipeline(
+        # 3. Run flow
+        flow_result = process_session_flow(
             config_path=result.config_path,
             subject_id=subject_id,
             session_id=session_id,
-            options=RunOptions(
-                skip_nwb_validation=True,
-                skip_pose=False,
-                skip_bpod=True,
-            ),
+            skip_nwb_validation=True,
+            skip_pose=False,
+            skip_bpod=True,
         )
 
-        # 4. Run pipeline
-        run_result = pipeline.run()
+        # 4. Verify success
+        assert flow_result.success, f"Flow failed: {flow_result.error}"
+        assert flow_result.nwb_path.exists()
 
-        # 5. Verify success
-        assert run_result.success, f"Pipeline failed: {run_result.error}"
-        assert run_result.nwb_path.exists()
-
-        # 6. Verify NWB content
-        with NWBHDF5IO(str(run_result.nwb_path), "r") as io:
+        # 5. Verify NWB content
+        with NWBHDF5IO(str(flow_result.nwb_path), "r") as io:
             nwb = io.read()
 
             # Check Processing Module

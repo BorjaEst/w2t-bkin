@@ -1,82 +1,71 @@
 ---
-title: W2T Body Kinematics Pipeline Architecture (Phase 1 Implementation)
+title: W2T Body Kinematics Pipeline Architecture (v0.0.10)
 ---
 graph TD
     %% ============================================================================
-    %% LEGEND: Implementation Status
-    %% ✅ Implemented | ⚠️ Partial/WIP | 🔵 Planned
+    %% LEGEND: ✅ Implemented
     %% ============================================================================
     
     %% ============================================================================
+    %% USER INTERFACES
+    %% ============================================================================
+    subgraph UserLayer["👤 User Interfaces"]
+        direction LR
+        CLI["✅ CLI<br/>Single session processing<br/>Batch processing<br/>Data management"]
+        PrefectUI["✅ Prefect UI<br/>Flow monitoring<br/>Deployment triggers<br/>Real-time logs"]
+        Docker["✅ Docker Compose<br/>Server + Workers<br/>PostgreSQL backend<br/>Multi-container orchestration"]
+    end
+
+    %% ============================================================================
+    %% ORCHESTRATION LAYER (Prefect)
+    %% ============================================================================
+    subgraph Orchestration["🔷 Orchestration Layer (Prefect)"]
+        direction TB
+        
+        subgraph Flows["✅ flows/"]
+            SingleFlow["process_session_flow<br/>6-phase workflow<br/>Single session processing"]
+            BatchFlow["batch_process_flow<br/>Parallel execution<br/>ThreadPoolExecutor<br/>Session discovery"]
+        end
+        
+        subgraph Tasks["✅ tasks/"]
+            DiscoveryTask["discovery_task<br/>Session/file discovery"]
+            IngestionTask["ingestion_task<br/>Bpod/Pose/TTL ingestion"]
+            ArtifactTask["artifact_generation_task<br/>DLC/SLEAP inference"]
+            AssemblyTask["assembly_task<br/>Trial alignment"]
+            FinalizationTask["finalization_task<br/>NWB write/validate"]
+        end
+    end
+
+    %% ============================================================================
+    %% OPERATIONS LAYER (Pure Python)
+    %% ============================================================================
+    subgraph Operations["🟢 Operations Layer (No Prefect Dependencies)"]
+        direction TB
+        
+        Discovery["✅ operations/discovery<br/>discover_sessions()<br/>load_session_metadata()<br/>verify_files()"]
+        
+        Ingestion["✅ operations/ingestion<br/>ingest_bpod_data()<br/>ingest_pose_data()<br/>ingest_ttl_data()"]
+        
+        Artifacts["✅ operations/artifact_generation<br/>generate_dlc_pose()<br/>generate_sleap_pose()"]
+        
+        Assembly["✅ operations/assembly<br/>align_trials()<br/>build_behavior_table()"]
+        
+        Finalization["✅ operations/finalization<br/>write_nwb_file()<br/>validate_nwb()"]
+        
+        Config["✅ operations/config_loader<br/>load_config()<br/>validate_config()"]
+        
+        Verification["✅ operations/verification<br/>verify_sync()<br/>check_frame_counts()"]
+    end
+
+    %% ============================================================================
     %% FOUNDATION LAYER (NWB-First)
-    %% External dependencies available to all layers
     %% ============================================================================
     subgraph Foundation["🔷 Foundation Layer (NWB-First)"]
         direction LR
         pynwb["pynwb~=3.1.0<br/>NWBFile, TimeSeries,<br/>TimeIntervals, ImageSeries"]
-        hdmf["hdmf~=4.1.0<br/>Hierarchical Data<br/>Modeling Framework"]
-        ndx_pose["ndx-pose~=0.2.0<br/>PoseEstimation,<br/>PoseEstimationSeries,<br/>Skeleton"]
+        ndx_pose["ndx-pose~=0.2.0<br/>PoseEstimation,<br/>Skeleton"]
         ndx_events["ndx-events~=0.4.0<br/>TTL/Hardware events"]
         ndx_behavior["ndx-structured-behavior~=0.1.0<br/>Trial structure"]
-    end
-
-    %% ============================================================================
-    %% LOW-LEVEL LAYER
-    %% Raw files + primitives → NWB-native structures
-    %% NEVER imports config, Session, or Manifest
-    %% ============================================================================
-    subgraph LowLevel["🟢 Low-Level Tools (Primitives Only)"]
-        direction TB
-        
-        utils["✅ utils<br/>━━━━━<br/>hashing, path safety,<br/>subprocess wrappers,<br/>logging, JSON I/O"]
-        
-        subgraph Ingest["✅ ingest (Data Loading)"]
-            bpod["✅ bpod<br/>Parse Bpod .mat → raw dict"]
-            behavior["✅ behavior<br/>Bpod data → ndx-structured-behavior<br/>TrialsTable, TaskRecording, Task"]
-            pose["✅ pose<br/>H5 files → PoseEstimation<br/>tuple API: (data, metadata)<br/>skeleton harmonization"]
-            ttl["✅ ttl<br/>TTL pulse files → Events<br/>(ndx-events)"]
-        end
-
-        subgraph Processors["✅ processors (Pure Functional)"]
-            dlc["✅ dlc<br/>GPU batch inference<br/>video paths → H5 pose files"]
-            facemap["⚠️ facemap (WIP)<br/>ROI specs → BehavioralTimeSeries<br/>motion energy computation"]
-            transcode["⚠️ transcode (WIP)<br/>FFmpeg video transcoding<br/>content addressing"]
-        end
-        
-        sync_primitives["✅ sync (internal)<br/>━━━━━<br/>alignment algorithms<br/>nearest/linear mapping<br/>jitter computation"]
-    end
-
-    %% ============================================================================
-    %% MID-LEVEL LAYER
-    %% Composition + timebase, no TOML/filesystem knowledge
-    %% ============================================================================
-    subgraph MidLevel["🟡 Mid-Level Tools (Composition & Timebase)"]
-        direction LR
-        
-        sync["✅ sync<br/>━━━━━<br/>Timebase providers<br/>(nominal, TTL, neuropixels)<br/>Alignment orchestration<br/>Jitter enforcement"]
-    end
-
-    %% ============================================================================
-    %% HIGH-LEVEL LAYER
-    %% Session-aware orchestration, owns Config/Session/filesystem
-    %% ============================================================================
-    subgraph HighLevel["🔴 High-Level Orchestration (Session-Aware)"]
-        direction TB
-        
-        config_pkg["✅ config<br/>━━━━━<br/>Pydantic Config models<br/>TOML loading + hashing<br/>Active: project, paths, bpod, logging"]
-        
-        tasks["✅ tasks<br/>━━━━━<br/>Preprocessing Framework<br/>Dependency Management<br/>Caching"]
-
-        subgraph Core["✅ core (Orchestration)"]
-            session_mod["✅ session<br/>NWBFile creation & Assembly<br/>Video acquisition<br/>NWB file writing"]
-            pipeline["✅ pipeline<br/>Orchestration entrypoint<br/>7-Phase Workflow<br/>Rich Logging"]
-        end
-        
-        cli["✅ cli<br/>━━━━━<br/>Entry point<br/>Argument parsing<br/>Logging setup"]
-        
-        validate["🔵 validate (Planned)<br/>━python libraries to orchestrate pipelines━━━━<br/>NWB validation<br/>(nwbinspector)"]
-        
-        qc["🔵 qc (Planned)<br/>━━━━━<br/>QC HTML generation<br/>from NWB + sidecars"]
     end
 
     %% ============================================================================
@@ -88,96 +77,49 @@ graph TD
         prefect_flow["🔵 @flow run_session<br/>━━━━━<br/>Main entrypoint<br/>State management"]
         prefect_tasks["🔵 @task wrappers<br/>━━━━━<br/>Granular execution<br/>Retries & Logging"]
         
-        runners["Runners:<br/>• Local (Concurrent)<br/>• HPC (Dask/Slurm)<br/>• K8s (KubernetesJob)"]
-    end
-
+    
     %% ============================================================================
-    %% SOLID ARROWS (→) - Direct module imports allowed
+    %% DATA FLOW
     %% ============================================================================
     
-    %% Foundation → All Layers (available everywhere)
-    Foundation -.->|"available to all layers"| LowLevel
-    Foundation -.->|"available to all layers"| MidLevel
-    Foundation -.->|"available to all layers"| HighLevel
+    CLI --> Flows
+    PrefectUI --> Flows
+    Docker --> Flows
     
-    %% Low-level → Foundation + Utils
-    utils --> Foundation
-    bpod --> utils
-    behavior --> Foundation
-    behavior --> bpod
-    dlc --> Foundation
-    pose --> Foundation
-    ttl --> Foundation
-    facemap --> Foundation
+    Flows --> Tasks
+    Tasks --> Operations
     
-    %% Mid-level → Low-level + Foundation
-    sync --> sync_primitives
+    Operations --> Foundation
     
-    %% Mid-level → Low-level + Foundation
-    sync --> sync_primitives
-    sync --> Foundation
+    SingleFlow --> DiscoveryTask
+    SingleFlow --> IngestionTask
+    SingleFlow --> ArtifactTask
+    SingleFlow --> AssemblyTask
+    SingleFlow --> FinalizationTask
     
-    %% High-level → Everything below
-    config_pkg --> utils
-    session_mod --> Foundation
-    session_mod --> config_pkg
-    pipeline --> config_pkg
-    pipeline --> session_mod
-    pipeline --> utils
-    pipeline --> tasks
-    tasks --> config_pkg
-    validate --> Foundation
-    qc --> Foundation
-    cli --> pipeline
-
-    %% Orchestration → High-Level
-    prefect_flow --> pipeline
-    prefect_tasks --> pipeline
-
-    %% ============================================================================
-    %% DOTTED ARROWS (-.→) - Orchestration calls with primitives only
-    %% Pipeline calls low/mid-level with paths, strings, numbers (NO Session/Manifest)
-    %% ============================================================================
+    BatchFlow --> SingleFlow
     
-    tasks -.->|"video paths,<br/>model config,<br/>GPU index"| dlc
-    pipeline -.->|"Bpod file paths,<br/>order string,<br/>trial specs"| bpod
-    pipeline -.->|"parsed Bpod data,<br/>trial offsets"| behavior
-    pipeline -.->|"pose file paths,<br/>skeleton maps,<br/>frame ranges"| pose
-    pipeline -.->|"TTL files,<br/>channel map"| ttl
-    pipeline -.->|"video paths,<br/>ROI specs,<br/>frame ranges"| facemap
-    pipeline -.->|"video paths,<br/>codec options"| transcode
-    pipeline -.->|"timestamps,<br/>indices,<br/>timebase config"| sync
-    pipeline -.->|"NWBFile,<br/>camera specs,<br/>video files"| session_mod
-
-    %% ============================================================================
-    %% DATA FLOW (NWB objects through system)
-    %% ============================================================================
+    DiscoveryTask --> Discovery
+    IngestionTask --> Ingestion
+    ArtifactTask --> Artifacts
+    AssemblyTask --> Assembly
+    FinalizationTask --> Finalization
     
-    bpod -->|"raw Bpod dict"| behavior
-    behavior -->|"TrialsTable,<br/>TaskRecording,<br/>Task"| session_mod
-    pose -->|"PoseEstimation"| session_mod
-    ttl -->|"Events (ndx-events)"| session_mod
-    facemap -->|"BehavioralTimeSeries"| session_mod
-    sync -->|"alignment indices,<br/>AlignmentStats"| session_mod
-    session_mod -->|"NWBFile"| validate
-    session_mod -->|"NWBFile"| qc
+    Discovery --> Config
+    Ingestion --> Config
+    Assembly --> Verification
+    Finalization --> Config
 
     %% ============================================================================
     %% STYLING
     %% ============================================================================
     
-    classDef foundationStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
-    classDef lowLevelStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
-    classDef midLevelStyle fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
-    classDef highLevelStyle fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
-    classDef plannedStyle fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px,stroke-dasharray:5 5,color:#666
-    classDef wipStyle fill:#fffde7,stroke:#fbc02d,stroke-width:2px,stroke-dasharray:5 5,color:#000
+    classDef userStyle fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000
     classDef orchStyle fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef opsStyle fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef foundationStyle fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
     
-    class pynwb,hdmf,ndx_pose,ndx_events,ndx_behavior foundationStyle
-    class utils,bpod_code,behavior,dlc,pose,ttl,sync_primitives,session_mod lowLevelStyle
-    class sync midLevelStyle
-    class config_pkg,pipeline,tasks highLevelStyle
-    class validate,qc,prefect_flow,prefect_tasks plannedStyle
-    class facemap,transcode wipStyle
-    class runners orchStyle
+    class CLI,PrefectUI,Docker userStyle
+    class Flows,Tasks,SingleFlow,BatchFlow,DiscoveryTask,IngestionTask,ArtifactTask,AssemblyTask,FinalizationTask orchStyle
+    class Discovery,Ingestion,Artifacts,Assembly,Finalization,Config,Verification opsStyle
+    class pynwb,ndx_pose,ndx_events,ndx_behavior foundationStyle

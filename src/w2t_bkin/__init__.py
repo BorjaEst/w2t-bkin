@@ -69,7 +69,6 @@ See docs/ for detailed module documentation and design principles.
 
 from . import config, sync, utils
 from .core import session
-from .core.pipeline import pipeline
 
 # Import main modules for convenient access
 from .ingest import behavior, bpod, pose, ttl
@@ -80,7 +79,6 @@ __all__ = [
     "bpod",
     "config",
     "facemap",
-    "pipeline",
     "pose",
     "session",
     "sync",

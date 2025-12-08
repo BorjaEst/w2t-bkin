@@ -12,11 +12,14 @@ from prefect.client.orchestration import get_client
 
 
 async def trigger_deployment(
-    deployment_name: str = "batch-process-sessions-prefect/batch-processing",
+    deployment_name: str = "batch-process-flow/batch-processing",
     config_path: str = "/configs/container.toml",
     subject_filter: str = None,
     session_filter: str = None,
-    max_workers: int = 4,
+    max_parallel: int = 4,
+    skip_bpod: bool = False,
+    skip_pose: bool = False,
+    skip_nwb_validation: bool = False,
 ):
     """Trigger a Prefect deployment with custom parameters.
 
@@ -25,7 +28,10 @@ async def trigger_deployment(
         config_path: Path to config file in container
         subject_filter: Optional subject filter
         session_filter: Optional session filter
-        max_workers: Number of concurrent workers
+        max_parallel: Number of parallel sessions to process
+        skip_bpod: Skip Bpod processing
+        skip_pose: Skip pose processing
+        skip_nwb_validation: Skip NWB validation
     """
     async with get_client() as client:
         try:
@@ -39,7 +45,10 @@ async def trigger_deployment(
                 "config_path": config_path,
                 "subject_filter": subject_filter,
                 "session_filter": session_filter,
-                "max_workers": max_workers,
+                "max_parallel": max_parallel,
+                "skip_bpod": skip_bpod,
+                "skip_pose": skip_pose,
+                "skip_nwb_validation": skip_nwb_validation,
             }
 
             print(f"\n📦 Creating flow run with parameters:")

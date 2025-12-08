@@ -1,6 +1,6 @@
 """Unit tests for multiple video files per camera.
 
-Tests that the pipeline correctly handles cameras that produce multiple
+Tests that the flows correctly handle cameras that produce multiple
 video files (e.g., due to recording size limits or experiment pauses).
 """
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from synthetic import build_raw_folder
-from w2t_bkin.core.pipeline import RunOptions, SessionPipeline
+from w2t_bkin.flows import process_session_flow
 
 
 class TestMultipleVideoFilesPerCamera:
@@ -35,29 +35,24 @@ class TestMultipleVideoFilesPerCamera:
         cam0_videos = list((result.session_dir / "Video" / "cam0").glob("*.avi"))
         assert len(cam0_videos) == 3, "Should have 3 video files for cam0"
 
-        # Run pipeline with skip_verification since synthetic TTLs are per-segment
+        # Run flow with skip_verification since synthetic TTLs are per-segment
         # In real data, TTLs would match total frame count across all segments
-        pipeline = SessionPipeline(
+        flow_result = process_session_flow(
             config_path=result.config_path,
             subject_id="subject-001",
             session_id="session-001",
-            options=RunOptions(
-                skip_nwb_validation=True,
-                skip_pose=True,
-                skip_verification=True,  # Skip verification for this test
-            ),
+            skip_nwb_validation=True,
+            skip_pose=True,
         )
 
-        run_result = pipeline.run()
-
         # Verify success
-        assert run_result.success, f"Pipeline failed: {run_result.error}"
-        assert run_result.nwb_path.exists()
+        assert flow_result.success, f"Flow failed: {flow_result.error}"
+        assert flow_result.nwb_path.exists()
 
         # Verify NWB has correct total frame count (3 segments * 30 frames = 90 frames)
         from pynwb import NWBHDF5IO
 
-        with NWBHDF5IO(str(run_result.nwb_path), "r") as io:
+        with NWBHDF5IO(str(flow_result.nwb_path), "r") as io:
             nwb = io.read()
             assert "cam0" in nwb.acquisition
             # Check that all video files are referenced
@@ -88,17 +83,7 @@ class TestMultipleVideoFilesPerCamera:
         metadata_path = result.metadata_path
         metadata_text = metadata_path.read_text()
 
-        # Test with name_asc (default)
-        pipeline = SessionPipeline(
-            config_path=result.config_path,
-            subject_id="subject-002",
-            session_id="session-001",
-            options=RunOptions(
-                skip_nwb_validation=True,
-                skip_pose=True,
-            ),
-        )
-
+        # Test with name_asc (default) - flow will use this internally
         # Access discovered files from context
         # This tests that files are sorted correctly during discovery
         from w2t_bkin.config import load_config

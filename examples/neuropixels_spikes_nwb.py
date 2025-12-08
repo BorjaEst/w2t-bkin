@@ -46,9 +46,8 @@ from pynwb import NWBHDF5IO, NWBFile
 
 from synthetic import build_interim_folder, build_raw_folder
 from w2t_bkin.figures.ecephys import plot_electrode_locations, plot_firing_rate_distribution, plot_spike_raster, plot_unit_quality_metrics
-from w2t_bkin.ingest.ecephys import create_device
-from w2t_bkin.ingest.kilosort import add_units_from_kilosort
-from w2t_bkin.ingest.spikeglx import add_electrodes_from_spikeglx, parse_spikeglx_meta
+from w2t_bkin.ingest.kilosort import build_units_table_from_kilosort
+from w2t_bkin.ingest.spikeglx import build_device_from_meta, build_electrode_group_from_meta, build_electrodes_table_from_meta, parse_spikeglx_meta
 
 
 class ExampleSettings(BaseSettings):
@@ -186,25 +185,30 @@ if __name__ == "__main__":
     print(f"\n✓ Created NWBFile: {nwbfile.identifier}")
 
     # Create device
-    device_name = f"neuropixels_{settings.probe_id}"
-    device = create_device(
-        nwbfile=nwbfile,
-        name=device_name,
-        manufacturer="IMEC",
-        description=f"Neuropixels 2.0 probe ({settings.probe_id})",
-    )
-
+    device = build_device_from_meta(meta, settings.probe_id)
+    nwbfile.add_device(device)
     print(f"\n✓ Created Device: {device.name}")
 
-    # Add electrodes
-    n_electrodes = add_electrodes_from_spikeglx(
-        nwbfile=nwbfile,
-        meta_path=meta_path,
+    # Create electrode group
+    group_name = f"probe_{settings.probe_id}"
+    electrode_group = build_electrode_group_from_meta(
+        name=group_name,
         device=device,
-        probe_id=settings.probe_id,
+        location=settings.location,
+        meta=meta,
+    )
+    nwbfile.add_electrode_group(electrode_group)
+
+    # Build and add electrodes
+    electrode_rows = build_electrodes_table_from_meta(
+        meta=meta,
+        electrode_group=electrode_group,
         location=settings.location,
     )
+    for row in electrode_rows:
+        nwbfile.add_electrode(**row)
 
+    n_electrodes = len(electrode_rows)
     print(f"\n✓ Added {n_electrodes} electrodes to table")
 
     # ---------------------------------------------------------------------
@@ -217,8 +221,8 @@ if __name__ == "__main__":
     print(f"  - Quality filter:   {settings.quality_labels}")
     print(f"  - Min spike count:  {settings.min_spike_count}")
 
-    result = add_units_from_kilosort(
-        nwbfile=nwbfile,
+    # Build units table data
+    units_list = build_units_table_from_kilosort(
         sorting_dir=kilosort_dir,
         probe_id=settings.probe_id,
         sampling_rate=meta["sampling_rate"],
@@ -227,6 +231,31 @@ if __name__ == "__main__":
         include_waveforms=True,
         include_metrics=True,
     )
+
+    # Extract stats (last element with __stats__ key) and remove it from list
+    result = units_list[-1].pop("__stats__")
+    units_list = units_list[:-1]  # Remove the now-empty last element
+
+    # Determine which custom columns to add by checking what's available in ALL units
+    if units_list:
+        # Check first unit to see what optional columns are available
+        sample_keys = set(units_list[0].keys())
+
+        # Verify all units have the same optional columns
+        for unit_data in units_list:
+            sample_keys &= set(unit_data.keys())
+
+        # Add columns that are present in all units
+        if "contamination_pct" in sample_keys:
+            nwbfile.add_unit_column(name="contamination_pct", description="Contamination percentage from Kilosort")
+        if "amplitude" in sample_keys:
+            nwbfile.add_unit_column(name="amplitude", description="Spike amplitude (μV)")
+        if "probe_id" in sample_keys:
+            nwbfile.add_unit_column(name="probe_id", description="Probe identifier (e.g., imec0)")
+
+    # Add units to NWBFile
+    for unit_data in units_list:
+        nwbfile.add_unit(**unit_data)
 
     n_units = result["n_units_added"]
     print(f"\n✓ Added {n_units} units to table (after filtering)")
@@ -384,8 +413,8 @@ if __name__ == "__main__":
     print_section("Summary")
 
     print("\n✓ Successfully created NWB file with complete ecephys data:")
-    print(f"  1. Device: {device_name}")
-    print(f"  2. Electrode Group: probe_{settings.probe_id}")
+    print(f"  1. Device: {device.name}")
+    print(f"  2. Electrode Group: {group_name}")
     print(f"  3. Electrodes: {n_electrodes} channels")
     print(f"  4. Units: {n_units} sorted units (quality-filtered)")
     print(f"\n✓ Output: {output_file}")

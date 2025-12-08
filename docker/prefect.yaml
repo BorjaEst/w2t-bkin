@@ -10,7 +10,7 @@ deployments:
       - w2t-bkin
       - batch
       - pipeline
-    entrypoint: w2t_bkin/orchestration/flows.py:batch_process_sessions_prefect
+    entrypoint: w2t_bkin/prefect/flows.py:batch_process_sessions
     work_pool:
       name: docker-pool
       work_queue_name: default

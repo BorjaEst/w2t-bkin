@@ -1,48 +1,56 @@
-"""Backward compatibility layer for w2t_bkin.tasks (renamed to preprocessing).
+"""Prefect task wrappers for w2t-bkin pipeline operations.
 
-This module provides backward compatibility for code importing from w2t_bkin.tasks.
-All imports are redirected to w2t_bkin.preprocessing with deprecation warnings.
+This module provides atomic Prefect tasks that wrap the pure business logic
+functions from the operations module. Each task is fine-grained, cacheable,
+and independently executable.
 
-.. deprecated:: 2.0
-    Use :mod:`w2t_bkin.preprocessing` instead. This compatibility layer will be
-    removed in v3.0.
-
-Examples:
-    >>> # Old (deprecated but works with warning)
-    >>> from w2t_bkin.tasks import DLCPoseTask
-
-    >>> # New (recommended)
-    >>> from w2t_bkin.preprocessing import DLCPoseTask
+Task Organization:
+- config_tasks.py: Configuration and initialization tasks
+- discovery_tasks.py: File discovery tasks
+- artifact_tasks.py: DLC/SLEAP artifact generation tasks
+- ingestion_tasks.py: Data ingestion tasks
+- sync_tasks.py: Synchronization tasks
+- assembly_tasks.py: NWB assembly tasks
+- finalization_tasks.py: NWB writing and validation tasks
 """
 
-from typing import Any
-import warnings
+from .artifacts import discover_sleap_poses_task, generate_dlc_poses_task, generate_dlc_session_task
+from .assembly import add_skeletons_task, assemble_behavior_task, assemble_pose_task
+from .discovery import discover_all_files_task, discover_bpod_files_task, discover_camera_files_task, discover_ttl_files_task
+from .finalization import create_provenance_task, finalize_session_task, validate_nwb_task, write_nwb_task, write_sidecars_task
+from .ingestion import align_trials_task, ingest_bpod_task, ingest_dlc_poses_task, ingest_sleap_poses_task, ingest_ttl_task
+from .initialization import create_nwb_file_task, load_session_config_task
+from .synchronization import compute_alignment_stats_task
 
-# Import everything from preprocessing
-from ..preprocessing import *  # noqa: F401, F403
-
-# Emit deprecation warning when module is imported
-warnings.warn(
-    "w2t_bkin.tasks is deprecated and will be removed in v3.0. " "Use w2t_bkin.preprocessing instead.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
-
-def __getattr__(name: str) -> Any:
-    """Redirect attribute access to preprocessing module with deprecation warning."""
-    from .. import preprocessing
-
-    if hasattr(preprocessing, name):
-        warnings.warn(
-            f"Importing {name} from w2t_bkin.tasks is deprecated. " f"Use 'from w2t_bkin.preprocessing import {name}' instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return getattr(preprocessing, name)
-
-    raise AttributeError(f"module 'w2t_bkin.tasks' has no attribute '{name}'")
-
-
-# Expose commonly used items for introspection
-__all__ = ["DLCPoseTask", "SLEAPPoseTask", "PipelineTask", "TaskConfig", "TaskStatus"]
+__all__ = [
+    # Config tasks
+    "load_session_config_task",
+    "create_nwb_file_task",
+    # Discovery tasks
+    "discover_camera_files_task",
+    "discover_bpod_files_task",
+    "discover_ttl_files_task",
+    "discover_all_files_task",
+    # Artifact tasks
+    "generate_dlc_poses_task",
+    "generate_dlc_session_task",
+    "discover_sleap_poses_task",
+    # Ingestion tasks
+    "ingest_bpod_task",
+    "ingest_dlc_poses_task",
+    "ingest_sleap_poses_task",
+    "ingest_ttl_task",
+    "align_trials_task",
+    # Sync tasks
+    "compute_alignment_stats_task",
+    # Assembly tasks
+    "assemble_behavior_task",
+    "assemble_pose_task",
+    "add_skeletons_task",
+    # Finalization tasks
+    "write_nwb_task",
+    "write_sidecars_task",
+    "validate_nwb_task",
+    "create_provenance_task",
+    "finalize_session_task",
+]

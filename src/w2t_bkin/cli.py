@@ -61,7 +61,6 @@ from rich.table import Table
 import typer
 
 from .config import load_config
-from .core.pipeline import RunOptions, SessionPipeline
 from .data_manager import (
     ExperimentConfig,
     SessionConfig,
@@ -73,6 +72,7 @@ from .data_manager import (
     init_experiment,
     validate_experiment_structure,
 )
+from .flows import batch_process_flow, process_session_flow
 
 app = typer.Typer(
     name="w2t-bkin",
@@ -103,28 +103,21 @@ def run(
 ):
     """Run the pipeline for a single session.
 
-    This command executes all 7 phases of the pipeline:
-    0. Initialization - Load config and create NWBFile
-    1. Discovery - Find and verify files
-    2. Preprocessing - Generate intermediate artifacts
-    3. Ingestion - Process Bpod, Pose, and TTL data
-    4. Synchronization - Compute alignment statistics
+    This command executes all 6 phases of the Prefect-native pipeline:
+    1. Initialization - Load config and create NWBFile
+    2. Discovery - Find and verify files
+    3. Artifact Generation - Generate pose estimation (optional)
+    4. Ingestion - Process Bpod, Pose, and TTL data
     5. Assembly - Build NWB behavior tables
-    6. Finalization - Write, validate, and create sidecars
+    6. Finalization - Write and validate NWB file
 
-    Verification Controls:
-        --no-verification: Disable all verification checks (master switch)
-        --no-frame-count: Skip video frame counting (faster, recommended for large videos)
-        --no-sync-check: Skip frame/TTL synchronization verification
-
-    By default, diagnostic figures are generated showing pipeline execution
-    timing and synchronization quality metrics. Use --no-figures to skip.
+    The pipeline uses Prefect for orchestration, providing automatic retry
+    logic, parallel execution, and comprehensive error handling.
 
     Example:
         $ python -m w2t_bkin.cli run config.toml subject-001 session-001
-        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-frame-count
-        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-verification
-        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-figures
+        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --skip-pose
+        $ python -m w2t_bkin.cli run config.toml subject-001 session-001 --skip-validation
     """
     # Set logging level
     logging.getLogger().setLevel(log_level.upper())
@@ -133,51 +126,45 @@ def run(
         console.print(f"[red]Error: Config file not found: {config_path}[/red]")
         raise typer.Exit(1)
 
-    # Load config to get default timeout value
-    config = load_config(config_path)
+    try:
+        console.print("[cyan]Starting session processing...[/cyan]")
+        console.print(f"  Config: [dim]{config_path}[/dim]")
+        console.print(f"  Subject: [yellow]{subject_id}[/yellow]")
+        console.print(f"  Session: [yellow]{session_id}[/yellow]")
+        console.print()
 
-    # Use CLI timeout if provided, otherwise use config value
-    timeout = video_frame_timeout if video_frame_timeout is not None else config.video.analysis.frame_count_timeout
+        # Run flow
+        result = process_session_flow(
+            config_path=config_path,
+            subject_id=subject_id,
+            session_id=session_id,
+            skip_bpod=skip_bpod,
+            skip_pose=skip_pose,
+            skip_nwb_validation=skip_validation,
+        )
 
-    # Convert verification flags: no_* flags disable checks
-    verification_enabled = None if not no_verification else False
-    verification_check_frames = None if not no_frame_count else False
-    verification_check_sync = None if not no_sync_check else False
+        if result.success:
+            console.print(f"\n[green]✓ Success![/green] NWB file: {result.nwb_path}")
+            console.print(f"  Duration: [dim]{result.duration_seconds:.2f}s[/dim]")
 
-    options = RunOptions(
-        skip_bpod=skip_bpod,
-        skip_pose=skip_pose,
-        skip_ttl=skip_ttl,
-        skip_nwb_validation=skip_validation,
-        force_overwrite=force,
-        generate_figures=not no_figures,
-        verification_enabled=verification_enabled,
-        verification_check_frames=verification_check_frames,
-        verification_check_sync=verification_check_sync,
-        verification_tolerance=tolerance,
-        warn_on_mismatch=warn_on_mismatch,
-        video_frame_timeout=timeout,
-    )
+            if result.validation:
+                critical = sum(1 for r in result.validation if r.get("severity") == "CRITICAL")
+                errors = sum(1 for r in result.validation if r.get("severity") == "ERROR")
+                warnings = sum(1 for r in result.validation if r.get("severity") == "WARNING")
 
-    pipeline = SessionPipeline(config_path, subject_id, session_id, options)
-    result = pipeline.run()
+                if critical > 0 or errors > 0:
+                    console.print(f"[yellow]⚠ Validation issues: {critical} critical, {errors} errors, {warnings} warnings[/yellow]")
+                else:
+                    console.print(f"[green]✓ Validation passed ({warnings} warnings)[/green]")
 
-    if result.success:
-        console.print(f"\n[green]✓ Success![/green] NWB file: {result.nwb_path}")
+            raise typer.Exit(0)
+        else:
+            console.print(f"\n[red]✗ Failed: {result.error}[/red]")
+            raise typer.Exit(1)
 
-        if result.validation_results:
-            critical = sum(1 for r in result.validation_results if r.get("severity") == "CRITICAL")
-            errors = sum(1 for r in result.validation_results if r.get("severity") == "ERROR")
-            warnings = sum(1 for r in result.validation_results if r.get("severity") == "WARNING")
-
-            if critical > 0 or errors > 0:
-                console.print(f"[yellow]⚠ Validation issues: {critical} critical, {errors} errors, {warnings} warnings[/yellow]")
-            else:
-                console.print(f"[green]✓ Validation passed ({warnings} warnings)[/green]")
-
-        raise typer.Exit(0)
-    else:
-        console.print(f"\n[red]✗ Failed: {result.error}[/red]")
+    except Exception as e:
+        console.print(f"\n[red]✗ Error: {e}[/red]")
+        logging.exception("Pipeline execution failed")
         raise typer.Exit(1)
 
 
@@ -523,15 +510,14 @@ def batch(
         help="Maximum concurrent sessions (default: 4)",
     ),
 ):
-    """Process multiple sessions in parallel using multiprocessing.
+    """Process multiple sessions in parallel using Prefect flows.
 
-    This command provides automatic retries, parallel execution, and graceful
-    error handling for batch processing. Uses Python's ProcessPoolExecutor
-    for parallel execution (no external services required).
+    This command uses the new Prefect-native batch_process_flow for parallel
+    execution with automatic retries, graceful error handling, and progress tracking.
 
     Examples:
-        # Process all sessions with 4 parallel workers
-        python -m w2t_bkin.cli batch config.toml --max-workers 4
+        # Process all sessions with 3 parallel workers
+        python -m w2t_bkin.cli batch config.toml --max-workers 3
 
         # Process specific subject
         python -m w2t_bkin.cli batch config.toml --subject subject-001
@@ -540,23 +526,20 @@ def batch(
         python -m w2t_bkin.cli batch config.toml --max-workers 8
 
     Features:
-        - Automatic retries (2 attempts with exponential backoff)
-        - Parallel execution using multiprocessing
+        - Prefect-native orchestration with automatic retries
+        - Parallel execution with configurable concurrency
         - Graceful error handling (continues on partial failures)
-        - Structured logging and error tracking
+        - Comprehensive logging and error tracking
         - Resource management via max_workers
-        - No external dependencies (Prefect optional for advanced users)
 
     See Also:
         - discover: Find available sessions
         - run: Process single session
         - docs/batch-processing.md: Full batch processing guide
     """
-    from w2t_bkin.prefect import batch_process_sessions
-
     try:
         console.print("[cyan]╭─────────────────────────────────────────────╮[/cyan]")
-        console.print("[cyan]│  Batch Processing (Multiprocessing)         │[/cyan]")
+        console.print("[cyan]│  Batch Processing (Prefect)                 │[/cyan]")
         console.print("[cyan]╰─────────────────────────────────────────────╯[/cyan]")
         console.print()
         console.print(f"  Config: [dim]{config_path}[/dim]")
@@ -567,12 +550,15 @@ def batch(
             console.print(f"  Session filter: [yellow]{session_filter}[/yellow]")
         console.print()
 
-        # Run batch processing
-        result = batch_process_sessions(
+        # Run batch processing using new flow
+        result = batch_process_flow(
             config_path=config_path,
             subject_filter=subject_filter,
             session_filter=session_filter,
-            max_workers=max_workers,
+            max_parallel=max_workers,
+            skip_bpod=False,
+            skip_pose=False,
+            skip_nwb_validation=False,
         )
 
         # Display results
@@ -581,17 +567,18 @@ def batch(
         console.print("[cyan]│  Batch Processing Complete                  │[/cyan]")
         console.print("[cyan]╰─────────────────────────────────────────────╯[/cyan]")
         console.print()
-        console.print(f"  Total sessions: [bold]{result['total']}[/bold]")
-        console.print(f"  Successful: [bold green]{result['successful']}[/bold green]")
-        console.print(f"  Failed: [bold {'red' if result['failed'] > 0 else 'dim'}]{result['failed']}[/bold {'red' if result['failed'] > 0 else 'dim'}]")
+        console.print(f"  Total sessions: [bold]{result.total}[/bold]")
+        console.print(f"  Successful: [bold green]{result.successful}[/bold green]")
+        console.print(f"  Failed: [bold {'red' if result.failed > 0 else 'dim'}]{result.failed}[/bold {'red' if result.failed > 0 else 'dim'}]")
 
-        if result["failed"] > 0:
+        if result.failed > 0:
             console.print()
             console.print("[yellow]Failed sessions:[/yellow]")
-            for r in result["results"]:
-                if not r["success"]:
-                    console.print(f"  [red]✗[/red] {r['subject_id']:15s} / {r['session_id']:30s}")
-                    console.print(f"    [dim]{r['error']}[/dim]")
+            for r in result.session_results:
+                if not r.success:
+                    console.print(f"  [red]✗[/red] {r.subject_id:15s} / {r.session_id:30s}")
+                    if r.error:
+                        console.print(f"    [dim]{r.error}[/dim]")
             console.print()
             console.print("[yellow]💡 Check logs for detailed error information[/yellow]")
             raise typer.Exit(1)
@@ -1085,6 +1072,158 @@ def data_validate(
     else:
         console.print(f"[bold red]✗ Validation failed ({len(result.errors)} error(s))[/bold red]")
         raise typer.Exit(1)
+
+
+@data_app.command(name="generate-env")
+def data_generate_env(
+    output: Path = typer.Option(".env", "--output", "-o", help="Output file path (default: .env)"),
+    data_root: Path = typer.Option("./data", "--data-root", help="Path to data directory"),
+    models_root: Path = typer.Option("./models", "--models-root", help="Path to models directory"),
+    config_root: Path = typer.Option("./configs", "--config-root", help="Path to configs directory"),
+    max_workers: int = typer.Option(4, "--max-workers", help="Default number of parallel workers"),
+    worker_replicas: int = typer.Option(1, "--worker-replicas", help="Number of worker containers"),
+    prefect_port: int = typer.Option(4200, "--prefect-port", help="Prefect UI port"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing .env file"),
+):
+    """Generate .env file for Docker Compose deployment.
+
+    Creates a .env file with all necessary configuration for running
+    w2t-bkin in Docker containers with Prefect orchestration.
+
+    The generated file includes:
+    - Prefect server configuration (UI port, logging)
+    - PostgreSQL database settings
+    - Worker configuration (replicas, resources)
+    - Deployment defaults (config file, max workers)
+    - Data paths (mounted volumes)
+
+    Example:
+        # Generate with defaults
+        $ w2t-bkin data generate-env
+
+        # Customize paths
+        $ w2t-bkin data generate-env \\
+            --data-root /mnt/data \\
+            --models-root /mnt/models \\
+            --max-workers 8
+
+        # Generate to custom location
+        $ w2t-bkin data generate-env --output docker/.env
+
+        # Overwrite existing
+        $ w2t-bkin data generate-env --force
+    """
+    # Check if file exists
+    if output.exists() and not force:
+        console.print(f"[yellow]Warning: {output} already exists[/yellow]")
+        console.print("Use --force to overwrite")
+        raise typer.Exit(1)
+
+    # Generate .env content
+    env_content = f"""# Docker Compose Environment Variables
+# Generated by w2t-bkin data generate-env command
+# Edit as needed for your deployment
+
+# =============================================================================
+# Prefect Server Configuration
+# =============================================================================
+PREFECT_UI_PORT={prefect_port}
+PREFECT_LOGGING_LEVEL=INFO
+
+# =============================================================================
+# Database Configuration
+# =============================================================================
+POSTGRES_USER=prefect
+POSTGRES_PASSWORD=prefect
+POSTGRES_DB=prefect
+
+# =============================================================================
+# Worker Configuration
+# =============================================================================
+WORK_POOL=docker-pool
+WORKER_REPLICAS={worker_replicas}
+
+# Worker resource limits (adjust based on your system)
+WORKER_CPU_LIMIT=4
+WORKER_MEMORY_LIMIT=8G
+WORKER_CPU_RESERVATION=1
+WORKER_MEMORY_RESERVATION=2G
+
+# =============================================================================
+# Deployment Defaults
+# =============================================================================
+
+# Default configuration file for deployments (must use absolute container paths)
+DEFAULT_CONFIG_FILE=container.toml
+
+# Default number of parallel sessions to process
+DEFAULT_MAX_WORKERS={max_workers}
+
+# Optional filters for batch processing
+DEFAULT_SUBJECT_FILTER=
+DEFAULT_SESSION_FILTER=
+
+# =============================================================================
+# Data Paths (adjust to your local directories)
+# =============================================================================
+
+# Root directory for raw data (READ-ONLY)
+DATA_ROOT={data_root}
+
+# Root directory for pose estimation models (READ-ONLY)
+MODELS_ROOT={models_root}
+
+# Root directory for configuration files (READ-ONLY)
+CONFIG_ROOT={config_root}
+
+# Intermediate processing outputs (READ-WRITE)
+INTERIM_ROOT={data_root}/interim
+
+# Final processed outputs (READ-WRITE)
+OUTPUT_ROOT={data_root}/processed
+
+# =============================================================================
+# Notes
+# =============================================================================
+#
+# Windows (WSL2):
+#   Use WSL paths: /mnt/c/Users/YourName/data
+#   Not Windows paths: C:\\Users\\YourName\\data
+#
+# macOS/Linux:
+#   Use absolute paths: /Users/yourname/data or /home/yourname/data
+#   Or relative paths: ./data (relative to docker-compose.yml location)
+#
+# Permissions:
+#   Ensure your user has read/write access to mounted directories
+#   Container runs as uid 1000 (user 'w2t')
+#
+# Resource Limits:
+#   Adjust WORKER_CPU_LIMIT and WORKER_MEMORY_LIMIT based on available resources
+#   Run 'docker stats' or 'podman stats' to monitor resource usage
+#
+# Deployment Flow Names (v0.0.10):
+#   - process-session-flow/process-session (single session)
+#   - batch-process-flow/batch-processing (parallel batch)
+"""
+
+    # Write file
+    output.write_text(env_content)
+
+    console.print(f"[green]✓ Generated {output}[/green]")
+    console.print()
+    console.print("[bold]Configuration:[/bold]")
+    console.print(f"  Data root: [cyan]{data_root}[/cyan]")
+    console.print(f"  Models root: [cyan]{models_root}[/cyan]")
+    console.print(f"  Config root: [cyan]{config_root}[/cyan]")
+    console.print(f"  Max workers: [yellow]{max_workers}[/yellow]")
+    console.print(f"  Worker replicas: [yellow]{worker_replicas}[/yellow]")
+    console.print(f"  Prefect UI: [cyan]http://localhost:{prefect_port}[/cyan]")
+    console.print()
+    console.print("[bold]Next steps:[/bold]")
+    console.print("  1. Review and edit [cyan].env[/cyan] if needed")
+    console.print("  2. Start services: [yellow]docker compose up -d[/yellow]")
+    console.print(f"  3. Access Prefect UI: [cyan]http://localhost:{prefect_port}[/cyan]")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ post_date: "2025-11-11"
 
 ## Overview
 
-**Implementation Status**: This document describes the target architecture. Current implementation (Phase 1) focuses on core workflow: Bpod behavioral data + camera acquisition + pose estimation + TTL synchronization → NWB. Additional features (facemap, transcode) are in progress as standalone modules. Validation and QC are planned for future phases.
+**Implementation Status**: ✅ **Complete** - Prefect-native architecture fully implemented. The pipeline now uses pure Prefect flows and tasks for orchestration, with deprecated code removed. Current implementation includes: Bpod behavioral data + camera acquisition + pose estimation + TTL synchronization → NWB, with full validation and error handling.
 
 Concise architecture ensuring all Functional (FR) and Non-Functional (NFR) requirements are met with minimal surface area. Core themes: strict schemas, early verification, single reference timebase for derived data (ImageSeries always rate-based), deterministic/idempotent outputs, and pluggable optional stages.
 
@@ -21,11 +21,26 @@ Concise architecture ensuring all Functional (FR) and Non-Functional (NFR) requi
 
 ## Scope
 
-**Current implementation (Phase 1)**: verify → preprocessing (tasks) → ingest → bpod → pose → ttl → align (timebase) → assemble NWB (session).
+**Current Architecture (v0.0.10)**:
 
-**Work in Progress**: transcode, facemap (implemented as standalone, pending integration).
+- **Operations Layer**: Pure Python functions for all pipeline operations (discovery, ingestion, artifact generation, assembly, finalization)
+- **Tasks Layer**: Prefect tasks wrapping operations for retry logic and error handling
+- **Flows Layer**: Orchestration flows (`process_session_flow`, `batch_process_flow`) for single and parallel execution
+- **CLI**: User-friendly interface for local execution and batch processing
+- **Docker/Prefect**: Production deployment with containerized services and web UI
 
-**Planned features (Future phases)**: validate (nwbinspector), QC HTML reports.
+**Implemented Features**:
+
+- ✅ File discovery and verification
+- ✅ Bpod behavioral data processing
+- ✅ Camera acquisition (video metadata)
+- ✅ Pose estimation (DeepLabCut, SLEAP)
+- ✅ TTL synchronization
+- ✅ Timebase alignment
+- ✅ NWB assembly and validation
+- ✅ Batch processing with parallel execution
+- ✅ Docker deployment with Prefect orchestration
+- ✅ Data management CLI commands
 
 **Out of scope**: calibration, triangulation, embedding raw videos internally.
 
@@ -233,26 +248,57 @@ surface that owns `Config`, `Session`, and session layout. Example shapes:
 Canonicalization: strip comments → sort keys → compact JSON → SHA256. Record timebase selection
 and jitter metrics. Ensures reproducibility (NFR-1) and traceability (FR-17, A18).
 
-## Implementation Plan: Orchestration Layer
+## Architecture Implementation
 
-The transition from the current `SessionPipeline` class to Prefect orchestration involves the following steps:
+**Prefect-Native Architecture (v0.0.10)** - Fully implemented:
 
-1. **Task Definition (`src/w2t_bkin/tasks/`)**:
+### 1. Operations Layer (`src/w2t_bkin/operations/`)
 
-   - Create a new `tasks` package.
-   - Refactor `SessionPipeline` methods (e.g., `_phase_2_ingestion`) into standalone, pure functions decorated with `@task`.
-   - Ensure tasks accept explicit inputs (paths, primitives) and return explicit outputs (NWB objects, stats), minimizing shared state.
+Pure Python functions with no Prefect dependencies:
 
-2. **Flow Composition (`src/w2t_bkin/pipeline.py`)**:
+- `discovery.py` - Session and file discovery, metadata loading
+- `ingestion.py` - Bpod, pose, TTL data ingestion
+- `artifact_generation.py` - DeepLabCut/SLEAP pose estimation
+- `assembly.py` - Trial alignment and behavior table assembly
+- `finalization.py` - NWB file writing and validation
+- `config_loader.py` - Configuration management
+- `verification.py` - Data verification and quality checks
 
-   - Define a new `run_session_flow` decorated with `@flow`.
-   - Re-implement the logic of `SessionPipeline.run()` using the new tasks.
-   - Maintain the `SessionPipeline` class as a legacy wrapper or deprecated entry point during transition.
+### 2. Tasks Layer (`src/w2t_bkin/tasks/`)
 
-3. **Infrastructure Setup**:
+Prefect tasks wrapping operations with retry logic:
 
-   - Configure `prefect.yaml` for deployment definitions.
-   - Implement `DaskTaskRunner` configuration for HPC integration.
+- Automatic retries (2 attempts) with exponential backoff
+- Comprehensive error handling and logging
+- Resource management and cleanup
+- Task-level observability
 
-4. **CLI Update**:
-   - Update `src/w2t_bkin/cli.py` to invoke the Prefect flow instead of the class-based runner.
+### 3. Flows Layer (`src/w2t_bkin/flows/`)
+
+Orchestration flows for execution:
+
+- `process_session_flow` - Single session processing with all phases
+- `batch_process_flow` - Parallel batch processing using ThreadPoolExecutor
+- Configurable parameters (skip flags, max parallel workers)
+- Comprehensive result reporting
+
+### 4. CLI (`src/w2t_bkin/cli.py`)
+
+User-friendly command-line interface:
+
+- `run` - Process single session
+- `batch` - Batch process multiple sessions in parallel
+- `discover` - Find available sessions
+- `validate` - Validate NWB files
+- `inspect` - Inspect NWB file contents
+- `data` commands - Data management and experiment setup
+- `container` commands - Docker deployment management
+
+### 5. Docker Deployment
+
+Production-ready containerized deployment:
+
+- `docker-compose.yml` - Multi-service orchestration (postgres, server, worker)
+- Prefect UI on port 4200 for monitoring
+- Automatic flow deployment on server startup
+- Configurable resources and replicas

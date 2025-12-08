@@ -2,12 +2,13 @@
 Kilosort Spike Sorting Output Ingestion.
 
 This module provides utilities for loading Kilosort output files (.npy, .tsv)
-and populating NWB Units tables with spike sorting results.
+and building data structures for NWB Units tables.
 
-Architecture Layer: Low-Level Tools
+Architecture Layer: Ingest (returns NWB objects, does not attach to NWBFile)
+- Returns data structures (dicts, lists) that can be passed to nwbfile.add_unit()
+- Pipeline layer is responsible for adding units to NWBFile
 - No imports from config, Session, or Manifest
 - All functions accept primitives only (file paths, strings, numbers)
-- Returns structured data or NWB objects
 
 Example Usage:
     >>> from pathlib import Path
@@ -21,10 +22,21 @@ Example Usage:
     >>> # Load quality labels
     >>> labels = load_cluster_labels(Path("interim/neural/kilosort/imec0"))
     >>> good_units = labels[labels['KSLabel'] == 'good']
+    >>>
+    >>> # Build units table data
+    >>> units = build_units_table_from_kilosort(
+    ...     sorting_dir=Path("interim/neural/kilosort/imec0"),
+    ...     probe_id="imec0",
+    ...     sampling_rate=30000.0,
+    ...     include_labels=["good", "mua"],
+    ... )
+    >>> # Pipeline layer adds to nwbfile:
+    >>> for unit_data in units:
+    ...     nwbfile.add_unit(**unit_data)
 """
 
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -186,41 +198,45 @@ def load_cluster_metrics(sorting_dir: Path) -> Optional[pd.DataFrame]:
     return None
 
 
-def add_units_from_kilosort(
-    nwbfile,
+def build_units_table_from_kilosort(
     sorting_dir: Path,
     probe_id: str,
     sampling_rate: float,
-    include_labels: Optional[list] = None,
+    include_labels: Optional[List[str]] = None,
     min_spike_count: int = 0,
     include_waveforms: bool = False,
     include_metrics: bool = True,
-) -> Dict[str, int]:
+) -> List[Dict]:
     """
-    Populate NWB Units table from Kilosort spike sorting output.
+    Build units table data from Kilosort spike sorting output.
 
     Loads spike times, cluster labels, and quality metrics from Kilosort output
-    directory and adds filtered units to the NWBFile.
+    directory and returns a list of unit dictionaries ready to be added to NWBFile.
+
+    This function does NOT modify NWBFile - pipeline layer is responsible for:
+    1. Adding custom columns (contamination_pct, amplitude, probe_id)
+    2. Calling nwbfile.add_unit(**unit_data) for each unit
 
     Args:
-        nwbfile: NWBFile object to add units to
         sorting_dir: Path to Kilosort output directory (e.g., "interim/neural/kilosort/imec0")
         probe_id: Probe identifier for unit naming (e.g., "imec0")
         sampling_rate: Sampling rate in Hz for time conversion (from .meta file)
         include_labels: Quality labels to include (default: ["good", "mua"])
                        Common labels: "good", "mua", "noise"
         min_spike_count: Minimum spike count threshold (default: 0)
-        include_waveforms: If True, add mean waveforms from templates.npy
-        include_metrics: If True, add quality metrics as custom columns
+        include_waveforms: If True, include mean waveforms from templates.npy
+        include_metrics: If True, include quality metrics as custom columns
 
     Returns:
-        Dictionary with summary statistics:
-            {
-                "n_units_added": int,       # Number of units added to NWBFile
-                "n_units_filtered": int,    # Number of units excluded by filters
-                "n_spikes_total": int,      # Total spike count across all added units
-                "filter_reasons": dict,     # Breakdown of filtering reasons
-            }
+        List of unit dictionaries, each containing:
+            - spike_times: np.ndarray (seconds)
+            - probe_id: str
+            - electrodes: List[int] (optional, if electrode mapping available)
+            - waveform_mean: np.ndarray (optional, if include_waveforms=True)
+            - contamination_pct: float (optional, if include_metrics=True)
+            - amplitude: float (optional, if include_metrics=True)
+
+        Also returns filtering stats in last dict element with key '__stats__'.
 
     Raises:
         FileNotFoundError: If required Kilosort files are missing
@@ -228,30 +244,26 @@ def add_units_from_kilosort(
 
     Example:
         >>> from pathlib import Path
-        >>> from pynwb import NWBFile
-        >>> from datetime import datetime
-        >>> from dateutil.tz import tzlocal
         >>>
-        >>> nwbfile = NWBFile(
-        ...     session_description="example",
-        ...     identifier="test-001",
-        ...     session_start_time=datetime.now(tzlocal())
-        ... )
-        >>>
-        >>> # Add device and electrodes first (Phase 1)
-        >>> # ... device creation and electrode table population ...
-        >>>
-        >>> # Add spike sorting results
-        >>> stats = add_units_from_kilosort(
-        ...     nwbfile=nwbfile,
+        >>> # Build units table data
+        >>> units = build_units_table_from_kilosort(
         ...     sorting_dir=Path("interim/neural/kilosort/imec0"),
         ...     probe_id="imec0",
         ...     sampling_rate=30000.0,
         ...     include_labels=["good", "mua"],
         ...     min_spike_count=100,
         ... )
-        >>> stats["n_units_added"]
-        85  # 85 units passed filters
+        >>>
+        >>> # Pipeline layer adds custom columns first:
+        >>> nwbfile.add_unit_column(name="contamination_pct", description="...")
+        >>> nwbfile.add_unit_column(name="amplitude", description="...")
+        >>> nwbfile.add_unit_column(name="probe_id", description="...")
+        >>>
+        >>> # Then adds units:
+        >>> stats = units[-1].pop('__stats__')  # Extract stats
+        >>> for unit_data in units:
+        ...     nwbfile.add_unit(**unit_data)
+        >>> print(f"Added {stats['n_units_added']} units")
     """
     # Validate inputs
     if sampling_rate <= 0:
@@ -287,25 +299,8 @@ def add_units_from_kilosort(
         },
     }
 
-    # Add custom columns for quality metrics if available
-    if include_metrics and cluster_metrics is not None:
-        # Check which metric columns are available
-        metric_cols = []
-        if "ContamPct" in cluster_metrics.columns:
-            nwbfile.add_unit_column(name="contamination_pct", description="Contamination percentage from Kilosort")
-            metric_cols.append("ContamPct")
-        if "Amplitude" in cluster_metrics.columns:
-            nwbfile.add_unit_column(name="amplitude", description="Spike amplitude (μV)")
-            metric_cols.append("Amplitude")
-        elif "amp" in cluster_metrics.columns:
-            nwbfile.add_unit_column(name="amplitude", description="Spike amplitude (μV)")
-            metric_cols.append("amp")
-
-    # Add custom column for probe assignment
-    if nwbfile.units is None or "probe_id" not in [col.name for col in nwbfile.units.columns]:
-        nwbfile.add_unit_column(name="probe_id", description="Probe identifier (e.g., imec0)")
-
-    # Process each cluster
+    # Build list of unit data dictionaries
+    units_list = []
     unique_clusters = np.unique(spike_clusters)
 
     for cluster_id in unique_clusters:
@@ -343,49 +338,49 @@ def add_units_from_kilosort(
         if "ch" in cluster_row.columns:
             electrode_id = int(cluster_row["ch"].iloc[0])
 
-        # Prepare unit kwargs
-        unit_kwargs = {
+        # Prepare unit data dictionary
+        unit_data = {
             "spike_times": cluster_spike_times,
             "probe_id": probe_id,
         }
 
         # Add electrode reference if available
-        if electrode_id is not None and nwbfile.electrodes is not None and len(nwbfile.electrodes) > 0:
-            # Find electrode row by matching electrode_id
-            # Note: electrodes table uses 0-based indexing
-            if electrode_id < len(nwbfile.electrodes):
-                unit_kwargs["electrodes"] = [electrode_id]
+        if electrode_id is not None:
+            unit_data["electrodes"] = [electrode_id]
 
         # Add waveform if requested and available
         if include_waveforms and templates is not None:
             # templates shape: (n_clusters, n_samples, n_channels)
             if cluster_id < templates.shape[0]:
-                unit_kwargs["waveform_mean"] = templates[cluster_id]
+                unit_data["waveform_mean"] = templates[cluster_id]
 
         # Add quality metrics if available
         if include_metrics and cluster_metrics is not None:
             metric_row = cluster_metrics[cluster_metrics["cluster_id"] == cluster_id]
             if not metric_row.empty:
-                if "ContamPct" in metric_cols:
-                    unit_kwargs["contamination_pct"] = float(metric_row["ContamPct"].iloc[0])
-                if "Amplitude" in metric_cols:
-                    unit_kwargs["amplitude"] = float(metric_row["Amplitude"].iloc[0])
-                elif "amp" in metric_cols:
-                    unit_kwargs["amplitude"] = float(metric_row["amp"].iloc[0])
+                if "ContamPct" in cluster_metrics.columns:
+                    unit_data["contamination_pct"] = float(metric_row["ContamPct"].iloc[0])
+                if "Amplitude" in cluster_metrics.columns:
+                    unit_data["amplitude"] = float(metric_row["Amplitude"].iloc[0])
+                elif "amp" in cluster_metrics.columns:
+                    unit_data["amplitude"] = float(metric_row["amp"].iloc[0])
 
-        # Add unit to NWBFile
-        nwbfile.add_unit(**unit_kwargs)
+        # Add to list
+        units_list.append(unit_data)
 
         # Update stats
         stats["n_units_added"] += 1
         stats["n_spikes_total"] += len(cluster_spike_times)
 
-    return stats
+    # Append stats as last element (with special key for identification)
+    units_list.append({"__stats__": stats})
+
+    return units_list
 
 
 __all__ = [
     "load_kilosort_data",
     "load_cluster_labels",
     "load_cluster_metrics",
-    "add_units_from_kilosort",
+    "build_units_table_from_kilosort",
 ]

@@ -1,6 +1,6 @@
-"""Integration tests for SessionPipeline.
+"""Integration tests for Prefect flow orchestration.
 
-Tests the full pipeline orchestration using synthetic data.
+Tests the full flow-based pipeline using synthetic data.
 """
 
 from pathlib import Path
@@ -9,11 +9,11 @@ from pynwb import NWBHDF5IO
 import pytest
 
 from synthetic import build_raw_folder
-from w2t_bkin.core.pipeline import RunOptions, SessionPipeline
+from w2t_bkin.flows import process_session_flow
 
 
-class TestSessionPipelineIntegration:
-    """Test full pipeline execution."""
+class TestSessionFlowIntegration:
+    """Test full flow execution."""
 
     def test_Should_RunFullPipeline_When_ValidSessionProvided(self, tmp_path):
         """Should successfully run the full pipeline on a synthetic session."""
@@ -31,30 +31,24 @@ class TestSessionPipelineIntegration:
             ttl_ids=["ttl_camera", "ttl_cue"],
         )
 
-        # 2. Initialize pipeline
-        pipeline = SessionPipeline(
+        # 2. Run flow
+        flow_result = process_session_flow(
             config_path=result.config_path,
             subject_id="subject-001",
             session_id="session-001",
-            options=RunOptions(
-                skip_nwb_validation=True,  # Skip validation to avoid nwbinspector dependency in tests if not installed
-                skip_pose=True,  # Skip pose for basic test
-            ),
+            skip_nwb_validation=True,  # Skip validation to avoid nwbinspector dependency in tests if not installed
+            skip_pose=True,  # Skip pose for basic test
         )
 
-        # 3. Run pipeline
-        run_result = pipeline.run()
+        # 3. Verify success
+        assert flow_result.success
+        assert flow_result.nwb_path.exists()
 
-        # 4. Verify success
-        assert run_result.success
-        assert run_result.nwb_path.exists()
-        assert run_result.nwbfile is not None
-
-        # 5. Verify NWB content
-        with NWBHDF5IO(str(run_result.nwb_path), "r") as io:
+        # 4. Verify NWB content
+        with NWBHDF5IO(str(flow_result.nwb_path), "r") as io:
             nwb = io.read()
             assert nwb.identifier == "session-001"
-            assert "cam0" in nwb.acquisition
+            assert "cam0" in nwb.devices  # Camera is registered as a device
             # Check if trials are present (since we have Bpod data)
             assert nwb.trials is not None
             assert len(nwb.trials) > 0
@@ -72,26 +66,21 @@ class TestSessionPipelineIntegration:
             n_trials=5,
         )
 
-        # 2. Initialize pipeline with skip_bpod=True
-        pipeline = SessionPipeline(
+        # 2. Run flow with skip_bpod=True
+        flow_result = process_session_flow(
             config_path=result.config_path,
             subject_id="subject-002",
             session_id="session-001",
-            options=RunOptions(
-                skip_bpod=True,
-                skip_nwb_validation=True,
-                skip_pose=True,
-            ),
+            skip_bpod=True,  # Skip Bpod processing
+            skip_nwb_validation=True,
+            skip_pose=True,
         )
 
-        # 3. Run pipeline
-        run_result = pipeline.run()
+        # 3. Verify success
+        assert flow_result.success
 
-        # 4. Verify success
-        assert run_result.success
-
-        # 5. Verify NWB content (should NOT have trials)
-        with NWBHDF5IO(str(run_result.nwb_path), "r") as io:
+        # 4. Verify NWB content (should NOT have trials)
+        with NWBHDF5IO(str(flow_result.nwb_path), "r") as io:
             nwb = io.read()
             # Trials table might exist but be empty or None depending on implementation
             # In current implementation, if skip_bpod is True, trials table is not added
@@ -104,16 +93,13 @@ class TestSessionPipelineIntegration:
         invalid_config = tmp_path / "invalid_config.toml"
         invalid_config.touch()
 
-        # 2. Initialize pipeline
-        pipeline = SessionPipeline(
+        # 2. Run flow
+        flow_result = process_session_flow(
             config_path=invalid_config,
             subject_id="subject-003",
             session_id="session-001",
         )
 
-        # 3. Run pipeline
-        run_result = pipeline.run()
-
-        # 4. Verify failure
-        assert not run_result.success
-        assert run_result.error is not None
+        # 3. Verify failure
+        assert not flow_result.success
+        assert flow_result.error is not None

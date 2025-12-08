@@ -41,8 +41,7 @@ from pynwb import NWBHDF5IO, NWBFile
 
 from synthetic import build_raw_folder
 from w2t_bkin.figures.ecephys import plot_electrode_locations
-from w2t_bkin.ingest.ecephys import create_device, create_electrode_group
-from w2t_bkin.ingest.spikeglx import add_electrodes_from_spikeglx, parse_spikeglx_meta
+from w2t_bkin.ingest.spikeglx import build_device_from_meta, build_electrode_group_from_meta, build_electrodes_table_from_meta, parse_spikeglx_meta
 
 
 class ExampleSettings(BaseSettings):
@@ -162,13 +161,8 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------
     print_section("PHASE 3: Create Device")
 
-    device_name = f"neuropixels_{settings.probe_id}"
-    device = create_device(
-        nwbfile=nwbfile,
-        name=device_name,
-        manufacturer="IMEC",
-        description=f"Neuropixels 2.0 probe ({settings.probe_id})",
-    )
+    device = build_device_from_meta(meta, settings.probe_id)
+    nwbfile.add_device(device)
 
     print(f"\n✓ Created Device:")
     print(f"  - Name: {device.name}")
@@ -180,18 +174,30 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------
     print_section("PHASE 4: Add Electrodes")
 
-    n_electrodes = add_electrodes_from_spikeglx(
-        nwbfile=nwbfile,
-        meta_path=meta_path,
+    # Create electrode group
+    group_name = f"probe_{settings.probe_id}"
+    electrode_group = build_electrode_group_from_meta(
+        name=group_name,
         device=device,
-        probe_id=settings.probe_id,
+        location=settings.location,
+        meta=meta,
+    )
+    nwbfile.add_electrode_group(electrode_group)
+
+    # Build and add electrodes
+    electrode_rows = build_electrodes_table_from_meta(
+        meta=meta,
+        electrode_group=electrode_group,
         location=settings.location,
     )
+    for row in electrode_rows:
+        nwbfile.add_electrode(**row)
 
+    n_electrodes = len(electrode_rows)
     print(f"\n✓ Added {n_electrodes} electrodes:")
-    print(f"  - Electrode group: probe_{settings.probe_id}")
+    print(f"  - Electrode group: {group_name}")
     print(f"  - Location: {settings.location}")
-    print(f"  - Device: {device_name}")
+    print(f"  - Device: {device.name}")
 
     # Show sample electrodes
     print(f"\n  Sample electrodes (first 3):")

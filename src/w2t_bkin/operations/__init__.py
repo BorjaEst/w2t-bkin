@@ -1,0 +1,65 @@
+"""Domain logic operations for w2t-bkin pipeline.
+
+This module contains atomic business logic functions that are Prefect-compatible
+but don't directly use Prefect decorators. These functions represent the core
+domain operations of the pipeline.
+
+Design Principles:
+- Atomic operations only (no session-level orchestration)
+- Can use standard Python libraries (logging, pathlib, etc.)
+- Can perform I/O and have side effects
+- Cannot import Prefect decorators (@task, @flow)
+- Should be independently testable with mocked dependencies
+
+The tasks/ layer wraps these operations with @task decorators to add:
+- Retry logic
+- Caching
+- Prefect observability
+- Session-level convenience functions
+"""
+
+from .assembly import add_skeletons_container, assemble_behavior_tables, assemble_pose_estimation
+from .config_loader import create_nwb_file, load_session_config
+from .dlc_generator import generate_dlc_poses, generate_dlc_poses_for_session
+from .file_discovery import discover_all_files, discover_bpod_files, discover_camera_files, discover_ttl_files
+from .finalization import create_provenance_data, finalize_session, validate_nwb_file, write_nwb_file, write_sidecar_files
+from .ingestion import align_trials_to_ttl, ingest_bpod_data, ingest_dlc_poses, ingest_session_data, ingest_sleap_poses, ingest_ttl_pulses
+from .sleap_generator import discover_sleap_poses, discover_sleap_poses_for_session, generate_sleap_poses
+from .synchronization import compute_alignment_statistics, compute_alignment_statistics_from_result
+
+__all__ = [
+    # Config operations
+    "load_session_config",
+    "create_nwb_file",
+    # Discovery operations
+    "discover_camera_files",
+    "discover_bpod_files",
+    "discover_ttl_files",
+    "discover_all_files",
+    # Artifact generation operations
+    "generate_dlc_poses",
+    "generate_dlc_poses_for_session",
+    "discover_sleap_poses",
+    "discover_sleap_poses_for_session",
+    "generate_sleap_poses",
+    # Ingestion operations
+    "ingest_bpod_data",
+    "ingest_dlc_poses",
+    "ingest_sleap_poses",
+    "ingest_ttl_pulses",
+    "align_trials_to_ttl",
+    "ingest_session_data",
+    # Synchronization operations
+    "compute_alignment_statistics",
+    "compute_alignment_statistics_from_result",
+    # Assembly operations
+    "assemble_behavior_tables",
+    "assemble_pose_estimation",
+    "add_skeletons_container",
+    # Finalization operations
+    "write_nwb_file",
+    "create_provenance_data",
+    "write_sidecar_files",
+    "validate_nwb_file",
+    "finalize_session",
+]
