@@ -71,6 +71,19 @@ description = "High-speed camera - side view"
 manufacturer = "FLIR"
 model_name = "Blackfly S"
 
+# Example: Neuropixels probes (uncomment and configure if using ecephys)
+# [[devices]]
+# name = "neuropixels_imec0"
+# description = "Neuropixels 2.0 probe - Motor Cortex"
+# manufacturer = "IMEC"
+# model_name = "Neuropixels 2.0"
+
+# [[devices]]
+# name = "neuropixels_imec1"
+# description = "Neuropixels 2.0 probe - Sensory Cortex"
+# manufacturer = "IMEC"
+# model_name = "Neuropixels 2.0"
+
 # =============================================================================
 # Optional: Electrophysiology, Imaging, Optogenetics (remove if not applicable)
 # =============================================================================
@@ -151,3 +164,22 @@ description = "Audio cue onset pulses"
 id = "ttl_hitmiss"
 paths = "TTLs/*_hitmiss.txt"
 description = "Trial outcome signals"
+
+# Example: Neuropixels TTL channels (uncomment if using ecephys)
+# These are TTL pulses RECORDED BY Neuropixels NIDQ from other devices
+# Paths point to TPrime-corrected timestamps
+# [[TTLs]]
+# id = "ttl_camera"
+# paths = "neural/TPrime_output/corrected_7_video_TTLs.txt"
+# description = "Camera frame triggers recorded by Neuropixels NIDQ XA_7_0"
+
+# [[TTLs]]
+# id = "ttl_cue"
+# paths = "neural/TPrime_output/corrected_1_response_TTLs.txt"
+# description = "Behavioral cue onsets recorded by Neuropixels NIDQ XA_1_0"
+
+# [[TTLs]]
+# id = "ttl_bpod_trials"
+# paths = "neural/TPrime_output/corrected_3_trials_TTLs.txt"
+# description = "Bpod trial start markers recorded by Neuropixels NIDQ XD_3_0"
+

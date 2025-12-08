@@ -74,6 +74,42 @@ preset = "fast"                       # Encoding speed preset
 keyint = 15                           # GOP size (frames)
 
 # =============================================================================
+# Extracellular Electrophysiology (Neuropixels)
+# =============================================================================
+
+[ecephys]
+enabled = false  # Master switch - set to true to enable ecephys processing
+
+# List of probe device names (must match [[devices]] in metadata.toml)
+# Example: ["neuropixels_imec0", "neuropixels_imec1"]
+probes = []
+
+[ecephys.storage]
+# How to handle raw AP band data in NWB file
+raw_data_strategy = "link"  # Options: "link" (HDF5 external link, recommended)
+                             #          "copy" (embed in NWB, large files)
+                             #          "skip" (don't include raw data)
+
+# Whether to compute and store LFP data (future feature)
+compute_lfp = false
+
+[ecephys.quality]
+# Filter units by cluster quality labels from Kilosort/Phy curation
+# Common labels: "good" (well-isolated single units), "mua" (multi-unit activity), "noise"
+include_labels = ["good", "mua"]
+
+# Minimum spike count per unit (units below threshold are excluded)
+min_spike_count = 100
+
+# Whether to include additional data in Units table (increases file size)
+add_waveforms = false         # Include mean waveforms from templates.npy
+add_quality_metrics = false   # Include ContamPct, Amplitude, etc. from Kilosort
+
+# Optional: Override brain region per probe (if not in metadata.toml)
+# location_imec0 = "Motor Cortex, M1"
+# location_imec1 = "Sensory Cortex, S1"
+
+# =============================================================================
 # Logging Configuration
 # =============================================================================
 
