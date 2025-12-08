@@ -10,19 +10,22 @@ This document records all major decisions made during the refactoring planning a
 
 **Decision**: Rename `tasks/` to `preprocessing/` instead of other alternatives
 
-**Context**: 
+**Context**:
+
 - Current `tasks/` directory contains `PipelineTask`, `DLCPoseTask`, `SLEAPPoseTask`
 - These are preprocessing framework classes, NOT Prefect `@task` decorated functions
 - User confusion between framework tasks and Prefect tasks likely
 - Need clear separation of concerns
 
 **Options**:
+
 1. Keep `tasks/`, add namespace like `from w2t_bkin.tasks.pipeline import PipelineTask`
 2. Rename to `preprocessing/`
 3. Rename to `pipeline_tasks/`
 4. Rename to `framework/`
 
-**Rationale**: 
+**Rationale**:
+
 - Option 2 (`preprocessing/`) chosen because:
   - Clear, descriptive name matches actual purpose
   - Prevents confusion with Prefect `@task` decorator
@@ -33,6 +36,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Too generic, unclear purpose
 
 **Impact**:
+
 - Positive: Eliminates naming confusion
 - Negative: Requires updating all imports (mitigated with compatibility layer)
 - Risk: Low - mechanical change, test suite will catch errors
@@ -46,17 +50,20 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Rename `orchestration/` to `prefect/` for clarity
 
 **Context**:
+
 - Current `orchestration/` contains mix of Prefect and multiprocessing code
 - Not immediately obvious that this module is Prefect-specific
 - Future maintainers may add non-Prefect orchestration to this module
 
 **Options**:
+
 1. Keep `orchestration/`, reorganize internally
 2. Rename to `prefect/`
 3. Rename to `workflows/`
 4. Create `prefect/` and keep `orchestration/` for non-Prefect code
 
 **Rationale**:
+
 - Option 2 (`prefect/`) chosen because:
   - Crystal clear that code in this module uses Prefect
   - Follows convention seen in other projects
@@ -67,6 +74,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Unnecessary complexity, no current need for non-Prefect orchestration
 
 **Impact**:
+
 - Positive: Clear module purpose, easier onboarding
 - Negative: Import changes required
 - Risk: Low - mechanical change
@@ -80,18 +88,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Implement dual execution modes (monolithic vs phase-level) instead of replacing monolithic
 
 **Context**:
+
 - Current code processes entire session as one black-box task
 - Phase functions already exist in `core/pipeline/phases/`
 - Phase-level execution provides better observability but adds overhead
 - Production users may prioritize speed over observability
 
 **Options**:
+
 1. Replace monolithic with phase-level only
 2. Keep only monolithic, don't expose phases
 3. **Implement both, user chooses via parameter**
 4. Implement both, auto-select based on environment
 
 **Rationale**:
+
 - Option 3 (dual mode with parameter) chosen because:
   - Gives users choice based on their needs
   - Production can use fast monolithic mode
@@ -104,6 +115,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Too magical, users should explicitly choose
 
 **Impact**:
+
 - Positive: Best of both worlds, user flexibility
 - Negative: Slightly more code to maintain (2 flow definitions)
 - Risk: Low - both modes use same phase functions
@@ -117,18 +129,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Maintain backward compatibility layer in v2.x, remove in v3.0
 
 **Context**:
+
 - Renaming modules breaks existing user code
 - Users may have scripts, notebooks, deployments using old imports
 - Want to avoid forcing immediate updates
 - But also want to encourage migration to cleaner API
 
 **Options**:
+
 1. **Compatibility layer with deprecation warnings (v2.x), remove in v3.0**
 2. Break immediately, provide migration script
 3. Keep compatibility layer forever
 4. Version-gated compatibility (remove after date)
 
 **Rationale**:
+
 - Option 1 chosen because:
   - Industry standard approach (Python stdlib, major libraries)
   - Gives users time to migrate (6-12 months)
@@ -140,6 +155,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Date-based breaks are unpredictable
 
 **Impact**:
+
 - Positive: Smooth migration, happy users
 - Negative: Maintain two import paths temporarily
 - Risk: Low - compatibility layer is simple
@@ -153,18 +169,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Split `prefect/flows.py` into multiple modules (tasks, flows, deployments) instead of keeping monolithic file
 
 **Context**:
+
 - Current `orchestration/flows.py` is 354 lines with mixed concerns
 - Contains flow definitions, task definitions, deployment code, multiprocessing code
 - Difficult to navigate and maintain
 - Prefect best practices recommend separation
 
 **Options**:
+
 1. Keep everything in `flows.py`
 2. **Split into tasks.py, flows.py, deployments.py, infrastructure.py**
 3. Split into flows.py and deployments.py only
 4. Create subdirectory: `prefect/flows/`, `prefect/tasks/`, etc.
 
 **Rationale**:
+
 - Option 2 (4-file split) chosen because:
   - Clear separation of concerns
   - Each file <300 lines
@@ -177,6 +196,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Over-engineering for current code size
 
 **Impact**:
+
 - Positive: Better organization, easier maintenance
 - Negative: More files (but not excessive)
 - Risk: Low - clear module boundaries
@@ -190,18 +210,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Wrap phase functions with `@task` decorator instead of modifying phase functions directly
 
 **Context**:
+
 - Phase functions exist in `core/pipeline/phases/` as pure functions
 - Need to expose as Prefect tasks for phase-level execution
 - Want to keep core logic separate from Prefect concerns
 - Phase functions used by both Prefect and non-Prefect code paths
 
 **Options**:
+
 1. **Create thin `@task` wrappers in `prefect/tasks.py`**
 2. Add `@task` decorator directly to phase functions
 3. Subclass phase functions for Prefect
 4. Create Prefect-specific phase implementations
 
 **Rationale**:
+
 - Option 1 (thin wrappers) chosen because:
   - Keeps core logic pure, framework-agnostic
   - Phase functions remain testable without Prefect
@@ -213,6 +236,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Code duplication
 
 **Impact**:
+
 - Positive: Clean architecture, maintainable
 - Negative: Tiny amount of boilerplate (7 wrapper functions)
 - Risk: Negligible - wrappers are 3-5 lines each
@@ -226,18 +250,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Configure different retry policies per phase based on failure characteristics
 
 **Context**:
+
 - Different phases have different failure modes
 - Some phases more likely to fail transiently (file I/O, network)
 - Some phases expensive to retry (GPU inference)
 - Prefect allows per-task retry configuration
 
 **Options**:
+
 1. Same retry policy for all phases
 2. **Different retry policies per phase based on characteristics**
 3. No retries, fail fast
 4. Aggressive retries for all
 
 **Rationale**:
+
 - Option 2 (per-phase policies) chosen because:
   - initialization: 1 retry (config loading usually deterministic)
   - discovery: 2 retries (file system can be transiently unavailable)
@@ -251,6 +278,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Wastes time on deterministic failures
 
 **Impact**:
+
 - Positive: Robust, optimized for each phase
 - Negative: More configuration
 - Risk: Low - can tune based on real-world data
@@ -264,18 +292,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Use `PipelineContext` dataclass for passing state between tasks instead of individual parameters
 
 **Context**:
+
 - Phase functions need config, NWBFile, metadata, session info
 - Could pass as separate parameters or as context object
 - `PipelineContext` already exists in codebase
 - Prefect can serialize/deserialize dataclasses
 
 **Options**:
+
 1. Pass individual parameters to each task
 2. **Pass `PipelineContext` object through task chain**
 3. Use Prefect context/state management
 4. Global state (module-level)
 
 **Rationale**:
+
 - Option 2 (`PipelineContext`) chosen because:
   - Already exists and used by phase functions
   - Clean, type-safe interface
@@ -288,6 +319,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Testing nightmare, not thread-safe
 
 **Impact**:
+
 - Positive: Clean, maintainable, type-safe
 - Negative: Entire context serialized between tasks (small overhead)
 - Risk: Low - proven pattern in existing code
@@ -301,18 +333,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Deploy both `batch-processing` (monolithic) and `batch-processing-debug` (phase) deployments
 
 **Context**:
+
 - Dual execution modes available
 - Production users want speed
 - Debug users want observability
 - Prefect allows multiple deployments of same flow
 
 **Options**:
+
 1. Deploy only monolithic
 2. Deploy only phase-level
 3. **Deploy both with different names and parameters**
 4. Deploy one, users override parameters
 
 **Rationale**:
+
 - Option 3 (both deployments) chosen because:
   - Clear naming: `-debug` suffix indicates purpose
   - Pre-configured for different use cases
@@ -324,6 +359,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Requires users to remember magic parameters
 
 **Impact**:
+
 - Positive: Clear, easy to use
 - Negative: Two deployment definitions (minimal overhead)
 - Risk: Low - just configuration
@@ -337,18 +373,21 @@ This document records all major decisions made during the refactoring planning a
 **Decision**: Complete refactoring in 5 incremental phases instead of big-bang approach
 
 **Context**:
+
 - Large refactoring with multiple changes
 - Risk of breaking changes
 - Need to maintain working codebase
 - Want to get feedback early
 
 **Options**:
+
 1. Big-bang: implement everything at once
 2. **Incremental: 5 phases with testing between each**
 3. Feature flags: implement in parallel branches
 4. Parallel: old and new code coexist
 
 **Rationale**:
+
 - Option 2 (5 phases) chosen because:
   - Phase 1: Rename (low risk, establishes foundation)
   - Phase 2: Split modules (medium risk, architecture change)
@@ -364,6 +403,7 @@ This document records all major decisions made during the refactoring planning a
 - Option 4 rejected: Confusing, maintenance burden
 
 **Impact**:
+
 - Positive: Lower risk, early feedback, easier debugging
 - Negative: Takes longer than big-bang (but safer)
 - Risk: Low - incremental is proven approach
@@ -377,16 +417,19 @@ This document records all major decisions made during the refactoring planning a
 **Total Decisions**: 10  
 **Date Range**: December 5, 2025  
 **Major Categories**:
+
 - Naming/Organization: 5 decisions
-- Architecture/Design: 3 decisions  
+- Architecture/Design: 3 decisions
 - Process/Timeline: 2 decisions
 
 **Risk Assessment**:
+
 - Low Risk: 9 decisions
 - Medium Risk: 1 decision
 - High Risk: 0 decisions
 
 **Expected Impact**:
+
 - High Positive: 8 decisions
 - Medium Positive: 2 decisions
 - Low/Negative: 0 decisions

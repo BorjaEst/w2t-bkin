@@ -8,12 +8,12 @@ This guide helps you update your code to use the new Prefect-friendly module str
 
 ## Quick Summary
 
-| Change | Old Path | New Path |
-|--------|----------|----------|
-| Preprocessing tasks | `w2t_bkin.tasks` | `w2t_bkin.preprocessing` |
-| Prefect orchestration | `w2t_bkin.orchestration` | `w2t_bkin.prefect` |
-| Batch flow name | `batch_process_sessions_prefect` | `batch_process_sessions` |
-| Session task name | `process_single_session` | `process_session_monolithic` |
+| Change                | Old Path                         | New Path                     |
+| --------------------- | -------------------------------- | ---------------------------- |
+| Preprocessing tasks   | `w2t_bkin.tasks`                 | `w2t_bkin.preprocessing`     |
+| Prefect orchestration | `w2t_bkin.orchestration`         | `w2t_bkin.prefect`           |
+| Batch flow name       | `batch_process_sessions_prefect` | `batch_process_sessions`     |
+| Session task name     | `process_single_session`         | `process_session_monolithic` |
 
 ## Module Renames
 
@@ -142,6 +142,7 @@ result = batch_process_sessions(
 ```
 
 **Prefect UI shows:**
+
 - 1 task per session
 - Fast execution
 - Simple graph
@@ -159,6 +160,7 @@ result = batch_process_sessions(
 ```
 
 **Prefect UI shows:**
+
 - 7 tasks per session (one per phase)
 - Detailed execution graph
 - Per-phase duration and logs
@@ -178,6 +180,7 @@ result = process_session_with_phases(
 ```
 
 **Phases exposed:**
+
 1. Phase 0: Initialization (load config, create NWBFile)
 2. Phase 1: Discovery (find cameras, TTLs, Bpod data)
 3. Phase 2: Preprocessing (run DLC/SLEAP)
@@ -188,13 +191,13 @@ result = process_session_with_phases(
 
 ### When to Use Each Mode
 
-| Use Case | Mode | Reason |
-|----------|------|--------|
-| Production batch processing | Monolithic | Faster, proven, simpler |
-| Debugging pipeline issues | Phase-level | See which phase fails |
-| Development | Phase-level | Better visibility |
-| Performance-critical | Monolithic | Lower overhead (~5% faster) |
-| Learning the pipeline | Phase-level | Educational |
+| Use Case                    | Mode        | Reason                      |
+| --------------------------- | ----------- | --------------------------- |
+| Production batch processing | Monolithic  | Faster, proven, simpler     |
+| Debugging pipeline issues   | Phase-level | See which phase fails       |
+| Development                 | Phase-level | Better visibility           |
+| Performance-critical        | Monolithic  | Lower overhead (~5% faster) |
+| Learning the pipeline       | Phase-level | Educational                 |
 
 ## Backward Compatibility
 
@@ -275,6 +278,7 @@ python docker/deploy_flows.py
 ```
 
 This now deploys:
+
 1. `batch-processing` (monolithic mode)
 2. `batch-processing-debug` (phase-level mode)
 3. `process-single-session` (phase-level mode)
@@ -498,6 +502,7 @@ python docker/deploy_flows.py
 ### Examples
 
 Check updated examples in:
+
 - `examples/bpod_camera_sync.py`
 - `examples/pose_camera_nwb.py`
 - `docs/quick-start-batch.md`

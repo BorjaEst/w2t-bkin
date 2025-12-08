@@ -5,6 +5,7 @@ This directory contains comprehensive documentation for the Prefect-friendly cod
 ## Documents
 
 ### 📋 [OVERVIEW.md](./OVERVIEW.md)
+
 **Executive summary and project plan**
 
 - Motivation and goals
@@ -18,6 +19,7 @@ This directory contains comprehensive documentation for the Prefect-friendly cod
 ---
 
 ### 🏗️ [DESIGN.md](./DESIGN.md)
+
 **Detailed technical design**
 
 - Current vs target structure
@@ -31,6 +33,7 @@ This directory contains comprehensive documentation for the Prefect-friendly cod
 ---
 
 ### 📝 [REQUIREMENTS.md](./REQUIREMENTS.md)
+
 **Formal requirements in EARS notation**
 
 - Functional requirements (FR-1 to FR-23)
@@ -44,6 +47,7 @@ This directory contains comprehensive documentation for the Prefect-friendly cod
 ---
 
 ### ✅ [TASKS.md](./TASKS.md)
+
 **Implementation task checklist**
 
 - 67 tasks across 5 phases + post-merge
@@ -56,6 +60,7 @@ This directory contains comprehensive documentation for the Prefect-friendly cod
 ---
 
 ### 🚀 [MIGRATION.md](./MIGRATION.md)
+
 **User migration guide**
 
 - Quick summary of changes
@@ -69,6 +74,7 @@ This directory contains comprehensive documentation for the Prefect-friendly cod
 ---
 
 ### 🧪 [TESTING.md](./TESTING.md)
+
 **Comprehensive testing strategy**
 
 - 50+ test specifications
@@ -107,40 +113,45 @@ This directory contains comprehensive documentation for the Prefect-friendly cod
 
 ## Document Status
 
-| Document | Status | Last Updated |
-|----------|--------|--------------|
-| OVERVIEW.md | ✅ Complete | 2025-12-05 |
-| DESIGN.md | ✅ Complete | 2025-12-05 |
-| REQUIREMENTS.md | ✅ Complete | 2025-12-05 |
-| TASKS.md | ✅ Complete | 2025-12-05 |
-| MIGRATION.md | ✅ Complete | 2025-12-05 |
-| TESTING.md | ✅ Complete | 2025-12-05 |
+| Document        | Status      | Last Updated |
+| --------------- | ----------- | ------------ |
+| OVERVIEW.md     | ✅ Complete | 2025-12-05   |
+| DESIGN.md       | ✅ Complete | 2025-12-05   |
+| REQUIREMENTS.md | ✅ Complete | 2025-12-05   |
+| TASKS.md        | ✅ Complete | 2025-12-05   |
+| MIGRATION.md    | ✅ Complete | 2025-12-05   |
+| TESTING.md      | ✅ Complete | 2025-12-05   |
 
 ---
 
 ## Project Phases
 
 ### Phase 1: Rename Directories ✅ Low Risk
+
 - Estimated: 2-4 hours
 - Tasks: 14
 - Status: ⏳ Not Started
 
 ### Phase 2: Split Modules ⚠️ Medium Risk
+
 - Estimated: 4-6 hours
 - Tasks: 13
 - Status: ⏳ Not Started
 
 ### Phase 3: Add Phase-Level Tasks ✅ High Value
+
 - Estimated: 3-5 hours
 - Tasks: 11
 - Status: ⏳ Not Started
 
 ### Phase 4: Update Deployments 🔧 Medium Value
+
 - Estimated: 2-3 hours
 - Tasks: 10
 - Status: ⏳ Not Started
 
 ### Phase 5: Documentation & Testing 📝 Critical
+
 - Estimated: 4-6 hours
 - Tasks: 14
 - Status: ⏳ Not Started

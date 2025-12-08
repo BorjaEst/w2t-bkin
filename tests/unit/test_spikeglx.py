@@ -29,7 +29,7 @@ class TestCreateNeuropixelsDevice:
 
     def test_create_device_basic(self, nwbfile):
         """Test creating a device with default parameters."""
-        device = create_neuropixels_device(
+        device = create_device(
             nwbfile=nwbfile,
             device_name="neuropixels_imec0",
         )
@@ -40,7 +40,7 @@ class TestCreateNeuropixelsDevice:
 
     def test_create_device_custom_params(self, nwbfile):
         """Test creating a device with custom parameters."""
-        device = create_neuropixels_device(
+        device = create_device(
             nwbfile=nwbfile,
             device_name="neuropixels_imec1",
             manufacturer="IMEC",
@@ -54,14 +54,14 @@ class TestCreateNeuropixelsDevice:
 
     def test_create_duplicate_device(self, nwbfile):
         """Test error when creating duplicate device."""
-        create_neuropixels_device(nwbfile, "probe1")
+        create_device(nwbfile, "probe1")
 
         with pytest.raises(ValueError, match="already exists"):
-            create_neuropixels_device(nwbfile, "probe1")
+            create_device(nwbfile, "probe1")
 
     def test_device_added_to_nwbfile(self, nwbfile):
         """Test that device is added to nwbfile.devices."""
-        device = create_neuropixels_device(nwbfile, "test_probe")
+        device = create_device(nwbfile, "test_probe")
 
         assert "test_probe" in nwbfile.devices
         assert nwbfile.devices["test_probe"] is device
@@ -78,7 +78,7 @@ class TestAddElectrodesFromMeta:
             identifier="test-002",
             session_start_time=datetime.now(tzlocal()),
         )
-        create_neuropixels_device(nwb, "neuropixels_imec0")
+        create_device(nwb, "neuropixels_imec0")
         return nwb
 
     @pytest.fixture
@@ -90,7 +90,7 @@ class TestAddElectrodesFromMeta:
         """Test adding electrodes from .meta file."""
         device = nwbfile.devices["neuropixels_imec0"]
 
-        n_added = add_electrodes_from_meta(
+        n_added = add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device,
@@ -105,7 +105,7 @@ class TestAddElectrodesFromMeta:
         """Test that electrodes have correct attributes."""
         device = nwbfile.devices["neuropixels_imec0"]
 
-        add_electrodes_from_meta(
+        add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device,
@@ -125,7 +125,7 @@ class TestAddElectrodesFromMeta:
         """Test that ElectrodeGroup is created."""
         device = nwbfile.devices["neuropixels_imec0"]
 
-        add_electrodes_from_meta(
+        add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device,
@@ -139,7 +139,7 @@ class TestAddElectrodesFromMeta:
         """Test custom electrode group name."""
         device = nwbfile.devices["neuropixels_imec0"]
 
-        add_electrodes_from_meta(
+        add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device,
@@ -158,11 +158,11 @@ class TestAddElectrodesFromMeta:
         )
 
         # Add two probes
-        device0 = create_neuropixels_device(nwb, "neuropixels_imec0")
-        device1 = create_neuropixels_device(nwb, "neuropixels_imec1")
+        device0 = create_device(nwb, "neuropixels_imec0")
+        device1 = create_device(nwb, "neuropixels_imec1")
 
-        add_electrodes_from_meta(nwb, sample_meta_path, device0, "imec0")
-        add_electrodes_from_meta(nwb, sample_meta_path, device1, "imec1")
+        add_electrodes_from_spikeglx(nwb, sample_meta_path, device0, "imec0")
+        add_electrodes_from_spikeglx(nwb, sample_meta_path, device1, "imec1")
 
         # Should have 384 * 2 = 768 electrodes with unique IDs
         assert len(nwb.electrodes) == 768
@@ -176,7 +176,7 @@ class TestAddElectrodesFromMeta:
         device = nwbfile.devices["neuropixels_imec0"]
 
         with pytest.raises(FileNotFoundError):
-            add_electrodes_from_meta(
+            add_electrodes_from_spikeglx(
                 nwbfile=nwbfile,
                 meta_path=Path("/nonexistent/file.meta"),
                 device=device,

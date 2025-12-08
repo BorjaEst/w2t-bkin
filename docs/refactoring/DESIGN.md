@@ -103,7 +103,7 @@ from ..core.pipeline.models import PipelineContext
 )
 def initialization_task(context: PipelineContext) -> PipelineContext:
     """Phase 0: Load configuration and create NWBFile.
-    
+
     Retry Logic: 1 retry (config loading failures usually transient)
     """
     run_phase_0(context)
@@ -117,7 +117,7 @@ def initialization_task(context: PipelineContext) -> PipelineContext:
 )
 def discovery_task(context: PipelineContext) -> PipelineContext:
     """Phase 1: Discover cameras, TTLs, and Bpod data.
-    
+
     Retry Logic: 2 retries (file system operations)
     """
     run_phase_1(context)
@@ -131,7 +131,7 @@ def discovery_task(context: PipelineContext) -> PipelineContext:
 )
 def preprocessing_task(context: PipelineContext) -> PipelineContext:
     """Phase 2: Run DLC/SLEAP pose estimation.
-    
+
     Retry Logic: 2 retries, longer delay (GPU operations)
     """
     run_phase_2(context)
@@ -197,7 +197,7 @@ def process_session_monolithic_task(
     from ..core.pipeline import SessionPipeline
     from ..core.pipeline.models import RunOptions
     from pathlib import Path
-    
+
     pipeline = SessionPipeline(
         config_path=Path(config_path),
         subject_id=subject_id,
@@ -205,7 +205,7 @@ def process_session_monolithic_task(
         options=RunOptions(),
     )
     pipeline.run()
-    
+
     return {
         "success": True,
         "subject_id": subject_id,
@@ -246,20 +246,20 @@ def process_session_with_phases(
     options: Optional[RunOptions] = None,
 ) -> dict:
     """Process a single session with each phase as a separate task.
-    
+
     Advantages:
     - Phase-level retry logic
     - Detailed observability in Prefect UI
     - Can see which phase failed
     - Per-phase duration tracking
-    
+
     Disadvantages:
     - Slightly slower (task overhead)
     - More complex execution graph
     """
     if options is None:
         options = RunOptions()
-    
+
     # Initialize context
     context = PipelineContext(
         config_path=Path(config_path),
@@ -267,7 +267,7 @@ def process_session_with_phases(
         session_id=session_id,
         options=options,
     )
-    
+
     # Run phases sequentially
     # Context is passed through and updated by each phase
     context = initialization_task(context)
@@ -277,7 +277,7 @@ def process_session_with_phases(
     context = synchronization_task(context)
     context = assembly_task(context)
     context = finalization_task(context)
-    
+
     return {
         "success": True,
         "subject_id": subject_id,
@@ -297,12 +297,12 @@ def process_session_monolithic(
     options: Optional[RunOptions] = None,
 ) -> dict:
     """Process entire session as one monolithic task.
-    
+
     Advantages:
     - Faster (no task overhead)
     - Simpler execution graph
     - Current proven behavior
-    
+
     Disadvantages:
     - Limited observability
     - Can't see which phase failed
@@ -327,26 +327,26 @@ def batch_process_sessions(
     use_phases: bool = False,
 ) -> dict:
     """Batch process multiple subjects/sessions.
-    
+
     Args:
         config_path: Path to configuration file
         subject_filter: Optional subject ID filter
         session_filter: Optional session ID filter
         max_workers: Concurrency hint (not enforced by Prefect)
         use_phases: Use phase-level tasks (slower, more observable)
-    
+
     Returns:
         Summary dict with total, successful, failed counts and results
     """
     # Discover sessions
     sessions = discover_sessions(config_path, subject_filter, session_filter)
-    
+
     if not sessions:
         return {"total": 0, "successful": 0, "failed": 0, "results": []}
-    
+
     # Choose flow based on granularity preference
     flow_fn = process_session_with_phases if use_phases else process_session_monolithic
-    
+
     # Submit all sessions as parallel sub-flow runs
     futures = [
         flow_fn.submit(
@@ -356,7 +356,7 @@ def batch_process_sessions(
         )
         for session in sessions
     ]
-    
+
     # Wait for all to complete and collect results
     results = []
     for future in futures:
@@ -369,10 +369,10 @@ def batch_process_sessions(
                 "success": False,
                 "error": str(e),
             })
-    
+
     successful = sum(1 for r in results if r.get("success", False))
     failed = len(results) - successful
-    
+
     return {
         "total": len(sessions),
         "successful": successful,
@@ -488,7 +488,7 @@ __all__ = [
     "batch_process_sessions",
     "process_session_with_phases",
     "process_session_monolithic",
-    
+
     # Phase tasks
     "initialization_task",
     "discovery_task",
@@ -497,7 +497,7 @@ __all__ = [
     "synchronization_task",
     "assembly_task",
     "finalization_task",
-    
+
     # Deprecated (backward compatibility)
     "batch_process_sessions_prefect",  # Use batch_process_sessions
     "process_single_session",  # Use process_session_monolithic
@@ -552,11 +552,13 @@ batch_process_sessions(use_phases=True)
 ## Prefect UI Benefits
 
 ### Monolithic Mode
+
 - 1 task per session
 - Simple graph
 - Duration: total session time
 
 ### Phase Mode
+
 - 7 tasks per session
 - Detailed graph showing phase relationships
 - Duration: per-phase breakdown
@@ -566,14 +568,14 @@ batch_process_sessions(use_phases=True)
 
 ## Performance Considerations
 
-| Aspect | Monolithic | Phase-Level |
-|--------|------------|-------------|
-| **Speed** | Faster | Slightly slower (~5% overhead) |
-| **Observability** | Limited | Excellent |
-| **Debugging** | Difficult | Easy |
-| **Retry Granularity** | Session-level | Phase-level |
-| **Prefect Overhead** | 1 task/session | 7 tasks/session |
-| **Best For** | Production | Development/Debug |
+| Aspect                | Monolithic     | Phase-Level                    |
+| --------------------- | -------------- | ------------------------------ |
+| **Speed**             | Faster         | Slightly slower (~5% overhead) |
+| **Observability**     | Limited        | Excellent                      |
+| **Debugging**         | Difficult      | Easy                           |
+| **Retry Granularity** | Session-level  | Phase-level                    |
+| **Prefect Overhead**  | 1 task/session | 7 tasks/session                |
+| **Best For**          | Production     | Development/Debug              |
 
 ## Migration Strategy
 

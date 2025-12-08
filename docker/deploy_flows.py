@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 async def deploy_flows_async():
     """Deploy W2T-BKIN flows to Prefect server using async API.
 
+    Deploys two versions:
+    1. batch-processing (monolithic mode - production)
+    2. batch-processing-debug (phase-level mode - debugging)
+
     IMPORTANT: Config files used in containers MUST use absolute paths
     that reference mounted volumes:
     - /data/raw (not ./data/raw or data/raw)
@@ -32,8 +36,8 @@ async def deploy_flows_async():
 
         from prefect.client.orchestration import get_client
 
-        # Import the flow
-        from w2t_bkin.prefect.flows import batch_process_sessions_prefect
+        # Import the flow (use new name, but keep backward compat)
+        from w2t_bkin.prefect.flows import batch_process_sessions
 
         logger.info("📦 Deploying W2T-BKIN flows...")
 
@@ -48,33 +52,62 @@ async def deploy_flows_async():
 
         async with get_client() as client:
             # Register the flow first
-            flow_id = await client.create_flow_from_name(batch_process_sessions_prefect.name)
+            flow_id = await client.create_flow_from_name(batch_process_sessions.name)
 
-            # Create deployment
-            deployment_id = await client.create_deployment(
+            # Deployment 1: Production (monolithic mode - faster)
+            deployment_id_prod = await client.create_deployment(
                 flow_id=flow_id,
                 name="batch-processing",
                 work_pool_name="docker-pool",
                 work_queue_name="default",
-                description="Process multiple subjects/sessions in parallel",
-                tags=["w2t-bkin", "batch", "pipeline"],
+                description="Production batch processing (monolithic mode - faster)",
+                tags=["w2t-bkin", "batch", "production", "monolithic"],
                 parameters={
                     "config_path": config_path,
                     "subject_filter": default_subject_filter,
                     "session_filter": default_session_filter,
                     "max_workers": default_max_workers,
+                    "use_phases": False,  # Monolithic mode
                 },
-                version="1.0.0",
-                entrypoint=f"{batch_process_sessions_prefect.__module__}:{batch_process_sessions_prefect.__name__}",
+                version="2.0.0",
+                entrypoint=f"{batch_process_sessions.__module__}:{batch_process_sessions.__name__}",
                 path="/app/src",
             )
 
-            logger.info(f"✅ Deployed: batch-processing")
+            logger.info(f"✅ Deployed: batch-processing (monolithic mode)")
             logger.info(f"   Flow ID: {flow_id}")
-            logger.info(f"   Deployment ID: {deployment_id}")
+            logger.info(f"   Deployment ID: {deployment_id_prod}")
             logger.info(f"   Default config: {config_path}")
             logger.info(f"   Max workers: {default_max_workers}")
+            logger.info(f"   Mode: monolithic (fast)")
             logger.info(f"   Queue: default")
+
+            # Deployment 2: Debug (phase-level mode - more observable)
+            deployment_id_debug = await client.create_deployment(
+                flow_id=flow_id,
+                name="batch-processing-debug",
+                work_pool_name="docker-pool",
+                work_queue_name="debug",
+                description="Debug batch processing (phase-level mode - more observable)",
+                tags=["w2t-bkin", "batch", "debug", "phases"],
+                parameters={
+                    "config_path": config_path,
+                    "subject_filter": default_subject_filter,
+                    "session_filter": default_session_filter,
+                    "max_workers": 2,  # Lower concurrency for debug
+                    "use_phases": True,  # Phase-level mode
+                },
+                version="2.0.0",
+                entrypoint=f"{batch_process_sessions.__module__}:{batch_process_sessions.__name__}",
+                path="/app/src",
+            )
+
+            logger.info(f"✅ Deployed: batch-processing-debug (phase-level mode)")
+            logger.info(f"   Deployment ID: {deployment_id_debug}")
+            logger.info(f"   Default config: {config_path}")
+            logger.info(f"   Max workers: 2")
+            logger.info(f"   Mode: phase-level (observable)")
+            logger.info(f"   Queue: debug")
 
         return True
 

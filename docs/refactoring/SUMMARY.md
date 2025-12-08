@@ -8,16 +8,16 @@
 
 ## 📚 Documentation Suite
 
-| Document | Purpose | Status |
-|----------|---------|--------|
-| [README.md](./README.md) | Index & navigation | ✅ Complete |
-| [OVERVIEW.md](./OVERVIEW.md) | Executive summary, timeline, phases | ✅ Complete |
-| [DESIGN.md](./DESIGN.md) | Technical design, code examples | ✅ Complete |
-| [REQUIREMENTS.md](./REQUIREMENTS.md) | EARS notation requirements | ✅ Complete |
-| [TASKS.md](./TASKS.md) | 67-task implementation checklist | ✅ Complete |
-| [MIGRATION.md](./MIGRATION.md) | User migration guide | ✅ Complete |
-| [TESTING.md](./TESTING.md) | 50+ test specifications | ✅ Complete |
-| [DECISIONS.md](./DECISIONS.md) | 10 major decision records | ✅ Complete |
+| Document                             | Purpose                             | Status      |
+| ------------------------------------ | ----------------------------------- | ----------- |
+| [README.md](./README.md)             | Index & navigation                  | ✅ Complete |
+| [OVERVIEW.md](./OVERVIEW.md)         | Executive summary, timeline, phases | ✅ Complete |
+| [DESIGN.md](./DESIGN.md)             | Technical design, code examples     | ✅ Complete |
+| [REQUIREMENTS.md](./REQUIREMENTS.md) | EARS notation requirements          | ✅ Complete |
+| [TASKS.md](./TASKS.md)               | 67-task implementation checklist    | ✅ Complete |
+| [MIGRATION.md](./MIGRATION.md)       | User migration guide                | ✅ Complete |
+| [TESTING.md](./TESTING.md)           | 50+ test specifications             | ✅ Complete |
+| [DECISIONS.md](./DECISIONS.md)       | 10 major decision records           | ✅ Complete |
 
 **Total**: 8 comprehensive documents, ~15,000 words
 
@@ -64,14 +64,14 @@ process_single_session          →  process_session_monolithic
 
 ### Implementation Phases
 
-| Phase | Description | Tasks | Time | Risk |
-|-------|-------------|-------|------|------|
-| 1 | Rename directories | 14 | 2-4h | Low |
-| 2 | Split modules | 13 | 4-6h | Medium |
-| 3 | Add phase tasks | 11 | 3-5h | Low |
-| 4 | Update deployments | 10 | 2-3h | Medium |
-| 5 | Documentation & testing | 14 | 4-6h | Low |
-| **Total** | | **67** | **17-27h** | |
+| Phase     | Description             | Tasks  | Time       | Risk   |
+| --------- | ----------------------- | ------ | ---------- | ------ |
+| 1         | Rename directories      | 14     | 2-4h       | Low    |
+| 2         | Split modules           | 13     | 4-6h       | Medium |
+| 3         | Add phase tasks         | 11     | 3-5h       | Low    |
+| 4         | Update deployments      | 10     | 2-3h       | Medium |
+| 5         | Documentation & testing | 14     | 4-6h       | Low    |
+| **Total** |                         | **67** | **17-27h** |        |
 
 **Calendar**: 3-4 weeks with buffer
 
@@ -134,12 +134,14 @@ result = batch_process_sessions(
 ### Prefect UI View
 
 **Monolithic Mode**:
+
 ```
 Session-001 ──► [Process Session] (12m 34s)
 Session-002 ──► [Process Session] (11m 58s)
 ```
 
 **Phase Mode**:
+
 ```
 Session-001:
   ├─► [Phase 0: Initialization]    (12s)
@@ -157,13 +159,13 @@ Session-001:
 
 ## 📊 Trade-offs
 
-| Aspect | Monolithic | Phase-Level |
-|--------|------------|-------------|
-| **Speed** | ✅ Faster | ⚠️ +5-10% overhead |
-| **Observability** | ❌ Limited | ✅ Excellent |
-| **Debugging** | ❌ Difficult | ✅ Easy |
-| **Retry Logic** | ⚠️ Session-level | ✅ Per-phase |
-| **Best For** | Production | Development/Debug |
+| Aspect            | Monolithic       | Phase-Level        |
+| ----------------- | ---------------- | ------------------ |
+| **Speed**         | ✅ Faster        | ⚠️ +5-10% overhead |
+| **Observability** | ❌ Limited       | ✅ Excellent       |
+| **Debugging**     | ❌ Difficult     | ✅ Easy            |
+| **Retry Logic**   | ⚠️ Session-level | ✅ Per-phase       |
+| **Best For**      | Production       | Development/Debug  |
 
 ---
 
@@ -330,17 +332,17 @@ A: See [TESTING.md](./TESTING.md) for comprehensive test strategy.
 
 ## 📚 Document Sizes
 
-| Document | Lines | Words | Estimated Read Time |
-|----------|-------|-------|---------------------|
-| OVERVIEW.md | ~200 | ~2,000 | 8-10 minutes |
-| DESIGN.md | ~900 | ~6,000 | 25-30 minutes |
-| REQUIREMENTS.md | ~300 | ~2,500 | 10-12 minutes |
-| TASKS.md | ~500 | ~2,000 | 15-20 minutes |
-| MIGRATION.md | ~600 | ~4,000 | 20-25 minutes |
-| TESTING.md | ~700 | ~4,500 | 25-30 minutes |
-| DECISIONS.md | ~500 | ~3,500 | 15-20 minutes |
-| README.md | ~250 | ~2,000 | 8-10 minutes |
-| **TOTAL** | **~3,950** | **~26,500** | **2.5-3 hours** |
+| Document        | Lines      | Words       | Estimated Read Time |
+| --------------- | ---------- | ----------- | ------------------- |
+| OVERVIEW.md     | ~200       | ~2,000      | 8-10 minutes        |
+| DESIGN.md       | ~900       | ~6,000      | 25-30 minutes       |
+| REQUIREMENTS.md | ~300       | ~2,500      | 10-12 minutes       |
+| TASKS.md        | ~500       | ~2,000      | 15-20 minutes       |
+| MIGRATION.md    | ~600       | ~4,000      | 20-25 minutes       |
+| TESTING.md      | ~700       | ~4,500      | 25-30 minutes       |
+| DECISIONS.md    | ~500       | ~3,500      | 15-20 minutes       |
+| README.md       | ~250       | ~2,000      | 8-10 minutes        |
+| **TOTAL**       | **~3,950** | **~26,500** | **2.5-3 hours**     |
 
 **Recommendation**: Skim all documents (30-45 min), deep dive on OVERVIEW, DESIGN, TASKS (1.5 hours)
 

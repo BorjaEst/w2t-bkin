@@ -180,11 +180,11 @@ This document outlines the comprehensive testing strategy for the Prefect-friend
 
 **Expected Results:**
 
-| Metric | Monolithic | Phase |
-|--------|------------|-------|
-| Overhead | <5% | <10% |
-| Task Creation | N/A | <100ms/task |
-| Memory | Baseline | <15% increase |
+| Metric        | Monolithic | Phase         |
+| ------------- | ---------- | ------------- |
+| Overhead      | <5%        | <10%          |
+| Task Creation | N/A        | <100ms/task   |
+| Memory        | Baseline   | <15% increase |
 
 **Status**: ⏳ Not Started
 
@@ -199,18 +199,21 @@ Fast tests to run after each phase to catch major breakages.
 ### Tests
 
 1. **Import Smoke Test**
+
    ```bash
    python -c "from w2t_bkin.preprocessing import PipelineTask; print('OK')"
    python -c "from w2t_bkin.prefect import batch_process_sessions; print('OK')"
    ```
 
 2. **Backward Compatibility Smoke Test**
+
    ```bash
    python -c "from w2t_bkin.tasks import PipelineTask; print('OK')"
    python -c "from w2t_bkin.orchestration.flows import batch_process_sessions_prefect; print('OK')"
    ```
 
 3. **Container Build Smoke Test**
+
    ```bash
    docker build --target server -t w2t-bkin:test .
    ```
@@ -266,13 +269,13 @@ def prefect_test_mode():
 
 **By Module:**
 
-| Module | Target Coverage |
-|--------|-----------------|
-| `preprocessing/` | >90% (minimal changes) |
-| `prefect/tasks.py` | >95% (new, critical) |
-| `prefect/flows.py` | >90% (new, critical) |
-| `prefect/deployments.py` | >80% (mostly declarative) |
-| `prefect/__init__.py` | >95% (compatibility layer) |
+| Module                   | Target Coverage            |
+| ------------------------ | -------------------------- |
+| `preprocessing/`         | >90% (minimal changes)     |
+| `prefect/tasks.py`       | >95% (new, critical)       |
+| `prefect/flows.py`       | >90% (new, critical)       |
+| `prefect/deployments.py` | >80% (mostly declarative)  |
+| `prefect/__init__.py`    | >95% (compatibility layer) |
 
 ### Coverage Commands
 
@@ -294,6 +297,7 @@ pytest tests/ --cov=src/w2t_bkin --cov-fail-under=80
 ### Phase 1: After Directory Rename
 
 **Run:**
+
 - All unit tests
 - Import smoke tests
 - Backward compatibility tests
@@ -308,6 +312,7 @@ pytest tests/unit/test_backward_compatibility.py -v
 ### Phase 2: After Module Split
 
 **Run:**
+
 - All unit tests
 - New prefect module tests
 - Backward compatibility tests
@@ -324,6 +329,7 @@ pytest tests/unit/test_prefect_flows.py -v
 ### Phase 3: After Phase-Level Flow Added
 
 **Run:**
+
 - All unit tests
 - All integration tests
 - Smoke tests
@@ -338,6 +344,7 @@ pytest tests/ --cov=src/w2t_bkin --cov-report=term
 ### Phase 4: After Container Deployment Update
 
 **Run:**
+
 - Integration tests (deployments)
 - E2E tests (container workflows)
 - Deployment smoke tests
@@ -352,6 +359,7 @@ pytest tests/e2e/test_container_workflows.py -v
 ### Phase 5: Final Validation
 
 **Run:**
+
 - Full test suite
 - Performance tests
 - Coverage report
@@ -388,21 +396,21 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-      
+          python-version: "3.10"
+
       - name: Install dependencies
         run: |
           pip install -e ".[dev,test]"
-      
+
       - name: Run unit tests
         run: pytest tests/unit/ -v --cov=src/w2t_bkin
-      
+
       - name: Run integration tests
         run: pytest tests/integration/ -v
-      
+
       - name: Check coverage
         run: pytest --cov=src/w2t_bkin --cov-fail-under=80
-      
+
       - name: Upload coverage
         uses: codecov/codecov-action@v3
 
@@ -410,10 +418,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Build containers
         run: docker compose build
-      
+
       - name: Run deployment tests
         run: |
           docker compose up -d

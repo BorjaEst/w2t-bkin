@@ -10,21 +10,20 @@ All imports are redirected to w2t_bkin.preprocessing with deprecation warnings.
 Examples:
     >>> # Old (deprecated but works with warning)
     >>> from w2t_bkin.tasks import DLCPoseTask
-    
+
     >>> # New (recommended)
     >>> from w2t_bkin.preprocessing import DLCPoseTask
 """
 
-import warnings
 from typing import Any
+import warnings
 
 # Import everything from preprocessing
 from ..preprocessing import *  # noqa: F401, F403
 
 # Emit deprecation warning when module is imported
 warnings.warn(
-    "w2t_bkin.tasks is deprecated and will be removed in v3.0. "
-    "Use w2t_bkin.preprocessing instead.",
+    "w2t_bkin.tasks is deprecated and will be removed in v3.0. " "Use w2t_bkin.preprocessing instead.",
     DeprecationWarning,
     stacklevel=2,
 )
@@ -33,16 +32,15 @@ warnings.warn(
 def __getattr__(name: str) -> Any:
     """Redirect attribute access to preprocessing module with deprecation warning."""
     from .. import preprocessing
-    
+
     if hasattr(preprocessing, name):
         warnings.warn(
-            f"Importing {name} from w2t_bkin.tasks is deprecated. "
-            f"Use 'from w2t_bkin.preprocessing import {name}' instead.",
+            f"Importing {name} from w2t_bkin.tasks is deprecated. " f"Use 'from w2t_bkin.preprocessing import {name}' instead.",
             DeprecationWarning,
             stacklevel=2,
         )
         return getattr(preprocessing, name)
-    
+
     raise AttributeError(f"module 'w2t_bkin.tasks' has no attribute '{name}'")
 
 

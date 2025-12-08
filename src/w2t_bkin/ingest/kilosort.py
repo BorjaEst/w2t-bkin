@@ -125,10 +125,7 @@ def load_cluster_labels(sorting_dir: Path) -> pd.DataFrame:
             df["cluster_id"] = df.index
         return df
 
-    raise FileNotFoundError(
-        f"No cluster label file found in {sorting_dir}. "
-        f"Looked for: cluster_info.tsv, cluster_KSLabel.tsv"
-    )
+    raise FileNotFoundError(f"No cluster label file found in {sorting_dir}. " f"Looked for: cluster_info.tsv, cluster_KSLabel.tsv")
 
 
 def load_cluster_metrics(sorting_dir: Path) -> Optional[pd.DataFrame]:

@@ -11,13 +11,13 @@ Phase 5: Assembly - Assemble behavior and pose data
 Phase 6: Finalization - Write NWB, validate
 """
 
-from .initialization import run_phase_0
-from .discovery import run_phase_1
-from .preprocessing import run_phase_2
-from .ingestion import run_phase_3
-from .synchronization import run_phase_4
 from .assembly import run_phase_5
+from .discovery import run_phase_1
 from .finalization import run_phase_6
+from .ingestion import run_phase_3
+from .initialization import run_phase_0
+from .preprocessing import run_phase_2
+from .synchronization import run_phase_4
 
 __all__ = [
     "run_phase_0",

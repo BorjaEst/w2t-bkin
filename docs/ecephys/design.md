@@ -45,14 +45,14 @@ High-Level Orchestration (Session-aware)
 
 ### Module Responsibilities
 
-| Module                     | Layer      | Input                        | Output                                        | Dependencies                    |
-| -------------------------- | ---------- | ---------------------------- | --------------------------------------------- | ------------------------------- |
-| `ingest.ecephys`           | Low-level  | Primitives                   | Generic Device, ElectrodeGroup objects        | pynwb                           |
-| `ingest.spikeglx`          | Low-level  | File paths, primitives       | SpikeGLX-specific devices, electrodes         | pynwb, ingest.ecephys           |
-| `ingest.kilosort`          | Low-level  | File paths, primitives       | Units table with spike sorting data           | pynwb, numpy, pandas            |
-| `sync` (extended)          | Mid-level  | TTL timestamps, probe config | Alignment indices                             | ingest.spikeglx                 |
-| `core.session` (extended)  | High-level | Config, NWBFile, probe data  | Populated NWBFile                             | ingest.spikeglx, ingest.kilosort, config |
-| `core.pipeline` (extended) | High-level | Config, session path         | Complete session                              | core.session                    |
+| Module                     | Layer      | Input                        | Output                                 | Dependencies                             |
+| -------------------------- | ---------- | ---------------------------- | -------------------------------------- | ---------------------------------------- |
+| `ingest.ecephys`           | Low-level  | Primitives                   | Generic Device, ElectrodeGroup objects | pynwb                                    |
+| `ingest.spikeglx`          | Low-level  | File paths, primitives       | SpikeGLX-specific devices, electrodes  | pynwb, ingest.ecephys                    |
+| `ingest.kilosort`          | Low-level  | File paths, primitives       | Units table with spike sorting data    | pynwb, numpy, pandas                     |
+| `sync` (extended)          | Mid-level  | TTL timestamps, probe config | Alignment indices                      | ingest.spikeglx                          |
+| `core.session` (extended)  | High-level | Config, NWBFile, probe data  | Populated NWBFile                      | ingest.spikeglx, ingest.kilosort, config |
+| `core.pipeline` (extended) | High-level | Config, session path         | Complete session                       | core.session                             |
 
 ## Data Flow
 
@@ -138,6 +138,7 @@ src/w2t_bkin/ingest/
 ```
 
 **Design Rationale**:
+
 - Mirrors `behavior.py` (generic) + `bpod.py` (hardware-specific) pattern
 - Each data source/tool gets its own flat module
 - Simple, scales later if complexity grows
@@ -149,7 +150,7 @@ src/w2t_bkin/ingest/
 
 ##### 1. Generic Device Creation
 
-```python
+````python
 def create_device(
     nwbfile: NWBFile,
     name: str,
@@ -193,7 +194,7 @@ def create_electrode_group(
     Returns:
         ElectrodeGroup object added to nwbfile
     """```
-```
+````
 
 #### Module: `ingest.spikeglx` (Hardware-Specific)
 

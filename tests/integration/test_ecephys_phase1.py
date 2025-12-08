@@ -11,7 +11,8 @@ from dateutil.tz import tzlocal
 from pynwb import NWBHDF5IO, NWBFile
 import pytest
 
-from w2t_bkin.ingest.ecephys import add_electrodes_from_meta, create_neuropixels_device
+from w2t_bkin.ingest.ecephys import create_device
+from w2t_bkin.ingest.spikeglx import add_electrodes_from_spikeglx
 
 
 class TestPhase1Integration:
@@ -42,7 +43,7 @@ class TestPhase1Integration:
         )
 
         # Create device
-        device = create_neuropixels_device(
+        device = create_device(
             nwbfile=nwbfile,
             device_name="neuropixels_imec0",
             manufacturer="IMEC",
@@ -53,7 +54,7 @@ class TestPhase1Integration:
         assert device.name == "neuropixels_imec0"
 
         # Add electrodes from .meta
-        n_added = add_electrodes_from_meta(
+        n_added = add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device,
@@ -102,12 +103,12 @@ class TestPhase1Integration:
         )
 
         # Add first probe
-        device0 = create_neuropixels_device(
+        device0 = create_device(
             nwbfile=nwbfile,
             device_name="neuropixels_imec0",
         )
 
-        n_added0 = add_electrodes_from_meta(
+        n_added0 = add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device0,
@@ -116,12 +117,12 @@ class TestPhase1Integration:
         )
 
         # Add second probe
-        device1 = create_neuropixels_device(
+        device1 = create_device(
             nwbfile=nwbfile,
             device_name="neuropixels_imec1",
         )
 
-        n_added1 = add_electrodes_from_meta(
+        n_added1 = add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device1,
@@ -168,12 +169,12 @@ class TestPhase1Integration:
         )
 
         # Use all defaults
-        device = create_neuropixels_device(
+        device = create_device(
             nwbfile=nwbfile,
             device_name="test_probe",
         )
 
-        n_added = add_electrodes_from_meta(
+        n_added = add_electrodes_from_spikeglx(
             nwbfile=nwbfile,
             meta_path=sample_meta_path,
             device=device,

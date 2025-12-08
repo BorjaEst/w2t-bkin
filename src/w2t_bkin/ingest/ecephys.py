@@ -73,10 +73,7 @@ def create_device(
         ... )
     """
     if name in nwbfile.devices:
-        raise ValueError(
-            f"Device '{name}' already exists in NWBFile. "
-            f"Device names must be unique."
-        )
+        raise ValueError(f"Device '{name}' already exists in NWBFile. " f"Device names must be unique.")
 
     device = nwbfile.create_device(
         name=name,
@@ -120,10 +117,7 @@ def create_electrode_group(
         ... )
     """
     if name in nwbfile.electrode_groups:
-        raise ValueError(
-            f"ElectrodeGroup '{name}' already exists in NWBFile. "
-            f"Group names must be unique."
-        )
+        raise ValueError(f"ElectrodeGroup '{name}' already exists in NWBFile. " f"Group names must be unique.")
 
     electrode_group = nwbfile.create_electrode_group(
         name=name,

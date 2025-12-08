@@ -65,6 +65,7 @@ We just need to **wrap them with `@task` decorators** - minimal changes required
 ## Phases
 
 ### Phase 1: Rename Directories ✅ Low Risk
+
 - Rename `tasks/` → `preprocessing/`
 - Rename `orchestration/` → `prefect/`
 - Update all imports
@@ -72,6 +73,7 @@ We just need to **wrap them with `@task` decorators** - minimal changes required
 - **Estimated effort**: 2-4 hours
 
 ### Phase 2: Split `prefect/flows.py` ⚠️ Medium Risk
+
 - Extract phase task wrappers → `prefect/tasks.py`
 - Refactor flows → `prefect/flows.py`
 - Move deployment code → `prefect/deployments.py`
@@ -80,6 +82,7 @@ We just need to **wrap them with `@task` decorators** - minimal changes required
 - **Estimated effort**: 4-6 hours
 
 ### Phase 3: Add Phase-Level Tasks ✅ High Value
+
 - Create `@task` wrappers for each phase function
 - Add `process_session_with_phases` flow
 - Update `batch_process_sessions` to support both modes
@@ -87,6 +90,7 @@ We just need to **wrap them with `@task` decorators** - minimal changes required
 - **Estimated effort**: 3-5 hours
 
 ### Phase 4: Update Deployments 🔧 Medium Value
+
 - Update `docker/deploy_flows.py` to use new structure
 - Add declarative deployment definitions
 - Test container deployments
@@ -94,6 +98,7 @@ We just need to **wrap them with `@task` decorators** - minimal changes required
 - **Estimated effort**: 2-3 hours
 
 ### Phase 5: Documentation & Testing 📝 Critical
+
 - Update all documentation
 - Update examples
 - Add migration guide
@@ -114,13 +119,13 @@ We just need to **wrap them with `@task` decorators** - minimal changes required
 
 ## Risk Assessment
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Import errors after rename | Medium | High | Comprehensive search/replace, test suite |
-| Breaking existing code | Low | High | Maintain compatibility layer, deprecation warnings |
-| Docker build issues | Low | Medium | Test containers after each phase |
-| Deployment failures | Medium | Medium | Keep old deployment method working |
-| Documentation drift | High | Low | Update docs incrementally with code changes |
+| Risk                       | Probability | Impact | Mitigation                                         |
+| -------------------------- | ----------- | ------ | -------------------------------------------------- |
+| Import errors after rename | Medium      | High   | Comprehensive search/replace, test suite           |
+| Breaking existing code     | Low         | High   | Maintain compatibility layer, deprecation warnings |
+| Docker build issues        | Low         | Medium | Test containers after each phase                   |
+| Deployment failures        | Medium      | Medium | Keep old deployment method working                 |
+| Documentation drift        | High        | Low    | Update docs incrementally with code changes        |
 
 ## Rollback Plan
 

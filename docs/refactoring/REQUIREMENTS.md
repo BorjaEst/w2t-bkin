@@ -195,28 +195,28 @@
 
 ## Traceability Matrix
 
-| Requirement | Design Section | Implementation File | Test File |
-|-------------|----------------|---------------------|-----------|
-| FR-1, FR-2 | Directory Structure | Phase 1 rename scripts | tests/unit/test_imports.py |
-| FR-4, FR-5, FR-6 | Backward Compatibility | prefect/__init__.py | tests/unit/test_compatibility.py |
-| FR-7-FR-11 | Phase Task Wrappers | prefect/tasks.py | tests/unit/test_prefect_tasks.py |
-| FR-12-FR-15 | Module Organization | prefect/*.py | tests/unit/test_prefect_modules.py |
-| FR-16-FR-20 | Dual Execution Modes | prefect/flows.py | tests/integration/test_execution_modes.py |
-| FR-21-FR-23 | Deployments | prefect/deployments.py | tests/integration/test_deployments.py |
-| NFR-1-NFR-3 | Compatibility Layer | prefect/__init__.py | tests/unit/test_backward_compat.py |
-| NFR-4-NFR-6 | Performance | prefect/tasks.py | tests/performance/test_overhead.py |
-| NFR-7-NFR-10 | Observability | prefect/tasks.py | tests/integration/test_observability.py |
-| NFR-13 | Output Verification | prefect/flows.py | tests/integration/test_output_equivalence.py |
+| Requirement      | Design Section         | Implementation File    | Test File                                    |
+| ---------------- | ---------------------- | ---------------------- | -------------------------------------------- |
+| FR-1, FR-2       | Directory Structure    | Phase 1 rename scripts | tests/unit/test_imports.py                   |
+| FR-4, FR-5, FR-6 | Backward Compatibility | prefect/**init**.py    | tests/unit/test_compatibility.py             |
+| FR-7-FR-11       | Phase Task Wrappers    | prefect/tasks.py       | tests/unit/test_prefect_tasks.py             |
+| FR-12-FR-15      | Module Organization    | prefect/\*.py          | tests/unit/test_prefect_modules.py           |
+| FR-16-FR-20      | Dual Execution Modes   | prefect/flows.py       | tests/integration/test_execution_modes.py    |
+| FR-21-FR-23      | Deployments            | prefect/deployments.py | tests/integration/test_deployments.py        |
+| NFR-1-NFR-3      | Compatibility Layer    | prefect/**init**.py    | tests/unit/test_backward_compat.py           |
+| NFR-4-NFR-6      | Performance            | prefect/tasks.py       | tests/performance/test_overhead.py           |
+| NFR-7-NFR-10     | Observability          | prefect/tasks.py       | tests/integration/test_observability.py      |
+| NFR-13           | Output Verification    | prefect/flows.py       | tests/integration/test_output_equivalence.py |
 
 ## Success Metrics
 
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| Test Coverage | >80% | pytest --cov |
-| Import Errors | 0 | Static analysis |
-| Breaking Changes | 0 | Compatibility tests |
-| Performance Overhead (Monolithic) | <5% | Benchmark tests |
-| Performance Overhead (Phase) | <10% | Benchmark tests |
-| Task Overhead | <100ms/task | Profiling |
-| Documentation Pages Updated | 100% | Manual review |
-| Deployment Success Rate | 100% | Integration tests |
+| Metric                            | Target      | Measurement         |
+| --------------------------------- | ----------- | ------------------- |
+| Test Coverage                     | >80%        | pytest --cov        |
+| Import Errors                     | 0           | Static analysis     |
+| Breaking Changes                  | 0           | Compatibility tests |
+| Performance Overhead (Monolithic) | <5%         | Benchmark tests     |
+| Performance Overhead (Phase)      | <10%        | Benchmark tests     |
+| Task Overhead                     | <100ms/task | Profiling           |
+| Documentation Pages Updated       | 100%        | Manual review       |
+| Deployment Success Rate           | 100%        | Integration tests   |
