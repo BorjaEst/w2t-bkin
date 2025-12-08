@@ -302,7 +302,7 @@ def add_units_from_kilosort(
             metric_cols.append("amp")
 
     # Add custom column for probe assignment
-    if "probe_id" not in [col.name for col in nwbfile.units.columns]:
+    if nwbfile.units is None or "probe_id" not in [col.name for col in nwbfile.units.columns]:
         nwbfile.add_unit_column(name="probe_id", description="Probe identifier (e.g., imec0)")
 
     # Process each cluster
@@ -350,7 +350,7 @@ def add_units_from_kilosort(
         }
 
         # Add electrode reference if available
-        if electrode_id is not None and len(nwbfile.electrodes) > 0:
+        if electrode_id is not None and nwbfile.electrodes is not None and len(nwbfile.electrodes) > 0:
             # Find electrode row by matching electrode_id
             # Note: electrodes table uses 0-based indexing
             if electrode_id < len(nwbfile.electrodes):

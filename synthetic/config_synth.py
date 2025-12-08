@@ -112,16 +112,6 @@ class SynthConfigOptions(BaseModel):
     preprocessing_dlc_enabled: bool = Field(default=False)
     preprocessing_force_rerun: bool = Field(default=False)
 
-    # Legacy fields (deprecated - kept for backward compatibility with existing test code)
-    # These fields are no longer used in config generation
-    dlc_run_inference: bool = Field(default=False)
-    dlc_model: str = Field(default="models/dlc/model.yaml")
-    dlc_gputouse: Optional[int] = Field(default=None)
-    sleap_run_inference: bool = Field(default=False)
-    sleap_model: str = Field(default="models/sleap/model.slp")
-    facemap_run_inference: bool = Field(default=False)
-    facemap_rois: list[str] = Field(default_factory=lambda: ["whisker", "snout"])
-
 
 def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -> ConfigModel:
     """Create a valid `Config` model from `SynthConfigOptions`.
@@ -142,10 +132,6 @@ def build_config(*, options: Optional[SynthConfigOptions] = None, **overrides) -
         - Convenience: pass any field as a keyword override, e.g.
           `build_config(project_name="demo", sync_strategy="hardware_pulse",
                        reference_channel="cam0", preprocessing_dlc_enabled=True)`
-
-    Note:
-        Legacy labels/facemap fields in SynthConfigOptions are ignored.
-        Use preprocessing_dlc_enabled and preprocessing_sleap_enabled instead.
     """
 
     # Merge defaults with overrides (and explicit options if provided)

@@ -154,45 +154,6 @@ class TestSessionLoading:
         assert isinstance(session, dict)
         assert "identifier" in session or "session" in session
 
-    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
-    def test_Should_RejectSession_When_MissingRequiredKey(self):
-        """Should reject session missing required key (A14).
-
-        DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-        """
-        from w2t_bkin.domain import Session
-
-        session_data = {
-            "session": {"id": "test"},  # Missing required fields
-            "bpod": {"path": "Bpod/*.mat", "order": "name_asc"},
-            "TTLs": [],
-            "cameras": [],
-        }
-
-        with pytest.raises(ValidationError):
-            Session(**session_data)
-
-    @pytest.mark.skip(reason="Session model deprecated - use NWBFile-based approach")
-    def test_Should_RejectSession_When_ExtraKeyPresent(self):
-        """Should reject session with extra key not in schema (A14).
-
-        DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-        """
-        from w2t_bkin.domain import SessionMetadata
-
-        with pytest.raises(ValidationError):
-            SessionMetadata(
-                id="test",
-                subject_id="test",
-                date="2025-01-01",
-                experimenter="test",
-                description="test",
-                sex="M",
-                age="P60",
-                genotype="WT",
-                extra_field="not allowed",
-            )
-
     def test_Should_ValidateCameraTTLReference_When_Loading(self):
         """Should validate camera ttl_id references existing TTL (A15)."""
         from w2t_bkin.config import load_session

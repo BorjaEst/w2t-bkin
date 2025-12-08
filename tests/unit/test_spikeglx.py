@@ -83,7 +83,7 @@ class TestAddElectrodesFromMeta:
     @pytest.fixture
     def sample_meta_path(self):
         """Path to sample .meta fixture."""
-        return Path(__file__).parent.parent / "fixtures/ecephys/sample_np20.imec0.ap.meta"
+        return Path(__file__).parent.parent / "fixtures/spikeglx/sample_np20.imec0.ap.meta"
 
     def test_add_electrodes_basic(self, nwbfile, sample_meta_path):
         """Test adding electrodes from .meta file."""

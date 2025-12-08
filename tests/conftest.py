@@ -304,41 +304,8 @@ def neuropixels_config(valid_config):
 
 
 # ============================================================================
-# Manifest Object Fixtures (Pydantic Models)
+# TTL Testing Fixtures
 # ============================================================================
-
-
-@pytest.fixture
-def valid_manifest():
-    """Valid Manifest object for testing.
-
-    DEPRECATED: Manifest model removed in Phase 3 (NWB-first refactoring).
-    This fixture is kept for backward compatibility but should not be used
-    in new tests. Use NWBFile-based fixtures instead.
-
-    Returns a minimal but valid Manifest domain model with one camera
-    and one TTL, suitable for testing business logic.
-    """
-    pytest.skip("Manifest model removed in Phase 3 - use NWBFile-based approach")
-    from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
-
-    return Manifest(
-        session_id="test-session",
-        cameras=[
-            ManifestCamera(
-                ttl_id="ttl_camera",
-                video_files=["/path/to/video.avi"],
-                frame_count=1000,
-                ttl_pulse_count=1000,
-            )
-        ],
-        ttls=[
-            ManifestTTL(
-                ttl_id="ttl_camera",
-                files=["/path/to/ttl.txt"],
-            )
-        ],
-    )
 
 
 @pytest.fixture
@@ -356,39 +323,6 @@ def ttl_files(tmp_path):
     ttl_file.write_text("".join(timestamps))
 
     return [str(ttl_file)]
-
-
-@pytest.fixture
-def ttl_manifest(ttl_files):
-    """Create a minimal Manifest with TTL configuration for testing.
-
-    DEPRECATED: Manifest model removed in Phase 3 (NWB-first refactoring).
-    This fixture is kept for backward compatibility but should not be used
-    in new tests. Use NWBFile-based fixtures instead.
-
-    Returns a Manifest domain model with one camera and one TTL channel,
-    suitable for testing TTL-based synchronization.
-    """
-    pytest.skip("Manifest model removed in Phase 3 - use NWBFile-based approach")
-    from w2t_bkin.domain import Manifest, ManifestCamera, ManifestTTL
-
-    return Manifest(
-        session_id="test-session",
-        cameras=[
-            ManifestCamera(
-                ttl_id="ttl_camera",
-                video_files=[],
-                frame_count=1000,
-                ttl_pulse_count=1000,
-            )
-        ],
-        ttls=[
-            ManifestTTL(
-                ttl_id="ttl_camera",
-                files=ttl_files,
-            )
-        ],
-    )
 
 
 # ============================================================================
@@ -514,65 +448,6 @@ def pytest_configure(config):
 
 
 @pytest.fixture
-def mock_session_with_ttl(tmp_path):
-    """Create a Session with TTL configuration for alignment testing.
-
-    DEPRECATED: Session model deprecated in favor of NWB-first architecture.
-    Use create_nwb_file() from session module to create NWBFile from metadata.toml.
-    This fixture is kept for backward compatibility but should not be used in new tests.
-    """
-    pytest.skip("Session model deprecated - use create_nwb_file() for NWBFile-based approach")
-    from w2t_bkin.domain import TTL, BpodSession, BpodTrialType, Session, SessionMetadata
-
-    ttl_dir = tmp_path / "TTLs"
-    ttl_dir.mkdir()
-
-    # Create TTL pulse file with absolute timestamps
-    ttl_file = ttl_dir / "ttl_cue.txt"
-    ttl_file.write_text("10.0\n25.0\n40.0\n")
-
-    return Session(
-        session=SessionMetadata(
-            id="test-session",
-            subject_id="mouse-001",
-            date="2025-11-13",
-            experimenter="Test",
-            description="Test session",
-            sex="M",
-            age="P60",
-            genotype="WT",
-        ),
-        bpod=BpodSession(
-            path="Bpod/*.mat",
-            order="name_asc",
-            trial_types=[
-                BpodTrialType(
-                    trial_type=1,
-                    description="Type 1 trials",
-                    sync_signal="W2L_Audio",
-                    sync_ttl="ttl_cue",
-                ),
-                BpodTrialType(
-                    trial_type=2,
-                    description="Type 2 trials",
-                    sync_signal="A2L_Audio",
-                    sync_ttl="ttl_cue",
-                ),
-            ],
-        ),
-        TTLs=[
-            TTL(
-                id="ttl_cue",
-                description="Cue TTL",
-                paths="TTLs/ttl_cue.txt",
-            ),
-        ],
-        cameras=[],
-        session_dir=str(tmp_path),
-    )
-
-
-@pytest.fixture
 def valid_bpod_file(tmp_path, monkeypatch):
     """Create a minimal valid Bpod .mat file for testing."""
     bpod_file = tmp_path / "test_bpod.mat"
@@ -685,27 +560,6 @@ def parsed_bpod_data():
             },
         }
     }
-
-
-# DEPRECATED: Trial and TrialEvent models replaced by ndx-structured-behavior
-# These fixtures are kept for backward compatibility with deprecated tests
-# Use w2t_bkin.behavior module for new tests
-@pytest.fixture
-def trial_list():
-    """List of Trial objects for testing event summary creation.
-
-    DEPRECATED: Use ndx-structured-behavior TrialsTable instead.
-    """
-    pytest.skip("Trial model deprecated - use ndx-structured-behavior TrialsTable")
-
-
-@pytest.fixture
-def event_list():
-    """List of TrialEvent objects for testing event summary creation.
-
-    DEPRECATED: Use ndx-structured-behavior EventsTable instead.
-    """
-    pytest.skip("TrialEvent model deprecated - use ndx-structured-behavior EventsTable")
 
 
 @pytest.fixture

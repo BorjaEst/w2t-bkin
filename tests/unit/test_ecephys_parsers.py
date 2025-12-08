@@ -19,7 +19,7 @@ class TestParseSpikeGLXMeta:
     @pytest.fixture
     def sample_meta_path(self):
         """Path to sample .meta fixture."""
-        return Path(__file__).parent.parent / "fixtures/ecephys/sample_np20.imec0.ap.meta"
+        return Path(__file__).parent.parent / "fixtures/spikeglx/sample_np20.imec0.ap.meta"
 
     def test_parse_valid_meta(self, sample_meta_path):
         """Test parsing a valid .meta file."""
