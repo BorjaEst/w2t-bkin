@@ -44,7 +44,8 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pynwb import NWBHDF5IO, NWBFile
 
-from synthetic import build_ecephys_output
+from synthetic import build_interim_folder, build_raw_folder
+from w2t_bkin.figures.ecephys import plot_electrode_locations, plot_firing_rate_distribution, plot_spike_raster, plot_unit_quality_metrics
 from w2t_bkin.ingest.ecephys import create_device
 from w2t_bkin.ingest.kilosort import add_units_from_kilosort
 from w2t_bkin.ingest.spikeglx import add_electrodes_from_spikeglx, parse_spikeglx_meta
@@ -117,26 +118,46 @@ if __name__ == "__main__":
     print(f"  - Duration:         {settings.recording_duration_s} seconds")
     print(f"  - Seed:             {settings.seed}")
 
-    # Generate synthetic data in output/raw subdirectory
-    raw_dir = settings.output_root / "raw"
-    synth_paths = build_ecephys_output(
-        raw_dir,
-        probe_type="neuropixels2.0",
-        probe_id=settings.probe_id,
-        n_channels=settings.n_channels,
-        sampling_rate=settings.sampling_rate,
-        n_units=settings.n_units,
-        recording_duration_s=settings.recording_duration_s,
+    # Generate synthetic raw session with SpikeGLX metadata
+    raw_result = build_raw_folder(
+        out_root=settings.output_root / "raw",
+        subject_id=settings.subject_id,
+        session_id=settings.session_id,
+        camera_ids=[],  # No cameras for this example
+        ttl_ids=[],  # No TTLs for this example
+        ecephys_probe_ids=[settings.probe_id],
+        ecephys_n_channels=settings.n_channels,
+        ecephys_sampling_rate=settings.sampling_rate,
+        ecephys_recording_duration_s=settings.recording_duration_s,
         seed=settings.seed,
     )
 
-    meta_path = synth_paths["meta"]
-    kilosort_dir = meta_path.parent.parent / "kilosort"
+    # Generate synthetic interim folder with Kilosort output
+    interim_result = build_interim_folder(
+        interim_root=settings.output_root / "interim",
+        subject_id=settings.subject_id,
+        session_id=settings.session_id,
+        pose_camera_ids=[],  # No pose data for this example
+        kilosort_probe_ids=[settings.probe_id],
+        n_units=settings.n_units,
+        n_channels=settings.n_channels,
+        sampling_rate=settings.sampling_rate,
+        recording_duration_s=settings.recording_duration_s,
+        firing_rate_mean=5.0,
+        firing_rate_std=3.0,
+        good_unit_fraction=0.70,
+        noise_unit_fraction=0.15,
+        seed=settings.seed,
+    )
+
+    meta_path = raw_result.ecephys_meta_paths[0]
+    kilosort_dir = interim_result.kilosort_paths[settings.probe_id]
 
     print(f"\n✓ Synthetic artifacts:")
     print(f"  - SpikeGLX metadata: {meta_path}")
     print(f"  - Kilosort directory: {kilosort_dir}")
     print(f"  - Spike times:       {kilosort_dir / 'spike_times.npy'}")
+    print(f"  - Cluster info:      {kilosort_dir / 'cluster_info.tsv'}")
     print(f"  - Cluster info:      {kilosort_dir / 'cluster_info.tsv'}")
 
     # ---------------------------------------------------------------------
@@ -290,6 +311,74 @@ if __name__ == "__main__":
             print(f"  - No units found (all filtered out)")
 
     # ---------------------------------------------------------------------
+    # PHASE 5: Generate Figures
+    # ---------------------------------------------------------------------
+    print_section("PHASE 5: Generate Figures")
+
+    figures_dir = settings.output_root / "figures"
+    figures_dir.mkdir(exist_ok=True)
+
+    # Read NWB and extract data for plotting
+    with NWBHDF5IO(str(output_file), mode="r") as io:
+        read_nwb = io.read()
+        electrodes_df = read_nwb.electrodes.to_dataframe()
+        units_df = read_nwb.units.to_dataframe() if read_nwb.units is not None else None
+
+    print("\nGenerating figures...")
+
+    # Plot 1: Electrode locations
+    electrode_map_path = figures_dir / "electrode_locations.png"
+    result = plot_electrode_locations(electrodes_df, out_path=electrode_map_path)
+    if result:
+        print(f"  ✓ Saved: {electrode_map_path}")
+    else:
+        print("  ⚠ Skipped electrode locations plot (matplotlib not available)")
+
+    # Plot 2-4: Unit-related plots (only if units exist)
+    if units_df is not None and len(units_df) > 0:
+        # Plot 2: Spike raster (first 10 seconds)
+        raster_path = figures_dir / "spike_raster.png"
+        result = plot_spike_raster(
+            units_df,
+            out_path=raster_path,
+            time_range=(0, min(10.0, settings.recording_duration_s)),
+            max_units=20,
+        )
+        if result:
+            print(f"  ✓ Saved: {raster_path}")
+        else:
+            print("  ⚠ Skipped spike raster plot (matplotlib not available)")
+
+        # Plot 3: Firing rate distribution
+        firing_rate_path = figures_dir / "firing_rate_distribution.png"
+        result = plot_firing_rate_distribution(
+            units_df,
+            out_path=firing_rate_path,
+            recording_duration=settings.recording_duration_s,
+        )
+        if result:
+            print(f"  ✓ Saved: {firing_rate_path}")
+        else:
+            print("  ⚠ Skipped firing rate plot (matplotlib not available)")
+
+        # Plot 4: Quality metrics (if columns exist)
+        quality_metrics_path = figures_dir / "unit_quality_metrics.png"
+        result = plot_unit_quality_metrics(units_df, out_path=quality_metrics_path)
+        if result:
+            print(f"  ✓ Saved: {quality_metrics_path}")
+        else:
+            print("  ⚠ Skipped quality metrics plot (missing columns or matplotlib)")
+    else:
+        print("  ⚠ Skipping unit plots (no units in file)")
+
+    # List all generated figures
+    figures_written = [p for p in [electrode_map_path, raster_path, firing_rate_path, quality_metrics_path] if p.exists()]
+    if figures_written:
+        print(f"\n✓ Generated {len(figures_written)} figure(s):")
+        for p in figures_written:
+            print(f"  - {p}")
+
+    # ---------------------------------------------------------------------
     # Summary
     # ---------------------------------------------------------------------
     print_section("Summary")
@@ -300,6 +389,8 @@ if __name__ == "__main__":
     print(f"  3. Electrodes: {n_electrodes} channels")
     print(f"  4. Units: {n_units} sorted units (quality-filtered)")
     print(f"\n✓ Output: {output_file}")
+    if figures_written:
+        print(f"\n✓ Figures: {len(figures_written)} plot(s) in {figures_dir}")
     print("\nNext steps:")
     print("  - Analyze spike times and firing patterns")
     print("  - Visualize waveforms and unit locations")

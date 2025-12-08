@@ -4,6 +4,7 @@ This package provides utilities for generating diagnostic plots and
 profiling visualizations to understand pipeline execution and validate results.
 """
 
+from .ecephys import plot_electrode_locations, plot_firing_rate_distribution, plot_spike_raster, plot_unit_quality_metrics
 from .pose import plot_pose_keypoints_grid, plot_ttl_detection_from_pose
 from .profiling import (
     PhaseProfile,
@@ -28,6 +29,11 @@ __all__ = [
     # Pose plots
     "plot_ttl_detection_from_pose",
     "plot_pose_keypoints_grid",
+    # Ecephys plots
+    "plot_electrode_locations",
+    "plot_spike_raster",
+    "plot_firing_rate_distribution",
+    "plot_unit_quality_metrics",
     # Profiling
     "PhaseProfile",
     "PhaseTimer",

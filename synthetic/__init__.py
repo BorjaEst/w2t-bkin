@@ -406,7 +406,7 @@ def build_interim_folder(
     interim_root: Base directory for interim data (e.g., "output/interim")
     subject_id: Subject identifier (must match raw folder structure)
     session_id: Session identifier (must match raw folder structure)
-    
+
     Pose configuration (optional):
     pose_camera_ids: List of camera IDs to generate pose data for
     n_frames: Number of frames (should match video frame count)
@@ -417,7 +417,7 @@ def build_interim_folder(
     dropout_rate: Fraction of keypoints to drop (simulates tracking failures)
     video_width: Width of video frames in pixels
     video_height: Height of video frames in pixels
-    
+
     Kilosort configuration (optional):
     kilosort_probe_ids: List of probe IDs to generate Kilosort output for
     n_units: Number of sorted units per probe
@@ -428,7 +428,7 @@ def build_interim_folder(
     firing_rate_std: Standard deviation of firing rates (Hz)
     good_unit_fraction: Fraction of units labeled as "good"
     noise_unit_fraction: Fraction of units labeled as "noise"
-    
+
     Common:
     seed: Random seed for reproducible generation
 
@@ -542,7 +542,7 @@ def build_interim_pose(
 ) -> InterimPoseResult:
     """Build interim pose estimation data (DLC/SLEAP H5 files) for a synthetic session.
 
-    .. deprecated:: 
+    .. deprecated::
         Use `build_interim_folder()` instead. This function is maintained for
         backward compatibility.
 
@@ -577,7 +577,7 @@ def build_interim_pose(
     Returns
     -------
     InterimPoseResult: Paths to generated H5 files (one per camera)
-    
+
     See Also
     --------
     build_interim_folder : Recommended replacement that supports both pose and Kilosort data.

@@ -40,6 +40,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pynwb import NWBHDF5IO, NWBFile
 
 from synthetic import build_raw_folder
+from w2t_bkin.figures.ecephys import plot_electrode_locations
 from w2t_bkin.ingest.ecephys import create_device, create_electrode_group
 from w2t_bkin.ingest.spikeglx import add_electrodes_from_spikeglx, parse_spikeglx_meta
 
@@ -244,6 +245,36 @@ if __name__ == "__main__":
         print(f"  - Y range: {y_range[0]:.1f} to {y_range[1]:.1f} μm")
 
     # ---------------------------------------------------------------------
+    # PHASE 7: Generate Figures
+    # ---------------------------------------------------------------------
+    print_section("PHASE 7: Generate Figures")
+
+    figures_dir = settings.output_root / "figures"
+    figures_dir.mkdir(exist_ok=True)
+
+    # Read NWB and extract data for plotting
+    with NWBHDF5IO(str(output_file), mode="r") as io:
+        read_nwb = io.read()
+        electrodes_df = read_nwb.electrodes.to_dataframe()
+
+    print("\nGenerating figures...")
+
+    # Plot 1: Electrode locations
+    electrode_map_path = figures_dir / "electrode_locations.png"
+    result = plot_electrode_locations(electrodes_df, out_path=electrode_map_path)
+    if result:
+        print(f"  ✓ Saved: {electrode_map_path}")
+    else:
+        print("  ⚠ Skipped electrode locations plot (matplotlib not available)")
+
+    # List all generated figures
+    figures_written = [p for p in [electrode_map_path] if p.exists()]
+    if figures_written:
+        print(f"\n✓ Generated {len(figures_written)} figure(s):")
+        for p in figures_written:
+            print(f"  - {p}")
+
+    # ---------------------------------------------------------------------
     # Summary
     # ---------------------------------------------------------------------
     print_section("Summary")
@@ -253,6 +284,8 @@ if __name__ == "__main__":
     print(f"  2. Electrode Group: probe_{settings.probe_id}")
     print(f"  3. Electrodes: {n_electrodes} channels")
     print(f"\n✓ Output: {output_file}")
+    if figures_written:
+        print(f"\n✓ Figures: {len(figures_written)} plot(s) in {figures_dir}")
     print("\nNext steps:")
     print("  - Add spike sorting data (Phase 2): see neuropixels_spikes_nwb.py")
     print("  - Add raw data links (Phase 3): link to .ap.bin files")
