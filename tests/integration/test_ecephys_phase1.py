@@ -45,10 +45,9 @@ class TestPhase1Integration:
         # Create device
         device = create_device(
             nwbfile=nwbfile,
-            device_name="neuropixels_imec0",
+            name="neuropixels_imec0",
             manufacturer="IMEC",
-            model_name="Neuropixels 2.0",
-            description="Test probe for integration test",
+            description="Neuropixels 2.0 - Test probe for integration test",
         )
 
         assert device.name == "neuropixels_imec0"
@@ -105,7 +104,8 @@ class TestPhase1Integration:
         # Add first probe
         device0 = create_device(
             nwbfile=nwbfile,
-            device_name="neuropixels_imec0",
+            name="neuropixels_imec0",
+            manufacturer="IMEC",
         )
 
         n_added0 = add_electrodes_from_spikeglx(
@@ -119,7 +119,8 @@ class TestPhase1Integration:
         # Add second probe
         device1 = create_device(
             nwbfile=nwbfile,
-            device_name="neuropixels_imec1",
+            name="neuropixels_imec1",
+            manufacturer="IMEC",
         )
 
         n_added1 = add_electrodes_from_spikeglx(
@@ -171,7 +172,8 @@ class TestPhase1Integration:
         # Use all defaults
         device = create_device(
             nwbfile=nwbfile,
-            device_name="test_probe",
+            name="test_probe",
+            manufacturer="IMEC",
         )
 
         n_added = add_electrodes_from_spikeglx(

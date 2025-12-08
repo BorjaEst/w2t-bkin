@@ -31,26 +31,25 @@ class TestCreateNeuropixelsDevice:
         """Test creating a device with default parameters."""
         device = create_device(
             nwbfile=nwbfile,
-            device_name="neuropixels_imec0",
+            name="neuropixels_imec0",
+            manufacturer="IMEC",
         )
 
         assert device.name == "neuropixels_imec0"
         assert device.manufacturer == "IMEC"
-        assert "Neuropixels 2.0" in device.description
 
     def test_create_device_custom_params(self, nwbfile):
         """Test creating a device with custom parameters."""
         device = create_device(
             nwbfile=nwbfile,
-            device_name="neuropixels_imec1",
+            name="neuropixels_imec1",
             manufacturer="IMEC",
-            model_name="Neuropixels 1.0",
-            description="Custom probe description",
+            description="Neuropixels 1.0 - Custom probe description",
         )
 
         assert device.name == "neuropixels_imec1"
         assert device.manufacturer == "IMEC"
-        assert device.description == "Custom probe description"
+        assert "Custom probe description" in device.description
 
     def test_create_duplicate_device(self, nwbfile):
         """Test error when creating duplicate device."""

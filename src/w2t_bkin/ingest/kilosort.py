@@ -186,8 +186,206 @@ def load_cluster_metrics(sorting_dir: Path) -> Optional[pd.DataFrame]:
     return None
 
 
+def add_units_from_kilosort(
+    nwbfile,
+    sorting_dir: Path,
+    probe_id: str,
+    sampling_rate: float,
+    include_labels: Optional[list] = None,
+    min_spike_count: int = 0,
+    include_waveforms: bool = False,
+    include_metrics: bool = True,
+) -> Dict[str, int]:
+    """
+    Populate NWB Units table from Kilosort spike sorting output.
+
+    Loads spike times, cluster labels, and quality metrics from Kilosort output
+    directory and adds filtered units to the NWBFile.
+
+    Args:
+        nwbfile: NWBFile object to add units to
+        sorting_dir: Path to Kilosort output directory (e.g., "interim/neural/kilosort/imec0")
+        probe_id: Probe identifier for unit naming (e.g., "imec0")
+        sampling_rate: Sampling rate in Hz for time conversion (from .meta file)
+        include_labels: Quality labels to include (default: ["good", "mua"])
+                       Common labels: "good", "mua", "noise"
+        min_spike_count: Minimum spike count threshold (default: 0)
+        include_waveforms: If True, add mean waveforms from templates.npy
+        include_metrics: If True, add quality metrics as custom columns
+
+    Returns:
+        Dictionary with summary statistics:
+            {
+                "n_units_added": int,       # Number of units added to NWBFile
+                "n_units_filtered": int,    # Number of units excluded by filters
+                "n_spikes_total": int,      # Total spike count across all added units
+                "filter_reasons": dict,     # Breakdown of filtering reasons
+            }
+
+    Raises:
+        FileNotFoundError: If required Kilosort files are missing
+        ValueError: If sampling_rate <= 0
+
+    Example:
+        >>> from pathlib import Path
+        >>> from pynwb import NWBFile
+        >>> from datetime import datetime
+        >>> from dateutil.tz import tzlocal
+        >>>
+        >>> nwbfile = NWBFile(
+        ...     session_description="example",
+        ...     identifier="test-001",
+        ...     session_start_time=datetime.now(tzlocal())
+        ... )
+        >>>
+        >>> # Add device and electrodes first (Phase 1)
+        >>> # ... device creation and electrode table population ...
+        >>>
+        >>> # Add spike sorting results
+        >>> stats = add_units_from_kilosort(
+        ...     nwbfile=nwbfile,
+        ...     sorting_dir=Path("interim/neural/kilosort/imec0"),
+        ...     probe_id="imec0",
+        ...     sampling_rate=30000.0,
+        ...     include_labels=["good", "mua"],
+        ...     min_spike_count=100,
+        ... )
+        >>> stats["n_units_added"]
+        85  # 85 units passed filters
+    """
+    # Validate inputs
+    if sampling_rate <= 0:
+        raise ValueError(f"sampling_rate must be positive, got {sampling_rate}")
+
+    sorting_dir = Path(sorting_dir)
+    if include_labels is None:
+        include_labels = ["good", "mua"]  # Default: good units and multi-unit activity
+
+    # Load spike data
+    spike_data = load_kilosort_data(sorting_dir)
+    spike_times = spike_data["spike_times"]  # Sample indices
+    spike_clusters = spike_data["spike_clusters"]  # Cluster assignments
+    templates = spike_data["templates"]  # Optional waveforms
+
+    # Load cluster labels
+    cluster_labels = load_cluster_labels(sorting_dir)
+
+    # Load quality metrics (optional)
+    cluster_metrics = None
+    if include_metrics:
+        cluster_metrics = load_cluster_metrics(sorting_dir)
+
+    # Initialize stats tracking
+    stats = {
+        "n_units_added": 0,
+        "n_units_filtered": 0,
+        "n_spikes_total": 0,
+        "filter_reasons": {
+            "quality_label": 0,
+            "spike_count": 0,
+            "missing_label": 0,
+        },
+    }
+
+    # Add custom columns for quality metrics if available
+    if include_metrics and cluster_metrics is not None:
+        # Check which metric columns are available
+        metric_cols = []
+        if "ContamPct" in cluster_metrics.columns:
+            nwbfile.add_unit_column(name="contamination_pct", description="Contamination percentage from Kilosort")
+            metric_cols.append("ContamPct")
+        if "Amplitude" in cluster_metrics.columns:
+            nwbfile.add_unit_column(name="amplitude", description="Spike amplitude (μV)")
+            metric_cols.append("Amplitude")
+        elif "amp" in cluster_metrics.columns:
+            nwbfile.add_unit_column(name="amplitude", description="Spike amplitude (μV)")
+            metric_cols.append("amp")
+
+    # Add custom column for probe assignment
+    if "probe_id" not in [col.name for col in nwbfile.units.columns]:
+        nwbfile.add_unit_column(name="probe_id", description="Probe identifier (e.g., imec0)")
+
+    # Process each cluster
+    unique_clusters = np.unique(spike_clusters)
+
+    for cluster_id in unique_clusters:
+        # Get cluster info
+        cluster_row = cluster_labels[cluster_labels["cluster_id"] == cluster_id]
+
+        if cluster_row.empty:
+            stats["n_units_filtered"] += 1
+            stats["filter_reasons"]["missing_label"] += 1
+            continue
+
+        ks_label = cluster_row["KSLabel"].iloc[0]
+
+        # Filter by quality label
+        if ks_label not in include_labels:
+            stats["n_units_filtered"] += 1
+            stats["filter_reasons"]["quality_label"] += 1
+            continue
+
+        # Get spike times for this cluster
+        cluster_mask = spike_clusters == cluster_id
+        cluster_spike_samples = spike_times[cluster_mask]
+
+        # Filter by spike count
+        if len(cluster_spike_samples) < min_spike_count:
+            stats["n_units_filtered"] += 1
+            stats["filter_reasons"]["spike_count"] += 1
+            continue
+
+        # Convert spike times from samples to seconds
+        cluster_spike_times = cluster_spike_samples / sampling_rate
+
+        # Get electrode mapping (optional, from cluster_info if available)
+        electrode_id = None
+        if "ch" in cluster_row.columns:
+            electrode_id = int(cluster_row["ch"].iloc[0])
+
+        # Prepare unit kwargs
+        unit_kwargs = {
+            "spike_times": cluster_spike_times,
+            "probe_id": probe_id,
+        }
+
+        # Add electrode reference if available
+        if electrode_id is not None and len(nwbfile.electrodes) > 0:
+            # Find electrode row by matching electrode_id
+            # Note: electrodes table uses 0-based indexing
+            if electrode_id < len(nwbfile.electrodes):
+                unit_kwargs["electrodes"] = [electrode_id]
+
+        # Add waveform if requested and available
+        if include_waveforms and templates is not None:
+            # templates shape: (n_clusters, n_samples, n_channels)
+            if cluster_id < templates.shape[0]:
+                unit_kwargs["waveform_mean"] = templates[cluster_id]
+
+        # Add quality metrics if available
+        if include_metrics and cluster_metrics is not None:
+            metric_row = cluster_metrics[cluster_metrics["cluster_id"] == cluster_id]
+            if not metric_row.empty:
+                if "ContamPct" in metric_cols:
+                    unit_kwargs["contamination_pct"] = float(metric_row["ContamPct"].iloc[0])
+                if "Amplitude" in metric_cols:
+                    unit_kwargs["amplitude"] = float(metric_row["Amplitude"].iloc[0])
+                elif "amp" in metric_cols:
+                    unit_kwargs["amplitude"] = float(metric_row["amp"].iloc[0])
+
+        # Add unit to NWBFile
+        nwbfile.add_unit(**unit_kwargs)
+
+        # Update stats
+        stats["n_units_added"] += 1
+        stats["n_spikes_total"] += len(cluster_spike_times)
+
+    return stats
+
+
 __all__ = [
     "load_kilosort_data",
     "load_cluster_labels",
     "load_cluster_metrics",
+    "add_units_from_kilosort",
 ]
