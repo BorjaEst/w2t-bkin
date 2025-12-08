@@ -6,7 +6,7 @@ Public API to generate minimal, valid synthetic inputs:
 - TTL pulse files (ttl_synth)
 - Video files (video_synth)
 - High-level `build_raw_folder` to assemble a complete raw session folder
-- High-level `build_interim_pose` to generate interim pose data
+- High-level `build_interim_folder` to generate interim pose and Kilosort data
 
 These utilities are intended for demos, tests, and quick E2E exercises.
 """
@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Union
 
 from .bpod_synth import BpodSynthOptions, write_bpod_mat_files_for_session
 from .config_synth import SynthConfigOptions, build_config, write_config_toml
+from .ecephys_synth import EcephysSynthParams, build_ecephys_output, create_kilosort_output, create_spikeglx_meta
 from .pose_synth import PoseH5Params, create_dlc_pose_h5, create_sleap_pose_h5
 from .session_synth import SessionSynthOptions, build_metadata, build_session, write_metadata_toml, write_session_toml
 from .ttl_synth import TTLGenerationOptions, generate_and_write_ttls_for_session, generate_ttl_pulses, write_ttl_pulse_files
@@ -48,14 +49,22 @@ __all__ = [
     "PoseH5Params",
     "create_dlc_pose_h5",
     "create_sleap_pose_h5",
+    # Ecephys
+    "EcephysSynthParams",
+    "build_ecephys_output",
+    "create_kilosort_output",
+    "create_spikeglx_meta",
     # Bpod
     "BpodSynthOptions",
     "write_bpod_mat_files_for_session",
     # Result objects
     "RawSessionResult",
-    "InterimPoseResult",
+    "InterimFolderResult",
     # High-level builders
     "build_raw_folder",
+    "build_interim_folder",
+    # Deprecated (for backward compatibility)
+    "InterimPoseResult",
     "build_interim_pose",
 ]
 
@@ -85,6 +94,8 @@ class RawSessionResult:
         Paths to TTL timestamp files (all channels).
     bpod_paths : List[Path]
         Paths to Bpod .mat files with trial data.
+    ecephys_meta_paths : List[Path]
+        Paths to SpikeGLX .meta files (one per probe).
     """
 
     root_dir: Path
@@ -95,13 +106,14 @@ class RawSessionResult:
     video_paths: List[Path]
     ttl_paths: List[Path]
     bpod_paths: List[Path]
+    ecephys_meta_paths: List[Path]
 
 
 @dataclass(frozen=True)
-class InterimPoseResult:
-    """Result object for interim pose estimation data generation.
+class InterimFolderResult:
+    """Result object for interim data folder generation.
 
-    Contains paths to processed pose estimation outputs (DLC/SLEAP H5 files).
+    Contains paths to processed interim data (pose estimation, spike sorting).
     Interim data represents processed outputs derived from raw data.
 
     Attributes
@@ -112,11 +124,18 @@ class InterimPoseResult:
         Session-specific directory for interim artifacts.
     pose_paths : List[Path]
         Paths to generated pose H5 files (one per camera).
+    kilosort_paths : Dict[str, Path]
+        Paths to Kilosort output directories (keyed by probe_id).
     """
 
     root_dir: Path
     session_dir: Path
     pose_paths: List[Path]
+    kilosort_paths: Dict[str, Path]
+
+
+# Backward compatibility alias
+InterimPoseResult = InterimFolderResult
 
 
 def build_raw_folder(
@@ -136,17 +155,23 @@ def build_raw_folder(
     bpod_start_delay_s: float = 0.0,
     bpod_sync_delay_s: float = 0.0,
     bpod_clock_jitter_ppm: float = 0.0,
+    # Ecephys configuration
+    ecephys_probe_ids: Optional[List[str]] = None,
+    ecephys_n_channels: int = 384,
+    ecephys_sampling_rate: float = 30000.0,
+    ecephys_recording_duration_s: Optional[float] = None,
     seed: int = 42,
 ) -> RawSessionResult:
-    """Build a complete raw session folder with videos, TTLs, and Bpod files.
+    """Build a complete raw session folder with videos, TTLs, Bpod, and optionally SpikeGLX metadata.
 
     Creates:
     - `config.toml` at `<out_root>/config.toml`.
-    - Session folder `<out_root>/<session_id>/` with:
+    - Session folder `<out_root>/<subject_id>/<session_id>/` with:
       - `metadata.toml`
       - `Video/` with synthetic video files per camera
       - `TTLs/` with TTL timestamp files per TTL channel
       - `Bpod/` with synthetic .mat files
+      - `SpikeGLX/` with .meta files (if ecephys_probe_ids provided)
 
     Timing offsets:
     - camera_start_delay_s: offset for camera TTL pulses (relative to t=0)
@@ -156,6 +181,12 @@ def build_raw_folder(
       Simulates Bpod internal clock running slightly faster/slower than TTL reference clock.
       Drift accumulates over time, causing offsets to change across session.
 
+    Ecephys configuration:
+    - ecephys_probe_ids: List of probe IDs (e.g., ["imec0", "imec1"]) to generate SpikeGLX .meta files
+    - ecephys_n_channels: Number of channels per probe (default: 384)
+    - ecephys_sampling_rate: Sampling rate in Hz (default: 30000.0)
+    - ecephys_recording_duration_s: Recording duration (default: inferred from video duration)
+
     Returns
     -------
     RawSessionResult
@@ -163,12 +194,12 @@ def build_raw_folder(
 
     See Also
     --------
-    build_interim_pose : Generate interim pose estimation data.
+    build_interim_folder : Generate interim pose and Kilosort data.
 
     Notes
     -----
-    For interim data (pose estimation), use `build_interim_pose()` separately.
-    This maintains proper separation between raw (videos) and interim (processed) data.
+    For interim data (pose estimation, spike sorting), use `build_interim_folder()` separately.
+    This maintains proper separation between raw (sensor data) and interim (processed) data.
     """
 
     out_root = Path(out_root)
@@ -286,6 +317,29 @@ def build_raw_folder(
     )
     bpod_paths = write_bpod_mat_files_for_session(session_model, session_dir, options=bpod_opts)
 
+    # 6) SpikeGLX .meta files (optional)
+    ecephys_meta_paths = []
+    if ecephys_probe_ids:
+        spikeglx_dir = session_dir / "SpikeGLX"
+        spikeglx_dir.mkdir(exist_ok=True)
+
+        # Infer recording duration from video if not provided
+        if ecephys_recording_duration_s is None:
+            ecephys_recording_duration_s = n_frames / fps
+
+        for probe_id in ecephys_probe_ids:
+            params = EcephysSynthParams(
+                probe_type="neuropixels2.0",
+                n_channels=ecephys_n_channels,
+                sampling_rate=ecephys_sampling_rate,
+                n_units=0,  # No units in raw data
+                recording_duration_s=ecephys_recording_duration_s,
+                seed=seed + hash(probe_id) % 1000,
+                probe_id=probe_id,
+            )
+            meta_path = create_spikeglx_meta(spikeglx_dir / f"{probe_id}.ap.meta", params)
+            ecephys_meta_paths.append(meta_path)
+
     return RawSessionResult(
         root_dir=out_root.resolve(),
         session_dir=session_dir.resolve(),
@@ -295,6 +349,178 @@ def build_raw_folder(
         video_paths=[p.resolve() for p in video_paths],
         ttl_paths=[p.resolve() for p in ttl_paths],
         bpod_paths=[p.resolve() for p in bpod_paths],
+        ecephys_meta_paths=[p.resolve() for p in ecephys_meta_paths],
+    )
+
+
+def build_interim_folder(
+    interim_root: Union[str, Path],
+    *,
+    subject_id: str = "subject-001",
+    session_id: str = "session-001",
+    # Pose configuration (optional)
+    pose_camera_ids: Optional[List[str]] = None,
+    n_frames: int = 300,
+    fps: float = 30.0,
+    keypoints: Optional[List[str]] = None,
+    confidence_mean: float = 0.95,
+    confidence_std: float = 0.05,
+    dropout_rate: float = 0.02,
+    video_width: int = 640,
+    video_height: int = 480,
+    # Ecephys/Kilosort configuration (optional)
+    kilosort_probe_ids: Optional[List[str]] = None,
+    n_units: int = 20,
+    sampling_rate: float = 30000.0,
+    n_channels: int = 384,
+    recording_duration_s: Optional[float] = None,
+    firing_rate_mean: float = 5.0,
+    firing_rate_std: float = 3.0,
+    good_unit_fraction: float = 0.70,
+    noise_unit_fraction: float = 0.15,
+    # Common
+    seed: int = 42,
+) -> InterimFolderResult:
+    """Build interim folder with pose estimation and/or Kilosort spike sorting data.
+
+    Generates processed interim data that would typically be produced by running
+    DLC/SLEAP on videos and Kilosort on neural recordings. This simulates the interim
+    data layer in the processing pipeline: raw → interim → output.
+
+    Directory structure:
+        <interim_root>/
+        └── <subject_id>/
+            └── <session_id>/
+                ├── dlc-pose/
+                │   └── <camera_id>/
+                │       └── pose.h5
+                └── kilosort/
+                    └── <probe_id>/
+                        ├── spike_times.npy
+                        ├── spike_clusters.npy
+                        ├── cluster_info.tsv
+                        └── templates.npy
+
+    Parameters
+    ----------
+    interim_root: Base directory for interim data (e.g., "output/interim")
+    subject_id: Subject identifier (must match raw folder structure)
+    session_id: Session identifier (must match raw folder structure)
+    
+    Pose configuration (optional):
+    pose_camera_ids: List of camera IDs to generate pose data for
+    n_frames: Number of frames (should match video frame count)
+    fps: Frame rate (should match video fps)
+    keypoints: List of keypoint names (default: ["nose", "left_ear", "right_ear"])
+    confidence_mean: Mean confidence for synthetic pose data
+    confidence_std: Standard deviation for confidence values
+    dropout_rate: Fraction of keypoints to drop (simulates tracking failures)
+    video_width: Width of video frames in pixels
+    video_height: Height of video frames in pixels
+    
+    Kilosort configuration (optional):
+    kilosort_probe_ids: List of probe IDs to generate Kilosort output for
+    n_units: Number of sorted units per probe
+    sampling_rate: Sampling rate in Hz
+    n_channels: Number of recording channels
+    recording_duration_s: Recording duration (default: inferred from n_frames/fps)
+    firing_rate_mean: Mean firing rate across units (Hz)
+    firing_rate_std: Standard deviation of firing rates (Hz)
+    good_unit_fraction: Fraction of units labeled as "good"
+    noise_unit_fraction: Fraction of units labeled as "noise"
+    
+    Common:
+    seed: Random seed for reproducible generation
+
+    Returns
+    -------
+    InterimFolderResult
+        Object containing paths to all generated interim artifacts.
+
+    See Also
+    --------
+    build_raw_folder : Generate raw session data.
+
+    Notes
+    -----
+    At least one of pose_camera_ids or kilosort_probe_ids must be provided.
+    This function maintains proper separation between raw (sensor data) and interim (processed) data.
+    """
+
+    interim_root = Path(interim_root)
+
+    # Create subject_id/session_id structure
+    session_dir = interim_root / subject_id / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    pose_paths = []
+    kilosort_paths = {}
+
+    # 1) Generate pose estimation data
+    if pose_camera_ids:
+        pose_dir = session_dir / "dlc-pose"
+        keypoints = keypoints or ["nose", "left_ear", "right_ear"]
+
+        for cam_id in pose_camera_ids:
+            cam_pose_dir = pose_dir / cam_id
+            cam_pose_dir.mkdir(parents=True, exist_ok=True)
+
+            # Use per-camera seed for variation across cameras
+            cam_seed = seed + hash(cam_id) % 1000
+
+            pose_params = PoseH5Params(
+                keypoints=keypoints,
+                n_frames=n_frames,
+                fps=fps,
+                confidence_mean=confidence_mean,
+                confidence_std=confidence_std,
+                dropout_rate=dropout_rate,
+                video_width=video_width,
+                video_height=video_height,
+                seed=cam_seed,
+            )
+
+            h5_path = create_dlc_pose_h5(cam_pose_dir / "pose.h5", pose_params)
+            pose_paths.append(h5_path)
+
+    # 2) Generate Kilosort spike sorting data
+    if kilosort_probe_ids:
+        kilosort_root_dir = session_dir / "kilosort"
+        kilosort_root_dir.mkdir(exist_ok=True)
+
+        # Infer recording duration from video if not provided
+        if recording_duration_s is None:
+            recording_duration_s = n_frames / fps
+
+        for probe_id in kilosort_probe_ids:
+            probe_kilosort_dir = kilosort_root_dir / probe_id
+            probe_kilosort_dir.mkdir(exist_ok=True)
+
+            # Use per-probe seed for variation across probes
+            probe_seed = seed + hash(probe_id) % 1000
+
+            ecephys_params = EcephysSynthParams(
+                probe_type="neuropixels2.0",
+                n_channels=n_channels,
+                sampling_rate=sampling_rate,
+                n_units=n_units,
+                recording_duration_s=recording_duration_s,
+                firing_rate_mean=firing_rate_mean,
+                firing_rate_std=firing_rate_std,
+                good_unit_fraction=good_unit_fraction,
+                noise_unit_fraction=noise_unit_fraction,
+                seed=probe_seed,
+                probe_id=probe_id,
+            )
+
+            create_kilosort_output(probe_kilosort_dir, ecephys_params)
+            kilosort_paths[probe_id] = probe_kilosort_dir
+
+    return InterimFolderResult(
+        root_dir=interim_root.resolve(),
+        session_dir=session_dir.resolve(),
+        pose_paths=[p.resolve() for p in pose_paths],
+        kilosort_paths={k: v.resolve() for k, v in kilosort_paths.items()},
     )
 
 
@@ -316,20 +542,26 @@ def build_interim_pose(
 ) -> InterimPoseResult:
     """Build interim pose estimation data (DLC/SLEAP H5 files) for a synthetic session.
 
+    .. deprecated:: 
+        Use `build_interim_folder()` instead. This function is maintained for
+        backward compatibility.
+
     Generates processed pose estimation outputs that would typically be produced
     by running DLC or SLEAP on raw video files. This simulates the interim data
     layer in the processing pipeline: raw → interim → output.
 
     Directory structure:
         <interim_root>/
-        └── <session_id>/
-            └── Pose/
-                └── <camera_id>/
-                    └── pose.h5
+        └── <subject_id>/
+            └── <session_id>/
+                └── dlc-pose/
+                    └── <camera_id>/
+                        └── pose.h5
 
     Parameters
     ----------
     interim_root: Base directory for interim data (e.g., "output/interim")
+    subject_id: Subject identifier
     session_id: Session identifier (must match session in raw folder)
     camera_ids: List of camera IDs to generate pose data for
     n_frames: Number of frames (should match video frame count)
@@ -344,42 +576,27 @@ def build_interim_pose(
 
     Returns
     -------
-    List[Path]: Paths to generated H5 files (one per camera)
+    InterimPoseResult: Paths to generated H5 files (one per camera)
+    
+    See Also
+    --------
+    build_interim_folder : Recommended replacement that supports both pose and Kilosort data.
     """
 
-    interim_root = Path(interim_root)
-
-    # Create subject_id/session_id structure
-    session_dir = interim_root / subject_id / session_id
-    pose_dir = session_dir / "dlc-pose"
-    pose_paths = []
-
-    keypoints = keypoints or ["nose", "left_ear", "right_ear"]
-
-    for cam_id in camera_ids:
-        cam_pose_dir = pose_dir / cam_id
-        cam_pose_dir.mkdir(parents=True, exist_ok=True)
-
-        # Use per-camera seed for variation across cameras
-        cam_seed = seed + hash(cam_id) % 1000
-
-        pose_params = PoseH5Params(
-            keypoints=keypoints,
-            n_frames=n_frames,
-            fps=fps,
-            confidence_mean=confidence_mean,
-            confidence_std=confidence_std,
-            dropout_rate=dropout_rate,
-            video_width=video_width,
-            video_height=video_height,
-            seed=cam_seed,
-        )
-
-        h5_path = create_dlc_pose_h5(cam_pose_dir / "pose.h5", pose_params)
-        pose_paths.append(h5_path)
-
-    return InterimPoseResult(
-        root_dir=interim_root.resolve(),
-        session_dir=session_dir.resolve(),
-        pose_paths=[p.resolve() for p in pose_paths],
+    # Delegate to build_interim_folder
+    return build_interim_folder(
+        interim_root=interim_root,
+        subject_id=subject_id,
+        session_id=session_id,
+        pose_camera_ids=camera_ids,
+        n_frames=n_frames,
+        fps=fps,
+        keypoints=keypoints,
+        confidence_mean=confidence_mean,
+        confidence_std=confidence_std,
+        dropout_rate=dropout_rate,
+        video_width=video_width,
+        video_height=video_height,
+        kilosort_probe_ids=None,  # No Kilosort data
+        seed=seed,
     )
