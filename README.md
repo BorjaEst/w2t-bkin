@@ -21,30 +21,24 @@ The project requires Python ~3.10.
 The easiest way to get started is using containers. No manual dependency installation required!
 
 ```bash
-# 1. Install container runtime (choose one):
+# 1. Install container runtime (choose one)
+# Podman (Recommended - 100% free): https://podman-desktop.io/
+# Docker (Requires paid license for orgs >250 employees): https://docs.docker.com/get-docker/
 
-# Option A: Podman (Recommended - 100% free, no licensing restrictions)
-# Linux:
-sudo apt-get install podman podman-compose  # Debian/Ubuntu
-sudo dnf install podman podman-compose      # Fedora/RHEL
-# Windows/macOS: Download from https://podman-desktop.io/
+# 2. Clone repository
+git clone https://github.com/BorjaEst/w2t-bkin.git
+cd w2t-bkin
 
-# Option B: Docker (requires paid license for large organizations)
-# See: https://docs.docker.com/get-docker/
-# Note: After installing Docker, add your user to docker group:
-#   sudo usermod -aG docker $USER
-#   newgrp docker  # or logout/login
+# 3. Start containers
+docker compose up -d
+# Or with Podman:
+podman-compose up -d
 
-# 2. Install CLI
-pip install w2t-bkin[prefect]
+# 4. Wait for initialization (60 seconds)
+sleep 60
 
-# 3. Start server (CLI auto-detects Podman or Docker)
-python -m w2t_bkin.cli container start-server
-
-# 4. Start workers
-python -m w2t_bkin.cli container start-worker --workers 4
-
-# 5. Access web UI at http://localhost:4200
+# 5. Access Prefect UI
+# Open browser: http://localhost:4200
 ```
 
 **Benefits**:
@@ -54,12 +48,19 @@ python -m w2t_bkin.cli container start-worker --workers 4
 - ✅ Free & open-source runtimes (Podman recommended)
 - ✅ Web UI for monitoring pipeline runs
 - ✅ Distributed execution across network
+- ✅ Pre-configured with correct paths and settings
 
-📚 **Container Guides**:
+📚 **Container Documentation**:
 
-- [Quick Start](docs/containerization/deployment-guide.md)
-- [HPC/Apptainer Deployment](docs/containerization/hpc-guide.md)
-- [Architecture & Design](docs/containerization/design.md)
+- **[Quick Start](docs/containerization/QUICK-START.md)** ⚡ - Get running in 5 minutes
+- **[Deployment Guide](docs/containerization/deployment-guide.md)** - Detailed setup instructions
+- **[Configuration Guide](docs/containerization/CONFIGURATION.md)** - Customize settings
+- **[Path Resolution](docs/containerization/PATH-RESOLUTION-FIX.md)** - Technical details on container paths
+- **[TOML Config Fix](docs/containerization/TOML-CONFIG-FIX.md)** - Config troubleshooting
+- **[HPC/Apptainer](docs/containerization/hpc-guide.md)** - Deploy on compute clusters
+- **[Architecture & Design](docs/containerization/design.md)** - System overview
+
+> **🚧 Upcoming Changes**: We're refactoring the codebase to be more Prefect-friendly with better observability and cleaner organization. See **[Refactoring Plan](docs/refactoring/README.md)** for details.
 
 ### Option 2: Native Python Installation
 

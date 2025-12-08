@@ -1,0 +1,51 @@
+```mermaid
+---
+title: Refactoring Architecture Overview
+---
+
+graph TB
+    subgraph "Before: Current Structure"
+        A1[tasks/]
+        A1 --> A1a[PipelineTask]
+        A1 --> A1b[DLCPoseTask]
+        A1 --> A1c[SLEAPPoseTask]
+        
+        A2[orchestration/]
+        A2 --> A2a[flows.py<br/>354 lines<br/>Mixed concerns]
+        
+        A3[core/pipeline/phases/]
+        A3 --> A3a[run_phase_0<br/>through<br/>run_phase_6]
+    end
+    
+    subgraph "After: Refactored Structure"
+        B1[preprocessing/]
+        B1 --> B1a[PipelineTask]
+        B1 --> B1b[DLCPoseTask]
+        B1 --> B1c[SLEAPPoseTask]
+        
+        B2[prefect/]
+        B2 --> B2a[tasks.py<br/>Phase wrappers]
+        B2 --> B2b[flows.py<br/>Flow definitions]
+        B2 --> B2c[deployments.py<br/>Configs]
+        B2 --> B2d[__init__.py<br/>Public API]
+        
+        B3[core/pipeline/phases/]
+        B3 --> B3a[run_phase_0<br/>through<br/>run_phase_6]
+        B3a -.wrapped by.-> B2a
+    end
+    
+    A1 -.rename.-> B1
+    A2 -.rename + split.-> B2
+    A3 -.unchanged.-> B3
+    
+    style A1 fill:#ffcccc
+    style A2 fill:#ffcccc
+    style B1 fill:#ccffcc
+    style B2 fill:#ccffcc
+    style A1a fill:#ffe6e6
+    style A2a fill:#ffe6e6
+    style B1a fill:#e6ffe6
+    style B2a fill:#e6ffe6
+    style B2b fill:#e6ffe6
+    style B2c fill:#e6ffe6
+```

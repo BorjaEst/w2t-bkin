@@ -6,8 +6,8 @@ from typing import Optional
 from rich.progress import Progress, TaskID
 
 from ....exceptions import IngestError
-from ....tasks import DLCPoseTask, SLEAPPoseTask, TaskConfig
-from ....tasks.base import TaskStatus
+from ....preprocessing import DLCPoseTask, SLEAPPoseTask, TaskConfig
+from ....preprocessing.base import TaskStatus
 from ..models import PipelineContext
 
 logger = logging.getLogger(__name__)

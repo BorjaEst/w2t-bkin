@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from prefect import serve
 
-from w2t_bkin.orchestration.flows import batch_process_sessions_prefect
+from w2t_bkin.prefect.flows import batch_process_sessions_prefect
 
 
 def deploy_flows(work_pool: str = "docker-pool"):

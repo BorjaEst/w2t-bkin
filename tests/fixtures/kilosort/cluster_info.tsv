@@ -1,0 +1,6 @@
+cluster_id	KSLabel	ContamPct	Amplitude	ch	n_spikes
+0	good	0.05	120.5	100	500
+1	good	0.03	90.2	120	50
+2	mua	0.12	80.1	140	300
+3	noise	0.45	30.5	160	200
+4	good	0.07	150.3	180	400

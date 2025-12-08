@@ -45,7 +45,7 @@ See Also:
     - docs/batch-processing.md: Comprehensive batch processing guide
     - docs/quick-start-batch.md: Quick start guide for batch operations
     - w2t_bkin.utils.discover_sessions: Programmatic discovery API
-    - w2t_bkin.orchestration: Prefect orchestration module
+    - w2t_bkin.prefect: Prefect orchestration module
 """
 
 import json
@@ -552,7 +552,7 @@ def batch(
         - run: Process single session
         - docs/batch-processing.md: Full batch processing guide
     """
-    from w2t_bkin.orchestration import batch_process_sessions
+    from w2t_bkin.prefect import batch_process_sessions
 
     try:
         console.print("[cyan]╭─────────────────────────────────────────────╮[/cyan]")

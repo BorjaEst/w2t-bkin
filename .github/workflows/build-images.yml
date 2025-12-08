@@ -60,6 +60,7 @@ jobs:
             org.opencontainers.image.description=W2T Body Kinematics Pipeline - ${{ matrix.target }} container
 
       - name: Build and push ${{ matrix.target }} image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .

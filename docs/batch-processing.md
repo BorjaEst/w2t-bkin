@@ -59,7 +59,7 @@ python -m w2t_bkin.cli batch config.toml --max-workers 4
 ### Programmatic Usage
 
 ```python
-from w2t_bkin.orchestration import batch_process_sessions
+from w2t_bkin.prefect import batch_process_sessions
 
 # Process all sessions
 result = batch_process_sessions("config.toml", max_workers=4)

@@ -145,7 +145,7 @@ def batch_process_sessions(
         - results: List of per-session results
 
     Example:
-        >>> from w2t_bkin.orchestration import batch_process_sessions
+        >>> from w2t_bkin.prefect import batch_process_sessions
         >>>
         >>> # Process all sessions
         >>> result = batch_process_sessions("config.toml", max_workers=4)

@@ -1,51 +1,49 @@
-"""Prefect orchestration for batch processing.
+"""Backward compatibility layer for w2t_bkin.orchestration (renamed to prefect).
 
-This module provides Prefect-based batch processing capabilities for the
-W2T Body Kinematics Pipeline. It wraps the existing SessionPipeline with
-Prefect flows and tasks to enable:
+This module provides backward compatibility for code importing from w2t_bkin.orchestration.
+All imports are redirected to w2t_bkin.prefect with deprecation warnings.
 
-- Automatic retry logic with configurable delays
-- Real-time observability via Prefect UI dashboard
-- Intelligent resource management and concurrency control
-- Distributed execution (ready for HPC/Kubernetes)
-- Structured logging and error tracking
+.. deprecated:: 2.0
+    Use :mod:`w2t_bkin.prefect` instead. This compatibility layer will be
+    removed in v3.0.
 
-Key Components:
----------------
-- process_single_session: Prefect task for single session processing
-- batch_process_sessions: Prefect flow for batch orchestration
-
-Example:
---------
->>> from w2t_bkin.orchestration import batch_process_sessions
->>>
->>> # Process all sessions with 4 parallel workers
->>> result = batch_process_sessions("config.toml", max_workers=4)
->>> print(f"Completed {result['successful']}/{result['total']} sessions")
->>>
->>> # With filters
->>> result = batch_process_sessions(
-...     "config.toml",
-...     subject_filter="subject-001",
-...     max_workers=2,
-... )
-
-CLI Usage:
-----------
-$ python -m w2t_bkin.cli batch config.toml --max-workers 4
-$ python -m w2t_bkin.cli batch config.toml --subject subject-001
-
-With Prefect UI (recommended):
-$ prefect server start  # Terminal 1
-$ python -m w2t_bkin.cli batch config.toml  # Terminal 2
-# Open http://localhost:4200 for dashboard
-
-See Also:
----------
-- docs/batch-processing.md: Comprehensive batch processing guide
-- Prefect docs: https://docs.prefect.io/
+Examples:
+    >>> # Old (deprecated but works with warning)
+    >>> from w2t_bkin.orchestration import batch_process_sessions
+    
+    >>> # New (recommended)
+    >>> from w2t_bkin.prefect import batch_process_sessions
 """
 
-from .flows import batch_process_sessions, process_single_session
+import warnings
+from typing import Any
 
-__all__ = ["batch_process_sessions", "process_single_session"]
+# Import everything from prefect
+from ..prefect import *  # noqa: F401, F403
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "w2t_bkin.orchestration is deprecated and will be removed in v3.0. "
+    "Use w2t_bkin.prefect instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Redirect attribute access to prefect module with deprecation warning."""
+    from .. import prefect
+    
+    if hasattr(prefect, name):
+        warnings.warn(
+            f"Importing {name} from w2t_bkin.orchestration is deprecated. "
+            f"Use 'from w2t_bkin.prefect import {name}' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(prefect, name)
+    
+    raise AttributeError(f"module 'w2t_bkin.orchestration' has no attribute '{name}'")
+
+
+__all__ = ["batch_process_sessions", "batch_process_sessions_prefect"]

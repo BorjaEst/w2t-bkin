@@ -24,6 +24,20 @@ This guide walks you through deploying w2t-bkin using containers. Containers pro
 - **Workers**: Background processes that execute your pipeline tasks
 - **Persistence**: Database keeps history of all runs
 
+### ⚠️ Important: Container Configuration
+
+Containers require **absolute paths** in config files. A pre-configured `configs/container.toml` is provided:
+
+```toml
+[paths]
+raw_root = "/data/raw"              # ✅ Absolute container path
+intermediate_root = "/data/interim"  # ✅ Absolute container path
+output_root = "/data/processed"      # ✅ Absolute container path
+models_root = "/models"              # ✅ Absolute container path
+```
+
+**Why absolute paths?** Prefect workers copy code to temporary directories. Relative paths (like `data/raw`) would resolve incorrectly. The default deployment uses `container.toml` which is already configured with correct paths.
+
 ## Choosing a Container Runtime
 
 You need ONE of these tools installed:
@@ -216,26 +230,30 @@ w2t-bkin container start-worker
 
 ### Custom Data Locations
 
-By default, containers look for data in `./data`. To use different locations:
+By default, containers look for data in `./data`. To use different locations, edit the `.env` file:
 
 ```bash
-# Set environment variables before starting workers
-export DATA_ROOT=/mnt/storage/raw_data
-export OUTPUT_ROOT=/mnt/storage/processed_data
-export MODELS_ROOT=/mnt/storage/models
+# Edit .env file in project root
+nano .env
 
-w2t-bkin container start-worker --workers 2
+# Update these paths:
+DATA_ROOT=./data              # Change to your data location
+CONFIG_ROOT=./configs         # Config files location
+MODELS_ROOT=./models          # Model files location
+
+# Deployment defaults (optional)
+DEFAULT_CONFIG_FILE=container.toml  # Which config to use
+DEFAULT_MAX_WORKERS=4               # Concurrent sessions
 ```
 
-Or edit `docker-compose.yml`:
+After editing `.env`, restart containers:
 
-```yaml
-worker:
-  volumes:
-    - /your/custom/path:/data
-    - /your/models:/models
-    - /your/output:/output
+```bash
+docker compose down
+docker compose up -d
 ```
+
+**Note**: Paths in `.env` are **host paths** (relative to docker-compose.yml). They are mounted into containers at fixed locations (`/data`, `/models`, `/configs`).
 
 ### View Logs
 
@@ -531,6 +549,72 @@ Same result, simpler commands.
 - **Discussions**: https://github.com/BorjaEst/w2t-bkin/discussions
 - **Prefect Docs**: https://docs.prefect.io
 
+## Troubleshooting
+
+### "raw_root does not exist" Error
+
+**Cause**: Config file uses relative paths or data directory not mounted.
+
+**Fix**:
+
+1. Verify you're using `container.toml` (check deployment logs)
+2. Ensure `container.toml` has absolute paths: `/data/raw`, `/models`, etc.
+3. Check data exists: `ls -la data/raw/`
+4. Verify volume mounts in `.env`
+
+### "TOMLDecodeError: Invalid value"
+
+**Cause**: Config file has invalid TOML syntax or fields not in schema.
+
+**Fix**:
+
+1. TOML doesn't support `null` - omit optional fields instead
+2. Check schema in `src/w2t_bkin/config.py` for valid fields
+3. Test config: `docker exec w2t-bkin-worker-1 python -c "from w2t_bkin.config import load_config; load_config('/configs/container.toml')"`
+
+### "Extra inputs are not permitted" ValidationError
+
+**Cause**: Config has fields that don't exist in Pydantic schema.
+
+**Fix**: Remove invalid fields. Common issues:
+
+- `video.enabled` → Remove (not in schema)
+- `qc.enabled` → Use `qc.generate_report` instead
+- `preprocessing.facemap` → Not supported, remove section
+
+See `docs/containerization/TOML-CONFIG-FIX.md` for full details.
+
+### Workers Not Picking Up Jobs
+
+**Cause**: Workers not connected to correct work pool.
+
+**Fix**:
+
+1. Check work pool: `docker exec w2t-bkin-server prefect work-pool ls`
+2. Check worker logs: `docker logs w2t-bkin-worker-1`
+3. Verify `PREFECT_API_URL` matches server
+
+### Permission Denied Errors
+
+**Cause**: Container can't access host directories.
+
+**Fix**:
+
+- Linux: `chmod -R 755 data/ models/ configs/`
+- macOS: Grant Docker access in System Preferences → Privacy
+- Windows WSL: Use WSL paths (`/mnt/c/...`), not Windows paths
+
+### Deployment Not Found
+
+**Cause**: Server initialization didn't complete or deployment failed.
+
+**Fix**:
+
+1. Check server logs: `docker logs w2t-bkin-server | grep -i deploy`
+2. Should see: "✅ Deployed: batch-processing"
+3. If missing, restart server: `docker compose restart server`
+4. Wait 60s for initialization, then check: `docker exec w2t-bkin-server prefect deployment ls`
+
 ## FAQ
 
 **Q: Do I need to keep the terminal open?**
@@ -592,3 +676,33 @@ A: Prefect automatically retries (2 attempts by default, 60s delay). You'll see 
 **Q: Can I run multiple pipelines simultaneously?**
 
 A: Yes. Prefect queues tasks and workers pick them up. Start more workers to increase parallelism.
+
+**Q: What's the difference between container.toml and standard.toml?**
+
+A:
+
+- `standard.toml`: Uses relative paths (`data/raw`), works for local CLI execution
+- `container.toml`: Uses absolute paths (`/data/raw`), required for containerized Prefect workers
+
+When running via Prefect in containers, always use `container.toml` (default). When running CLI locally, use `standard.toml`.
+
+**Q: How do I customize the config for containers?**
+
+A:
+
+1. Copy `configs/container.toml` to `configs/my-config.toml`
+2. Modify settings (keep absolute paths in `[paths]` section!)
+3. Update `.env`: `DEFAULT_CONFIG_FILE=my-config.toml`
+4. Restart: `docker compose down && docker compose up -d`
+
+**Q: Can I test config before deploying?**
+
+A: Yes:
+
+```bash
+# Test config loads without errors
+docker exec w2t-bkin-worker-1 python -c "from w2t_bkin.config import load_config; load_config('/configs/container.toml'); print('✅ Valid')"
+
+# Test session discovery
+docker exec w2t-bkin-worker-1 python -c "from w2t_bkin.utils import discover_sessions; print(f'{len(discover_sessions(\"/configs/container.toml\"))} sessions found')"
+```

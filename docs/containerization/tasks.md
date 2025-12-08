@@ -19,13 +19,13 @@
 
 **Acceptance Criteria**:
 
-- [ ] Dockerfile builds successfully with `docker build --target base .`
-- [ ] Server image builds: `docker build --target server -t w2t-bkin:server .`
-- [ ] Worker image builds: `docker build --target worker -t w2t-bkin:worker .`
-- [ ] All images run as non-root user (uid 1000)
-- [ ] ffmpeg installed and functional: `docker run w2t-bkin:worker ffmpeg -version`
-- [ ] Python package installed: `docker run w2t-bkin:worker python -m w2t_bkin.cli --version`
-- [ ] Image size < 2GB compressed
+- [x] Dockerfile builds successfully with `docker build --target base .`
+- [x] Server image builds: `docker build --target server -t w2t-bkin:server .`
+- [x] Worker image builds: `docker build --target worker -t w2t-bkin:worker .`
+- [x] All images run as non-root user (uid 1000)
+- [x] ffmpeg installed and functional: `docker run w2t-bkin:worker ffmpeg -version`
+- [x] Python package installed: `docker run w2t-bkin:worker python -m w2t_bkin.cli --version`
+- [x] Image size < 2GB compressed
 
 **Implementation Details**:
 
@@ -74,9 +74,9 @@ ENTRYPOINT ["/usr/local/bin/start-worker.sh"]
 
 **Estimated Effort**: 4 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -88,12 +88,12 @@ ENTRYPOINT ["/usr/local/bin/start-worker.sh"]
 
 **Acceptance Criteria**:
 
-- [ ] `docker/start-server.sh` starts Prefect server and creates work pool
-- [ ] Server waits for PostgreSQL to be ready before starting
-- [ ] `docker/start-worker.sh` waits for server health check before connecting
-- [ ] Worker logs show successful connection to server
-- [ ] Scripts handle SIGTERM gracefully for clean shutdown
-- [ ] Scripts are executable (chmod +x)
+- [x] `docker/start-server.sh` starts Prefect server and creates work pool
+- [x] Server waits for PostgreSQL to be ready before starting
+- [x] `docker/start-worker.sh` waits for server health check before connecting
+- [x] Worker logs show successful connection to server
+- [x] Scripts handle SIGTERM gracefully for clean shutdown
+- [x] Scripts are executable (chmod +x)
 
 **Implementation Details**:
 
@@ -169,9 +169,9 @@ exec prefect worker start \
 
 **Estimated Effort**: 3 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -183,13 +183,13 @@ exec prefect worker start \
 
 **Acceptance Criteria**:
 
-- [ ] `docker compose up` starts all services (postgres, server, worker)
-- [ ] Prefect UI accessible at http://localhost:4200
-- [ ] Worker successfully connects to server
-- [ ] PostgreSQL data persists across restarts (named volume)
-- [ ] Environment variables can override defaults
-- [ ] Health checks work for all services
-- [ ] Graceful shutdown with `docker compose down`
+- [x] `docker compose up` starts all services (postgres, server, worker)
+- [x] Prefect UI accessible at http://localhost:4200
+- [x] Worker successfully connects to server
+- [x] PostgreSQL data persists across restarts (named volume)
+- [x] Environment variables can override defaults
+- [x] Health checks work for all services
+- [x] Graceful shutdown with `docker compose down`
 
 **Implementation Details**:
 
@@ -274,9 +274,9 @@ networks:
 
 **Estimated Effort**: 3 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -288,11 +288,11 @@ networks:
 
 **Acceptance Criteria**:
 
-- [ ] `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` works
-- [ ] Source code mounted as volume for hot-reload
-- [ ] Debug logging enabled (PREFECT_LOGGING_LEVEL=DEBUG)
-- [ ] Local data directories auto-mounted
-- [ ] Can rebuild with `--build` flag
+- [x] `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` works
+- [x] Source code mounted as volume for hot-reload
+- [x] Debug logging enabled (PREFECT_LOGGING_LEVEL=DEBUG)
+- [x] Local data directories auto-mounted
+- [x] Can rebuild with `--build` flag
 
 **Implementation Details**:
 
@@ -330,9 +330,9 @@ services:
 
 **Estimated Effort**: 1 hour
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -346,11 +346,11 @@ services:
 
 **Acceptance Criteria**:
 
-- [ ] Detects Podman (priority 1)
-- [ ] Detects Docker (priority 2)
-- [ ] Detects Apptainer/Singularity (priority 3)
-- [ ] Returns enum ContainerRuntime.NONE if nothing found
-- [ ] Verifies Docker daemon is running (not just binary present)
+- [x] Detects Podman (priority 1)
+- [x] Detects Docker (priority 2)
+- [x] Detects Apptainer/Singularity (priority 3)
+- [x] Returns enum ContainerRuntime.NONE if nothing found
+- [x] Verifies Docker daemon is running (not just binary present)
 - [ ] Unit tests for all detection paths
 
 **Implementation Details**:
@@ -430,9 +430,9 @@ def get_runtime_version(runtime: ContainerRuntime) -> Optional[str]:
 
 **Estimated Effort**: 2 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -444,12 +444,12 @@ def get_runtime_version(runtime: ContainerRuntime) -> Optional[str]:
 
 **Acceptance Criteria**:
 
-- [ ] `start_server()` launches server stack (postgres + server)
-- [ ] `start_workers()` launches N worker containers
-- [ ] `stop_all()` gracefully shuts down all containers
-- [ ] `show_status()` displays running containers and health
-- [ ] Works with both Docker and Podman
-- [ ] Handles errors gracefully with helpful messages
+- [x] `start_server()` launches server stack (postgres + server)
+- [x] `start_workers()` launches N worker containers
+- [x] `stop_all()` gracefully shuts down all containers
+- [x] `show_status()` displays running containers and health
+- [x] Works with both Docker and Podman
+- [x] Handles errors gracefully with helpful messages
 
 **Implementation Details**:
 
@@ -541,9 +541,9 @@ def show_status(runtime: ContainerRuntime) -> None:
 
 **Estimated Effort**: 6 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -555,12 +555,12 @@ def show_status(runtime: ContainerRuntime) -> None:
 
 **Acceptance Criteria**:
 
-- [ ] `w2t-bkin container start-server` works
-- [ ] `w2t-bkin container start-worker` works
-- [ ] `w2t-bkin container stop` works
-- [ ] `w2t-bkin container status` works
-- [ ] Helpful error messages when no runtime detected
-- [ ] `--help` text clear and comprehensive
+- [x] `w2t-bkin container start-server` works
+- [x] `w2t-bkin container start-worker` works
+- [x] `w2t-bkin container stop` works
+- [x] `w2t-bkin container status` works
+- [x] Helpful error messages when no runtime detected
+- [x] `--help` text clear and comprehensive
 
 **Implementation Details**:
 
@@ -598,9 +598,9 @@ def start_server(port: int, detach: bool):
 
 **Estimated Effort**: 4 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -614,12 +614,12 @@ def start_server(port: int, detach: bool):
 
 **Acceptance Criteria**:
 
-- [ ] Workflow triggers on push to main/dev and tags
-- [ ] Builds multi-platform images (amd64, arm64)
-- [ ] Pushes to ghcr.io/borjaest/w2t-bkin
-- [ ] Tags images correctly (latest, v\*, branch names)
+- [x] Workflow triggers on push to main/dev and tags
+- [x] Builds multi-platform images (amd64, arm64)
+- [x] Pushes to ghcr.io/borjaest/w2t-bkin
+- [x] Tags images correctly (latest, v\*, branch names)
 - [ ] Build completes in < 10 minutes
-- [ ] Uses layer caching for faster builds
+- [x] Uses layer caching for faster builds
 
 **Implementation Details**:
 
@@ -700,9 +700,9 @@ jobs:
 
 **Estimated Effort**: 4 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -714,9 +714,9 @@ jobs:
 
 **Acceptance Criteria**:
 
-- [ ] Trivy scans run on every image build
-- [ ] Fails build if HIGH or CRITICAL vulnerabilities found
-- [ ] Scan results uploaded to GitHub Security tab
+- [x] Trivy scans run on every image build
+- [x] Fails build if HIGH or CRITICAL vulnerabilities found
+- [x] Scan results uploaded to GitHub Security tab
 - [ ] Scheduled daily scans on latest image
 
 **Implementation Details**:
@@ -742,9 +742,9 @@ jobs:
 
 **Estimated Effort**: 2 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 
@@ -1190,9 +1190,9 @@ For EBRAINS infrastructure, follow their guidelines:
 **Dependencies**: TASK-011
 
 **Acceptance Criteria**:
-- [ ] New "Container Deployment" section added
-- [ ] Links to detailed guides
-- [ ] Quick example showing simplicity
+- [x] New "Container Deployment" section added
+- [x] Links to detailed guides
+- [x] Quick example showing simplicity
 - [ ] Badge showing image size and pulls
 
 **Implementation Details**:
@@ -1237,9 +1237,9 @@ w2t-bkin batch config.toml --max-workers 4
 
 **Estimated Effort**: 2 hours
 
-**Assignee**: TBD
+**Assignee**: Completed
 
-**Status**: ⬜ NOT STARTED
+**Status**: ✅ COMPLETED (2025-12-04)
 
 ---
 

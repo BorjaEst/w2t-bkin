@@ -33,7 +33,7 @@ async def deploy_flows_async():
         from prefect.client.orchestration import get_client
 
         # Import the flow
-        from w2t_bkin.orchestration.flows import batch_process_sessions_prefect
+        from w2t_bkin.prefect.flows import batch_process_sessions_prefect
 
         logger.info("📦 Deploying W2T-BKIN flows...")
 
