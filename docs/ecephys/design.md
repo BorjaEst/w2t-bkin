@@ -30,7 +30,9 @@ Foundation Layer (Available to all)
   └─ pynwb, hdmf, ndx-* extensions
 
 Low-Level Tools (Primitives only)
-  └─ ingest.ecephys           [NEW MODULE]
+  ├─ ingest.ecephys            [NEW: Generic ecephys utilities]
+  ├─ ingest.spikeglx           [NEW: SpikeGLX hardware parsing]
+  └─ ingest.kilosort           [NEW: Kilosort spike sorting]
 
 Mid-Level Tools (Composition)
   └─ sync                      [EXTENDED: neuropixels timebase provider]
@@ -43,12 +45,14 @@ High-Level Orchestration (Session-aware)
 
 ### Module Responsibilities
 
-| Module                     | Layer      | Input                        | Output                                        | Dependencies           |
-| -------------------------- | ---------- | ---------------------------- | --------------------------------------------- | ---------------------- |
-| `ingest.ecephys`           | Low-level  | File paths, primitives       | NWB objects (Device, ElectricalSeries, Units) | pynwb, numpy, utils    |
-| `sync` (extended)          | Mid-level  | TTL timestamps, probe config | Alignment indices                             | ingest.ecephys         |
-| `core.session` (extended)  | High-level | Config, NWBFile, probe data  | Populated NWBFile                             | ingest.ecephys, config |
-| `core.pipeline` (extended) | High-level | Config, session path         | Complete session                              | core.session           |
+| Module                     | Layer      | Input                        | Output                                        | Dependencies                    |
+| -------------------------- | ---------- | ---------------------------- | --------------------------------------------- | ------------------------------- |
+| `ingest.ecephys`           | Low-level  | Primitives                   | Generic Device, ElectrodeGroup objects        | pynwb                           |
+| `ingest.spikeglx`          | Low-level  | File paths, primitives       | SpikeGLX-specific devices, electrodes         | pynwb, ingest.ecephys           |
+| `ingest.kilosort`          | Low-level  | File paths, primitives       | Units table with spike sorting data           | pynwb, numpy, pandas            |
+| `sync` (extended)          | Mid-level  | TTL timestamps, probe config | Alignment indices                             | ingest.spikeglx                 |
+| `core.session` (extended)  | High-level | Config, NWBFile, probe data  | Populated NWBFile                             | ingest.spikeglx, ingest.kilosort, config |
+| `core.pipeline` (extended) | High-level | Config, session path         | Complete session                              | core.session                    |
 
 ## Data Flow
 
@@ -86,16 +90,16 @@ for probe_id, probe_data in discovered_probes.items():
     device_name = f"neuropixels_{probe_id}"
     device_meta = session.devices[device_name]
 
-    # Call low-level tools with primitives only
-    device = ecephys.create_neuropixels_device(
+    # Create device (generic ecephys utility)
+    device = ecephys.create_device(
         nwbfile=nwbfile,
-        device_name=device_name,
+        name=device_name,
         manufacturer=device_meta["manufacturer"],
-        model_name=device_meta["model_name"],
         description=device_meta["description"],
     )
 
-    ecephys.add_electrodes_from_meta(
+    # Add electrodes from SpikeGLX metadata
+    spikeglx.add_electrodes_from_spikeglx(
         nwbfile=nwbfile,
         meta_path=probe_data["meta_path"],
         device=device,
@@ -103,70 +107,118 @@ for probe_id, probe_data in discovered_probes.items():
         location=config.ecephys.get(f"location_{probe_id}", "unknown"),
     )
 
-    ecephys.add_spike_sorting(
+    # Add spike sorting from Kilosort
+    kilosort.add_units_from_kilosort(
         nwbfile=nwbfile,
         sorting_dir=probe_data["sorting_dir"],
         probe_id=probe_id,
+        sampling_rate=spikeglx.parse_spikeglx_meta(probe_data["meta_path"])["sampling_rate"],
         include_labels=config.ecephys.quality.include_labels,
         min_spike_count=config.ecephys.quality.min_spike_count,
     )
 
-    if config.ecephys.storage.raw_data_strategy != "skip":
-        ecephys.add_raw_data(
-            nwbfile=nwbfile,
-            ap_bin_path=probe_data["ap_bin_path"],
-            probe_id=probe_id,
-            storage_strategy=config.ecephys.storage.raw_data_strategy,
-        )
+    # TODO Phase 3: Add raw data linking
+    # if config.ecephys.storage.raw_data_strategy != "skip":
+    #     spikeglx.add_raw_data(...)
 ```
 
-## Module Design: `ingest.ecephys`
+## Module Design: Three-Module Architecture
 
 ### File Structure
 
 ```
-src/w2t_bkin/ingest/ecephys/
-├── __init__.py              # Public API exports
-├── device.py                # Device and electrode creation
-├── sorting.py               # Kilosort output ingestion
-├── raw_data.py              # Raw AP band data (external links)
-└── parsers.py               # .meta, .npy, .tsv file parsers
+src/w2t_bkin/ingest/
+├── ecephys.py               # Generic ecephys utilities (NEW)
+├── spikeglx.py              # SpikeGLX hardware parsing (NEW)
+├── kilosort.py              # Kilosort spike sorting (NEW)
+├── bpod.py                  # Existing: Bpod-specific parsing
+├── behavior.py              # Existing: Generic behavioral abstractions
+├── pose.py                  # Existing: Pose data ingestion
+└── ttl.py                   # Existing: TTL event handling
 ```
 
-### API Contract
+**Design Rationale**:
+- Mirrors `behavior.py` (generic) + `bpod.py` (hardware-specific) pattern
+- Each data source/tool gets its own flat module
+- Simple, scales later if complexity grows
+- Hardware concerns (SpikeGLX) separated from analysis tools (Kilosort)
 
-#### 1. Device Creation
+### API Contracts
+
+#### Module: `ingest.ecephys` (Generic Utilities)
+
+##### 1. Generic Device Creation
 
 ```python
-def create_neuropixels_device(
+def create_device(
     nwbfile: NWBFile,
-    device_name: str,
-    manufacturer: str = "IMEC",
-    model_name: str = "Neuropixels 2.0",
+    name: str,
+    manufacturer: str = "",
     description: str = "",
 ) -> Device:
     """
-    Create a Device object for a Neuropixels probe.
+    Create a generic Device object for ecephys hardware.
 
     Args:
         nwbfile: NWBFile to add device to
-        device_name: Unique device identifier (e.g., "neuropixels_imec0")
-        manufacturer: Device manufacturer
-        model_name: Probe model (e.g., "Neuropixels 1.0", "Neuropixels 2.0")
+        name: Unique device identifier (e.g., "neuropixels_imec0")
+        manufacturer: Device manufacturer (e.g., "IMEC")
         description: Human-readable description
 
     Returns:
         Device object added to nwbfile
 
     Raises:
-        ValueError: If device_name already exists in nwbfile
+        ValueError: If device name already exists in nwbfile
+    """
+
+
+def create_electrode_group(
+    nwbfile: NWBFile,
+    name: str,
+    description: str,
+    location: str,
+    device: Device,
+) -> ElectrodeGroup:
+    """
+    Create an ElectrodeGroup for organizing electrodes.
+
+    Args:
+        nwbfile: NWBFile to add electrode group to
+        name: Unique group identifier (e.g., "probe_imec0")
+        description: Human-readable description
+        location: Brain region or anatomical location
+        device: Device object that these electrodes belong to
+
+    Returns:
+        ElectrodeGroup object added to nwbfile
+    """```
+```
+
+#### Module: `ingest.spikeglx` (Hardware-Specific)
+
+##### 1. SpikeGLX Metadata Parsing
+
+```python
+def parse_spikeglx_meta(meta_path: Path) -> Dict[str, Any]:
+    """
+    Parse SpikeGLX .meta file into structured dictionary.
+
+    Returns:
+        {
+            "sampling_rate": float,  # imSampRate
+            "n_channels": int,       # nSavedChans
+            "probe_type": str,       # imDatPrb_type (0=NP1.0, 21=NP2.0, etc.)
+            "geometry": List[Tuple[float, float]],  # [(x, y), ...] from ~snsGeomMap
+            "filtering": str,        # Inferred from CatGT settings
+        }
     """
 ```
 
-#### 2. Electrodes Table Population
+##### 2. Electrodes Table Population from SpikeGLX
 
 ```python
-def add_electrodes_from_meta(
+def add_electrodes_from_spikeglx(
     nwbfile: NWBFile,
     meta_path: Path,
     device: Device,
@@ -180,7 +232,7 @@ def add_electrodes_from_meta(
     Args:
         nwbfile: NWBFile to add electrodes to
         meta_path: Path to .meta file (e.g., *_tcat.imec0.ap.meta)
-        device: Device object created by create_neuropixels_device()
+        device: Device object (from ecephys.create_device())
         probe_id: Probe identifier (e.g., "imec0")
         location: Brain region (e.g., "Motor Cortex, M1")
         group_name: ElectrodeGroup name (defaults to f"probe_{probe_id}")
@@ -209,13 +261,50 @@ def add_electrodes_from_meta(
   - `filtering`: "High-pass filtered at 300 Hz" (from CatGT settings)
   - `imp`: Impedance (if available in metadata)
 
-#### 3. Spike Sorting Ingestion
+#### Module: `ingest.kilosort` (Spike Sorting)
+
+##### 1. Kilosort Data Loading
 
 ```python
-def add_spike_sorting(
+def load_kilosort_data(sorting_dir: Path) -> Dict[str, Optional[np.ndarray]]:
+    """
+    Load core Kilosort output files into memory.
+
+    Returns:
+        {
+            "spike_times": np.ndarray[int64],     # Shape: (n_spikes,)
+            "spike_clusters": np.ndarray[int32],  # Shape: (n_spikes,)
+            "templates": np.ndarray[float32] | None,  # Shape: (n_templates, n_samples, n_channels)
+        }
+    """
+
+
+def load_cluster_labels(sorting_dir: Path) -> pd.DataFrame:
+    """
+    Load cluster quality labels from Kilosort/Phy curation files.
+
+    Returns:
+        DataFrame with at least columns: ['cluster_id', 'KSLabel']
+    """
+
+
+def load_cluster_metrics(sorting_dir: Path) -> Optional[pd.DataFrame]:
+    """
+    Load cluster quality metrics (ContamPct, Amplitude, etc.).
+
+    Returns:
+        DataFrame with metrics or None if not available.
+    """
+```
+
+##### 2. Units Table Population (Future - Phase 2)
+
+```python
+def add_units_from_kilosort(
     nwbfile: NWBFile,
     sorting_dir: Path,
     probe_id: str,
+    sampling_rate: float,
     include_labels: Optional[List[str]] = None,
     min_spike_count: int = 0,
     add_waveforms: bool = False,
@@ -317,52 +406,11 @@ def add_raw_data(
   ```
 - **Add to acquisition**: `nwbfile.add_acquisition(electrical_series)`
 
-### Parsing Utilities (`parsers.py`)
+**Implementation Notes** (applies to all modules):
 
-#### SpikeGLX .meta Parser
-
-```python
-def parse_spikeglx_meta(meta_path: Path) -> Dict[str, Any]:
-    """
-    Parse SpikeGLX .meta file into structured dictionary.
-
-    Returns:
-        {
-            "sampling_rate": float,  # imSampRate
-            "n_channels": int,       # nSavedChans
-            "probe_type": str,       # imDatPrb_type (0=NP1.0, 21=NP2.0 single-shank, etc.)
-            "geometry": List[Tuple[float, float]],  # [(x, y), ...] from ~snsGeomMap
-            "filtering": str,        # Inferred from CatGT settings
-        }
-    """
-```
-
-**Implementation**:
-
-- .meta files are simple key-value text files (`key=value\n`)
-- Use regex or `configparser` to parse
-- Cache parsed results in memory (decorator: `@functools.lru_cache`)
-
-#### Kilosort File Loaders
-
-```python
-def load_kilosort_data(sorting_dir: Path) -> Dict[str, np.ndarray]:
-    """Load core Kilosort files into memory."""
-    return {
-        "spike_times": np.load(sorting_dir / "spike_times.npy"),
-        "spike_clusters": np.load(sorting_dir / "spike_clusters.npy"),
-        "templates": np.load(sorting_dir / "templates.npy") if exists else None,
-    }
-
-def load_cluster_labels(sorting_dir: Path) -> pd.DataFrame:
-    """Load cluster quality labels (KSLabel, group)."""
-    # Try cluster_info.tsv first (newer Kilosort), fallback to cluster_KSLabel.tsv
-    ...
-
-def load_cluster_metrics(sorting_dir: Path) -> pd.DataFrame:
-    """Load quality metrics (ContamPct, Amplitude, etc.)."""
-    ...
-```
+- **SpikeGLX parsing**: .meta files are simple key-value text files (`key=value\n`), use regex, cache with `@functools.lru_cache`
+- **Kilosort loading**: Handle multiple file formats (cluster_info.tsv vs cluster_KSLabel.tsv), graceful fallbacks
+- **Error handling**: Clear error messages with expected file paths, abort on missing required files
 
 ## Configuration Extension
 
@@ -491,46 +539,48 @@ class NeuropixelsTimebaseProvider(TimebaseProvider):
 ### Unit Tests
 
 ```python
-# tests/unit/ingest/test_ecephys.py
+# tests/unit/test_ecephys.py - Generic utilities
+def test_create_generic_device():
+    """Create Device with correct attributes."""
+    nwbfile = NWBFile(...)
+    device = ecephys.create_device(nwbfile, "test_device", "TestManuf")
+    assert device.name == "test_device"
+    assert device.manufacturer == "TestManuf"
 
+def test_create_electrode_group():
+    """Create ElectrodeGroup."""
+    nwbfile = NWBFile(...)
+    device = ecephys.create_device(nwbfile, "device")
+    group = ecephys.create_electrode_group(nwbfile, "group1", "desc", "M1", device)
+    assert group.location == "M1"
+
+# tests/unit/test_spikeglx.py - Hardware parsing
 def test_parse_spikeglx_meta_np20():
     """Parse NP2.0 .meta file correctly."""
-    meta = parse_spikeglx_meta(Path("fixtures/imec0.ap.meta"))
+    meta = spikeglx.parse_spikeglx_meta(Path("fixtures/imec0.ap.meta"))
     assert meta["sampling_rate"] == 30000.0
     assert meta["n_channels"] == 384
 
-def test_create_device():
-    """Create Device with correct attributes."""
-    nwbfile = NWBFile(...)
-    device = create_neuropixels_device(nwbfile, "test_probe")
-    assert device.name == "test_probe"
-    assert device.manufacturer == "IMEC"
-
-def test_add_electrodes_from_meta():
+def test_add_electrodes_from_spikeglx():
     """Populate electrodes table from .meta file."""
     nwbfile = NWBFile(...)
-    device = create_neuropixels_device(nwbfile, "imec0")
-    n_added = add_electrodes_from_meta(nwbfile, meta_path, device, "imec0")
+    device = ecephys.create_device(nwbfile, "imec0", "IMEC")
+    n_added = spikeglx.add_electrodes_from_spikeglx(nwbfile, meta_path, device, "imec0")
     assert n_added == 384
     assert len(nwbfile.electrodes) == 384
 
-def test_add_spike_sorting_quality_filter():
-    """Filter units by quality label."""
-    nwbfile = NWBFile(...)
-    # ... add electrodes ...
-    stats = add_spike_sorting(
-        nwbfile, sorting_dir, "imec0",
-        include_labels=["good"], min_spike_count=100
-    )
-    assert stats["units_added"] < stats["units_filtered"]  # Some filtered out
+# tests/unit/test_kilosort.py - Spike sorting
+def test_load_kilosort_data():
+    """Load Kilosort .npy files."""
+    data = kilosort.load_kilosort_data(Path("fixtures/kilosort"))
+    assert "spike_times" in data
+    assert "spike_clusters" in data
 
-def test_external_link_creation():
-    """Create HDF5 external link to AP bin."""
-    nwbfile = NWBFile(...)
-    # ... add electrodes ...
-    series = add_raw_data(nwbfile, ap_bin_path, "imec0", storage_strategy="link")
-    assert series is not None
-    # Verify link points to correct file (requires writing NWB to test)
+def test_load_cluster_labels():
+    """Load cluster quality labels."""
+    labels = kilosort.load_cluster_labels(Path("fixtures/kilosort"))
+    assert "KSLabel" in labels.columns
+    assert len(labels) > 0
 ```
 
 ### Integration Tests
@@ -641,8 +691,9 @@ For existing datasets with data in `raw/neural/`:
 
 ### Phase 3: Automated Spike Sorting
 
-- Add `processors.kilosort` module with GPU batch execution
-- Support alternative sorters (MountainSort, SpyKING CIRCUS)
+- Add `processors.kilosort` module with GPU batch execution (similar to `processors.dlc`)
+- Add `ingest.mountainsort` for MountainSort support
+- Add `ingest.spyking` for SpyKING CIRCUS support
 - Automated quality metrics computation
 
 ### Phase 4: LFP Computation

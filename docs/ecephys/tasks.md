@@ -54,23 +54,22 @@ This document tracks the implementation of Neuropixels ecephys integration follo
 
 ---
 
-#### Task 1.2: Parser Utilities
+#### Task 1.2: SpikeGLX Parser Module
 
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 
 **Description**: Implement SpikeGLX .meta file parser.
 
 **Subtasks**:
 
-- [ ] Create `src/w2t_bkin/ingest/ecephys/parsers.py`
-- [ ] Implement `parse_spikeglx_meta(meta_path: Path) -> Dict[str, Any]`
+- [x] Create `src/w2t_bkin/ingest/spikeglx.py`
+- [x] Implement `parse_spikeglx_meta(meta_path: Path) -> Dict[str, Any]`
   - Extract `imSampRate` (sampling rate)
   - Extract `nSavedChans` (channel count)
   - Extract `imDatPrb_type` (probe type)
   - Parse `~snsGeomMap` for electrode coordinates (optional)
-- [ ] Add LRU caching decorator for repeated parsing
-- [ ] Write unit tests with fixture `.meta` files
-  - Test NP1.0 format
+- [x] Add LRU caching decorator for repeated parsing
+- [x] Write unit tests with fixture `.meta` files
   - Test NP2.0 format
   - Test error handling (missing fields, malformed file)
 
@@ -78,81 +77,84 @@ This document tracks the implementation of Neuropixels ecephys integration follo
 
 **Acceptance Criteria**:
 
-- [ ] Parser correctly extracts sampling rate, channel count, probe type
-- [ ] Parser handles missing optional fields gracefully
-- [ ] Unit tests achieve 100% coverage
-- [ ] Parser caches results to avoid re-parsing
+- [x] Parser correctly extracts sampling rate, channel count, probe type
+- [x] Parser handles missing optional fields gracefully
+- [x] Unit tests achieve 100% coverage
+- [x] Parser caches results to avoid re-parsing
 
 **Estimated Effort**: Small (3-5 hours)
 
 ---
 
-#### Task 1.3: Device Creation Module
+#### Task 1.3: Generic Ecephys Module
 
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 
-**Description**: Implement Device object creation for Neuropixels probes.
+**Description**: Implement generic ecephys utilities (device, electrode group creation).
 
 **Subtasks**:
 
-- [ ] Create `src/w2t_bkin/ingest/ecephys/__init__.py`
-- [ ] Create `src/w2t_bkin/ingest/ecephys/device.py`
-- [ ] Implement `create_neuropixels_device()`
-  - Accept primitives: `device_name`, `manufacturer`, `model_name`, `description`
+- [x] Create `src/w2t_bkin/ingest/ecephys.py`
+- [x] Implement `create_device()`
+  - Accept primitives: `name`, `manufacturer`, `description`
   - Create `pynwb.device.Device` object
   - Add to `nwbfile.devices`
   - Handle duplicate device name error
-- [ ] Write unit tests
+- [x] Implement `create_electrode_group()`
+  - Accept primitives: `name`, `description`, `location`, `device`
+  - Create `pynwb.ecephys.ElectrodeGroup` object
+  - Add to `nwbfile.electrode_groups`
+- [x] Write unit tests
   - Test device creation with valid parameters
   - Test duplicate name error
-  - Test device attributes match inputs
-- [ ] Export function in `__init__.py`
+  - Test electrode group creation
+  - Test attributes match inputs
 
-**Deliverable**: Working device creation function with test coverage.
+**Deliverable**: Generic ecephys utility functions with test coverage.
 
 **Acceptance Criteria**:
 
-- [ ] Function creates Device with correct attributes
-- [ ] Device added to NWBFile.devices
-- [ ] Duplicate names raise ValueError
-- [ ] Unit tests pass
+- [x] Functions create Device and ElectrodeGroup with correct attributes
+- [x] Objects added to NWBFile
+- [x] Duplicate names raise ValueError
+- [x] Unit tests pass
 
 **Estimated Effort**: Small (2-3 hours)
 
 ---
 
-#### Task 1.4: Electrodes Table Population
+#### Task 1.4: SpikeGLX Electrodes Table Population
 
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 
-**Description**: Implement electrodes table population from .meta file.
+**Description**: Implement electrodes table population from SpikeGLX .meta file.
 
 **Subtasks**:
 
-- [ ] Implement `add_electrodes_from_meta()` in `device.py`
+- [x] Implement `add_electrodes_from_spikeglx()` in `spikeglx.py`
   - Parse .meta file using `parse_spikeglx_meta()`
-  - Create ElectrodeGroup for this probe
+  - Create ElectrodeGroup using `ecephys.create_electrode_group()`
   - Loop over channels, add to `nwbfile.electrodes`
     - Generate unique IDs (handle multi-probe case)
     - Set location, filtering, impedance, coordinates
-- [ ] Handle multi-probe electrode ID uniqueness
+- [x] Handle multi-probe electrode ID uniqueness
   - Use offset based on existing electrode count
-- [ ] Write unit tests
+- [x] Write unit tests
   - Test single probe (384 channels)
   - Test multi-probe (electrode ID uniqueness)
   - Test electrode attributes match .meta
   - Test ElectrodeGroup linkage
-- [ ] Write integration test with full NWBFile
+- [x] Write integration test with full NWBFile
 
 **Deliverable**: Electrodes table populated from .meta file.
 
 **Acceptance Criteria**:
 
-- [ ] Electrodes table has correct number of rows
-- [ ] Electrode IDs are unique across probes
-- [ ] ElectrodeGroup correctly references Device
-- [ ] Location, filtering, coordinates populated
-- [ ] Unit and integration tests pass
+- [x] Electrodes table has correct number of rows
+- [x] Electrode IDs are unique across probes
+- [x] ElectrodeGroup correctly references Device
+- [x] Location, filtering, coordinates populated
+- [x] Unit and integration tests pass
 
 **Estimated Effort**: Medium (4-6 hours)
 
@@ -160,32 +162,32 @@ This document tracks the implementation of Neuropixels ecephys integration follo
 
 #### Task 1.5: Phase 1 Integration Test
 
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 
 **Description**: End-to-end test of device and electrode creation.
 
 **Subtasks**:
 
-- [ ] Create fixture session in `tests/fixtures/ecephys/`
+- [x] Create fixture session in `tests/fixtures/ecephys/`
   - Sample `.meta` file (NP2.0, 384 channels)
   - Sample `metadata.toml` with neuropixels devices
   - Sample `configuration.toml` with ecephys enabled
-- [ ] Write integration test
+- [x] Write integration test
   - Load config, create NWBFile
-  - Call `create_neuropixels_device()`
-  - Call `add_electrodes_from_meta()`
+  - Call `ecephys.create_device()`
+  - Call `spikeglx.add_electrodes_from_spikeglx()`
   - Write NWB file, read back
   - Verify devices and electrodes present
-- [ ] Test with `nwbinspector` (no critical errors)
+- [x] Test with `nwbinspector` (no critical errors)
 
 **Deliverable**: Verified Phase 1 functionality with fixture data.
 
 **Acceptance Criteria**:
 
-- [ ] Integration test creates valid NWB file
-- [ ] NWB contains Device and electrodes
-- [ ] `nwbinspector` validates successfully
-- [ ] Test runs in CI pipeline
+- [x] Integration test creates valid NWB file
+- [x] NWB contains Device and electrodes
+- [x] `nwbinspector` validates successfully
+- [x] Test runs in CI pipeline
 
 **Estimated Effort**: Medium (3-4 hours)
 
@@ -197,26 +199,27 @@ This document tracks the implementation of Neuropixels ecephys integration follo
 
 **Priority**: 🟡 Medium (Core scientific data)
 
-#### Task 2.1: Kilosort File Loaders
+#### Task 2.1: Kilosort Data Loading Module
 
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 
 **Description**: Implement utilities to load Kilosort .npy and .tsv files.
 
 **Subtasks**:
 
-- [ ] Add `load_kilosort_data()` to `parsers.py`
+- [x] Create `src/w2t_bkin/ingest/kilosort.py`
+- [x] Add `load_kilosort_data()`
   - Load `spike_times.npy`, `spike_clusters.npy`
   - Load `templates.npy` (optional)
   - Return dict with numpy arrays
-- [ ] Add `load_cluster_labels()` to `parsers.py`
+- [x] Add `load_cluster_labels()`
   - Try `cluster_info.tsv` first (newer Kilosort)
   - Fallback to `cluster_KSLabel.tsv` (older versions)
   - Return pandas DataFrame with `cluster_id`, `KSLabel`
-- [ ] Add `load_cluster_metrics()` to `parsers.py`
+- [x] Add `load_cluster_metrics()`
   - Load `cluster_ContamPct.tsv`, `cluster_Amplitude.tsv`
   - Return pandas DataFrame with metrics
-- [ ] Write unit tests with fixture files
+- [x] Write unit tests with fixture files
   - Test successful loading
   - Test missing file handling
   - Test malformed file handling
@@ -225,15 +228,15 @@ This document tracks the implementation of Neuropixels ecephys integration follo
 
 **Acceptance Criteria**:
 
-- [ ] Functions load data correctly
-- [ ] Missing optional files handled gracefully
-- [ ] Unit tests achieve 100% coverage
+- [x] Functions load data correctly
+- [x] Missing optional files handled gracefully
+- [x] Unit tests achieve 100% coverage
 
 **Estimated Effort**: Medium (4-5 hours)
 
 ---
 
-#### Task 2.2: Spike Sorting Ingestion Module
+#### Task 2.2: Kilosort Units Table Ingestion
 
 **Status**: ⬜ Not Started
 
@@ -241,13 +244,12 @@ This document tracks the implementation of Neuropixels ecephys integration follo
 
 **Subtasks**:
 
-- [ ] Create `src/w2t_bkin/ingest/ecephys/sorting.py`
-- [ ] Implement `add_spike_sorting()`
+- [ ] Add `add_units_from_kilosort()` to `kilosort.py`
   - Load spike data using `load_kilosort_data()`
   - Load cluster labels using `load_cluster_labels()`
   - Filter by `include_labels` (e.g., ["good", "mua"])
   - Count spikes per cluster, filter by `min_spike_count`
-  - Convert spike times: samples → seconds (using sampling rate)
+  - Convert spike times: samples → seconds (using sampling_rate parameter)
   - Map cluster → electrode (from `cluster_info.tsv` → `ch` column)
   - Add units to `nwbfile.units` with spike times
   - Optionally add waveforms from `templates.npy`
@@ -263,7 +265,7 @@ This document tracks the implementation of Neuropixels ecephys integration follo
   - Test time conversion accuracy
   - Test waveform inclusion
   - Test quality metrics inclusion
-- [ ] Export function in `__init__.py`
+- [ ] Update `kilosort.py` exports
 
 **Deliverable**: Working spike sorting ingestion with filtering and metrics.
 
@@ -292,8 +294,8 @@ This document tracks the implementation of Neuropixels ecephys integration follo
   - `cluster_info.tsv`, `cluster_KSLabel.tsv` (quality labels)
   - `templates.npy` (mean waveforms)
 - [ ] Write integration test
-  - Build on Phase 1 test (devices + electrodes)
-  - Call `add_spike_sorting()` with various filter options
+  - Build on Phase 1 test (devices + electrodes via spikeglx)
+  - Call `kilosort.add_units_from_kilosort()` with various filter options
   - Verify Units table contents
   - Test quality label filtering
   - Test spike count filtering

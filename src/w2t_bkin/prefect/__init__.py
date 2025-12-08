@@ -1,51 +1,131 @@
-"""Prefect orchestration for batch processing.
+"""Prefect orchestration for W2T Body Kinematics Pipeline.
 
-This module provides Prefect-based batch processing capabilities for the
-W2T Body Kinematics Pipeline. It wraps the existing SessionPipeline with
-Prefect flows and tasks to enable:
+This module provides Prefect-based orchestration with two execution modes:
 
-- Automatic retry logic with configurable delays
-- Real-time observability via Prefect UI dashboard
-- Intelligent resource management and concurrency control
-- Distributed execution (ready for HPC/Kubernetes)
-- Structured logging and error tracking
+1. Monolithic (fast, simple):
+   - Entire session as one task
+   - Current proven behavior
+   - Best for production
 
-Key Components:
----------------
-- process_single_session: Prefect task for single session processing
-- batch_process_sessions: Prefect flow for batch orchestration
+2. Phase-level (observable, debuggable):
+   - Each pipeline phase as separate task
+   - Maximum observability in Prefect UI
+   - Best for debugging and development
 
-Example:
---------
+Quick Start:
+------------
 >>> from w2t_bkin.prefect import batch_process_sessions
 >>>
->>> # Process all sessions with 4 parallel workers
->>> result = batch_process_sessions("config.toml", max_workers=4)
->>> print(f"Completed {result['successful']}/{result['total']} sessions")
+>>> # Production (monolithic mode - faster)
+>>> batch_process_sessions(
+...     config_path="config.toml",
+...     subject_filter="SNA-*",
+...     use_phases=False,  # Default
+... )
 >>>
->>> # With filters
->>> result = batch_process_sessions(
-...     "config.toml",
-...     subject_filter="subject-001",
-...     max_workers=2,
+>>> # Debug (phase-level mode - more observable)
+>>> batch_process_sessions(
+...     config_path="config.toml",
+...     subject_filter="SNA-*",
+...     use_phases=True,
 ... )
 
-CLI Usage:
-----------
-$ python -m w2t_bkin.cli batch config.toml --max-workers 4
-$ python -m w2t_bkin.cli batch config.toml --subject subject-001
+Available Flows:
+----------------
+- batch_process_sessions: Batch processing with mode selection
+- process_session_with_phases: Single session, phase-level tasks
+- process_session_monolithic: Single session, monolithic task
 
-With Prefect UI (recommended):
-$ prefect server start  # Terminal 1
-$ python -m w2t_bkin.cli batch config.toml  # Terminal 2
-# Open http://localhost:4200 for dashboard
-
-See Also:
----------
-- docs/batch-processing.md: Comprehensive batch processing guide
-- Prefect docs: https://docs.prefect.io/
+Available Tasks:
+----------------
+- initialization_task: Phase 0 wrapper
+- discovery_task: Phase 1 wrapper
+- preprocessing_task: Phase 2 wrapper
+- ingestion_task: Phase 3 wrapper
+- synchronization_task: Phase 4 wrapper
+- assembly_task: Phase 5 wrapper
+- finalization_task: Phase 6 wrapper
+- process_session_monolithic_task: Monolithic task wrapper
 """
 
-from .flows import batch_process_sessions, process_single_session
+import warnings
 
-__all__ = ["batch_process_sessions", "process_single_session"]
+# Import flows
+from .flows import (
+    batch_process_sessions,
+    process_session_with_phases,
+    process_session_monolithic,
+    batch_process_sessions_prefect,  # Backward compat alias
+)
+
+# Import tasks
+from .tasks import (
+    initialization_task,
+    discovery_task,
+    preprocessing_task,
+    ingestion_task,
+    synchronization_task,
+    assembly_task,
+    finalization_task,
+    process_session_monolithic_task,
+)
+
+
+# Backward compatibility for old names
+def process_single_session(*args, **kwargs):
+    """Deprecated: Use process_session_monolithic_task instead.
+    
+    .. deprecated:: 2.0
+        Use :func:`process_session_monolithic_task` instead.
+    """
+    warnings.warn(
+        "process_single_session is deprecated. "
+        "Use process_session_monolithic_task instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return process_session_monolithic_task(*args, **kwargs)
+
+
+def __getattr__(name: str):
+    """Handle backward compatibility for renamed exports."""
+    if name == "batch_process_sessions_prefect":
+        warnings.warn(
+            "batch_process_sessions_prefect is deprecated. "
+            "Use batch_process_sessions instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return batch_process_sessions
+    elif name == "process_single_session":
+        warnings.warn(
+            "process_single_session is deprecated. "
+            "Use process_session_monolithic or process_session_monolithic_task instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return process_session_monolithic_task
+    
+    raise AttributeError(f"module 'w2t_bkin.prefect' has no attribute '{name}'")
+
+
+__all__ = [
+    # Flows (new preferred names)
+    "batch_process_sessions",
+    "process_session_with_phases",
+    "process_session_monolithic",
+    
+    # Tasks
+    "initialization_task",
+    "discovery_task",
+    "preprocessing_task",
+    "ingestion_task",
+    "synchronization_task",
+    "assembly_task",
+    "finalization_task",
+    "process_session_monolithic_task",
+    
+    # Deprecated (backward compatibility - will be removed in v3.0)
+    "batch_process_sessions_prefect",
+    "process_single_session",
+]
