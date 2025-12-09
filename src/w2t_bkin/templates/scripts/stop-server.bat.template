@@ -6,7 +6,7 @@ echo W2T-BKIN Pipeline Stop
 echo ========================================
 echo.
 
-cd /d "%~dp0"
+cd /d "%~dp0\docker"
 
 echo Stopping containers...
 echo.

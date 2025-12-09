@@ -80,23 +80,27 @@ def init(
     if not skip_docker_env:
         console.print("\n[cyan]🐳 Setting up Docker environment...[/cyan]")
 
-        # Step 1: Copy docker-compose.yml
-        compose_path = root_path / "docker-compose.yml"
+        # Create docker directory
+        docker_dir = root_path / "docker"
+        docker_dir.mkdir(exist_ok=True)
+
+        # Step 1: Copy docker-compose.yml to docker/
+        compose_path = docker_dir / "docker-compose.yml"
         if copy_docker_compose_template(compose_path):
-            console.print(f"[green]✓[/green] Created docker-compose.yml")
+            console.print(f"[green]✓[/green] Created docker/docker-compose.yml")
         else:
             console.print("[yellow]⚠ Could not create docker-compose.yml[/yellow]")
             console.print("[dim]  You can copy it manually from the repository[/dim]")
 
-        # Step 1b: Copy Dockerfile (needed for local builds)
-        dockerfile_path = root_path / "Dockerfile"
+        # Step 1b: Copy Dockerfile to docker/ (needed for local builds)
+        dockerfile_path = docker_dir / "Dockerfile"
         if copy_dockerfile(dockerfile_path):
-            console.print(f"[green]✓[/green] Copied Dockerfile")
+            console.print(f"[green]✓[/green] Copied docker/Dockerfile")
         else:
             console.print("[yellow]⚠ Could not copy Dockerfile (using pip install? Set images in .env)[/yellow]")
 
-        # Step 2: Generate .env file
-        env_path = root_path / "docker" / ".env"
+        # Step 2: Generate .env file in docker/
+        env_path = docker_dir / ".env"
         try:
             generate_docker_env(root_path, env_path)
             console.print(f"[green]✓[/green] Generated docker/.env")

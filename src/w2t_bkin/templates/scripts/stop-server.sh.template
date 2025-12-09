@@ -6,7 +6,7 @@ echo " W2T-BKIN Pipeline Stop"
 echo "========================================"
 echo
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/docker"
 
 echo "Stopping containers..."
 echo

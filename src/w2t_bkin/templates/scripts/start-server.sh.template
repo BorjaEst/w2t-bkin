@@ -7,7 +7,7 @@ echo " W2T-BKIN Pipeline Startup"
 echo "========================================"
 echo
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/docker"
 
 echo "Starting containers..."
 echo
