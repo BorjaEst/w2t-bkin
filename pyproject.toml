@@ -22,24 +22,28 @@ dependencies = [
     "pydantic-settings~=2.11.0",
     "tomli~=2.3.0",
     "tomli_w~=1.2.0",
+    "typer~=0.19.0",
+    "rich~=14.2.0",
+]
+
+[project.optional-dependencies]
+full = [
+    # NWB extensions (not on PyPI)
+    "ndx-structured-behavior~=0.1.0",
+    "ndx-pose~=0.2.0",
+    "ndx-events~=0.4.0",
+    # Heavy processing libraries
     "facemap~=1.0.0",
     "deeplabcut[tf]~=2.3.0",
     "pynwb~=3.1.0",
     "hdmf~=4.1.0",
-    "ndx-pose~=0.2.0",
-    "ndx-events~=0.4.0",
-    "ndx-structured-behavior~=0.1.0",
     "ffmpeg-python~=0.2.0",
     "scipy~=1.15.0",
     "pandas~=2.3.0",
     "h5py~=3.15.0",
     "tables~=3.8.0",
     "nwbinspector~=0.6.5",
-    "typer~=0.19.0",
-    "rich~=14.2.0",
 ]
-
-[project.optional-dependencies]
 dev = [
     "black~=25.9.0",
     "isort~=7.0.0",
