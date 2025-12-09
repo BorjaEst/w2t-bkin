@@ -57,12 +57,21 @@ COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
 # Step 2: Copy NWB extensions (required for [full] extras installation)
 COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
 
-# Step 3: Copy source code (required for editable installation)
+# Step 3: Install NWB extensions first (before main package)
+# These are local packages in git submodules, not on PyPI
+RUN pip install --no-cache-dir \
+    -e ./nwb-extensions/ndx-events \
+    -e ./nwb-extensions/ndx-pose \
+    -e ./nwb-extensions/ndx-structured-behavior \
+    && pip cache purge
+
+# Step 4: Copy source code (required for editable installation)
 COPY --chown=w2t:w2t src/ ./src/
 
-# Step 4: Install with [full,prefect] extras
+# Step 5: Install with [full,prefect] extras
 # [full] includes all heavy dependencies: deeplabcut[tf], pynwb, h5py, scipy, pandas, tables, etc.
 # [prefect] includes Prefect orchestration (optional for server/worker)
+# NWB extensions are already installed from Step 3
 # This layer is cached and only rebuilds when pyproject.toml changes
 # Use --prefer-binary to avoid building from source when wheels are available
 # Set CFLAGS conditionally to avoid x86-specific flags on ARM

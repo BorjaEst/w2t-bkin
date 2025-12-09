@@ -28,10 +28,10 @@ dependencies = [
 
 [project.optional-dependencies]
 full = [
-    # NWB extensions (not on PyPI)
-    "ndx-structured-behavior~=0.1.0",
-    "ndx-pose~=0.2.0",
-    "ndx-events~=0.4.0",
+    # NWB extensions (installed from local submodules, not PyPI)
+    "ndx-structured-behavior",
+    "ndx-pose",
+    "ndx-events",
     # Heavy processing libraries
     "facemap~=1.0.0",
     "deeplabcut[tf]~=2.3.0",
