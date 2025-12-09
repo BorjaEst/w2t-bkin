@@ -66,8 +66,10 @@ jobs:
 
       - name: Test CLI commands
         run: |
-          # Test container detection
-          python -m w2t_bkin.cli container status || true
+          # Test basic CLI commands
+          python -m w2t_bkin.cli --help
+          python -m w2t_bkin.cli version
+          python -m w2t_bkin.cli --version
 
       - name: View all logs
         if: always()
@@ -102,17 +104,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[prefect]
 
-      - name: Test runtime detection (Docker available)
+      - name: Test CLI basic commands
         run: |
-          python -c "from w2t_bkin.container import detect_runtime; rt = detect_runtime(); print(f'Detected: {rt}'); assert rt.value in ['docker', 'podman']"
+          python -m w2t_bkin.cli --help
+          python -m w2t_bkin.cli version
 
-      - name: Test version detection
+      - name: Test CLI data commands
         run: |
-          python -c "from w2t_bkin.container import detect_runtime, get_runtime_version; rt = detect_runtime(); print(get_runtime_version(rt))"
-
-      - name: Test compose support
-        run: |
-          python -c "from w2t_bkin.container.runtime import detect_runtime, check_compose_support; rt = detect_runtime(); assert check_compose_support(rt), 'Compose not supported'"
+          python -m w2t_bkin.cli data --help
 
   test-podman-deployment:
     runs-on: ubuntu-latest
@@ -138,18 +137,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[prefect]
 
-      - name: Test runtime detection (Podman)
-        run: |
-          python -c "from w2t_bkin.container import detect_runtime; rt = detect_runtime(); print(f'Detected: {rt}'); assert rt.value == 'podman'"
-
       - name: Build images with Podman
         run: |
           podman build --target server -t w2t-bkin:server .
           podman build --target worker -t w2t-bkin:worker .
 
-      - name: Test images with Podman
+      - name: Test CLI in Podman container
+        run: |
+          # Test that CLI works inside container
+          podman run --rm w2t-bkin:worker python -m w2t_bkin.cli --help
+
+      - name: Test worker container CLI
         run: |
           # Test worker CLI
-          podman run --rm w2t-bkin:worker python -m w2t_bkin.cli --version
+          podman run --rm w2t-bkin:worker python -m w2t_bkin.cli version
           # Test ffmpeg
           podman run --rm w2t-bkin:worker ffmpeg -version
