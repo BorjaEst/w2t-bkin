@@ -66,12 +66,28 @@ COPY --chown=w2t:w2t src/ ./src/
 # This layer is cached and only rebuilds when pyproject.toml changes
 # Use --prefer-binary to avoid building from source when wheels are available
 # Set CFLAGS conditionally to avoid x86-specific flags on ARM
-RUN if [ "$(uname -m)" != "x86_64" ]; then \
-    export CFLAGS="-O2"; \
+# Aggressive cleanup to reduce layer size
+RUN set -e; \
+    if [ "$(uname -m)" != "x86_64" ]; then \
+    CFLAGS="-O2"; \
     echo "Building for $(uname -m) with generic optimizations"; \
-    fi && \
-    pip install --no-cache-dir --prefer-binary -e .[full,prefect] && \
-    pip cache purge
+    else \
+    CFLAGS=""; \
+    fi; \
+    CFLAGS="$CFLAGS" pip install --no-cache-dir --prefer-binary -e .[full,prefect] && \
+    pip cache purge && \
+    # Clean up build artifacts to save space
+    find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local -type f -name '*.pyc' -delete 2>/dev/null || true && \
+    find /usr/local -type f -name '*.pyo' -delete 2>/dev/null || true && \
+    # Remove test files and examples that take up space
+    find /usr/local/lib/python3.10/site-packages -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/python3.10/site-packages -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true
+
+# Remove build dependencies to reduce image size
+RUN apt-get purge -y --auto-remove build-essential && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Verify installation
 RUN python -m w2t_bkin.cli version && \

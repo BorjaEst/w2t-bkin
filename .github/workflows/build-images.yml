@@ -30,6 +30,20 @@ jobs:
         target: [server, worker]
 
     steps:
+      - name: Free up disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          # Remove large packages to free up space
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af
+          sudo apt-get clean
+          echo "Disk space after cleanup:"
+          df -h
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -72,7 +86,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
+          # Temporarily disabled arm64 due to disk space constraints
+          # platforms: linux/amd64,linux/arm64
 
       - name: Run Trivy vulnerability scanner
         if: github.event_name != 'pull_request'
