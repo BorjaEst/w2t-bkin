@@ -1,0 +1,10 @@
+#!/bin/bash
+# Open Prefect UI in browser
+
+if command -v xdg-open > /dev/null                       ; then
+xdg-open http://localhost:4200
+elif command -v open > /dev/null                         ; then
+open http://localhost:4200
+else
+echo "Please open http://localhost:4200 in your browser"
+fi

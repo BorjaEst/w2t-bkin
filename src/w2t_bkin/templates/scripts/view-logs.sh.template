@@ -1,0 +1,13 @@
+#!/bin/bash
+# w2t-bkin Pipeline Logs Viewer
+
+echo "========================================"
+echo " W2T-BKIN Pipeline Logs"
+echo "========================================"
+echo
+echo "Press Ctrl+C to exit"
+echo
+
+cd "$(dirname "$0")"
+
+docker compose logs -f

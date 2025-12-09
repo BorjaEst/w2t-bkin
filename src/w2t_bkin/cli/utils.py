@@ -241,8 +241,34 @@ def display_nwb_structure(nwbfile, show_acquisition: bool, show_trials: bool, sh
         console.print(f"Columns: {', '.join(nwbfile.trials.colnames)}")
 
 
+def _load_template(template_name: str) -> str:
+    """Load template file from package templates directory.
+
+    All templates are stored in src/w2t_bkin/templates/ as the single source of truth.
+    Script templates are in scripts/ subdirectory.
+
+    Args:
+        template_name: Name of template file (e.g., ".env.template" or "scripts/start-server.sh.template")
+
+    Returns:
+        Template content as string
+
+    Raises:
+        FileNotFoundError: If template not found
+    """
+    import w2t_bkin
+
+    template_dir = Path(w2t_bkin.__file__).parent / "templates"
+    template_path = template_dir / template_name
+
+    if not template_path.exists():
+        raise FileNotFoundError(f"Template not found: {template_name} " f"(expected at {template_path})")
+
+    return template_path.read_text()
+
+
 def generate_docker_env(root_path: Path, env_path: Path) -> None:
-    """Generate .env file for Docker Compose deployment.
+    """Generate .env file for Docker Compose deployment using template.
 
     Args:
         root_path: Experiment root path
@@ -251,40 +277,92 @@ def generate_docker_env(root_path: Path, env_path: Path) -> None:
     # Ensure docker directory exists
     env_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Generate .env content
-    env_content = f"""# Docker Compose Environment Variables
-# Generated automatically by w2t-bkin data init
-# Edit as needed for your deployment
-
-# =============================================================================
-# Data Paths (Absolute paths for volume mounts)
-# =============================================================================
-DATA_ROOT={root_path / "data"}
-MODELS_ROOT={root_path / "models"}
-CONFIG_ROOT={root_path}
-OUTPUT_ROOT={root_path / "data" / "processed"}
-
-# =============================================================================
-# Prefect Configuration
-# =============================================================================
-PREFECT_UI_PORT=4200
-PREFECT_API_URL=http://server:4200/api
-
-# Work pool configuration
-WORK_POOL=docker-pool
-WORKER_REPLICAS=1
-
-# =============================================================================
-# Resource Limits (Optional)
-# =============================================================================
-# Uncomment to set memory/CPU limits
-# WORKER_MEMORY=8G
-# WORKER_CPUS=4
-
-# =============================================================================
-# Logging
-# =============================================================================
-PREFECT_LOGGING_LEVEL=INFO
-"""
+    # Load template and substitute variables
+    template = _load_template(".env.template")
+    env_content = template.replace("{{DATA_ROOT}}", str(root_path / "data"))
+    env_content = env_content.replace("{{MODELS_ROOT}}", str(root_path / "models"))
+    env_content = env_content.replace("{{CONFIG_ROOT}}", str(root_path))
+    env_content = env_content.replace("{{OUTPUT_ROOT}}", str(root_path / "data" / "processed"))
 
     env_path.write_text(env_content)
+
+
+def copy_docker_compose_template(dest_path: Path) -> bool:
+    """Copy docker-compose.yml template to experiment directory.
+
+    Args:
+        dest_path: Destination path for docker-compose.yml
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Load from single source of truth in package templates/
+        template = _load_template("docker-compose.yml.template")
+        dest_path.write_text(template)
+        return True
+    except FileNotFoundError:
+        console.print("[red]✗ docker-compose.yml template not found[/red]")
+        return False
+    except Exception as e:
+        console.print(f"[red]✗ Failed to copy docker-compose.yml: {e}[/red]")
+        return False
+
+
+def copy_dockerfile(dest_path: Path) -> bool:
+    """Copy Dockerfile from repository to experiment directory.
+
+    Args:
+        dest_path: Destination path for Dockerfile
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        import w2t_bkin
+
+        # Try to find Dockerfile in repository root
+        package_root = Path(w2t_bkin.__file__).parent.parent
+        dockerfile_path = package_root / "Dockerfile"
+
+        if dockerfile_path.exists():
+            dest_path.write_text(dockerfile_path.read_text())
+            return True
+        else:
+            return False
+    except Exception as e:
+        console.print(f"[yellow]⚠ Could not copy Dockerfile: {e}[/yellow]")
+        return False
+
+
+def create_startup_scripts(root_path: Path) -> None:
+    """Create click-to-start scripts from templates.
+
+    Args:
+        root_path: Experiment root path
+    """
+    import platform
+
+    # Script mapping: output filename -> template name (now in scripts/ subdirectory)
+    scripts = {
+        "start-server.bat": "scripts/start-server.bat.template",
+        "start-server.sh": "scripts/start-server.sh.template",
+        "stop-server.bat": "scripts/stop-server.bat.template",
+        "stop-server.sh": "scripts/stop-server.sh.template",
+        "view-logs.bat": "scripts/view-logs.bat.template",
+        "view-logs.sh": "scripts/view-logs.sh.template",
+        "open-ui.bat": "scripts/open-ui.bat.template",
+        "open-ui.sh": "scripts/open-ui.sh.template",
+    }
+
+    for script_name, template_name in scripts.items():
+        try:
+            template = _load_template(template_name)
+            script_path = root_path / script_name
+            script_path.write_text(template)
+
+            # Make shell scripts executable on Unix-like systems
+            if script_name.endswith(".sh") and platform.system() != "Windows":
+                script_path.chmod(0o755)
+        except FileNotFoundError:
+            console.print(f"[yellow]⚠ Template not found: {template_name}[/yellow]")

@@ -547,5 +547,5 @@ Ensure these directories exist and pipeline completed initialization phase.
 
 - [Implementation Notes - Optional Cameras](/home/borja/w2t-bkin/temp/optional-camera-implementation.md)
 - [Implementation Notes - TTL Verification Fix](/home/borja/w2t-bkin/temp/fix-progress.md)
-- [Template Configuration](/home/borja/w2t-bkin/templates/configuration.toml)
-- [Full Metadata Template](/home/borja/w2t-bkin/templates/full-metadata.toml)
+- [Template Configuration](../src/w2t_bkin/templates/configuration.toml.template)
+- [Full Metadata Template](../src/w2t_bkin/templates/full-metadata.toml.template)

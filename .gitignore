@@ -216,6 +216,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Container / Docker / Podman
+# Note: .env.template and docker-compose.yml at root are working files for development
+# Actual templates are in src/w2t_bkin/templates/ and bundled with the package
 .env
 .env.local
 *.env.override

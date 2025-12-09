@@ -15,7 +15,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: borjaest/w2t-bkin
 
 jobs:
   build-and-push:
@@ -30,6 +29,13 @@ jobs:
         target: [server, worker]
 
     steps:
+      - name: Prepare image name
+        id: image-name
+        run: |
+          # Convert repository name to lowercase for GHCR compatibility
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "value=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "Image name: ${IMAGE_NAME}"
       - name: Free up disk space
         run: |
           echo "Disk space before cleanup:"
@@ -64,7 +70,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}
           tags: |
             type=ref,event=branch,suffix=-${{ matrix.target }}
             type=ref,event=pr,suffix=-${{ matrix.target }}
@@ -94,7 +100,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-${{ matrix.target }}
+          image-ref: ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-${{ matrix.target }}
           format: 'sarif'
           output: 'trivy-results-${{ matrix.target }}.sarif'
           severity: 'CRITICAL,HIGH'
@@ -116,6 +122,14 @@ jobs:
     if: github.event_name != 'pull_request'
     
     steps:
+      - name: Prepare image name
+        id: image-name
+        run: |
+          # Convert repository name to lowercase for GHCR compatibility
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "value=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "Image name: ${IMAGE_NAME}"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -130,25 +144,25 @@ jobs:
 
       - name: Pull images
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-server
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker
+          docker pull ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-server
+          docker pull ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker
 
       - name: Test server image
         run: |
           # Test that image runs and has correct dependencies
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-server python -c "import prefect; print(f'Prefect version: {prefect.__version__}')"
+          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-server python -c "import prefect; print(f'Prefect version: {prefect.__version__}')"
           
       - name: Test worker image
         run: |
           # Test that CLI is available
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker python -m w2t_bkin.cli --version
+          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker python -m w2t_bkin.cli --version
           # Test ffmpeg
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker ffmpeg -version
+          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker ffmpeg -version
 
       - name: Test image size
         run: |
-          SERVER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-server --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
-          WORKER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-worker --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
+          SERVER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-server --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
+          WORKER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
           echo "Server image size: ${SERVER_SIZE} GB"
           echo "Worker image size: ${WORKER_SIZE} GB"
           # Warn if over 2GB

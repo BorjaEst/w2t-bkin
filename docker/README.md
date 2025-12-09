@@ -111,16 +111,28 @@ w2t-bkin container logs server --tail 100
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and customize:
+The CLI automatically generates `.env` files when initializing experiments:
 
 ```bash
-cp .env.example .env
+# Initialize experiment (creates docker/.env automatically)
+w2t-bkin data init /data/my-experiment --lab "Lab Name" -y
 ```
 
-Key variables:
+For manual configuration, you can reference the template:
+
+```bash
+# View the template
+cat ~/.local/lib/python3.10/site-packages/w2t_bkin/templates/.env.template
+
+# Or copy from repository root (for developers)
+cp .env.template docker/.env
+```
+
+Key variables (automatically configured by CLI):
 
 - `DATA_ROOT`: Path to raw data directory
 - `MODELS_ROOT`: Path to pose estimation models
+- `CONFIG_ROOT`: Path to experiment configuration
 - `OUTPUT_ROOT`: Path for processed outputs
 - `WORKER_REPLICAS`: Number of workers to start
 - `PREFECT_UI_PORT`: Port for web UI (default: 4200)
@@ -224,15 +236,23 @@ podman compose build
 | File                     | Purpose                                  |
 | ------------------------ | ---------------------------------------- |
 | `Dockerfile`             | Multi-stage build (base, server, worker) |
+| File                     | Purpose                                  |
+| ------------------------ | ---------------------------------------- |
+| `Dockerfile`             | Multi-stage build (base, server, worker) |
 | `docker-compose.yml`     | Production deployment                    |
 | `docker-compose.dev.yml` | Development overrides                    |
 | `docker/start-server.sh` | Server entrypoint script                 |
 | `docker/start-worker.sh` | Worker entrypoint script                 |
-| `.env.example`           | Environment variable template            |
 | `.dockerignore`          | Build optimization                       |
+
+**Templates** (bundled in package at `src/w2t_bkin/templates/`):
+
+- `.env.template` - Environment variables template
+- `docker-compose.yml.template` - Compose configuration template
+- `scripts/*.template` - Startup scripts for experiments
 
 ## Support
 
-- **Issues**: https://github.com/BorjaEst/w2t-bkin/issues
-- **Discussions**: https://github.com/BorjaEst/w2t-bkin/discussions
-- **Documentation**: https://github.com/BorjaEst/w2t-bkin/tree/main/docs
+- **Issues**: <https://github.com/BorjaEst/w2t-bkin/issues>
+- **Discussions**: <https://github.com/BorjaEst/w2t-bkin/discussions>
+- **Documentation**: <https://github.com/BorjaEst/w2t-bkin/tree/main/docs>

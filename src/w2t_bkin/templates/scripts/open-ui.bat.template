@@ -1,0 +1,4 @@
+@echo off
+REM Open Prefect UI in browser
+
+start http://localhost:4200

@@ -13,7 +13,7 @@ from ..data_manager import add_subject as dm_add_subject
 from ..data_manager import import_raw_data as dm_import_raw_data
 from ..data_manager import init_experiment as dm_init_experiment
 from ..data_manager import validate_experiment_structure as dm_validate_structure
-from .utils import console, generate_docker_env
+from .utils import console, copy_docker_compose_template, copy_dockerfile, create_startup_scripts, generate_docker_env
 
 data_app = typer.Typer(name="data", help="Experiment data management")
 
@@ -76,21 +76,58 @@ def init(
         console.print("[red]✗ Failed to initialize experiment[/red]")
         raise typer.Exit(1)
 
-    # Auto-generate .env for Docker if compose files detected
+    # Setup Docker environment (unless explicitly skipped)
     if not skip_docker_env:
-        docker_compose = root_path / "docker-compose.yml"
-        if docker_compose.exists():
-            console.print("\n[cyan]🐳 Detected Docker Compose environment[/cyan]")
-            env_path = root_path / "docker" / ".env"
-            try:
-                generate_docker_env(root_path, env_path)
-                console.print(f"[green]✓[/green] Generated {env_path.relative_to(root_path)}")
-                console.print("\n[dim]For containerized deployment:[/dim]")
-                console.print(f"  [dim]cd {root_path}[/dim]")
-                console.print(f"  [dim]docker compose up -d server[/dim]")
-                console.print(f"  [dim]docker compose up -d worker[/dim]")
-            except Exception as e:
-                console.print(f"[yellow]⚠ Could not generate .env: {e}[/yellow]")
+        console.print("\n[cyan]🐳 Setting up Docker environment...[/cyan]")
+
+        # Step 1: Copy docker-compose.yml
+        compose_path = root_path / "docker-compose.yml"
+        if copy_docker_compose_template(compose_path):
+            console.print(f"[green]✓[/green] Created docker-compose.yml")
+        else:
+            console.print("[yellow]⚠ Could not create docker-compose.yml[/yellow]")
+            console.print("[dim]  You can copy it manually from the repository[/dim]")
+
+        # Step 1b: Copy Dockerfile (needed for local builds)
+        dockerfile_path = root_path / "Dockerfile"
+        if copy_dockerfile(dockerfile_path):
+            console.print(f"[green]✓[/green] Copied Dockerfile")
+        else:
+            console.print("[yellow]⚠ Could not copy Dockerfile (using pip install? Set images in .env)[/yellow]")
+
+        # Step 2: Generate .env file
+        env_path = root_path / "docker" / ".env"
+        try:
+            generate_docker_env(root_path, env_path)
+            console.print(f"[green]✓[/green] Generated docker/.env")
+        except Exception as e:
+            console.print(f"[yellow]⚠ Could not generate .env: {e}[/yellow]")
+
+        # Step 3: Create startup scripts
+        try:
+            create_startup_scripts(root_path)
+            console.print(f"[green]✓[/green] Created startup scripts")
+
+            # Show usage instructions
+            console.print("\n[bold green]✓ Experiment initialized successfully![/bold green]")
+            console.print("\n[bold]To start the pipeline:[/bold]")
+
+            import platform
+
+            if platform.system() == "Windows":
+                console.print(f"  1. Double-click: [cyan]{root_path / 'start-server.bat'}[/cyan]")
+                console.print(f"  2. Open browser to: [cyan]http://localhost:4200[/cyan]")
+            else:
+                console.print(f"  1. Run: [cyan]cd {root_path} && ./start-server.sh[/cyan]")
+                console.print(f"  2. Open browser to: [cyan]http://localhost:4200[/cyan]")
+
+            console.print("\n[dim]Other useful scripts:[/dim]")
+            console.print(f"  [dim]• stop-server: Stop all containers[/dim]")
+            console.print(f"  [dim]• view-logs: View container logs[/dim]")
+            console.print(f"  [dim]• open-ui: Open Prefect UI in browser[/dim]")
+
+        except Exception as e:
+            console.print(f"[yellow]⚠ Could not create startup scripts: {e}[/yellow]")
 
 
 @data_app.command(name="add-subject")

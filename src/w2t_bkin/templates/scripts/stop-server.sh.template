@@ -1,0 +1,24 @@
+#!/bin/bash
+# w2t-bkin Pipeline Stop Script
+
+echo "========================================"
+echo " W2T-BKIN Pipeline Stop"
+echo "========================================"
+echo
+
+cd "$(dirname "$0")"
+
+echo "Stopping containers..."
+echo
+
+docker compose down
+
+if [ $? -eq 0 ]                      ; then
+echo
+echo "✓ Server stopped successfully"
+echo
+else
+echo
+echo "✗ Failed to stop server"
+echo
+fi

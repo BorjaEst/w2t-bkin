@@ -74,10 +74,11 @@ python -m w2t_bkin.cli validate output/session-001.nwb
 ### Docker Deployment
 
 ```bash
-# Generate environment file
-python -m w2t_bkin.cli data generate-env
+# Initialize experiment (creates docker/.env automatically)
+w2t-bkin data init /data/my-experiment --lab "Lab" -y
 
 # Start services
+cd /data/my-experiment
 docker compose up -d
 
 # Access Prefect UI

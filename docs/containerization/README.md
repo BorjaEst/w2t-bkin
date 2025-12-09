@@ -5,14 +5,18 @@ Complete guide to deploying W2T-BKIN using containers (Docker/Podman/Apptainer).
 ## 🚀 Quick Start - Get Running in 5 Minutes
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/BorjaEst/w2t-bkin.git
-cd w2t-bkin
+# 1. Install CLI
+pip install w2t-bkin
 
-# 2. Generate .env file (optional - has sensible defaults)
-python -m w2t_bkin.cli data generate-env
+# 2. Initialize experiment (creates docker/.env automatically)
+w2t-bkin data init /data/my-experiment \
+  --lab "Your Lab" \
+  --institution "Your Institution" \
+  --experimenters "Alice,Bob" \
+  -y
 
-# 3. Start containers
+# 3. Navigate to experiment and start containers
+cd /data/my-experiment
 docker compose up -d
 
 # 4. Wait for initialization (60 seconds)
@@ -58,15 +62,15 @@ The `.env` file controls all container settings. Generate it with:
 # Generate with defaults
 python -m w2t_bkin.cli data generate-env
 
-# Customize paths and settings
-python -m w2t_bkin.cli data generate-env \
-  --data-root /mnt/data \
-  --models-root /mnt/models \
-  --max-workers 8 \
-  --worker-replicas 2
+# Initialize experiment (automatically creates docker/.env)
+w2t-bkin data init /data/my-experiment \
+  --lab "Lab Name" \
+  --institution "Institution" \
+  --experimenters "Alice,Bob" \
+  -y
 
-# Or manually copy and edit
-cp .env.example .env
+# Or manually copy template and edit (for developers)
+cp .env.template docker/.env
 ```
 
 Key settings:

@@ -51,10 +51,10 @@ ENV DISABLE_NUMCODECS_AVX2=1 \
 # Rebuilds only take 30 seconds instead of 10+ minutes when code changes
 # =============================================================================
 
-# Step 1: Copy only pyproject.toml to detect dependency changes
+# Step 1: Copy only dependency files to detect changes
 COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
 
-# Step 2: Copy NWB extensions (required for [full] extras installation)
+# Step 2: Copy NWB extensions (required for dependency installation)
 COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
 
 # Step 3: Install NWB extensions first (before main package)
@@ -65,18 +65,15 @@ RUN pip install --no-cache-dir \
     -e ./nwb-extensions/ndx-structured-behavior \
     && pip cache purge
 
-# Step 4: Copy source code (required for editable installation)
-COPY --chown=w2t:w2t src/ ./src/
-
-# Step 5: Install with [full,prefect] extras
-# [full] includes all heavy dependencies: deeplabcut[tf], pynwb, h5py, scipy, pandas, tables, etc.
-# [prefect] includes Prefect orchestration (optional for server/worker)
-# NWB extensions are already installed from Step 3
-# This layer is cached and only rebuilds when pyproject.toml changes
-# Use --prefer-binary to avoid building from source when wheels are available
-# Set CFLAGS conditionally to avoid x86-specific flags on ARM
-# Aggressive cleanup to reduce layer size
-RUN set -e; \
+# Step 4: Install ALL heavy dependencies WITHOUT source code
+# This is the KEY optimization: we create a dummy package structure
+# so pip can install all dependencies from pyproject.toml without needing src/
+# When pyproject.toml changes, this layer rebuilds (10+ min)
+# When only src/ changes, this layer is cached (30 sec rebuild)
+RUN mkdir -p src/w2t_bkin && \
+    echo '__version__ = "0.0.10"' > src/w2t_bkin/__init__.py && \
+    echo 'def main(): pass' > src/w2t_bkin/cli.py && \
+    set -e; \
     if [ "$(uname -m)" != "x86_64" ]; then \
     CFLAGS="-O2"; \
     echo "Building for $(uname -m) with generic optimizations"; \
@@ -92,6 +89,13 @@ RUN set -e; \
     # Remove test files and examples that take up space
     find /usr/local/lib/python3.10/site-packages -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local/lib/python3.10/site-packages -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true
+
+# Step 5: NOW copy the actual source code and reinstall in editable mode
+# This step is FAST because all dependencies are already installed
+# Only rebuilds when src/ changes (30 seconds instead of 10+ minutes)
+COPY --chown=w2t:w2t src/ ./src/
+RUN pip install --no-cache-dir --no-deps -e . && \
+    pip cache purge
 
 # Remove build dependencies to reduce image size
 RUN apt-get purge -y --auto-remove build-essential && \

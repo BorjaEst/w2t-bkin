@@ -1,0 +1,47 @@
+@echo off
+REM w2t-bkin Pipeline Startup Script
+REM Generated automatically by w2t-bkin data init
+
+echo ========================================
+echo W2T-BKIN Pipeline Startup
+echo ========================================
+echo.
+
+cd /d "%~dp0"
+
+echo Starting containers...
+echo.
+
+docker compose up -d
+
+if %errorlevel% equ 0 (
+echo.
+echo ========================================
+echo SUCCESS! Server started
+echo ========================================
+echo.
+echo The Prefect UI is now available at:
+echo http://localhost:4200
+echo.
+echo To view logs:
+echo Double-click view-logs.bat
+echo.
+echo To stop the server:
+echo Double-click stop-server.bat
+echo.
+) else (
+echo.
+echo ========================================
+echo ERROR: Failed to start server
+echo ========================================
+echo.
+echo Make sure Docker or Rancher Desktop is running!
+echo.
+echo Troubleshooting:
+echo 1. Open Docker Desktop or Rancher Desktop
+echo 2. Wait until it shows "Running" status
+echo 3. Try running this script again
+echo.
+)
+
+pause
