@@ -12,11 +12,13 @@ LABEL org.opencontainers.image.description="W2T Body Kinematics Pipeline - Conta
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # Install system dependencies
+# - build-essential: GCC, G++, make for compiling Python packages (numcodecs, etc.)
 # - ffmpeg: Video processing
 # - libgl1: OpenGL support for video analysis (replaces libgl1-mesa-glx in newer Debian)
 # - libglib2.0-0: GLib for various libraries
 # - curl: Health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ffmpeg \
     libgl1 \
     libglib2.0-0 \
