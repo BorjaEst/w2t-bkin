@@ -119,17 +119,37 @@ docker ps
 
 ### Step 2: Install w2t-bkin CLI
 
+Choose installation method based on your needs:
+
+**Option A: Minimal CLI Only** (Quick, ~30 seconds)
+
 ```bash
 # Create virtual environment (recommended)
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install w2t-bkin
+# Install CLI only (minimal dependencies)
 pip install w2t-bkin
 
 # Verify
 w2t-bkin --version
 ```
+
+**Option B: Full Pipeline with All Processing Libraries** (~15 minutes)
+
+```bash
+# Create virtual environment (recommended)
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install with all heavy dependencies
+pip install w2t-bkin[full]
+
+# Verify
+w2t-bkin --version
+```
+
+**Note**: For container-based processing, only Option A is needed on the host machine. The containers include all processing libraries. Use Option B only if you need to run pipelines locally without containers.
 
 ### Step 3: Pull Container Images
 

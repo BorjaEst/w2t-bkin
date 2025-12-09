@@ -54,39 +54,23 @@ ENV DISABLE_NUMCODECS_AVX2=1 \
 # Step 1: Copy only pyproject.toml to detect dependency changes
 COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
 
-# Step 2: Install all heavy dependencies explicitly
+# Step 2: Copy NWB extensions (required for [full] extras installation)
+COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
+
+# Step 3: Copy source code (required for editable installation)
+COPY --chown=w2t:w2t src/ ./src/
+
+# Step 4: Install with [full,prefect] extras
+# [full] includes all heavy dependencies: deeplabcut[tf], pynwb, h5py, scipy, pandas, tables, etc.
+# [prefect] includes Prefect orchestration (optional for server/worker)
 # This layer is cached and only rebuilds when pyproject.toml changes
-# Let pip resolve exact versions to avoid conflicts
 # Use --prefer-binary to avoid building from source when wheels are available
 # Set CFLAGS conditionally to avoid x86-specific flags on ARM
 RUN if [ "$(uname -m)" != "x86_64" ]; then \
     export CFLAGS="-O2"; \
     echo "Building for $(uname -m) with generic optimizations"; \
     fi && \
-    pip install --no-cache-dir --prefer-binary \
-    pynwb~=3.1.0 \
-    h5py~=3.15.0 \
-    deeplabcut[tf]~=2.3.0 \
-    # sleap-io~=0.1.0 \ sleap is not supported on Python 3.10
-    prefect~=3.6.0 \
-    && pip cache purge
-
-# Step 3: Copy and install NWB extensions (lightweight, rarely change)
-COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
-RUN if [ "$(uname -m)" != "x86_64" ]; then export CFLAGS="-O2"; fi && \
-    pip install --no-cache-dir \
-    -e ./nwb-extensions/ndx-events \
-    -e ./nwb-extensions/ndx-pose \
-    -e ./nwb-extensions/ndx-structured-behavior \
-    && pip cache purge
-
-# Step 4: NOW copy source code (changes frequently during development)
-# Since all dependencies are already installed, this is FAST
-COPY --chown=w2t:w2t src/ ./src/
-
-# Step 5: Install the package itself (just links the code, no downloads)
-RUN if [ "$(uname -m)" != "x86_64" ]; then export CFLAGS="-O2"; fi && \
-    pip install --no-cache-dir -e . && \
+    pip install --no-cache-dir --prefer-binary -e .[full,prefect] && \
     pip cache purge
 
 # Verify installation

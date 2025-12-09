@@ -15,19 +15,35 @@ This directory contains the containerization setup for w2t-bkin.
 - Download from: https://docs.docker.com/get-docker/
 - ⚠️ Note: Docker Desktop requires paid license for organizations >250 employees
 
-### 2. Start Server
+### 2. Install w2t-bkin CLI
+
+Choose installation method based on your needs:
+
+**Option A: Minimal CLI Only** (Quick, ~30 seconds)
 
 ```bash
-# Install w2t-bkin if not already installed
+# For container management only
 pip install w2t-bkin
+```
 
-# Start Prefect server and database
+**Option B: Full Pipeline** (~15 minutes)
+
+```bash
+# For local processing + container management
+pip install w2t-bkin[full]
+```
+
+**Note**: For container-based processing, Option A is sufficient. The containers include all heavy dependencies (PyTorch, DeepLabCut, etc.). Use Option B only if you need to run pipelines locally without containers.
+
+### 3. Start Server
+
+```bash
 w2t-bkin container start-server
 
 # Access web UI at http://localhost:4200
 ```
 
-### 3. Start Workers
+### 4. Start Workers
 
 ```bash
 # Start 4 worker containers

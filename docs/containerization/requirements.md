@@ -167,7 +167,7 @@ This document defines the requirements for containerizing the w2t-bkin pipeline 
 - **Acceptance Criteria**:
   - docker-compose.dev.yml mounts `./src` as volume
   - Changes to Python code reflected immediately in container
-  - Development image installs code in editable mode: `pip install -e .`
+  - Development image installs code in editable mode: `pip install -e .[full,prefect]`
   - Separate dev vs. prod compose files
 
 ### NFR-1: Image Build Performance

@@ -39,7 +39,7 @@ LABEL org.opencontainers.image.source="https://github.com/BorjaEst/w2t-bkin"
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -47,11 +47,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash w2t
 
-# Install Python package
+# Install Python package with full dependencies
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
+COPY nwb-extensions/ ./nwb-extensions/
 COPY src/ ./src/
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e .[full,prefect]
 
 # Switch to non-root user
 USER w2t
