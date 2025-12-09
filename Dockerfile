@@ -6,6 +6,10 @@
 # =============================================================================
 FROM python:3.10-slim AS base
 
+# Get target platform for conditional compilation flags
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+
 LABEL maintainer="BorjaEst <https://github.com/BorjaEst>"
 LABEL org.opencontainers.image.source="https://github.com/BorjaEst/w2t-bkin"
 LABEL org.opencontainers.image.description="W2T Body Kinematics Pipeline - Containerized"
@@ -35,6 +39,12 @@ RUN useradd -m -u 1000 -s /bin/bash w2t && \
 # Set working directory
 WORKDIR /app
 
+# Set environment variables for cross-platform builds
+# Disable x86-specific optimizations to avoid build failures on ARM
+# These prevent numcodecs and other packages from using -msse2, -mavx2 flags on ARM
+ENV DISABLE_NUMCODECS_AVX2=1 \
+    DISABLE_NUMCODECS_SSE2=1
+
 # =============================================================================
 # BUILD OPTIMIZATION: Install dependencies BEFORE copying source code
 # This creates cached layers for heavy packages (PyTorch, DeepLabCut, etc.)
@@ -47,7 +57,13 @@ COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
 # Step 2: Install all heavy dependencies explicitly
 # This layer is cached and only rebuilds when pyproject.toml changes
 # Let pip resolve exact versions to avoid conflicts
-RUN pip install --no-cache-dir \
+# Use --prefer-binary to avoid building from source when wheels are available
+# Set CFLAGS conditionally to avoid x86-specific flags on ARM
+RUN if [ "$(uname -m)" != "x86_64" ]; then \
+    export CFLAGS="-O2"; \
+    echo "Building for $(uname -m) with generic optimizations"; \
+    fi && \
+    pip install --no-cache-dir --prefer-binary \
     pynwb~=3.1.0 \
     h5py~=3.15.0 \
     deeplabcut[tf]~=2.3.0 \
@@ -57,7 +73,8 @@ RUN pip install --no-cache-dir \
 
 # Step 3: Copy and install NWB extensions (lightweight, rarely change)
 COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
-RUN pip install --no-cache-dir \
+RUN if [ "$(uname -m)" != "x86_64" ]; then export CFLAGS="-O2"; fi && \
+    pip install --no-cache-dir \
     -e ./nwb-extensions/ndx-events \
     -e ./nwb-extensions/ndx-pose \
     -e ./nwb-extensions/ndx-structured-behavior \
@@ -68,7 +85,8 @@ RUN pip install --no-cache-dir \
 COPY --chown=w2t:w2t src/ ./src/
 
 # Step 5: Install the package itself (just links the code, no downloads)
-RUN pip install --no-cache-dir -e . && \
+RUN if [ "$(uname -m)" != "x86_64" ]; then export CFLAGS="-O2"; fi && \
+    pip install --no-cache-dir -e . && \
     pip cache purge
 
 # Verify installation

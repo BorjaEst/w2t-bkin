@@ -49,6 +49,9 @@ dev = [
 ]
 prefect = ["prefect~=3.6.0"]
 
+[project.scripts]
+w2t-bkin = "w2t_bkin.cli:app"
+
 [tool.black]
 line-length = 180
 include = '\.pyi?$'

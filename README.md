@@ -60,8 +60,6 @@ sleep 60
 - **[HPC/Apptainer](docs/containerization/hpc-guide.md)** - Deploy on compute clusters
 - **[Architecture & Design](docs/containerization/design.md)** - System overview
 
-> **🚧 Upcoming Changes**: We're refactoring the codebase to be more Prefect-friendly with better observability and cleaner organization. See **[Refactoring Plan](docs/refactoring/README.md)** for details.
-
 ### Option 2: Native Python Installation
 
 For users who prefer traditional installation:
@@ -299,115 +297,71 @@ python examples/pose_camera_nwb.py
 
 ## CLI Utilities
 
-### Data Management Commands
+The pipeline provides a modular command-line interface for data management, pipeline execution, and validation.
 
-The pipeline includes comprehensive data management commands to help you organize experiments safely and efficiently.
+### Quick Examples
 
 ```bash
-# Initialize new experiment structure
-python -m w2t_bkin.cli data init /data/my-experiment \
-  --lab "Larkum Lab" \
-  --institution "Humboldt University" \
-  --experimenters "Alice,Bob"
+# Initialize new experiment
+w2t-bkin data init /data/my-experiment --lab "Larkum Lab" -y
 
-# Add subject
-python -m w2t_bkin.cli data add-subject /data/my-experiment subject-001 \
-  --species "Mus musculus" \
-  --sex M \
-  --age P90D
+# Add subject and session
+w2t-bkin data add-subject /data/my-experiment mouse-001 --sex F -y
+w2t-bkin data add-session /data/my-experiment mouse-001 session-001 -y
 
-# Add session
-python -m w2t_bkin.cli data add-session /data/my-experiment subject-001 session-001 \
-  --date 2024-01-15 \
-  --description "Baseline recording" \
-  --experimenter "Alice"
-
-# Import existing raw data (SAFE - uses symbolic links)
-python -m w2t_bkin.cli data import-raw /raw-storage/2024-01-15 \
-  --experiment /data/my-experiment \
-  --subject subject-001 \
+# Import raw data (SAFE - uses symbolic links)
+w2t-bkin data import-raw /storage/raw/2024-01-15 \
+  -e /data/my-experiment \
+  -s mouse-001 \
   --session session-001 \
   --confirm
 
-# Validate experiment structure
-python -m w2t_bkin.cli data validate /data/my-experiment
+# Run pipeline
+w2t-bkin run config.toml mouse-001 session-001
+
+# Batch processing
+w2t-bkin batch config.toml --workers 4
+
+# Validate results
+w2t-bkin validate output/session-001.nwb
 ```
 
-📚 **See**: [Data Management CLI Guide](docs/data-management-cli.md) for complete documentation
+### Command Categories
 
-### Basic Commands
+| Category            | Commands                                                       | Description                  |
+| ------------------- | -------------------------------------------------------------- | ---------------------------- |
+| **Pipeline**        | `run`, `batch`, `discover`, `version`                          | Execute processing workflows |
+| **Validation**      | `validate`, `inspect`                                          | Check NWB file integrity     |
+| **Data Management** | `init`, `add-subject`, `add-session`, `import-raw`, `validate` | Organize experiments         |
 
-```bash
-# Run pipeline for a specific subject/session
-python -m w2t_bkin.cli run config.toml subject-001 session-001
+📚 **Complete Documentation**:
 
-# Validate NWB file integrity
-python -m w2t_bkin.cli validate output.nwb
+- **[CLI Overview](docs/cli/README.md)** - Architecture and command structure
+- **[Pipeline Commands](docs/cli/pipeline-commands.md)** - Run, batch, discover, version
+- **[Validation Commands](docs/cli/validation.md)** - Validate and inspect NWB files
+- **[Data Management](docs/cli/data-management.md)** - Experiment setup and organization
 
-# Inspect NWB file contents
-python -m w2t_bkin.cli inspect output.nwb
+### Container Deployment
 
-# Check version
-python -m w2t_bkin.cli version
-```
-
-### Container Commands
-
-The CLI automatically detects available container runtime (Podman → Docker → Apptainer, in priority order).
+For containerized deployments, use Docker Compose directly:
 
 ```bash
-# Start orchestration server (uses Podman/Docker automatically)
-python -m w2t_bkin.cli container start-server
+# Start Prefect server and worker
+docker compose up -d
+# Or with Podman:
+podman-compose up -d
 
-# Start worker containers
-python -m w2t_bkin.cli container start-worker --workers 4
-
-# View container status
-python -m w2t_bkin.cli container status
+# Check status
+docker compose ps
 
 # View logs
-python -m w2t_bkin.cli container logs server --follow
+docker compose logs -f server
 
-# Stop all containers
-python -m w2t_bkin.cli container stop
+# Stop services
+docker compose down
 ```
 
-**Alternative: Direct compose commands** (if you prefer manual control):
-
-```bash
-# Using Podman
-podman compose up -d                    # Start all services
-podman compose ps                       # Check status
-podman compose logs -f server          # View logs
-podman compose down                     # Stop all
-
-# Using Docker
-docker compose up -d                    # Start all services
-docker compose ps                       # Check status
-docker compose logs -f server          # View logs
-docker compose down                     # Stop all
-```
-
-### Batch Processing
-
-The pipeline includes a discovery command for batch processing multiple subjects/sessions:
-
-```bash
-# Discover all available sessions
-python -m w2t_bkin.cli discover config.toml --format plain
-
-# Process all sessions in parallel with GNU Parallel
-python -m w2t_bkin.cli discover config.toml --format tsv | \
-    parallel --bar --col-sep '\t' python -m w2t_bkin.cli run config.toml {1} {2}
-```
-
-See [docs/batch-processing.md](docs/batch-processing.md) for comprehensive batch processing guides including:
-
-- Discovery command usage and filtering
-- Parallel processing with GNU Parallel
-- Shell scripting examples
-- Python programmatic APIs
-- Future orchestration (Prefect, Kubernetes)
+The `data init` command automatically generates a `.env` file for Docker Compose with correct volume paths.
 
 ### Script Utilities
 

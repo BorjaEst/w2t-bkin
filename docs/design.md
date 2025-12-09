@@ -282,23 +282,40 @@ Orchestration flows for execution:
 - Configurable parameters (skip flags, max parallel workers)
 - Comprehensive result reporting
 
-### 4. CLI (`src/w2t_bkin/cli.py`)
+### 4. CLI (`src/w2t_bkin/cli/`)
 
-User-friendly command-line interface:
+Modular command-line interface following Prefect framework best practices:
 
-- `run` - Process single session
-- `batch` - Batch process multiple sessions in parallel
-- `discover` - Find available sessions
-- `validate` - Validate NWB files
-- `inspect` - Inspect NWB file contents
-- `data` commands - Data management and experiment setup
-- `container` commands - Docker deployment management
+**Structure**:
+
+- `cli/__init__.py` - Main app assembly and command registration
+- `cli/__main__.py` - Entry point for `python -m w2t_bkin.cli`
+- `cli/pipeline.py` - Pipeline commands (run, batch, discover, version)
+- `cli/validation.py` - NWB validation commands (validate, inspect)
+- `cli/data.py` - Data management commands (init, add-subject, add-session, import-raw, validate)
+- `cli/utils.py` - Shared utilities (console, formatters, Docker .env generation)
+
+**Commands**:
+
+- `run` - Process single session via `process_session_flow()`
+- `batch` - Parallel batch processing via `batch_process_flow()`
+- `discover` - Find available sessions using `utils.discover_sessions()`
+- `validate` / `inspect` - NWB file validation and inspection
+- `data init` / `add-subject` / `add-session` / `import-raw` / `validate` - Experiment organization
+
+**Design Principles**:
+
+- Thin presentation layer - all business logic in flows/ and operations/
+- No CLI-specific orchestration - container management via docker-compose directly
+- Rich terminal formatting for better UX
+- Entry point: `w2t-bkin` command registered in `pyproject.toml`
 
 ### 5. Docker Deployment
 
-Production-ready containerized deployment:
+Production-ready containerized deployment via Docker Compose:
 
 - `docker-compose.yml` - Multi-service orchestration (postgres, server, worker)
 - Prefect UI on port 4200 for monitoring
 - Automatic flow deployment on server startup
 - Configurable resources and replicas
+- `.env` auto-generation via `data init` command
