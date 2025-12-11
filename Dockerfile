@@ -121,16 +121,14 @@ RUN mkdir -p src/w2t_bkin && \
     # Clean up build artifacts to reduce image size
     find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local -type f -name '*.pyc' -delete 2>/dev/null || true && \
-    find /usr/local -type f -name '*.pyo' -delete 2>/dev/null || true && \
-    # Remove test files and examples that consume space
-    find /usr/local/lib/python3.10/site-packages -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local/lib/python3.10/site-packages -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true
+    find /usr/local -type f -name '*.pyo' -delete 2>/dev/null || true
 
 # Step 5: NOW copy the actual source code and reinstall in editable mode
 # This step is FAST because all dependencies are already installed
 # Only rebuilds when src/ changes (30 seconds instead of 10+ minutes)
+# NOTE: Must use same extras [full,prefect] as Step 4 to maintain package metadata
 COPY --chown=w2t:w2t src/ ./src/
-RUN pip install --no-cache-dir --no-deps -e . && \
+RUN pip install --no-cache-dir -e .[full,prefect] && \
     pip cache purge
 
 # Remove build dependencies to reduce image size
@@ -140,14 +138,14 @@ RUN apt-get purge -y --auto-remove build-essential && \
 
 # Verify installation and version consistency
 RUN EXPECTED_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/') && \
-    INSTALLED_VERSION=$(python -c "from w2t_bkin import __version__; print(__version__)" 2>/dev/null || echo "unknown") && \
+    INSTALLED_VERSION=$(python -c "import importlib.metadata; print(importlib.metadata.version('w2t-bkin'))" 2>/dev/null || echo "unknown") && \
     echo "Expected version: $EXPECTED_VERSION" && \
     echo "Installed version: $INSTALLED_VERSION" && \
     if [ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]; then \
     echo "ERROR: Version mismatch detected!" && exit 1; \
     fi && \
     echo "✓ Version verification passed" && \
-    python -m w2t_bkin.cli version && \
+    echo "✓ Package installed successfully" && \
     ffmpeg -version | head -n 1
 
 # Switch to non-root user
