@@ -1,6 +1,6 @@
 # CLI Reference
 
-**W2T-BKIN Command Line Interface**
+## W2T-BKIN Command Line Interface
 
 The w2t-bkin CLI provides a user-friendly interface to the Prefect-based data processing pipeline. All commands are thin wrappers around Prefect flows, ensuring consistency between CLI and programmatic usage.
 
@@ -124,7 +124,7 @@ The CLI follows these principles:
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │           CLI Layer (Typer)             │
 │  • Argument parsing                     │

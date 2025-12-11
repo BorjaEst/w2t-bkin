@@ -14,5 +14,13 @@
     "black-formatter.args": [
         "--config",
         "${workspaceFolder}/pyproject.toml"
+    ],
+    "cSpell.words": [
+        "bkin",
+        "BKIN",
+        "buildapi",
+        "Dask",
+        "deeplabcut",
+        "Facemap"
     ]
 }

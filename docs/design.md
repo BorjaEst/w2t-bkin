@@ -11,6 +11,8 @@ summary: "Technical architecture, domain model, timebase strategy, interfaces, a
 post_date: "2025-11-11"
 ---
 
+# W2T Body Kinematics Pipeline Design
+
 ## Overview
 
 **Implementation Status**: ✅ **Complete** - Prefect-native architecture fully implemented. The pipeline now uses pure Prefect flows and tasks for orchestration, with deprecated code removed. Current implementation includes: Bpod behavioral data + camera acquisition + pose estimation + TTL synchronization → NWB, with full validation and error handling.

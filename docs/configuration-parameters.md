@@ -36,13 +36,13 @@ optional = true  # Set to true to skip camera if files are missing
 
 ### Behavior
 
-#### When `optional = false` (default):
+#### When `optional = false` (default)
 
 - Pipeline **fails** if no files match the pattern
 - Error message includes helpful hint to set `optional = true`
 - This is the recommended setting for critical cameras
 
-#### When `optional = true`:
+#### When `optional = true`
 
 - Pipeline **continues** if no files match the pattern
 - Warning logged: `⊘ Camera 'camera_name' is optional and no files found - skipping`
@@ -93,11 +93,11 @@ optional = true  # Nice to have, but not required
 
 ## Verification Settings
 
-### Overview
+### Verification Overview
 
 The verification configuration controls various checks performed during pipeline execution, including frame counting, TTL synchronization verification, and error handling behavior.
 
-### Configuration
+### Verification Configuration
 
 **Location:** Configuration files (`config.toml`)
 
@@ -149,7 +149,7 @@ Verify that camera frame counts match TTL pulse counts.
 
 **Important Note:** If TTL files are missing for a required camera, you will see:
 
-```
+```text
 ⊘ Camera 'camera_name': No TTL files found for 'ttl_id'
   → Skipping verification (cannot verify without sync data).
   Set verification.check_sync_mismatch=false if this is expected.
@@ -231,7 +231,7 @@ warn_on_mismatch = true  # Only warn, don't fail
 
 ## Session-Level Logging
 
-### Overview
+### Logging Overview
 
 The pipeline automatically creates session-specific log files capturing all WARNING and ERROR messages for each processed session.
 
@@ -239,12 +239,12 @@ The pipeline automatically creates session-specific log files capturing all WARN
 
 For each session, two identical log files are created:
 
-```
+```text
 {output_root}/{subject_id}/{session_id}/pipeline.log
 {intermediate_root}/{subject_id}/{session_id}/pipeline.log
 ```
 
-### Behavior
+### Logging Behavior
 
 - **Automatic Creation:** Log files are created automatically after Phase 0 (initialization)
 - **Content:** Only WARNING and ERROR level messages
@@ -254,19 +254,19 @@ For each session, two identical log files are created:
 
 ### Log Format
 
-```
+```text
 YYYY-MM-DD HH:MM:SS - LEVEL - logger.name - message
 ```
 
 ### Example Log Content
 
-```
+```text
 2025-12-04 14:03:19 - WARNING - w2t_bkin.core.pipeline.phases.discovery - ⊘ Camera 'face_right' is optional and no files found - skipping
 2025-12-04 14:03:19 - WARNING - w2t_bkin.core.pipeline.phases.discovery - Camera 'face_left': No TTL data available for estimation
 2025-12-04 14:03:20 - ERROR - w2t_bkin.sync.validation - Synchronization mismatch exceeds tolerance: expected 1000 frames, got 995 TTL pulses
 ```
 
-### Usage
+### Log File Usage
 
 **View session logs after processing:**
 
@@ -309,7 +309,7 @@ Configuration and metadata are loaded in layers, with later layers overriding ea
 3. **Subject metadata:** `{raw_root}/{subject}/subject.toml` (if exists)
 4. **Session metadata:** `{raw_root}/{subject}/{session}/session.toml` (if exists)
 
-### Best Practices
+### Metadata Best Practices
 
 - **Root metadata:** Define common cameras, TTLs, and devices used across all sessions
 - **Subject metadata:** Define subject-specific settings (age, weight, genotype, etc.)
@@ -317,7 +317,7 @@ Configuration and metadata are loaded in layers, with later layers overriding ea
 
 ### Example Structure
 
-```
+```text
 data/raw/
 ├── metadata.toml              # Common cameras, TTLs, devices for all sessions
 ├── subject-001/

@@ -46,7 +46,7 @@ w2t-bkin data init ROOT_PATH [OPTIONS]
 
 ### Created Structure
 
-```
+```text
 {ROOT_PATH}/
 ├── configuration.toml    # Pipeline configuration
 ├── data/
@@ -99,18 +99,18 @@ docker compose up -d worker
 
 Add a new subject to the experiment with metadata.
 
-### Usage
+### Add Subject Usage
 
 ```bash
 w2t-bkin data add-subject EXPERIMENT_ROOT SUBJECT_ID [OPTIONS]
 ```
 
-### Arguments
+### Add Subject Arguments
 
 - `EXPERIMENT_ROOT` - Path to experiment root directory
 - `SUBJECT_ID` - Subject identifier (letters, numbers, hyphens, underscores only)
 
-### Options
+### Add Subject Options
 
 - `--species TEXT` - Species name (default: "Mus musculus")
 - `--sex TEXT` - Sex: F|M|U|O (default: "U" - unknown)
@@ -122,15 +122,15 @@ w2t-bkin data add-subject EXPERIMENT_ROOT SUBJECT_ID [OPTIONS]
 - `--description TEXT` - Subject description
 - `--yes, -y` - Skip confirmation prompts
 
-### Created Structure
+### Subject File Structure
 
-```
+```text
 {EXPERIMENT_ROOT}/data/raw/
 └── {SUBJECT_ID}/
     └── subject.toml
 ```
 
-### Examples
+### Add Subject Examples
 
 ```bash
 # Minimal
@@ -160,19 +160,19 @@ w2t-bkin data add-subject /data/my-experiment mouse-001 \
 
 Add a new session for a subject with metadata and standard folders.
 
-### Usage
+### Add Session Usage
 
 ```bash
 w2t-bkin data add-session EXPERIMENT_ROOT SUBJECT_ID SESSION_ID [OPTIONS]
 ```
 
-### Arguments
+### Add Session Arguments
 
 - `EXPERIMENT_ROOT` - Path to experiment root directory
 - `SUBJECT_ID` - Subject identifier
 - `SESSION_ID` - Session identifier (letters, numbers, hyphens, underscores only)
 
-### Options
+### Add Session Options
 
 - `--date TEXT` - Session date in ISO 8601 (e.g., 2024-01-15) (default: today)
 - `--description TEXT` - Session description (prompted if not provided)
@@ -181,9 +181,9 @@ w2t-bkin data add-session EXPERIMENT_ROOT SUBJECT_ID SESSION_ID [OPTIONS]
 - `--no-subdirs` - Don't create Video/TTLs/Bpod folders
 - `--yes, -y` - Skip confirmation prompts
 
-### Created Structure
+### Session Directory Structure
 
-```
+```text
 {EXPERIMENT_ROOT}/data/raw/{SUBJECT_ID}/
 └── {SESSION_ID}/
     ├── session.toml     # Session metadata
@@ -192,7 +192,7 @@ w2t-bkin data add-session EXPERIMENT_ROOT SUBJECT_ID SESSION_ID [OPTIONS]
     └── Bpod/           # Bpod behavioral data (optional)
 ```
 
-### Examples
+### Add Session Examples
 
 ```bash
 # Interactive (prompts for description and experimenter)
@@ -217,13 +217,13 @@ w2t-bkin data add-session /data/my-experiment mouse-001 session-002 \
 
 Import existing raw data using symbolic links (SAFE - preserves originals).
 
-### Usage
+### Import Usage
 
 ```bash
 w2t-bkin data import-raw SOURCE [OPTIONS]
 ```
 
-### Arguments
+### Import Arguments
 
 - `SOURCE` - Source directory containing raw data
 
@@ -233,7 +233,7 @@ w2t-bkin data import-raw SOURCE [OPTIONS]
 - `--subject, -s TEXT` - Target subject ID
 - `--session TEXT` - Target session ID
 
-### Options
+### Import Options
 
 - `--no-detect` - Skip automatic file pattern detection
 - `--confirm` - Execute import (required for actual operation)
@@ -287,17 +287,17 @@ After import, **review and update** `session.toml`:
 
 Validate experiment folder structure and metadata.
 
-### Usage
+### Validate Usage
 
 ```bash
 w2t-bkin data validate EXPERIMENT_ROOT [OPTIONS]
 ```
 
-### Arguments
+### Validate Arguments
 
 - `EXPERIMENT_ROOT` - Path to experiment root directory
 
-### Options
+### Validate Options
 
 - `--subject TEXT` - Filter by specific subject ID
 - `--session TEXT` - Filter by specific session ID
@@ -312,7 +312,7 @@ w2t-bkin data validate EXPERIMENT_ROOT [OPTIONS]
 - ✓ Referenced files in metadata exist
 - ✓ Camera/TTL configurations are complete
 
-### Examples
+### Validate Examples
 
 ```bash
 # Validate entire experiment
@@ -330,7 +330,7 @@ w2t-bkin data validate /data/my-experiment \
 
 ### Output
 
-```
+```text
 Errors:
   ✗ Missing required folder: data/processed/
   ✗ Missing session-002/session.toml

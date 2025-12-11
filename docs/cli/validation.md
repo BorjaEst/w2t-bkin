@@ -44,7 +44,7 @@ The command displays:
 
 Example output:
 
-```
+```text
 Validating: session-001.nwb
 
 ╭─── Validation Summary ────╮
@@ -71,23 +71,23 @@ Details:
 
 Display summary of NWB file structure and contents.
 
-### Usage
+### Inspect Usage
 
 ```bash
 w2t-bkin inspect NWB_PATH [OPTIONS]
 ```
 
-### Arguments
+### Inspect Arguments
 
 - `NWB_PATH` - Path to NWB file to inspect
 
-### Options
+### Inspect Options
 
 - `--show-acquisition / --no-show-acquisition` - Show acquisition data (default: show)
 - `--show-trials / --no-show-trials` - Show trials table (default: show)
 - `--show-devices / --no-show-devices` - Show devices (default: show)
 
-### Examples
+### Inspect Examples
 
 ```bash
 # Full inspection
@@ -97,7 +97,7 @@ w2t-bkin inspect output/session-001/session-001.nwb
 w2t-bkin inspect file.nwb --no-show-acquisition --no-show-trials --no-show-devices
 ```
 
-### Output
+### Inspect Output
 
 The command displays:
 
@@ -111,7 +111,7 @@ The command displays:
 
 Example output:
 
-```
+```text
 ╭──────────── NWB File Inspection ────────────╮
 │ NWB File Inspection                         │
 │ Identifier: subject-001-session-001         │

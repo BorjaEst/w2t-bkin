@@ -56,17 +56,17 @@ The `run` command executes these phases via Prefect:
 
 Process multiple sessions in parallel using Prefect orchestration.
 
-### Usage
+### Batch Usage
 
 ```bash
 w2t-bkin batch CONFIG_PATH [OPTIONS]
 ```
 
-### Arguments
+### Batch Arguments
 
 - `CONFIG_PATH` - Path to configuration TOML file
 
-### Options
+### Batch Options
 
 - `--subject, -s TEXT` - Filter by specific subject ID
 - `--session, -x TEXT` - Filter by specific session ID
@@ -76,7 +76,7 @@ w2t-bkin batch CONFIG_PATH [OPTIONS]
 - `--skip-validation` - Skip NWB validation for all sessions
 - `--log-level TEXT` - Logging level
 
-### Examples
+### Batch Examples
 
 ```bash
 # Process all sessions with 4 parallel workers
@@ -120,17 +120,17 @@ w2t-bkin batch config.toml --max-workers 4
 
 Scan raw data directory and list all processable sessions.
 
-### Usage
+### Discover Usage
 
 ```bash
 w2t-bkin discover CONFIG_PATH [OPTIONS]
 ```
 
-### Arguments
+### Discover Arguments
 
 - `CONFIG_PATH` - Path to configuration TOML file
 
-### Options
+### Discover Options
 
 - `--subject, -s TEXT` - Filter by specific subject ID
 - `--session, -x TEXT` - Filter by specific session ID
@@ -157,7 +157,7 @@ Detailed output with metadata information:
 
 Tab-separated for piping to tools:
 
-```
+```text
 subject-001     session-001
 subject-002     session-002
 ```
@@ -166,7 +166,7 @@ subject-002     session-002
 
 Human-readable table with Rich formatting
 
-### Examples
+### Discover Examples
 
 ```bash
 # List all sessions (JSON)
@@ -189,7 +189,7 @@ w2t-bkin discover config.toml --format tsv | \
 
 Display version information.
 
-### Usage
+### Version Usage
 
 ```bash
 w2t-bkin version
@@ -197,7 +197,7 @@ w2t-bkin version
 
 ### Example Output
 
-```
+```text
 w2t-bkin version 0.0.10
 
 W2T Body Kinematics Pipeline
