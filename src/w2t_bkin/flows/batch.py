@@ -24,8 +24,8 @@ Example:
     >>> print(f"Completed {result['successful']}/{result['total']} sessions")
 """
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -112,8 +112,6 @@ def batch_process_flow(
         ... )
     """
     run_logger = get_run_logger()
-    from datetime import datetime
-
     start_time = datetime.now()
 
     try:
@@ -144,24 +142,23 @@ def batch_process_flow(
         run_logger.info(f"Found {len(sessions)} sessions " f"(subject_filter: {subject_filter}, session_filter: {session_filter})")
 
         # =====================================================================
-        # Phase 2: Process Sessions in Parallel
+        # Phase 2: Process Sessions Sequentially
         # =====================================================================
-        run_logger.info(f"Processing sessions (max_parallel: {max_parallel})")
+        # Note: Prefect flows execute sequentially by default
+        # For true parallelism, use Prefect's task runners or Dask
+        run_logger.info(f"Processing {len(sessions)} sessions sequentially")
 
-        # Process sessions using ThreadPoolExecutor for parallelism
         session_results = []
         errors = {}
         successful = 0
         failed = 0
 
-        with ThreadPoolExecutor(max_workers=max_parallel) as executor:
-            # Submit all session processing tasks
-            future_to_session = {}
-            for session_info in sessions:
-                subject_id = session_info["subject"]
-                session_id = session_info["session"]
-                future = executor.submit(
-                    process_session_flow,
+        for session_info in sessions:
+            subject_id = session_info["subject"]
+            session_id = session_info["session"]
+
+            try:
+                result = process_session_flow(
                     config_path=config_path,
                     subject_id=subject_id,
                     session_id=session_id,
@@ -169,46 +166,35 @@ def batch_process_flow(
                     skip_pose=skip_pose,
                     skip_nwb_validation=skip_nwb_validation,
                 )
-                future_to_session[future] = (subject_id, session_id)
+                session_results.append(result)
 
-            # =====================================================================
-            # Phase 3: Collect Results
-            # =====================================================================
-            run_logger.info("Collecting results from session flows")
-
-            for future in as_completed(future_to_session):
-                subject_id, session_id = future_to_session[future]
-                try:
-                    result = future.result()
-                    session_results.append(result)
-
-                    if result.success:
-                        successful += 1
-                        run_logger.info(f"✓ {subject_id}/{session_id} completed successfully " f"({result.duration_seconds:.1f}s)")
-                    else:
-                        failed += 1
-                        session_key = f"{subject_id}/{session_id}"
-                        errors[session_key] = result.error or "Unknown error"
-                        run_logger.error(f"✗ {subject_id}/{session_id} failed: {result.error}")
-
-                except Exception as e:
+                if result.success:
+                    successful += 1
+                    run_logger.info(f"✓ {subject_id}/{session_id} completed successfully " f"({result.duration_seconds:.1f}s)")
+                else:
                     failed += 1
                     session_key = f"{subject_id}/{session_id}"
-                    errors[session_key] = str(e)
-                    run_logger.error(
-                        f"✗ {subject_id}/{session_id} failed with exception: {e}",
-                        exc_info=True,
-                    )
+                    errors[session_key] = result.error or "Unknown error"
+                    run_logger.error(f"✗ {subject_id}/{session_id} failed: {result.error}")
 
-                    # Create failure result
-                    session_results.append(
-                        SessionResult(
-                            success=False,
-                            subject_id=subject_id,
-                            session_id=session_id,
-                            error=str(e),
-                        )
+            except Exception as e:
+                failed += 1
+                session_key = f"{subject_id}/{session_id}"
+                errors[session_key] = str(e)
+                run_logger.error(
+                    f"✗ {subject_id}/{session_id} failed with exception: {e}",
+                    exc_info=True,
+                )
+
+                # Create failure result
+                session_results.append(
+                    SessionResult(
+                        success=False,
+                        subject_id=subject_id,
+                        session_id=session_id,
+                        error=str(e),
                     )
+                )
 
         # =====================================================================
         # Phase 4: Aggregate and Report
