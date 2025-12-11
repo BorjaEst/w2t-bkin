@@ -35,7 +35,7 @@ from prefect import flow, get_run_logger
 from pynwb import NWBFile
 
 from ..models import SessionResult
-from ..tasks import (  # Config tasks; Discovery tasks; Artifact tasks; Ingestion tasks; Sync tasks; Assembly tasks; Finalization tasks
+from ..tasks import (  # Config tasks; Discovery tasks; Verification tasks; Artifact tasks; Ingestion tasks; Sync tasks; Assembly tasks; Finalization tasks
     add_skeletons_task,
     align_trials_task,
     assemble_behavior_task,
@@ -51,6 +51,7 @@ from ..tasks import (  # Config tasks; Discovery tasks; Artifact tasks; Ingestio
     ingest_sleap_poses_task,
     ingest_ttl_task,
     load_session_config_task,
+    verify_session_inputs_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -325,6 +326,27 @@ def process_session_flow(
         n_bpod = len(discovery.bpod_files)
         n_ttl = len(discovery.ttl_files)
         run_logger.info(f"Discovered: {n_cameras} cameras, {n_bpod} bpod files, {n_ttl} TTL files")
+
+        # =====================================================================
+        # Phase 1.5: Verification (Fail-Fast)
+        # =====================================================================
+        run_logger.info("Phase 1.5: Verifying session inputs")
+
+        verification_result = verify_session_inputs_task(
+            discovery=discovery,
+            session_config=session_config,
+        )
+
+        if session_config.verification.enabled:
+            if session_config.verification.check_frame_counts:
+                total_frames = sum(verification_result.get("frame_counts", {}).values())
+                run_logger.info(f"Verified frame counts: {total_frames} total frames across cameras")
+
+            if session_config.verification.check_sync_mismatch:
+                verified_cameras = verification_result.get("verified_cameras", [])
+                run_logger.info(f"Verified synchronization for {len(verified_cameras)} cameras")
+        else:
+            run_logger.info("Verification skipped (disabled in configuration)")
 
         # =====================================================================
         # Phase 2: Artifact Generation

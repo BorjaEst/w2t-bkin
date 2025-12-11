@@ -26,6 +26,7 @@ from .finalization import create_provenance_data, finalize_session, validate_nwb
 from .ingestion import align_trials_to_ttl, ingest_bpod_data, ingest_dlc_poses, ingest_session_data, ingest_sleap_poses, ingest_ttl_pulses
 from .sleap_generator import discover_sleap_poses, discover_sleap_poses_for_session, generate_sleap_poses
 from .synchronization import compute_alignment_statistics, compute_alignment_statistics_from_result
+from .verification import count_all_camera_frames, count_all_ttl_pulses, verify_camera_ttl_sync, verify_session_inputs
 
 __all__ = [
     # Config operations
@@ -36,6 +37,11 @@ __all__ = [
     "discover_bpod_files",
     "discover_ttl_files",
     "discover_all_files",
+    # Verification operations
+    "count_all_camera_frames",
+    "count_all_ttl_pulses",
+    "verify_camera_ttl_sync",
+    "verify_session_inputs",
     # Artifact generation operations
     "generate_dlc_poses",
     "generate_dlc_poses_for_session",

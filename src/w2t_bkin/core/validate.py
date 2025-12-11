@@ -55,14 +55,14 @@ def validate_nwb_file(nwb_path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def verify_synchronization(
+def verify_sync_counts(
     camera_id: str,
     ttl_id: str,
     frame_count: int,
     pulse_count: int,
     tolerance: int = 0,
 ) -> None:
-    """Verify synchronization between camera frames and TTL pulses.
+    """Verify frame and pulse counts match within tolerance (primitive check).
 
     Args:
         camera_id: Identifier of the camera
