@@ -7,17 +7,20 @@ It's designed to be run once during server initialization.
 
 import asyncio
 import logging
+import os
 import sys
 
+from prefect.client.orchestration import get_client
+
+from w2t_bkin.flows.batch import batch_process_flow
+from w2t_bkin.flows.session import process_session_flow
+
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-async def deploy_flows_async():
+async def deploy_flows() -> bool:
     """Deploy W2T-BKIN flows to Prefect server using async API.
 
     Deploys two flows:
@@ -30,15 +33,11 @@ async def deploy_flows_async():
     - /data/interim
     - /data/processed
     - /models
+
+    Returns:
+        True if deployment successful, False otherwise
     """
     try:
-        import os
-
-        from prefect.client.orchestration import get_client
-
-        # Import the flows from orchestration module
-        from w2t_bkin.orchestration.flows import batch_process_flow, process_session_flow
-
         logger.info("📦 Deploying W2T-BKIN flows...")
 
         # Get default parameters from environment
@@ -117,11 +116,6 @@ async def deploy_flows_async():
         return False
 
 
-def deploy_flows():
-    """Sync wrapper for async deployment."""
-    return asyncio.run(deploy_flows_async())
-
-
 if __name__ == "__main__":
-    success = deploy_flows()
+    success = asyncio.run(deploy_flows())
     sys.exit(0 if success else 1)

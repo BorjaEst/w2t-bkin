@@ -1,14 +1,16 @@
-# W2T-BKIN Docker Compose Configuration
+# W2T-BKIN Docker Compose Configuration (Development)
 # 
-# This file supports two modes:
-# 1. Build mode (default): Builds images from source using Dockerfile in repository root
-#    - Requires Dockerfile in same directory as this file
-#    - Good for development and when images aren't published
-# 
-# 2. Image mode: Uses pre-built images from registry
-#    - Set SERVER_IMAGE and WORKER_IMAGE in .env file
-#    - Example: SERVER_IMAGE=ghcr.io/borjaest/w2t-bkin:latest-server
-#    - Good for production when images are published
+# This compose file is for development in the repository root.
+# It builds images locally from the Dockerfile in this directory.
+#
+# For production/user deployments:
+#   - Use `w2t-bkin data init` to generate experiment directories
+#   - Generated compose files pull pre-built images from GHCR
+#   - No Dockerfile needed in experiment directories
+#
+# To use pre-built images even in development:
+#   - Set SERVER_IMAGE and WORKER_IMAGE in .env
+#   - Example: SERVER_IMAGE=ghcr.io/borjaest/w2t-bkin:dev-server
 
 services:
   # PostgreSQL database for Prefect server
