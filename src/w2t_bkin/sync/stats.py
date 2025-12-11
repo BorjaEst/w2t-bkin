@@ -33,7 +33,7 @@ class AlignmentStats(BaseModel):
     """Alignment quality metrics.
 
     Attributes:
-        timebase_source: "nominal_rate", "ttl", or "neuropixels"
+        timebase_source: Strategy name (rate_based, ttl_based, hardware_pulse, or legacy values)
         mapping: "nearest" or "linear"
         offset_s: Time offset in seconds
         max_jitter_s: Maximum jitter in seconds
@@ -43,7 +43,7 @@ class AlignmentStats(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    timebase_source: Literal["nominal_rate", "ttl", "neuropixels"] = Field(..., description="Source of reference timebase: 'nominal_rate' | 'ttl' | 'neuropixels'")
+    timebase_source: str = Field(..., description="Source of reference timebase (strategy name or legacy: nominal_rate/ttl/neuropixels)")
     mapping: Literal["nearest", "linear"] = Field(..., description="Alignment mapping strategy: 'nearest' | 'linear'")
     offset_s: float = Field(..., description="Time offset applied to timebase in seconds")
     max_jitter_s: float = Field(..., description="Maximum jitter observed in seconds", ge=0)

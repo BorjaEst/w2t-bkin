@@ -249,10 +249,9 @@ def enforce_jitter_budget(max_jitter: float, p95_jitter: float, budget: float) -
         ... )  # Passes
     """
     if max_jitter > budget:
-        raise JitterExceedsBudgetError(f"Max jitter {max_jitter:.6f}s exceeds budget {budget:.6f}s")
-
+        raise JitterExceedsBudgetError(max_jitter, p95_jitter, budget)
     if p95_jitter > budget:
-        raise JitterExceedsBudgetError(f"P95 jitter {p95_jitter:.6f}s exceeds budget {budget:.6f}s")
+        raise JitterExceedsBudgetError(max_jitter, p95_jitter, budget)
 
 
 # =============================================================================

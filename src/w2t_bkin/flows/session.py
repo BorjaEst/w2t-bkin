@@ -337,12 +337,12 @@ def process_session_flow(
             session_config=session_config,
         )
 
-        if session_config.verification.enabled:
-            if session_config.verification.check_frame_counts:
+        if session_config.config.verification.enabled:
+            if session_config.config.verification.check_frame_counts:
                 total_frames = sum(verification_result.get("frame_counts", {}).values())
                 run_logger.info(f"Verified frame counts: {total_frames} total frames across cameras")
 
-            if session_config.verification.check_sync_mismatch:
+            if session_config.config.verification.check_sync_mismatch:
                 verified_cameras = verification_result.get("verified_cameras", [])
                 run_logger.info(f"Verified synchronization for {len(verified_cameras)} cameras")
         else:
