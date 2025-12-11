@@ -1,14 +1,13 @@
 # W2T-BKIN Docker Compose Configuration
-# 
-# This file supports two modes:
-# 1. Build mode (default): Builds images from source using Dockerfile in repository root
-#    - Requires Dockerfile in same directory as this file
-#    - Good for development and when images aren't published
-# 
-# 2. Image mode: Uses pre-built images from registry
-#    - Set SERVER_IMAGE and WORKER_IMAGE in .env file
-#    - Example: SERVER_IMAGE=ghcr.io/borjaest/w2t-bkin:latest-server
-#    - Good for production when images are published
+#
+# Uses pre-built container images from GitHub Container Registry.
+# Images are automatically built and published on every commit to main/dev branches.
+#
+# To use a specific version:
+#   - Edit .env and change the image tags
+#   - Use branch names: dev-server, main-server
+#   - Use version tags: v1.0.0-server, v1.0.0-worker
+#
 
 services:
   # PostgreSQL database for Prefect server
@@ -34,11 +33,7 @@ services:
 
   # Prefect server (orchestrator)
   server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: server
-    image: ${SERVER_IMAGE:-w2t-bkin:server}
+    image: ${SERVER_IMAGE}
     container_name: w2t-bkin-server
     ports:
       - "${PREFECT_UI_PORT:-4200}:4200"
@@ -74,11 +69,7 @@ services:
 
   # Prefect worker (executor)
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: worker
-    image: ${WORKER_IMAGE:-w2t-bkin:worker}
+    image: ${WORKER_IMAGE}
     environment:
       # Prefect connection
       PREFECT_API_URL: http://server:4200/api
