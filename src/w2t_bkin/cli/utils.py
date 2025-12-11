@@ -278,11 +278,14 @@ def generate_docker_env(root_path: Path, env_path: Path) -> None:
     env_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Load template and substitute variables
+    # Paths are relative to docker/ subdirectory (where docker-compose.yml lives)
     template = _load_template(".env.template")
-    env_content = template.replace("{{DATA_ROOT}}", str(root_path / "data"))
-    env_content = env_content.replace("{{MODELS_ROOT}}", str(root_path / "models"))
-    env_content = env_content.replace("{{CONFIG_ROOT}}", str(root_path))
-    env_content = env_content.replace("{{OUTPUT_ROOT}}", str(root_path / "data" / "processed"))
+    env_content = template.replace("{{DATA_ROOT}}", "../data")
+    env_content = env_content.replace("{{MODELS_ROOT}}", "../models")
+    env_content = env_content.replace("{{CONFIG_ROOT}}", "..")
+    env_content = env_content.replace("{{OUTPUT_ROOT}}", "../data/processed")
+    # Use 'dev' branch images by default (latest development images)
+    env_content = env_content.replace("{{BRANCH}}", "dev")
 
     env_path.write_text(env_content)
 

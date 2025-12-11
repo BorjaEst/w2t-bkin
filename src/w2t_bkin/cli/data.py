@@ -13,7 +13,7 @@ from ..data_manager import add_subject as dm_add_subject
 from ..data_manager import import_raw_data as dm_import_raw_data
 from ..data_manager import init_experiment as dm_init_experiment
 from ..data_manager import validate_experiment_structure as dm_validate_structure
-from .utils import console, copy_docker_compose_template, copy_dockerfile, create_startup_scripts, generate_docker_env
+from .utils import console, copy_docker_compose_template, create_startup_scripts, generate_docker_env
 
 data_app = typer.Typer(name="data", help="Experiment data management")
 
@@ -91,13 +91,6 @@ def init(
         else:
             console.print("[yellow]⚠ Could not create docker-compose.yml[/yellow]")
             console.print("[dim]  You can copy it manually from the repository[/dim]")
-
-        # Step 1b: Copy Dockerfile to docker/ (needed for local builds)
-        dockerfile_path = docker_dir / "Dockerfile"
-        if copy_dockerfile(dockerfile_path):
-            console.print(f"[green]✓[/green] Copied docker/Dockerfile")
-        else:
-            console.print("[yellow]⚠ Could not copy Dockerfile (using pip install? Set images in .env)[/yellow]")
 
         # Step 2: Generate .env file in docker/
         env_path = docker_dir / ".env"
