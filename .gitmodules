@@ -1,9 +1,9 @@
 [submodule "nwb-extensions/ndx-pose"]
 	path = nwb-extensions/ndx-pose
-	url = git@github.com:BorjaEst/ndx-pose.git
+	url = https://github.com/BorjaEst/ndx-pose.git
 [submodule "nwb-extensions/ndx-structured-behavior"]
 	path = nwb-extensions/ndx-structured-behavior
-	url = git@github.com:BorjaEst/ndx-structured-behavior.git
+	url = https://github.com/BorjaEst/ndx-structured-behavior.git
 [submodule "nwb-extensions/ndx-events"]
 	path = nwb-extensions/ndx-events
-	url = git@github.com:BorjaEst/ndx-events.git
+	url = https://github.com/BorjaEst/ndx-events.git

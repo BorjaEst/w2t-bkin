@@ -46,47 +46,83 @@ ENV DISABLE_NUMCODECS_AVX2=1 \
     DISABLE_NUMCODECS_SSE2=1
 
 # =============================================================================
-# BUILD OPTIMIZATION: Install dependencies BEFORE copying source code
-# This creates cached layers for heavy packages (PyTorch, DeepLabCut, etc.)
-# Rebuilds only take 30 seconds instead of 10+ minutes when code changes
+# BUILD OPTIMIZATION: Layer Ordering Strategy (Least → Most Frequently Changing)
+# =============================================================================
+# Docker caches layers and reuses them if the instruction hasn't changed.
+# Optimal ordering minimizes cache invalidation:
+#
+# 1. NWB Extensions (git submodules)     → Changes rarely (external repos)
+# 2. pyproject.toml (dependencies)       → Changes occasionally (add/update deps)
+# 3. Dummy package + pip install         → Rebuilds only when deps change (10+ min)
+# 4. Source code (src/)                  → Changes frequently (development)
+# 5. Final installation                  → Fast (30 sec) since deps cached
+#
+# Result: Editing src/ code triggers only steps 4-5 (fast rebuild)
+#         Editing pyproject.toml triggers steps 2-5 (full rebuild)
 # =============================================================================
 
-# Step 1: Copy only dependency files to detect changes
-COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
-
-# Step 2: Copy NWB extensions (required for dependency installation)
+# Step 1: Copy NWB extensions FIRST (change least frequently)
+# These are git submodules - external repositories that rarely change
 COPY --chown=w2t:w2t nwb-extensions/ ./nwb-extensions/
 
-# Step 3: Install NWB extensions first (before main package)
-# These are local packages in git submodules, not on PyPI
+# Verify submodules are complete (fail fast if submodules not initialized)
+RUN test -f ./nwb-extensions/ndx-events/pyproject.toml || \
+    (echo "ERROR: ndx-events submodule incomplete. Run 'git submodule update --init --recursive'" && exit 1) && \
+    test -f ./nwb-extensions/ndx-pose/pyproject.toml || \
+    (echo "ERROR: ndx-pose submodule incomplete. Run 'git submodule update --init --recursive'" && exit 1) && \
+    test -f ./nwb-extensions/ndx-structured-behavior/pyproject.toml || \
+    (echo "ERROR: ndx-structured-behavior submodule incomplete. Run 'git submodule update --init --recursive'" && exit 1) && \
+    echo "✓ All NWB extension submodules verified"
+
+# Step 2: Install NWB extensions (local packages not on PyPI)
+# These must be installed before main package since they're listed in dependencies
 RUN pip install --no-cache-dir \
     -e ./nwb-extensions/ndx-events \
     -e ./nwb-extensions/ndx-pose \
     -e ./nwb-extensions/ndx-structured-behavior \
     && pip cache purge
 
+# Step 3: Copy dependency files (change more frequently than submodules)
+COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
+
 # Step 4: Install ALL heavy dependencies WITHOUT source code
-# This is the KEY optimization: we create a dummy package structure
-# so pip can install all dependencies from pyproject.toml without needing src/
-# When pyproject.toml changes, this layer rebuilds (10+ min)
-# When only src/ changes, this layer is cached (30 sec rebuild)
+# =============================================================================
+# KEY OPTIMIZATION: Create minimal dummy package to satisfy pip install -e .[full,prefect]
+# This allows installing all dependencies from pyproject.toml without needing src/ code.
+#
+# Why this works:
+# - Flit (build backend) only needs __init__.py with __version__ for editable install
+# - We extract version dynamically from pyproject.toml (no hardcoding)
+# - Dependencies are resolved and installed (PyTorch, DeepLabCut, etc.)
+# - Layer is cached until pyproject.toml changes
+#
+# Cache behavior:
+# - pyproject.toml unchanged → Layer cached (instant)
+# - pyproject.toml changed   → Full rebuild (10+ min for heavy deps)
+# - src/ code changed        → This layer still cached (fast rebuild)
+# =============================================================================
 RUN mkdir -p src/w2t_bkin && \
-    echo '__version__ = "0.0.10"' > src/w2t_bkin/__init__.py && \
+    # Extract version dynamically from pyproject.toml (no hardcoding)
+    PACKAGE_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/') && \
+    echo "Building w2t-bkin version: $PACKAGE_VERSION" && \
+    echo "__version__ = \"$PACKAGE_VERSION\"" > src/w2t_bkin/__init__.py && \
     echo 'def main(): pass' > src/w2t_bkin/cli.py && \
     set -e; \
+    # Set architecture-specific compiler flags
     if [ "$(uname -m)" != "x86_64" ]; then \
     CFLAGS="-O2"; \
     echo "Building for $(uname -m) with generic optimizations"; \
     else \
     CFLAGS=""; \
     fi; \
+    # Install all dependencies (heavy operation: 10+ minutes)
     CFLAGS="$CFLAGS" pip install --no-cache-dir --prefer-binary -e .[full,prefect] && \
     pip cache purge && \
-    # Clean up build artifacts to save space
+    # Clean up build artifacts to reduce image size
     find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local -type f -name '*.pyc' -delete 2>/dev/null || true && \
     find /usr/local -type f -name '*.pyo' -delete 2>/dev/null || true && \
-    # Remove test files and examples that take up space
+    # Remove test files and examples that consume space
     find /usr/local/lib/python3.10/site-packages -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local/lib/python3.10/site-packages -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true
 
@@ -102,8 +138,16 @@ RUN apt-get purge -y --auto-remove build-essential && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Verify installation
-RUN python -m w2t_bkin.cli version && \
+# Verify installation and version consistency
+RUN EXPECTED_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/') && \
+    INSTALLED_VERSION=$(python -c "from w2t_bkin import __version__; print(__version__)" 2>/dev/null || echo "unknown") && \
+    echo "Expected version: $EXPECTED_VERSION" && \
+    echo "Installed version: $INSTALLED_VERSION" && \
+    if [ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]; then \
+    echo "ERROR: Version mismatch detected!" && exit 1; \
+    fi && \
+    echo "✓ Version verification passed" && \
+    python -m w2t_bkin.cli version && \
     ffmpeg -version | head -n 1
 
 # Switch to non-root user
