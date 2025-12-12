@@ -57,10 +57,17 @@ echo "✅ Server ready at http://localhost:${PREFECT_SERVER_API_PORT:-4200}"
 
 # Create default work pool if it doesn't exist
 echo "📋 Setting up default work pool..."
-if prefect work-pool create --type process docker-pool 2>/dev/null; then
-    echo "✅ Work pool 'docker-pool' created"
+if prefect work-pool inspect docker-pool > /dev/null 2>&1; then
+    echo "✅ Work pool 'docker-pool' already exists"
 else
-    echo "ℹ️  Work pool 'docker-pool' already exists"
+    echo "📦 Creating docker work pool 'docker-pool'..."
+    # Use docker type since workers ARE in containers and need to spawn flow runs
+    prefect work-pool create docker-pool --type docker > /dev/null 2>&1 || true
+    if prefect work-pool inspect docker-pool > /dev/null 2>&1; then
+        echo "✅ Work pool 'docker-pool' created"
+    else
+        echo "⚠️  Failed to create work pool (will retry)"
+    fi
 fi
 
 # Deploy flows using Python API

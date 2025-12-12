@@ -82,8 +82,10 @@ RUN pip install --no-cache-dir \
     -e ./nwb-extensions/ndx-structured-behavior \
     && pip cache purge
 
-# Step 3: Copy dependency files (change more frequently than submodules)
-COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
+# Step 3: Copy ONLY pyproject.toml and LICENSE (NOT README.md!)
+# CRITICAL: README.md changes frequently and would invalidate the 2-hour dependency cache
+# We create a dummy README.md in Step 4, then copy the real one in Step 5
+COPY --chown=w2t:w2t pyproject.toml LICENSE ./
 
 # Step 4: Install ALL heavy dependencies WITHOUT source code
 # =============================================================================
@@ -93,15 +95,20 @@ COPY --chown=w2t:w2t pyproject.toml README.md LICENSE ./
 # Why this works:
 # - Flit (build backend) only needs __init__.py with __version__ for editable install
 # - We extract version dynamically from pyproject.toml (no hardcoding)
+# - We create a dummy README.md to satisfy Flit (real README copied in Step 5)
 # - Dependencies are resolved and installed (PyTorch, DeepLabCut, etc.)
 # - Layer is cached until pyproject.toml changes
 #
 # Cache behavior:
-# - pyproject.toml unchanged → Layer cached (instant)
+# - pyproject.toml unchanged → Layer cached (instant) ✅
+# - README.md changed        → Layer still cached (README not copied yet) ✅ CRITICAL!
 # - pyproject.toml changed   → Full rebuild (10+ min for heavy deps)
 # - src/ code changed        → This layer still cached (fast rebuild)
 # =============================================================================
 RUN mkdir -p src/w2t_bkin && \
+    # Create dummy README.md for Flit (real README copied in Step 5)
+    echo "# w2t-bkin" > README.md && \
+    echo "Dummy README for dependency installation. Real README copied later." >> README.md && \
     # Extract version dynamically from pyproject.toml (no hardcoding)
     PACKAGE_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/') && \
     echo "Building w2t-bkin version: $PACKAGE_VERSION" && \
@@ -123,11 +130,12 @@ RUN mkdir -p src/w2t_bkin && \
     find /usr/local -type f -name '*.pyc' -delete 2>/dev/null || true && \
     find /usr/local -type f -name '*.pyo' -delete 2>/dev/null || true
 
-# Step 5: NOW copy the actual source code and reinstall in editable mode
+# Step 5: NOW copy the actual source code AND real README.md, then reinstall
 # This step is FAST because all dependencies are already installed
-# Only rebuilds when src/ changes (30 seconds instead of 10+ minutes)
+# Only rebuilds when src/ or README.md changes (30 seconds instead of 2+ hours!)
 # NOTE: Must use same extras [full,prefect] as Step 4 to maintain package metadata
 COPY --chown=w2t:w2t src/ ./src/
+COPY --chown=w2t:w2t README.md ./
 RUN pip install --no-cache-dir -e .[full,prefect] && \
     pip cache purge
 

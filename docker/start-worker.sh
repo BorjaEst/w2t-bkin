@@ -60,11 +60,11 @@ if prefect work-pool inspect "${WORK_POOL}" > /dev/null 2>&1; then
     echo "✅ Work pool '${WORK_POOL}' found"
 else
     echo "⚠️  Work pool '${WORK_POOL}' not found, attempting to create..."
-    if prefect work-pool create --type process "${WORK_POOL}" 2>/dev/null; then
+    if prefect work-pool create --type docker "${WORK_POOL}" 2>/dev/null; then
         echo "✅ Work pool '${WORK_POOL}' created"
     else
         echo "❌ Failed to create work pool '${WORK_POOL}'"
-        echo "   Please create it manually: prefect work-pool create --type process ${WORK_POOL}"
+        echo "   Please create it manually: prefect work-pool create --type docker ${WORK_POOL}"
         exit 1
     fi
 fi
@@ -72,14 +72,9 @@ fi
 echo "🏃 Starting worker: ${WORKER_NAME}"
 echo ""
 
-# Start Prefect worker
+# Start Prefect worker (exec replaces shell, no need for & or wait)
 exec prefect worker start \
     --pool "${WORK_POOL}" \
     --name "${WORKER_NAME}" \
-    --type process \
-    --limit 1 &
-
-WORKER_PID=$!
-
-# Keep worker running and forward signals
-wait "$WORKER_PID"
+    --type docker \
+    --limit 1

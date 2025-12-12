@@ -1,5 +1,5 @@
 # W2T-BKIN Docker Compose Configuration (Development)
-# 
+#
 # This compose file is for development in the repository root.
 # It builds images locally from the Dockerfile in this directory.
 #
@@ -42,6 +42,8 @@ services:
       target: server
     image: ${SERVER_IMAGE:-w2t-bkin:server}
     container_name: w2t-bkin-server
+    group_add:
+      - "999" # docker group for socket access
     ports:
       - "${PREFECT_UI_PORT:-4200}:4200"
     environment:
@@ -60,6 +62,8 @@ services:
       DEFAULT_SUBJECT_FILTER: ${DEFAULT_SUBJECT_FILTER:-}
       DEFAULT_SESSION_FILTER: ${DEFAULT_SESSION_FILTER:-}
     volumes:
+      # Docker socket for deployment script validation
+      - /var/run/docker.sock:/var/run/docker.sock
       # Mount config directory for deployment script
       - ${CONFIG_ROOT:-./configs}:/configs:ro
     depends_on:
@@ -82,6 +86,8 @@ services:
       dockerfile: Dockerfile
       target: worker
     image: ${WORKER_IMAGE:-w2t-bkin:worker}
+    group_add:
+      - "999" # docker group for socket access
     environment:
       # Prefect connection
       PREFECT_API_URL: http://server:4200/api
@@ -89,6 +95,8 @@ services:
       # Logging
       PREFECT_LOGGING_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
     volumes:
+      # Docker socket for spawning flow execution containers
+      - /var/run/docker.sock:/var/run/docker.sock
       # Mount data directories
       # Read-only for raw data and models (safety)
       - ${DATA_ROOT:-./data}:/data:ro
@@ -104,10 +112,10 @@ services:
       replicas: ${WORKER_REPLICAS:-1}
       resources:
         limits:
-          cpus: '${WORKER_CPU_LIMIT:-4}'
+          cpus: "${WORKER_CPU_LIMIT:-4}"
           memory: ${WORKER_MEMORY_LIMIT:-8G}
         reservations:
-          cpus: '${WORKER_CPU_RESERVATION:-1}'
+          cpus: "${WORKER_CPU_RESERVATION:-1}"
           memory: ${WORKER_MEMORY_RESERVATION:-2G}
     restart: unless-stopped
     networks:
