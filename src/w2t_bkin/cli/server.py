@@ -386,36 +386,23 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
             session_id="session-001",  # Example placeholder
         )
 
-        if pool_type == "docker":
-            # Docker pool: Code is in the container, use from_source
-            console.print("[dim]  Using code from Docker image (workers run in containers)[/dim]")
-            process_session_flow.from_source(
-                source="/app",  # Path inside the container
-                entrypoint="src/w2t_bkin/flows/session.py:process_session_flow",
-            ).deploy(
-                name="process-session",
-                work_pool_name=pool_name,
-                parameters={"config": session_config.model_dump()},
-                tags=["w2t-bkin", "session", "docker"],
-                description="Process a single experimental session through the w2t-bkin pipeline.",
-                version="1.0.0",
-                ignore_warnings=True,
-            )
-        else:
-            # Process work pool - use cwd as storage (assumes code is available locally)
-            console.print(f"[dim]  Using local code from: {package_root}[/dim]")
-            process_session_flow.from_source(
-                source=str(package_root),
-                entrypoint="src/w2t_bkin/flows/session.py:process_session_flow",
-            ).deploy(
-                name="process-session",
-                work_pool_name=pool_name,
-                parameters={"config": session_config.model_dump()},
-                tags=["w2t-bkin", "session", "local"],
-                description="Process a single experimental session through the w2t-bkin pipeline.",
-                version="1.0.0",
-                ignore_warnings=True,
-            )
+        # Deploy session flow
+        # Use from_source pointing to local package root
+        # Docker workers will have this code mounted at /app
+        console.print(f"[dim]  Using code from: {package_root}[/dim]")
+
+        process_session_flow.from_source(
+            source=str(package_root),
+            entrypoint="src/w2t_bkin/flows/session.py:process_session_flow",
+        ).deploy(
+            name="process-session",
+            work_pool_name=pool_name,
+            parameters={"config": session_config.model_dump()},
+            tags=["w2t-bkin", "session", pool_type],
+            description="Process a single experimental session through the w2t-bkin pipeline.",
+            version="1.0.0",
+            ignore_warnings=True,
+        )
         console.print("[dim]  ✓ process-session deployment created[/dim]")
 
         # Deploy batch flow
@@ -424,32 +411,19 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
             max_parallel=4,
         )
 
-        if pool_type == "docker":
-            batch_process_flow.from_source(
-                source="/app",  # Path inside the container
-                entrypoint="src/w2t_bkin/flows/batch.py:batch_process_flow",
-            ).deploy(
-                name="batch-process",
-                work_pool_name=pool_name,
-                parameters={"config": batch_config.model_dump()},
-                tags=["w2t-bkin", "batch", "docker"],
-                description="Process multiple experimental sessions in parallel.",
-                version="1.0.0",
-                ignore_warnings=True,
-            )
-        else:
-            batch_process_flow.from_source(
-                source=str(package_root),
-                entrypoint="src/w2t_bkin/flows/batch.py:batch_process_flow",
-            ).deploy(
-                name="batch-process",
-                work_pool_name=pool_name,
-                parameters={"config": batch_config.model_dump()},
-                tags=["w2t-bkin", "batch", "local"],
-                description="Process multiple experimental sessions in parallel.",
-                version="1.0.0",
-                ignore_warnings=True,
-            )
+        # Deploy batch flow
+        batch_process_flow.from_source(
+            source=str(package_root),
+            entrypoint="src/w2t_bkin/flows/batch.py:batch_process_flow",
+        ).deploy(
+            name="batch-process",
+            work_pool_name=pool_name,
+            parameters={"config": batch_config.model_dump()},
+            tags=["w2t-bkin", "batch", pool_type],
+            description="Process multiple experimental sessions in parallel.",
+            version="1.0.0",
+            ignore_warnings=True,
+        )
         console.print("[dim]  ✓ batch-process deployment created[/dim]")
     finally:
         # Restore original working directory
@@ -479,6 +453,9 @@ def _start_docker_worker(worker_name: str, work_pool: str, port: int) -> Optiona
 
     api_url = _get_docker_api_url(port)
 
+    # Get package root to mount code into container
+    package_root = Path(__file__).parent.parent.parent.parent.absolute()
+
     # Build Docker command based on platform
     docker_cmd = [
         "docker",
@@ -490,9 +467,9 @@ def _start_docker_worker(worker_name: str, work_pool: str, port: int) -> Optiona
         f"PREFECT_API_URL={api_url}",
         "-v",
         "/var/run/docker.sock:/var/run/docker.sock",
-    ]
-
-    # Add network configuration based on platform
+        "-v",
+        f"{package_root}:/workspace:ro",  # Mount code as read-only
+    ]  # Add network configuration based on platform
     if not _is_windows():
         # Linux: Use host network mode for simplicity
         docker_cmd.extend(["--network", "host"])
