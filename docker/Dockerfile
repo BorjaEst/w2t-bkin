@@ -1,10 +1,7 @@
-# Multi-stage Dockerfile for w2t-bkin
-# Supports both server (Prefect orchestrator) and worker (pipeline executor) targets
+# Dockerfile for w2t-bkin worker
+# Single-stage build for pipeline execution with Prefect worker
 
-# =============================================================================
-# Base Stage: Common dependencies for both server and worker
-# =============================================================================
-FROM python:3.10-slim AS base
+FROM python:3.10-slim
 
 # Get target platform for conditional compilation flags
 ARG TARGETPLATFORM
@@ -122,8 +119,10 @@ RUN mkdir -p src/w2t_bkin && \
     else \
     CFLAGS=""; \
     fi; \
-    # Install all dependencies (heavy operation: 10+ minutes)
-    CFLAGS="$CFLAGS" pip install --no-cache-dir --prefer-binary -e .[full,prefect] && \
+    # Install base dependencies + worker extras (full installation)
+    # Base includes: CLI, config, NWB, Prefect
+    # Worker adds: Heavy ML/video processing libraries
+    CFLAGS="$CFLAGS" pip install --no-cache-dir --prefer-binary -e .[worker] && \
     pip cache purge && \
     # Clean up build artifacts to reduce image size
     find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
@@ -132,11 +131,10 @@ RUN mkdir -p src/w2t_bkin && \
 
 # Step 5: NOW copy the actual source code AND real README.md, then reinstall
 # This step is FAST because all dependencies are already installed
-# Only rebuilds when src/ or README.md changes (30 seconds instead of 2+ hours!)
-# NOTE: Must use same extras [full,prefect] as Step 4 to maintain package metadata
+# Only rebuilds when src/ or README.md changes (30 seconds)
 COPY --chown=w2t:w2t src/ ./src/
 COPY --chown=w2t:w2t README.md ./
-RUN pip install --no-cache-dir -e .[full,prefect] && \
+RUN pip install --no-cache-dir -e .[worker] && \
     pip cache purge
 
 # Remove build dependencies to reduce image size
@@ -168,85 +166,16 @@ ENV MODELS_ROOT=/models
 ENV CONFIG_ROOT=/configs
 ENV OUTPUT_ROOT=/output
 
-# =============================================================================
-# Server Stage: Prefect server and UI
-# =============================================================================
-FROM base AS server
-
-# Stay as root to fix permissions for Prefect UI
-USER root
-
-# Prefect v3 is already installed in base layer
-# Just install asyncpg for PostgreSQL support
-RUN pip install --no-cache-dir asyncpg>=0.29.0 && \
-    pip cache purge
-
-# Fix permissions for Prefect UI directory (Prefect v3 needs write access)
-RUN mkdir -p /usr/local/lib/python3.10/site-packages/prefect/server/ui_build && \
-    chown -R w2t:w2t /usr/local/lib/python3.10/site-packages/prefect/server/ui_build && \
-    chmod -R 755 /usr/local/lib/python3.10/site-packages/prefect/server/ui_build
-
-# Copy server scripts
-COPY --chown=w2t:w2t --chmod=755 docker/start-server.sh /usr/local/bin/start-server.sh
-COPY --chown=w2t:w2t --chmod=755 docker/deploy_flows.py /usr/local/bin/deploy_flows.py
-
-# Create Prefect home directory with correct permissions
-RUN mkdir -p /app/.prefect && chown -R w2t:w2t /app/.prefect
-
-# Switch to non-root user
-USER w2t
-
-# Expose Prefect UI port
-EXPOSE 4200
-
-# Environment variables for Prefect server
-ENV PREFECT_SERVER_API_HOST=0.0.0.0
-ENV PREFECT_SERVER_API_PORT=4200
-ENV PREFECT_UI_API_URL=/api
-ENV PREFECT_HOME=/app/.prefect
-ENV PREFECT_LOGGING_LEVEL=INFO
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:4200/api/health || exit 1
-
-ENTRYPOINT ["/usr/local/bin/start-server.sh"]
-
-# =============================================================================
-# Worker Stage: Pipeline executor
-# =============================================================================
-FROM base AS worker
-
-# Copy worker entrypoint script
-COPY --chown=w2t:w2t --chmod=755 docker/start-worker.sh /usr/local/bin/start-worker.sh
-
-# Environment variables for Prefect worker
+# Prefect worker environment variables
 ENV PREFECT_API_URL=http://server:4200/api
-ENV WORK_POOL=docker-pool
+ENV WORK_POOL=process-pool
 ENV WORKER_NAME=worker
 ENV PREFECT_LOGGING_LEVEL=INFO
+
+# Copy worker entrypoint script
+COPY --chown=w2t:w2t --chmod=755 start-worker.sh /usr/local/bin/start-worker.sh
 
 # Volume mount points (documentation)
 VOLUME ["/data", "/models", "/configs", "/output"]
 
 ENTRYPOINT ["/usr/local/bin/start-worker.sh"]
-
-# =============================================================================
-# Development Stage: For local development with hot-reload
-# =============================================================================
-FROM worker AS dev
-
-USER root
-
-# Install development tools
-RUN pip install --no-cache-dir \
-    black~=25.9.0 \
-    isort~=7.0.0 \
-    pytest~=9.0.0 \
-    ipython \
-    && pip cache purge
-
-USER w2t
-
-# Override entrypoint for interactive development
-ENTRYPOINT ["/bin/bash"]
