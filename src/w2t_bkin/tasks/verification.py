@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 def verify_session_inputs_task(
     discovery: DiscoveryResult,
     session_config: SessionConfig,
+    skip_camera_sync: bool = False,
 ) -> Dict[str, Any]:
     """Verify session inputs before processing (fail-fast).
 
@@ -31,6 +32,7 @@ def verify_session_inputs_task(
     Args:
         discovery: File discovery results
         session_config: Session configuration
+        skip_camera_sync: Skip camera-TTL frame counting (runtime override)
 
     Returns:
         Dictionary containing verification results:
@@ -49,4 +51,5 @@ def verify_session_inputs_task(
     return verify_session_inputs(
         discovery=discovery,
         session_config=session_config,
+        skip_camera_sync=skip_camera_sync,
     )

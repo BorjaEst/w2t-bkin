@@ -12,6 +12,66 @@ from ..processors.dlc import DLCInferenceOptions, predict_output_paths, run_dlc_
 logger = logging.getLogger(__name__)
 
 
+def discover_dlc_poses(video_paths: List[Path], dlc_dir: Path, camera_id: str) -> List[DLCArtifact]:
+    """Discover existing DLC pose estimation outputs.
+
+    Pure function that looks for DLC H5 files matching video file names.
+    Does not execute DLC inference.
+
+    Args:
+        video_paths: List of video file paths to find DLC outputs for
+        dlc_dir: Directory containing DLC H5 output files
+        camera_id: Camera identifier
+
+    Returns:
+        List of DLCArtifact objects for found H5 files
+    """
+    logger.info(f"Discovering DLC outputs for {len(video_paths)} video(s) in {dlc_dir}")
+
+    if not dlc_dir.exists():
+        logger.debug(f"DLC output directory does not exist: {dlc_dir}")
+        return []
+
+    artifacts = []
+
+    for video_path in video_paths:
+        video_stem = video_path.stem
+
+        # Look for H5 files matching video stem
+        # DLC outputs: {video_stem}DLC*.h5
+        pattern = f"{video_stem}DLC*.h5"
+        matching_h5 = list(dlc_dir.glob(pattern))
+
+        if matching_h5:
+            # Use first match (should only be one per video)
+            h5_path = matching_h5[0]
+
+            # Extract model name from filename if possible
+            # Format: {video_stem}DLC_{model_name}_{...}.h5
+            model_name = "unknown"
+            if "DLC_" in h5_path.name:
+                parts = h5_path.name.split("DLC_")[1].split("_")
+                if parts:
+                    model_name = parts[0]
+
+            artifacts.append(
+                DLCArtifact(
+                    path=h5_path,
+                    camera_id=camera_id,
+                    model_name=model_name,
+                    generated_at=datetime.fromtimestamp(h5_path.stat().st_mtime),
+                    cached=True,
+                )
+            )
+
+            logger.debug(f"Found DLC output: {h5_path.name}")
+        else:
+            logger.debug(f"No DLC output found for {video_path.name}")
+
+    logger.info(f"Discovered {len(artifacts)} DLC artifact(s) for camera '{camera_id}'")
+    return artifacts
+
+
 def generate_dlc_poses(
     video_paths: List[Path], model_path: Path, output_dir: Path, camera_id: str, force_rerun: bool = False, gpu_index: int | None = None, save_csv: bool = False
 ) -> List[DLCArtifact]:

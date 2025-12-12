@@ -149,6 +149,7 @@ def verify_camera_ttl_sync(
 def verify_session_inputs(
     discovery: DiscoveryResult,
     session_config: SessionConfig,
+    skip_camera_sync: bool = False,
 ) -> Dict[str, Any]:
     """Verify session inputs before processing (fail-fast).
 
@@ -157,13 +158,14 @@ def verify_session_inputs(
     principle.
 
     Checks performed (controlled by verification config):
-    - Frame counts for all cameras (if check_frame_counts=True)
-    - TTL pulse counts (if check_sync_mismatch=True)
-    - Frame/TTL synchronization (if check_sync_mismatch=True)
+    - Frame counts for all cameras (if check_frame_counts=True and not skip_camera_sync)
+    - TTL pulse counts (if check_sync_mismatch=True and not skip_camera_sync)
+    - Frame/TTL synchronization (if check_sync_mismatch=True and not skip_camera_sync)
 
     Args:
         discovery: File discovery results
         session_config: Session configuration
+        skip_camera_sync: Skip camera-TTL frame counting verification (runtime override)
 
     Returns:
         Dictionary containing verification results:
@@ -189,17 +191,20 @@ def verify_session_inputs(
     results = {}
 
     # Count frames for all cameras
-    if verification_config.check_frame_counts:
+    if verification_config.check_frame_counts and not skip_camera_sync:
         results["frame_counts"] = count_all_camera_frames(
             camera_files=discovery.camera_files,
             session_config=session_config,
         )
     else:
-        logger.info("Frame counting disabled (verification.check_frame_counts=false)")
+        if skip_camera_sync:
+            logger.info("Frame counting skipped (skip_camera_sync=True)")
+        else:
+            logger.info("Frame counting disabled (verification.check_frame_counts=false)")
         results["frame_counts"] = {}
 
     # Count TTL pulses and verify synchronization
-    if verification_config.check_sync_mismatch:
+    if verification_config.check_sync_mismatch and not skip_camera_sync:
         # Count pulses
         results["ttl_counts"] = count_all_ttl_pulses(
             ttl_files=discovery.ttl_files,
@@ -222,7 +227,10 @@ def verify_session_inputs(
             logger.warning("Cannot verify synchronization: missing frame or TTL counts")
             results["verified_cameras"] = []
     else:
-        logger.info("Sync verification disabled (verification.check_sync_mismatch=false)")
+        if skip_camera_sync:
+            logger.info("Sync verification skipped (skip_camera_sync=True)")
+        else:
+            logger.info("Sync verification disabled (verification.check_sync_mismatch=false)")
         results["ttl_counts"] = {}
         results["verified_cameras"] = []
 

@@ -20,7 +20,7 @@ The tasks/ layer wraps these operations with @task decorators to add:
 
 from .assembly import add_skeletons_container, assemble_behavior_tables, assemble_pose_estimation
 from .config_loader import create_nwb_file, load_session_config
-from .dlc_generator import generate_dlc_poses, generate_dlc_poses_for_session
+from .dlc_generator import discover_dlc_poses, generate_dlc_poses, generate_dlc_poses_for_session
 from .file_discovery import discover_all_files, discover_bpod_files, discover_camera_files, discover_ttl_files
 from .finalization import create_provenance_data, finalize_session, validate_nwb_file, write_nwb_file, write_sidecar_files
 from .ingestion import align_trials_to_ttl, ingest_bpod_data, ingest_dlc_poses, ingest_session_data, ingest_sleap_poses, ingest_ttl_pulses
@@ -43,6 +43,7 @@ __all__ = [
     "verify_camera_ttl_sync",
     "verify_session_inputs",
     # Artifact generation operations
+    "discover_dlc_poses",
     "generate_dlc_poses",
     "generate_dlc_poses_for_session",
     "discover_sleap_poses",

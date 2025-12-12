@@ -138,7 +138,7 @@ def assemble_pose_estimation(
 
     # Determine skeleton definition
     first_meta = pose_data_list[0].metadata
-    skeleton_nodes = first_meta.get("bodyparts", [])
+    skeleton_nodes = first_meta.bodyparts if hasattr(first_meta, "bodyparts") else []
     skeleton_edges = []
     skeleton_name = f"skeleton_{camera_id}"
 
