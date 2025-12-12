@@ -34,6 +34,7 @@ from typing import Dict, List, Optional
 from prefect import flow, get_run_logger
 from pynwb import NWBFile
 
+from ..api import SessionFlowConfig
 from ..models import SessionResult
 from ..tasks import (  # Config tasks; Discovery tasks; Verification tasks; Artifact tasks; Ingestion tasks; Sync tasks; Assembly tasks; Finalization tasks
     add_skeletons_task,
@@ -73,26 +74,65 @@ def _process_pose_artifacts(discovery, session_config, skip_dlc: bool, skip_slea
     dlc_artifacts = {}
     sleap_artifacts = {}
 
-    # Generate DLC artifacts
-    if not skip_dlc:
+    # Generate or discover DLC artifacts
+    dlc_enabled = session_config.config.preprocessing.dlc.enabled
+    if dlc_enabled and not skip_dlc:
+        # Generate new DLC artifacts
         dlc_artifacts = generate_dlc_session_task(
             session_config=session_config,
             force_rerun=False,
         )
         run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
+    elif dlc_enabled and skip_dlc:
+        # Discover pre-existing DLC files when skipping generation
+        from w2t_bkin.tasks.artifacts import discover_dlc_poses_task
+
+        for camera_id, video_paths in discovery.camera_files.items():
+            # Camera-specific DLC output directory
+            camera_dlc_dir = session_config.interim_dir / "dlc-pose" / camera_id
+            artifacts = discover_dlc_poses_task(
+                video_paths=video_paths,
+                dlc_dir=camera_dlc_dir,
+                camera_id=camera_id,
+            )
+            if artifacts:
+                dlc_artifacts[camera_id] = artifacts
+        if dlc_artifacts:
+            run_logger.info(f"Found pre-existing DLC artifacts for {len(dlc_artifacts)} cameras")
+    else:
+        run_logger.info("DLC processing disabled or skipped")
 
     # Discover SLEAP artifacts
-    if not skip_sleap:
+    sleap_enabled = session_config.config.preprocessing.sleap.enabled
+    if sleap_enabled and not skip_sleap:
+        # Discover existing SLEAP files (SLEAP generation not yet implemented)
         for camera_id, video_paths in discovery.camera_files.items():
+            # Camera-specific SLEAP output directory
+            camera_sleap_dir = session_config.interim_dir / "sleap-pose" / camera_id
             artifacts = discover_sleap_poses_task(
                 video_paths=video_paths,
-                sleap_dir=session_config.interim_dir,
+                sleap_dir=camera_sleap_dir,
                 camera_id=camera_id,
             )
             if artifacts:
                 sleap_artifacts[camera_id] = artifacts
         if sleap_artifacts:
             run_logger.info(f"Found SLEAP artifacts for {len(sleap_artifacts)} cameras")
+    elif sleap_enabled and skip_sleap:
+        # Also discover when explicitly skipping (same as not skip since generation not implemented)
+        for camera_id, video_paths in discovery.camera_files.items():
+            camera_sleap_dir = session_config.interim_dir / "sleap-pose" / camera_id
+            artifacts = discover_sleap_poses_task(
+                video_paths=video_paths,
+                sleap_dir=camera_sleap_dir,
+                camera_id=camera_id,
+            )
+            if artifacts:
+                sleap_artifacts[camera_id] = artifacts
+        if sleap_artifacts:
+            run_logger.info(f"Found pre-existing SLEAP artifacts for {len(sleap_artifacts)} cameras")
+    else:
+        run_logger.info("SLEAP processing disabled or skipped")
 
     return dlc_artifacts, sleap_artifacts
 
@@ -116,9 +156,11 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_config,
     for camera_id, artifacts in dlc_artifacts.items():
         if camera_id in discovery.camera_files:
             video_paths = discovery.camera_files[camera_id]
+            # Camera-specific DLC directory
+            camera_dlc_dir = session_config.interim_dir / "dlc-pose" / camera_id
             dlc_poses = ingest_dlc_poses_task(
                 video_paths=video_paths,
-                dlc_dir=session_config.interim_dir,
+                dlc_dir=camera_dlc_dir,
                 camera_id=camera_id,
             )
             if dlc_poses:
@@ -128,9 +170,11 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_config,
     for camera_id, artifacts in sleap_artifacts.items():
         if camera_id in discovery.camera_files:
             video_paths = discovery.camera_files[camera_id]
+            # Camera-specific SLEAP directory
+            camera_sleap_dir = session_config.interim_dir / "sleap-pose" / camera_id
             sleap_poses = ingest_sleap_poses_task(
                 video_paths=video_paths,
-                sleap_dir=session_config.interim_dir,
+                sleap_dir=camera_sleap_dir,
                 camera_id=camera_id,
             )
             if sleap_poses:
@@ -248,16 +292,7 @@ def _assemble_pose_data(nwbfile, pose_data, session_config, ttl_data, run_logger
     log_prints=True,
     persist_result=True,
 )
-def process_session_flow(
-    config_path: str | Path,
-    subject_id: str,
-    session_id: str,
-    skip_bpod: bool = False,
-    skip_pose: bool = False,
-    skip_dlc: bool = False,
-    skip_sleap: bool = False,
-    skip_nwb_validation: bool = False,
-) -> SessionResult:
+def process_session_flow(config: SessionFlowConfig) -> SessionResult:
     """Process a single session through the complete w2t-bkin pipeline.
 
     This flow orchestrates 21 atomic Prefect tasks to transform raw behavioral
@@ -265,14 +300,8 @@ def process_session_flow(
     with parallel execution for camera-level operations.
 
     Args:
-        config_path: Path to configuration TOML file
-        subject_id: Subject identifier (e.g., "subject-001")
-        session_id: Session identifier (e.g., "session-001")
-        skip_bpod: Skip Bpod behavioral data processing
-        skip_pose: Skip all pose estimation processing
-        skip_dlc: Skip DeepLabCut pose estimation
-        skip_sleap: Skip SLEAP pose estimation
-        skip_nwb_validation: Skip NWB file validation
+        config: Validated configuration model with all session parameters.
+                Auto-generates UI forms in Prefect with validation and docs.
 
     Returns:
         SessionResult with success status, paths, and metadata
@@ -281,17 +310,31 @@ def process_session_flow(
         Exception: Any unhandled error during processing (logged in result.error)
 
     Example:
-        >>> result = process_session_flow(
+        >>> from w2t_bkin.flows.config_models import SessionFlowConfig
+        >>> config = SessionFlowConfig(
         ...     config_path="configs/standard.toml",
         ...     subject_id="subject-001",
         ...     session_id="session-001",
         ...     skip_nwb_validation=True
         ... )
+        >>> result = process_session_flow(config)
         >>> if result.success:
         ...     print(f"NWB written to: {result.nwb_path}")
     """
     run_logger = get_run_logger()
     start_time = datetime.now()
+
+    # Extract values from Pydantic model
+    config_path = config.config_path
+    subject_id = config.subject_id
+    session_id = config.session_id
+    skip_bpod = config.skip_bpod
+    skip_pose = config.skip_pose
+    skip_dlc = config.skip_dlc
+    skip_sleap = config.skip_sleap
+    skip_ecephys = config.skip_ecephys
+    skip_camera_sync = config.skip_camera_sync
+    skip_nwb_validation = config.skip_nwb_validation
 
     try:
         run_logger.info(f"Starting session processing: {subject_id}/{session_id}")
@@ -335,6 +378,7 @@ def process_session_flow(
         verification_result = verify_session_inputs_task(
             discovery=discovery,
             session_config=session_config,
+            skip_camera_sync=skip_camera_sync,
         )
 
         if session_config.config.verification.enabled:

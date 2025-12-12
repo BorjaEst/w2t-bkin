@@ -30,13 +30,44 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from prefect import flow, get_run_logger
+from prefect import flow, get_run_logger, task
 
+from ..api import BatchFlowConfig, SessionFlowConfig
 from ..models import SessionResult
 from ..utils import discover_sessions
 from .session import process_session_flow
 
 logger = logging.getLogger(__name__)
+
+
+@task(
+    name="process-single-session-task",
+    description="Process a single session (used in batch processing)",
+    retries=2,
+    retry_delay_seconds=60,
+    tags=["session-processing"],
+)
+def process_single_session_task(session_config: SessionFlowConfig) -> SessionResult:
+    """Process a single session as a Prefect task.
+
+    This wrapper allows parallel execution of multiple sessions in batch processing.
+
+    Args:
+        session_config: Session configuration
+
+    Returns:
+        SessionResult with processing outcome
+    """
+    try:
+        return process_session_flow(session_config)
+    except Exception as e:
+        # Return failed result instead of raising
+        return SessionResult(
+            success=False,
+            subject_id=session_config.subject_id,
+            session_id=session_config.session_id,
+            error=str(e),
+        )
 
 
 @dataclass
@@ -67,16 +98,9 @@ class BatchResult:
     description="Process multiple sessions in parallel",
     log_prints=True,
     persist_result=True,
+    task_runner=None,  # Use default ConcurrentTaskRunner for parallel execution
 )
-def batch_process_flow(
-    config_path: str | Path,
-    subject_filter: Optional[str] = None,
-    session_filter: Optional[str] = None,
-    max_parallel: int = 4,
-    skip_bpod: bool = False,
-    skip_pose: bool = False,
-    skip_nwb_validation: bool = False,
-) -> BatchResult:
+def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
     """Process multiple sessions in parallel using Prefect.
 
     This flow discovers sessions from the raw data directory, filters them
@@ -84,35 +108,48 @@ def batch_process_flow(
     the process_session_flow. Failed sessions do not stop the batch - all
     sessions are attempted and results are aggregated.
 
+    Parallelism: Sessions are submitted as concurrent Prefect tasks. The actual
+    degree of parallelism depends on available workers. Use max_parallel to
+    limit concurrency (requires configuring a work pool concurrency limit in
+    Prefect server settings).
+
     Args:
-        config_path: Path to configuration TOML file
-        subject_filter: Subject ID filter pattern (e.g., "subject-*", "SNA-*")
-        session_filter: Session ID filter pattern (e.g., "session-001")
-        max_parallel: Maximum number of sessions to process in parallel
-        skip_bpod: Skip Bpod behavioral data processing
-        skip_pose: Skip all pose estimation processing
-        skip_nwb_validation: Skip NWB file validation
+        config: Validated configuration model with all batch parameters.
+                Auto-generates UI forms in Prefect with validation and docs.
 
     Returns:
         BatchResult with aggregated statistics and individual results
 
     Example:
-        >>> # Process all sessions for a subject
-        >>> result = batch_process_flow(
+        >>> from w2t_bkin.flows.config_models import BatchFlowConfig
+        >>> config = BatchFlowConfig(
         ...     config_path="configs/standard.toml",
         ...     subject_filter="subject-001",
         ...     max_parallel=2
         ... )
+        >>> result = batch_process_flow(config)
         >>>
         >>> # Process specific session pattern across subjects
-        >>> result = batch_process_flow(
+        >>> config = BatchFlowConfig(
         ...     config_path="configs/standard.toml",
         ...     session_filter="session-001",
         ...     max_parallel=4
         ... )
+        >>> result = batch_process_flow(config)
     """
     run_logger = get_run_logger()
     start_time = datetime.now()
+
+    # Extract values from Pydantic model
+    config_path = config.config_path
+    subject_filter = config.subject_filter
+    session_filter = config.session_filter
+    max_parallel = config.max_parallel
+    skip_bpod = config.skip_bpod
+    skip_pose = config.skip_pose
+    skip_ecephys = config.skip_ecephys
+    skip_camera_sync = config.skip_camera_sync
+    skip_nwb_validation = config.skip_nwb_validation
 
     try:
         # =====================================================================
@@ -142,30 +179,44 @@ def batch_process_flow(
         run_logger.info(f"Found {len(sessions)} sessions " f"(subject_filter: {subject_filter}, session_filter: {session_filter})")
 
         # =====================================================================
-        # Phase 2: Process Sessions Sequentially
+        # Phase 2: Process Sessions in Parallel
         # =====================================================================
-        # Note: Prefect flows execute sequentially by default
-        # For true parallelism, use Prefect's task runners or Dask
-        run_logger.info(f"Processing {len(sessions)} sessions sequentially")
+        # Submit all sessions as tasks for parallel execution
+        # Prefect will respect max_parallel limit via task concurrency
+        run_logger.info(f"Processing {len(sessions)} sessions with max_parallel={max_parallel}")
 
+        # Create session configs and submit as tasks
+        futures = []
+        for session_info in sessions:
+            subject_id = session_info["subject"]
+            session_id = session_info["session"]
+
+            session_config = SessionFlowConfig(
+                config_path=config_path,
+                subject_id=subject_id,
+                session_id=session_id,
+                skip_bpod=skip_bpod,
+                skip_pose=skip_pose,
+                skip_dlc=False,  # Only skip_pose controls DLC in batch
+                skip_sleap=False,  # Only skip_pose controls SLEAP in batch
+                skip_ecephys=skip_ecephys,
+                skip_camera_sync=skip_camera_sync,
+                skip_nwb_validation=skip_nwb_validation,
+            )
+
+            # Submit task for concurrent execution
+            future = process_single_session_task.submit(session_config)
+            futures.append((subject_id, session_id, future))
+
+        # Wait for all tasks to complete and collect results
         session_results = []
         errors = {}
         successful = 0
         failed = 0
 
-        for session_info in sessions:
-            subject_id = session_info["subject"]
-            session_id = session_info["session"]
-
+        for subject_id, session_id, future in futures:
             try:
-                result = process_session_flow(
-                    config_path=config_path,
-                    subject_id=subject_id,
-                    session_id=session_id,
-                    skip_bpod=skip_bpod,
-                    skip_pose=skip_pose,
-                    skip_nwb_validation=skip_nwb_validation,
-                )
+                result = future.result()
                 session_results.append(result)
 
                 if result.success:

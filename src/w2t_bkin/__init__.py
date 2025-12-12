@@ -68,6 +68,7 @@ See docs/ for detailed module documentation and design principles.
 """
 
 from . import config, sync, utils
+from .api import BatchFlowConfig, SessionFlowConfig
 from .core import session
 
 # Import main modules for convenient access
@@ -85,5 +86,8 @@ __all__ = [
     "transcode",
     "ttl",
     "utils",
+    # API models
+    "SessionFlowConfig",
+    "BatchFlowConfig",
 ]
 # Test comment for build optimization
