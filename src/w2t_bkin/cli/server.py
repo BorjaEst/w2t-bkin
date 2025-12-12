@@ -24,6 +24,7 @@ server_app = typer.Typer(name="server", help="Prefect server management")
 @dataclass
 class WorkerInfo:
     """Information about a started worker."""
+
     worker_type: str  # "process" or "docker"
     name: str
     reference: any  # subprocess.Popen for process, container_id for docker
@@ -41,10 +42,10 @@ def _is_windows() -> bool:
 
 def _get_api_url(port: int) -> str:
     """Get the Prefect API URL for the given platform.
-    
+
     Args:
         port: Port number for the Prefect server
-        
+
     Returns:
         Appropriate API URL based on platform and context
     """
@@ -56,10 +57,10 @@ def _get_api_url(port: int) -> str:
 
 def _get_docker_api_url(port: int) -> str:
     """Get the Prefect API URL for Docker workers based on platform.
-    
+
     Args:
         port: Port number for the Prefect server
-        
+
     Returns:
         Appropriate API URL for Docker workers
     """
@@ -211,18 +212,8 @@ def start(
             # Stop workers
             if worker_processes:
                 console.print("[yellow]Stopping workers...[/yellow]")
-                for worker_type, worker_name, worker_ref in worker_processes:
-                    try:
-                        if worker_type == "docker":
-                            # Stop and remove Docker container
-                            subprocess.run(["docker", "stop", worker_name], capture_output=True, timeout=5)
-                            subprocess.run(["docker", "rm", worker_name], capture_output=True, timeout=5)
-                        else:
-                            # Terminate subprocess
-                            worker_ref.terminate()
-                            worker_ref.wait(timeout=5)
-                    except Exception:
-                        pass  # Best effort cleanup
+                for worker_info in worker_processes:
+                    _stop_worker(worker_info)
 
             console.print("[green]✓[/green] Server stopped")
 
@@ -343,7 +334,11 @@ def _wait_for_server(port: int, max_retries: int = 30) -> bool:
 
 
 def _create_work_pool(pool_type: str):
-    """Create Prefect work pool."""
+    """Create Prefect work pool.
+
+    Note: Both local and docker pools use 'process' type.
+    Docker workers run process-type workers inside containers.
+    """
     pool_name = f"{pool_type}-pool"
 
     # Check if pool already exists
@@ -353,10 +348,10 @@ def _create_work_pool(pool_type: str):
         console.print(f"[dim]  Work pool '{pool_name}' already exists[/dim]")
         return
 
-    # Create pool
-    pool_type_arg = "process" if pool_type == "local" else "docker"
+    # Create pool - both local and docker use process type
+    # Docker workers run process workers inside containers (not nested Docker)
     subprocess.run(
-        _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", pool_type_arg],
+        _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", "process"],
         check=True,
         capture_output=True,
     )
@@ -392,16 +387,19 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
         )
 
         if pool_type == "docker":
-            # Docker work pool requires an image
-            console.print("[dim]  Using Docker image: ghcr.io/borjaest/w2t-bkin:latest[/dim]")
-            process_session_flow.deploy(
+            # Docker pool: Code is in the container, use from_source
+            console.print("[dim]  Using code from Docker image (workers run in containers)[/dim]")
+            process_session_flow.from_source(
+                source="/app",  # Path inside the container
+                entrypoint="src/w2t_bkin/flows/session.py:process_session_flow",
+            ).deploy(
                 name="process-session",
                 work_pool_name=pool_name,
                 parameters={"config": session_config.model_dump()},
-                tags=["w2t-bkin", "session"],
+                tags=["w2t-bkin", "session", "docker"],
                 description="Process a single experimental session through the w2t-bkin pipeline.",
                 version="1.0.0",
-                image="ghcr.io/borjaest/w2t-bkin:latest",
+                ignore_warnings=True,
             )
         else:
             # Process work pool - use cwd as storage (assumes code is available locally)
@@ -413,7 +411,7 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
                 name="process-session",
                 work_pool_name=pool_name,
                 parameters={"config": session_config.model_dump()},
-                tags=["w2t-bkin", "session"],
+                tags=["w2t-bkin", "session", "local"],
                 description="Process a single experimental session through the w2t-bkin pipeline.",
                 version="1.0.0",
                 ignore_warnings=True,
@@ -427,14 +425,17 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
         )
 
         if pool_type == "docker":
-            batch_process_flow.deploy(
+            batch_process_flow.from_source(
+                source="/app",  # Path inside the container
+                entrypoint="src/w2t_bkin/flows/batch.py:batch_process_flow",
+            ).deploy(
                 name="batch-process",
                 work_pool_name=pool_name,
                 parameters={"config": batch_config.model_dump()},
-                tags=["w2t-bkin", "batch"],
+                tags=["w2t-bkin", "batch", "docker"],
                 description="Process multiple experimental sessions in parallel.",
                 version="1.0.0",
-                image="ghcr.io/borjaest/w2t-bkin:latest",
+                ignore_warnings=True,
             )
         else:
             batch_process_flow.from_source(
@@ -444,7 +445,7 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
                 name="batch-process",
                 work_pool_name=pool_name,
                 parameters={"config": batch_config.model_dump()},
-                tags=["w2t-bkin", "batch"],
+                tags=["w2t-bkin", "batch", "local"],
                 description="Process multiple experimental sessions in parallel.",
                 version="1.0.0",
                 ignore_warnings=True,
@@ -453,3 +454,173 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
     finally:
         # Restore original working directory
         os.chdir(original_cwd)
+
+
+def _start_docker_worker(worker_name: str, work_pool: str, port: int) -> Optional[WorkerInfo]:
+    """Start a Docker worker container.
+
+    Args:
+        worker_name: Name for the worker container
+        work_pool: Work pool type (should be "docker")
+        port: Prefect server port
+
+    Returns:
+        WorkerInfo if successful, None if failed
+    """
+    # Clean up any existing container with the same name
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", worker_name],
+            capture_output=True,
+            timeout=10,
+        )
+    except Exception:
+        pass  # Container might not exist
+
+    api_url = _get_docker_api_url(port)
+
+    # Build Docker command based on platform
+    docker_cmd = [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        worker_name,
+        "-e",
+        f"PREFECT_API_URL={api_url}",
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
+    ]
+
+    # Add network configuration based on platform
+    if not _is_windows():
+        # Linux: Use host network mode for simplicity
+        docker_cmd.extend(["--network", "host"])
+    else:
+        # Windows: Publish port (host network mode not supported)
+        docker_cmd.extend(["-p", f"{port}:{port}"])
+
+    # Add image and worker command
+    # Override entrypoint to run prefect worker directly with bash
+    docker_cmd.extend(
+        [
+            "ghcr.io/borjaest/w2t-bkin:latest",
+            "/bin/bash",
+            "-c",
+            f"prefect worker start --pool {work_pool}-pool --name {worker_name}",
+        ]
+    )
+
+    try:
+        result = subprocess.run(docker_cmd, capture_output=True, text=True, check=True)
+        container_id = result.stdout.strip()
+        console.print(f"[green]✓[/green] Started Docker worker: {worker_name}")
+        return WorkerInfo("docker", worker_name, container_id)
+    except subprocess.CalledProcessError as e:
+        console.print(f"[yellow]![/yellow] Failed to start Docker worker {worker_name}")
+        console.print(f"[dim]  Error: {e.stderr.strip()[:200]}[/dim]")
+        console.print(f"[dim]  Make sure Docker is running and the image is available[/dim]")
+        return None
+
+
+def _start_local_worker(worker_name: str, work_pool: str, port: int) -> Optional[WorkerInfo]:
+    """Start a local worker subprocess.
+
+    Args:
+        worker_name: Name for the worker process
+        work_pool: Work pool type (should be "local")
+        port: Prefect server port
+
+    Returns:
+        WorkerInfo if successful, None if failed
+    """
+    # Workers need PREFECT_API_URL to connect to the server
+    worker_env = os.environ.copy()
+    worker_env["PREFECT_API_URL"] = _get_api_url(port)
+
+    try:
+        worker_proc = subprocess.Popen(
+            _get_prefect_cmd() + ["worker", "start", "--pool", f"{work_pool}-pool", "--name", worker_name],
+            env=worker_env,
+            # Don't capture stdout/stderr - let worker print its logs
+        )
+        console.print(f"[green]✓[/green] Started local worker: {worker_name} (PID: {worker_proc.pid})")
+        return WorkerInfo("process", worker_name, worker_proc)
+    except Exception as e:
+        console.print(f"[yellow]![/yellow] Failed to start local worker {worker_name}")
+        console.print(f"[dim]  Error: {str(e)[:200]}[/dim]")
+        return None
+
+
+def _is_worker_running(worker_info: WorkerInfo) -> bool:
+    """Check if a worker is still running.
+
+    Args:
+        worker_info: Worker information
+
+    Returns:
+        True if worker is running, False otherwise
+    """
+    if worker_info.worker_type == "process":
+        # Check if process is still alive
+        return worker_info.reference.poll() is None
+    else:  # docker
+        # Check if Docker container is running
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", worker_info.name],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0 and "true" in result.stdout
+
+
+def _verify_workers(worker_processes: List[WorkerInfo], expected_count: int, work_pool: str) -> None:
+    """Verify that workers are running and connected.
+
+    Args:
+        worker_processes: List of started workers
+        expected_count: Expected number of workers
+        work_pool: Work pool type
+    """
+    console.print(f"\\n[cyan]Waiting for {expected_count} worker(s) to connect...[/cyan]")
+    time.sleep(5)  # Give workers time to connect
+
+    # Verify workers are still running
+    active_workers = 0
+    for worker_info in worker_processes:
+        if _is_worker_running(worker_info):
+            active_workers += 1
+        else:
+            console.print(f"[yellow]![/yellow] Worker {worker_info.name} exited unexpectedly")
+
+    if active_workers >= expected_count:
+        console.print(f"[green]✓[/green] {active_workers} worker(s) running and connected")
+    else:
+        console.print(f"[yellow]![/yellow] Only {active_workers}/{expected_count} workers are running")
+        console.print(f"[dim]  Check worker status with: {sys.executable} -m prefect work-pool inspect {work_pool}-pool[/dim]")
+        if work_pool == "docker":
+            console.print(f"[dim]  View worker logs with: docker logs {work_pool}-worker-1[/dim]")
+
+
+def _stop_worker(worker_info: WorkerInfo) -> None:
+    """Stop a worker process or container.
+
+    Args:
+        worker_info: Worker information
+    """
+    try:
+        if worker_info.worker_type == "process":
+            worker_info.reference.terminate()
+            worker_info.reference.wait(timeout=5)
+        else:  # docker
+            subprocess.run(
+                ["docker", "stop", worker_info.name],
+                capture_output=True,
+                timeout=10,
+            )
+            subprocess.run(
+                ["docker", "rm", worker_info.name],
+                capture_output=True,
+            )
+    except Exception:
+        pass  # Best effort cleanup
