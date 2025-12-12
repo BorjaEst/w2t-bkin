@@ -9,6 +9,10 @@ Utilities provided:
 - Clock drift helpers (ppm → time offset)
 - Safe text/float writers with parent dir creation
 - Minimal TOML key-value line rendering
+
+Note:
+- ensure_parent_dir() is now imported from w2t_bkin.data.manager
+  (shared utility to avoid duplication)
 """
 
 from __future__ import annotations
@@ -16,6 +20,8 @@ from __future__ import annotations
 from pathlib import Path
 import random
 from typing import List, Optional, Union
+
+from w2t_bkin.data.manager import ensure_parent_dir
 
 
 def derive_sequenced_paths(
@@ -92,14 +98,6 @@ def replace_wildcard(pattern: Union[str, Path], replacement: str) -> Path:
     if "*" in stem:
         stem = stem.replace("*", replacement)
     return parent / f"{stem}{ext}"
-
-
-def ensure_parent_dir(path: Union[str, Path]) -> Path:
-    """Ensure parent directory exists for the provided path and return Path."""
-
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
 
 
 def write_float_lines(
