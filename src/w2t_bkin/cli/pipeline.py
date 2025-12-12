@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 
+from ..api import BatchFlowConfig, SessionFlowConfig
 from .utils import console, display_batch_result, display_session_result, format_discoveries, setup_logging
 
 
@@ -52,15 +53,18 @@ def run(
         console.print(f"  Session: [yellow]{session_id}[/yellow]")
         console.print()
 
-        # Run flow
-        result = process_session_flow(
-            config_path=config_path,
+        # Create Pydantic config model (flow expects this, not individual kwargs)
+        flow_config = SessionFlowConfig(
+            config_path=str(config_path),
             subject_id=subject_id,
             session_id=session_id,
             skip_bpod=skip_bpod,
             skip_pose=skip_pose,
             skip_nwb_validation=skip_validation,
         )
+
+        # Run flow with Pydantic model
+        result = process_session_flow(config=flow_config)
 
         display_session_result(result)
         raise typer.Exit(0 if result.success else 1)
@@ -112,9 +116,9 @@ def batch(
         console.print(f"  Max parallel: [yellow]{max_parallel}[/yellow]")
         console.print()
 
-        # Run batch flow
-        result = batch_process_flow(
-            config_path=config_path,
+        # Create Pydantic config model (flow expects this, not individual kwargs)
+        flow_config = BatchFlowConfig(
+            config_path=str(config_path),
             subject_filter=subject_filter,
             session_filter=session_filter,
             max_parallel=max_parallel,
@@ -122,6 +126,9 @@ def batch(
             skip_pose=skip_pose,
             skip_nwb_validation=skip_validation,
         )
+
+        # Run batch flow with Pydantic model
+        result = batch_process_flow(config=flow_config)
 
         display_batch_result(result)
         raise typer.Exit(0 if result.failed == 0 else 1)

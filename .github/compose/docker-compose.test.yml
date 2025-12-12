@@ -1,0 +1,58 @@
+# Docker Compose for CI/CD Testing Only
+# This file is NOT for production use - users should run workers manually
+# See docs/MIGRATION_GUIDE.md for production deployment
+
+services:
+  # PostgreSQL database for Prefect server (testing only)
+  postgres:
+    image: postgres:14-alpine
+    container_name: w2t-test-postgres
+    environment:
+      POSTGRES_USER: prefect
+      POSTGRES_PASSWORD: prefect
+      POSTGRES_DB: prefect
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prefect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data # Use tmpfs for faster CI tests
+    networks:
+      - w2t-test
+
+  # Prefect worker for integration tests
+  worker:
+    build:
+      context: ../../ # Repository root (relative to .github/compose/)
+      dockerfile: docker/Dockerfile
+    image: w2t-bkin:test-worker
+    container_name: w2t-test-worker
+    environment:
+      # Connect to Prefect server on host
+      PREFECT_API_URL: http://host.docker.internal:4200/api
+      WORK_POOL: process-pool
+      PREFECT_LOGGING_LEVEL: DEBUG
+      # Data paths
+      DATA_ROOT: /data
+      MODELS_ROOT: /models
+      CONFIG_ROOT: /configs
+      OUTPUT_ROOT: /output
+    volumes:
+      # Mount test fixtures
+      - ../../tests/fixtures:/data:ro
+      - ../../models:/models:ro
+      - ../../configs:/configs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - w2t-test
+    extra_hosts:
+      # Allow worker to connect to host services (Prefect server)
+      - "host.docker.internal:host-gateway"
+
+networks:
+  w2t-test:
+    driver: bridge
+    name: w2t-test-network

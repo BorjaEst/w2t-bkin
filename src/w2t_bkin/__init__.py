@@ -75,6 +75,8 @@ from .core import session
 from .ingest import behavior, bpod, pose, ttl
 from .processors import facemap, transcode
 
+__version__ = "0.0.11"
+
 __all__ = [
     "behavior",
     "bpod",

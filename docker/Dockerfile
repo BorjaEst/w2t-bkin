@@ -172,8 +172,8 @@ ENV WORK_POOL=process-pool
 ENV WORKER_NAME=worker
 ENV PREFECT_LOGGING_LEVEL=INFO
 
-# Copy worker entrypoint script
-COPY --chown=w2t:w2t --chmod=755 start-worker.sh /usr/local/bin/start-worker.sh
+# Copy worker entrypoint script (from docker/ subdirectory since build context is repo root)
+COPY --chown=w2t:w2t --chmod=755 docker/start-worker.sh /usr/local/bin/start-worker.sh
 
 # Volume mount points (documentation)
 VOLUME ["/data", "/models", "/configs", "/output"]

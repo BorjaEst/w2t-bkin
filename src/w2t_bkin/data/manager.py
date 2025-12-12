@@ -299,12 +299,6 @@ def init_experiment(
 
     console.print(f"[green]✓[/green] Created config: {config_path.relative_to(root_path)}")
 
-    console.print(f"\n[bold green]✓ Experiment initialized successfully![/bold green]")
-    console.print(f"\nNext steps:")
-    console.print(f"  1. Add subjects: [cyan]python -m w2t_bkin.cli data add-subject {root_path} <subject-id>[/cyan]")
-    console.print(f"  2. Edit metadata: [dim]{metadata_path}[/dim]")
-    console.print(f"  3. Edit config: [dim]{config_path}[/dim]")
-
     return True
 
 

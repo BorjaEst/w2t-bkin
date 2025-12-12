@@ -149,11 +149,13 @@ This creates two deployments:
 - `process-session`: Single session processing with example defaults
 - `batch-processing`: Parallel batch processing with environment-controlled defaults
 
-**Manual Deployment** (if needed):
+**Deployment Creation** is handled automatically by `w2t-bkin server start`, which creates deployments using the Python API for automatic schema discovery from your Pydantic models.
+
+**Manual deployment** (if needed for custom workflows):
 
 ```bash
-# From Docker container
-docker compose exec server python /usr/local/bin/deploy_flows.py
+# From Python environment where w2t-bkin is installed
+python -c "from w2t_bkin.cli.server import _create_deployments; _create_deployments()"
 ```
 
 **Why Python API instead of YAML?** Prefect automatically discovers parameter schemas from your Pydantic models, eliminating manual schema writing and preventing drift between code and configuration.
@@ -224,7 +226,7 @@ from w2t_bkin.flows import process_session_flow, SessionFlowConfig
 
 # Create config
 config = SessionFlowConfig(
-    config_path="/configs/standard.toml",
+    config_path="configs/standard.toml",
     subject_id="subject-001",
     session_id="session-001",
     skip_nwb_validation=True
@@ -242,7 +244,7 @@ print(f"NWB file: {result.nwb_path}")
 from w2t_bkin.flows import batch_process_flow, BatchFlowConfig
 
 config = BatchFlowConfig(
-    config_path="/configs/standard.toml",
+    config_path="configs/standard.toml",
     subject_filter="subject-*",
     session_filter="session-00*",
     max_parallel=4,
@@ -290,10 +292,10 @@ from w2t_bkin.flows import process_session_flow, SessionFlowConfig
 process_session_flow.deploy(
     name="my-custom-deployment",
     work_pool_name="my-work-pool",
-    image="ghcr.io/myorg/w2t-bkin:custom",
+    image="ghcr.io/borjaest/w2t-bkin:latest",
     parameters={
         "config": SessionFlowConfig(
-            config_path="/my/custom/config.toml",
+            config_path="configs/custom.toml",
             skip_nwb_validation=True
         ).model_dump()
     },
@@ -325,47 +327,57 @@ Prefect automatically generates UI forms from the `SessionFlowConfig` Pydantic m
 
 ### Process Single Session
 
-**UI:** Deploy → `process-session-standard` → Run → Fill form
+**UI:** Deploy → `process-session` → Run → Fill form
 
 **CLI:**
 
 ```bash
-prefect deployment run w2t-bkin/process-session-standard \
-  --param config='{"config_path": "/configs/standard.toml", "subject_id": "subject-001", "session_id": "session-001"}'
+# Via w2t-bkin CLI (recommended)
+w2t-bkin run configs/standard.toml subject-001 session-001
+
+# Or via Prefect CLI
+prefect deployment run w2t-bkin/process-session \
+  --param config='{"config_path": "configs/standard.toml", "subject_id": "subject-001", "session_id": "session-001"}'
 ```
 
 ### Process All Sessions for Subject
 
-**UI:** Deploy → `batch-process-standard` → Run → Set `subject_filter="subject-001"`
+**UI:** Deploy → `batch-process` → Run → Set `subject_filter="subject-001"`
 
 **CLI:**
 
 ```bash
-prefect deployment run w2t-bkin/batch-process-standard \
-  --param config='{"config_path": "/configs/standard.toml", "subject_filter": "subject-001"}'
+# Via w2t-bkin CLI (recommended)
+w2t-bkin batch configs/standard.toml --subject subject-001
+
+# Or via Prefect CLI
+prefect deployment run w2t-bkin/batch-process \
+  --param config='{"config_path": "configs/standard.toml", "subject_filter": "subject-001"}'
 ```
 
 ### Process Specific Session Pattern
 
-**UI:** Deploy → `batch-process-standard` → Run → Set `session_filter="session-00*"`
+**UI:** Deploy → `batch-process` → Run → Set `session_filter="session-00*"`
 
 **CLI:**
 
 ```bash
-prefect deployment run w2t-bkin/batch-process-standard \
-  --param config='{"config_path": "/configs/standard.toml", "session_filter": "session-00*", "max_parallel": 8}'
+# Via w2t-bkin CLI (recommended)
+w2t-bkin batch configs/standard.toml --session "session-00*" --max-workers 8
+
+# Or via Prefect CLI
+prefect deployment run w2t-bkin/batch-process \
+  --param config='{"config_path": "configs/standard.toml", "session_filter": "session-00*", "max_parallel": 8}'
 ```
 
 ### High-Throughput Processing
 
-Use the pre-configured high-throughput deployment:
-
 ```bash
-prefect deployment run w2t-bkin/batch-process-high-throughput \
-  --param config='{"config_path": "/configs/standard.toml"}'
-```
+# Via w2t-bkin CLI with many workers
+w2t-bkin batch configs/standard.toml --max-workers 16 --skip-validation
 
-This automatically uses 16 parallel workers and disables validation.
+# Or via Prefect UI: Deployments → batch-process → set max_parallel=16
+```
 
 ## Validation Examples
 

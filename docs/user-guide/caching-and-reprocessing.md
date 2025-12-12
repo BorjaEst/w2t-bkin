@@ -295,12 +295,12 @@ w2t-bkin run config.toml subject-001 session-001
 2. Is `force_rerun = true` in config?
 
    ```bash
-   grep force_rerun configuration.toml
+   grep force_rerun configs/standard.toml
    ```
 
 3. Are you processing new sessions (no cache yet)?
    ```bash
-   w2t-bkin discover config.toml --format plain
+   w2t-bkin discover configs/standard.toml --format plain
    ```
 
 ---
@@ -351,7 +351,7 @@ w2t-bkin run config.toml subject-001 session-001
 
 ### force_rerun Parameter
 
-**Location**: `configuration.toml` → `[preprocessing]`
+**Location**: `configs/standard.toml` or custom config → `[preprocessing]`
 
 ```toml
 [preprocessing]

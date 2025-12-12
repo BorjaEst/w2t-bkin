@@ -13,7 +13,7 @@ from ..data.manager import add_subject as dm_add_subject
 from ..data.manager import import_raw_data as dm_import_raw_data
 from ..data.manager import init_experiment as dm_init_experiment
 from ..data.manager import validate_experiment_structure as dm_validate_structure
-from .utils import console, copy_docker_compose_template, create_startup_scripts, generate_docker_env
+from .utils import console, generate_docker_env
 
 data_app = typer.Typer(name="data", help="Experiment data management")
 
@@ -76,55 +76,37 @@ def init(
         console.print("[red]✗ Failed to initialize experiment[/red]")
         raise typer.Exit(1)
 
-    # Setup Docker environment (unless explicitly skipped)
+    # Setup Docker worker environment (unless explicitly skipped)
+    # Only needed if users want to run Docker workers instead of local workers
     if not skip_docker_env:
-        console.print("\n[cyan]🐳 Setting up Docker environment...[/cyan]")
+        console.print("\n[cyan]🐳 Setting up Docker worker environment...[/cyan]")
 
         # Create docker directory
         docker_dir = root_path / "docker"
         docker_dir.mkdir(exist_ok=True)
 
-        # Step 1: Copy docker-compose.yml to docker/
-        compose_path = docker_dir / "docker-compose.yml"
-        if copy_docker_compose_template(compose_path):
-            console.print(f"[green]✓[/green] Created docker/docker-compose.yml")
-        else:
-            console.print("[yellow]⚠ Could not create docker-compose.yml[/yellow]")
-            console.print("[dim]  You can copy it manually from the repository[/dim]")
-
-        # Step 2: Generate .env file in docker/
+        # Generate .env file for Docker workers
         env_path = docker_dir / ".env"
         try:
             generate_docker_env(root_path, env_path)
-            console.print(f"[green]✓[/green] Generated docker/.env")
+            console.print(f"[green]✓[/green] Generated docker/.env (for Docker workers)")
         except Exception as e:
             console.print(f"[yellow]⚠ Could not generate .env: {e}[/yellow]")
 
-        # Step 3: Create startup scripts
-        try:
-            create_startup_scripts(root_path)
-            console.print(f"[green]✓[/green] Created startup scripts")
+        console.print("[dim]  This .env file configures Docker workers to connect to Prefect server[/dim]")
 
-            # Show usage instructions
-            console.print("\n[bold green]✓ Experiment initialized successfully![/bold green]")
-            console.print("\n[bold]To start the pipeline:[/bold]")
+    # Show usage instructions
+    console.print("\n[bold green]✓ Experiment initialized successfully![/bold green]")
+    console.print("\n[bold]Next steps:[/bold]")
+    console.print(f"  1. Add subjects: [cyan]w2t-bkin data add-subject {root_path} <subject-id>[/cyan]")
+    console.print(f"  2. Add sessions: [cyan]w2t-bkin data add-session {root_path} <subject-id> <session-id>[/cyan]")
+    console.print(f"  3. Start server: [cyan]cd {root_path} && w2t-bkin server start[/cyan]")
+    console.print(f"  4. Use Prefect UI at [cyan]http://localhost:4200[/cyan] to run workflows")
 
-            import platform
-
-            if platform.system() == "Windows":
-                console.print(f"  1. Double-click: [cyan]{root_path / 'start-server.bat'}[/cyan]")
-                console.print(f"  2. Open browser to: [cyan]http://localhost:4200[/cyan]")
-            else:
-                console.print(f"  1. Run: [cyan]cd {root_path} && ./start-server.sh[/cyan]")
-                console.print(f"  2. Open browser to: [cyan]http://localhost:4200[/cyan]")
-
-            console.print("\n[dim]Other useful scripts:[/dim]")
-            console.print(f"  [dim]• stop-server: Stop all containers[/dim]")
-            console.print(f"  [dim]• view-logs: View container logs[/dim]")
-            console.print(f"  [dim]• open-ui: Open Prefect UI in browser[/dim]")
-
-        except Exception as e:
-            console.print(f"[yellow]⚠ Could not create startup scripts: {e}[/yellow]")
+    console.print("\n[dim]Other server commands:[/dim]")
+    console.print(f"  [dim]• w2t-bkin server stop     - Stop server[/dim]")
+    console.print(f"  [dim]• w2t-bkin server status   - Check server status[/dim]")
+    console.print(f"  [dim]• w2t-bkin server restart  - Restart server[/dim]")
 
 
 @data_app.command(name="add-subject")

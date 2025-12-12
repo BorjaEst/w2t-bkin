@@ -1,182 +1,182 @@
 # W2T Body Kinematics Pipeline (w2t-bkin)
 
-A modular, reproducible Python pipeline for processing multi-camera rodent behavior recordings into standardized **NWB (Neurodata Without Borders)** datasets.
+A modular, reproducible Python pipeline for processing multi-camera rodent behavior recordings with synchronization, pose estimation, facial metrics, and behavioral events into standardized NWB datasets.
 
-## 🚀 Quick Links
+## Features
 
-- **❓ [FAQ](docs/FAQ.md)** - Common questions and answers
-- **🔧 [Troubleshooting](docs/TROUBLESHOOTING.md)** - Solutions to common issues
-- **📚 [Full Documentation](docs/README.md)** - Complete documentation index
-- **💻 [CLI Reference](docs/cli/README.md)** - Command-line tools guide
-- **🐳 [Docker Deployment](docs/containerization/README.md)** - Container setup
-
-## ✨ Key Features
-
-- **NWB-First Architecture** - Direct NWB output, no intermediate conversions
-- **Hierarchical Metadata** - Cascading config (experiment → subject → session)
-- **Bpod Integration** - Converts Bpod `.mat` to `ndx-structured-behavior`
-- **Pose Estimation** - Imports DeepLabCut/SLEAP into `ndx-pose`
-- **Synchronization** - TTL-based alignment of video/behavior/hardware
-- **Container Orchestration** - Prefect web UI for monitoring
-- **User-Friendly CLI** - Complete command-line interface
-
-## 📋 Table of Contents
-
-1. [Prerequisites](#prerequisites)
-2. [Installation](#installation)
-3. [Quick Start](#quick-start)
-4. [Usage Examples](#usage-examples)
-5. [Documentation](#documentation)
-6. [Module Overview](#module-overview)
-7. [Contributing & License](#contributing)
-
----
+- 🧠 **NWB-Native**: Direct NWB file creation, no intermediate formats
+- 🔄 **Prefect Orchestration**: Workflow management with monitoring UI
+- 📹 **Multi-Camera Support**: Synchronized video processing with pose estimation
+- 🐭 **Behavior Analysis**: Bpod task recording and TTL synchronization
+- 🎯 **Pose Estimation**: DeepLabCut and SLEAP integration
+- 📊 **Facial Metrics**: Facemap-based facial movement analysis
+- ✅ **Validation**: Automated NWB file validation and inspection
+- 🐳 **Flexible Execution**: Local Python or Docker workers
 
 ## Prerequisites
 
-### Required
-
-- **Python 3.10+** ([Download](https://www.python.org/downloads/))
-- **Git** (for manual dependency installation)
-- **Raw data files**: Videos (`.mp4`, `.avi`), TTL pulses (`.csv`, `.mat`), Bpod data (`.mat`), pose models (DLC/SLEAP)
-
-### Optional (for Docker)
-
-- **Docker Desktop** (Windows/Mac) or **Docker Engine** (Linux)
-- **8GB+ RAM** (16GB+ recommended for parallel processing)
-- **10GB+ free disk space**
-
----
+- **Python**: 3.10
+- **Prefect**: 3.6+ (included in base installation)
+- **Rancher Desktop**: Recommended for Windows users (provides Docker runtime)
+  - Download from [rancherdesktop.io](https://rancherdesktop.io/)
+  - Installs Docker automatically
+  - No Docker knowledge required
 
 ## Installation
 
-### Option A: Docker (Recommended)
-
-**For running the complete processing pipeline with web UI.**
-
-1. **Install Docker**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or [Docker Engine](https://docs.docker.com/engine/install/) (Linux)
-2. **Install CLI tools**: `pip install w2t-bkin`
-
-✅ **Done!** All pipeline dependencies are included in the Docker image. Continue to [Quick Start](#quick-start).
-
----
-
-### Option B: Python Development
-
-**Only for developers using w2t-bkin modules (Bpod parsing, sync utilities, etc.) in custom Python applications.**
-
 ```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate  # Windows
+# Base installation (CLI + Prefect server/UI + data management)
+pip install w2t-bkin
 
-# Install manual dependency (not yet on PyPI)
-git clone https://github.com/rly/ndx-structured-behavior.git
-pip install ./ndx-structured-behavior
-
-# Install w2t-bkin with all features
-pip install w2t-bkin[full,prefect]
+# OR full installation with worker capabilities (includes ML/video processing)
+pip install w2t-bkin[worker]
 ```
 
-**Note**: `ndx-structured-behavior` must be installed manually as it's not yet on PyPI.
+**Installation guide:**
 
-This is **not needed** for pipeline processing - use Option A instead.
-
----
+- **Base**: `pip install w2t-bkin` (~30 MB, no ML dependencies)
+  - Run Prefect UI and orchestration
+  - Use Docker containers for processing (recommended)
+  - Best for most users
+- **Worker extras**: `pip install w2t-bkin[worker]` (~630 MB, includes DeepLabCut, etc.)
+  - Run processing tasks directly without Docker
+  - Good for development or machines without Docker
+  - All-in-one installation for single-user workstations
 
 ## Quick Start
 
-### 1. Initialize Experiment
+### 1. Initialize Workspace
 
 ```bash
-# Create experiment structure
-w2t-bkin data init /data/my-experiment \
-  --lab "Your Lab Name" \
-  --institution "Your Institution" \
-  --experimenters "Alice,Bob" \
-  -y
-```
-
-This creates the complete folder structure with Docker configuration and startup scripts.
-
-### 2. Start Pipeline
-
-```bash
+# Create experiment directory structure
+w2t-bkin data init /data/my-experiment
 cd /data/my-experiment
-
-# Windows: Double-click start-server.bat
-# Linux/Mac:
-./start-server.sh
 ```
 
-### 3. Open Web UI
-
-Browser → <http://localhost:4200>
-
-### 4. Add Your Data
+### 2. Add Metadata
 
 ```bash
-# Add subject and session
+# Add subject
 w2t-bkin data add-subject /data/my-experiment mouse-001 \
   --species "Mus musculus" --sex F --age P90D -y
 
+# Add session
 w2t-bkin data add-session /data/my-experiment mouse-001 session-001 \
   --description "Baseline recording" -y
 
 # Copy your raw data files
-cp /path/to/videos/* data/raw/mouse-001/session-001/Video/
-cp /path/to/ttls/* data/raw/mouse-001/session-001/TTLs/
-cp /path/to/bpod/* data/raw/mouse-001/session-001/Bpod/
-cp /path/to/dlc-model models/
+cp /path/to/videos/* /data/my-experiment/data/raw/mouse-001/session-001/Video/
+cp /path/to/ttls/* /data/my-experiment/data/raw/mouse-001/session-001/TTLs/
+cp /path/to/bpod/* /data/my-experiment/data/raw/mouse-001/session-001/Bpod/
+cp /path/to/dlc-model /data/my-experiment/models/
 ```
 
-### 5. Configure & Run
+### 3. Start Prefect Server
 
-Edit `configuration.toml` to match your setup, then in Prefect UI:
+```bash
+cd /data/my-experiment
 
-1. Navigate to **Deployments**
-2. Select **process-session**
-3. Click **Run** and fill in parameters
-4. Monitor progress in **Flow Runs**
+# Start server with automatic deployment creation
+w2t-bkin server start --config configs/standard.toml
 
-📚 **Complete guides**: [CLI Reference](docs/cli/data-management.md) | [Configuration](docs/reference/configuration-parameters.md) | [Docker Deployment](docs/containerization/README.md)
+# This will:
+# 1. Start Prefect server
+# 2. Create flow deployments (process-session, batch-process)
+# 3. Open browser to http://localhost:4200
+```
+
+### 4. Run Workflows in Prefect UI
+
+1. Open **http://localhost:4200** (opens automatically)
+2. Navigate to **Deployments**
+3. Select **process-session** or **batch-process**
+4. Click **Run** and fill in parameters:
+   - `subject_id`: mouse-001
+   - `session_id`: session-001
+5. Monitor progress in **Flow Runs** tab
+
+### 5. Start Workers
+
+**Option A: Docker Worker** (Recommended - uses pre-built image):
+
+```bash
+# Pull pre-built worker image from GitHub Container Registry
+docker pull ghcr.io/borjaest/w2t-bkin:latest
+
+# Run worker
+docker run -d \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/models:/models \
+  -v $(pwd)/configs:/configs \
+  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
+  -e WORK_POOL=docker-pool \
+  --name w2t-worker \
+  ghcr.io/borjaest/w2t-bkin:latest
+```
+
+**Option B: Local Worker** (If you installed `w2t-bkin[worker]`):
+
+```bash
+# Start local worker
+prefect worker start --pool local-pool --type process
+```
 
 ---
 
 ## Usage Examples
 
-### Process Single Session
-
-**Via Prefect UI** (Recommended):
-
-1. Open <http://localhost:4200>
-2. Deployments → **process-session** → Run
-3. Fill parameters and monitor in Flow Runs
-
-**Via CLI** (Alternative):
+### Discover Available Sessions
 
 ```bash
-prefect deployment run process-session/default \
-  --param config_path="/configs/standard.toml" \
-  --param subject_id="mouse-001" \
-  --param session_id="session-001"
-```
+# List all sessions
+w2t-bkin discover configs/standard.toml
 
-### Batch Processing
+# Filter by subject
+w2t-bkin discover configs/standard.toml --subject mouse-001
 
-```bash
-# Process multiple sessions via Prefect UI
-# Deployments → batch-processing → Run
-
-# Or use CLI batch command
-w2t-bkin batch configuration.toml --max-workers 4
+# Output formats
+w2t-bkin discover configs/standard.toml --format json
 ```
 
 ### Validate NWB Output
 
 ```bash
-w2t-bkin validate data/processed/mouse-001/session-001/*.nwb
+w2t-bkin validate /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
+```
+
+### Inspect NWB File
+
+```bash
+w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│  User                                   │
+│  1. w2t-bkin server start               │
+│  2. Open http://localhost:4200          │
+│  3. Trigger workflows in UI             │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Prefect Server (localhost:4200)        │
+│  - Flow Deployments                     │
+│  - Work Pools (docker-pool/local-pool)  │
+│  - UI Monitoring                        │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Workers                                │
+│  - Docker containers (default)          │
+│  - Local Python (if [worker] installed) │
+│  - Execute pipeline tasks               │
+└─────────────────────────────────────────┘
 ```
 
 ---
@@ -185,7 +185,9 @@ w2t-bkin validate data/processed/mouse-001/session-001/*.nwb
 
 ### User Guides
 
-- **[FAQ](docs/FAQ.md)** - Frequently asked questions (50+ answers)
+- **[Cheat Sheet](CHEATSHEET.md)** - Quick reference for common tasks
+- **[Migration Guide](docs/MIGRATION_GUIDE.md)** - Migrate from old workflow
+- **[FAQ](docs/FAQ.md)** - Frequently asked questions
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[CLI Reference](docs/cli/README.md)** - Complete command-line documentation
 
@@ -195,305 +197,156 @@ w2t-bkin validate data/processed/mouse-001/session-001/*.nwb
 - **[Architecture Diagram](docs/reference/architecture_diagram.mmd)** - System design
 - **[Prefect UI Guide](docs/reference/prefect-ui-configuration.md)** - Orchestration setup
 
-### Deployment
+### Developer Documentation
 
-- **[Docker Deployment](docs/containerization/README.md)** - Container setup
-- **[Deployment Guide](docs/containerization/deployment-guide.md)** - Detailed instructions
-
-### Developer
-
-- **[Technical Design](docs/development/design.md)** - System architecture
 - **[Requirements](docs/development/requirements.md)** - Project requirements
-- **[Development Tasks](docs/development/tasks.md)** - Roadmap
+- **[Design](docs/development/design.md)** - Technical design document
+- **[Tasks](docs/development/tasks.md)** - Development task tracking
 
 ---
 
-## Module Overview
+## Architecture & Dependencies
 
-| Module                     | Description                                               |
-| -------------------------- | --------------------------------------------------------- |
-| `w2t_bkin.ingest.behavior` | Bpod → `ndx-structured-behavior` (States, Events, Trials) |
-| `w2t_bkin.ingest.pose`     | DLC/SLEAP → `ndx-pose` format                             |
-| `w2t_bkin.ingest.ttl`      | Hardware TTL pulses → `ndx-events`                        |
-| `w2t_bkin.sync`            | Timebase alignment (video/behavior/TTLs)                  |
-| `w2t_bkin.core.session`    | Hierarchical metadata + NWB assembly                      |
-| `w2t_bkin.flows`           | Prefect orchestration (single/batch)                      |
-| `w2t_bkin.cli`             | Command-line interface                                    |
-| `w2t_bkin.data`            | Experiment structure + validation                         |
+### Deployment Options
+
+**Option 1: Server + Docker Workers (Recommended)**
+
+```bash
+# Server machine
+pip install w2t-bkin                # ~30 MB (Prefect, CLI, config)
+w2t-bkin server start              # Starts UI at localhost:4200
+
+# Docker workers (pre-built images from GitHub Container Registry)
+docker pull ghcr.io/borjaest/w2t-bkin:latest
+docker run ... ghcr.io/borjaest/w2t-bkin:latest  # Contains all ML/video dependencies
+```
+
+**Benefits:**
+
+- Clean separation: Server handles UI, workers handle processing
+- No dependency conflicts on server machine
+- Easy scaling: Run multiple Docker workers
+
+**Option 2: All-in-One Local**
+
+```bash
+# Single machine
+pip install w2t-bkin[worker]       # ~630 MB (everything)
+w2t-bkin server start --work-pool local
+prefect worker start --pool local-pool
+```
+
+**Benefits:**
+
+- Faster task startup (no container overhead)
+- Simpler setup for single-user workstations
+- Good for development and debugging
+
+### Dependency Breakdown
+
+| Component      | Base Install       | Worker Extras          |
+| -------------- | ------------------ | ---------------------- |
+| **CLI**        | ✅ Typer, Rich     | ✅                     |
+| **Prefect**    | ✅ Server + Client | ✅                     |
+| **NWB**        | ✅ PyNWB, HDMF     | ✅                     |
+| **Config**     | ✅ Pydantic, TOML  | ✅                     |
+| **Processing** | ❌                 | ✅ DeepLabCut, Facemap |
+| **Video**      | ❌                 | ✅ FFmpeg, scipy       |
+| **Validation** | ❌                 | ✅ nwbinspector        |
+| **Total Size** | ~30 MB             | ~630 MB                |
+
+---
+
+## Advanced Configuration
+
+### Custom Work Pools
+
+```bash
+# Start server with local work pool (requires [worker] extras)
+w2t-bkin server start --work-pool local
+
+# Start server with custom port
+w2t-bkin server start --port 5000
+```
+
+### Python API (Advanced Users)
+
+For scripting and automation:
+
+```python
+from w2t_bkin.api import SessionFlowConfig
+from w2t_bkin.flows import process_session_flow
+
+# Create configuration
+config = SessionFlowConfig(
+    config_path="configs/standard.toml",
+    subject_id="mouse-001",
+    session_id="session-001",
+    skip_pose=True  # Optional: skip specific steps
+)
+
+# Direct execution (no Prefect needed)
+result = process_session_flow(config=config)
+
+if result.success:
+    print(f"✓ NWB written to: {result.nwb_path}")
+```
+
+---
+
+## Development
+
+For contributors and developers:
+
+```bash
+# Clone repository
+git clone https://github.com/BorjaEst/w2t-bkin.git
+cd w2t-bkin
+
+# Install in editable mode with dev dependencies
+pip install -e .[dev,worker]
+
+# Run tests
+pytest
+
+# Format code
+black src/ tests/
+isort src/ tests/
+
+# Type checking
+mypy src/
+
+# Build Docker image locally
+docker build -f docker/Dockerfile -t w2t-bkin:dev .
+```
 
 ---
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon).
-
----
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-Apache License 2.0 - See [LICENSE](LICENSE) for details.
-
----
+Apache-2.0 - See [LICENSE](LICENSE) for details.
 
 ## Citation
 
+If you use this pipeline in your research, please cite:
+
 ```bibtex
 @software{w2t_bkin,
-  author = {Larkum Lab},
-  title = {W2T Body Kinematics Pipeline},
-  year = {2025},
-  url = {https://github.com/BorjaEst/w2t-bkin}
+  title={W2T Body Kinematics Pipeline},
+  author={Larkum Lab},
+  year={2024},
+  url={https://github.com/BorjaEst/w2t-bkin}
 }
 ```
 
 ---
 
-**Need Help?** Check [FAQ](docs/FAQ.md), [Troubleshooting](docs/TROUBLESHOOTING.md), or open a [GitHub issue](https://github.com/BorjaEst/w2t-bkin/issues).
-
----
-
-## Advanced Topics
-
-<details>
-<summary><b>📦 Complete Native Installation (No Containers)</b></summary>
-
-For development or advanced usage without containers:
-
-```bash
-# 1. Install ndx-structured-behavior from source (not on PyPI)
-git clone https://github.com/rly/ndx-structured-behavior.git
-pip install ./ndx-structured-behavior
-
-# 2. Install system dependencies
-# Ubuntu/Debian
-sudo apt-get install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# Windows
-# Download from https://ffmpeg.org/download.html
-
-# 3. Install w2t-bkin with all dependencies
-pip install w2t-bkin[full,prefect]
-
-# 4. Start local Prefect server (optional)
-prefect server start --host 0.0.0.0
-```
-
-After installation, you can run pipelines directly without containers:
-
-```bash
-# Process session locally
-w2t-bkin run configuration.toml mouse-001 session-001
-
-# Or use Python API directly
-python your_script.py
-```
-
-</details>
-
-<details>
-<summary><b>🐍 Python API Usage (Programmatic)</b></summary>
-
-For custom scripts and integration:
-
-**Using Flows (Recommended)**:
-
-```python
-from pathlib import Path
-from w2t_bkin.flows.session import process_session_flow
-
-# Process session via Prefect flow
-result = process_session_flow(
-    config_path=Path("configuration.toml"),
-    subject_id="mouse-001",
-    session_id="session-001",
-)
-
-# Check results
-if result.success:
-    print(f"✅ NWB file: {result.nwb_file}")
-    print(f"⏱ Duration: {result.duration_seconds}s")
-else:
-    print(f"❌ Error: {result.error}")
-```
-
-**Using Low-Level API**:
-
-```python
-from pathlib import Path
-from w2t_bkin.config import load_config
-from w2t_bkin.utils import load_session_metadata_and_nwb
-from w2t_bkin.ingest import bpod, ttl, pose
-from w2t_bkin.sync import align_bpod_trials_to_ttl
-
-# Load configuration
-config = load_config("configuration.toml")
-
-# Load metadata and create NWB file
-metadata, nwbfile = load_session_metadata_and_nwb(
-    config=config,
-    subject_id="mouse-001",
-    session_id="session-001"
-)
-
-# Process behavioral data
-session_dir = config.paths.raw_root / "mouse-001" / "session-001"
-bpod_data = bpod.parse_bpod(session_dir, pattern="Bpod/*.mat")
-ttl_pulses = ttl.get_ttl_pulses(session_dir, {"ttl_camera": "TTLs/*.txt"})
-
-# Continue processing...
-```
-
-See [examples/](examples/) directory for complete working examples:
-
-- `bpod_camera_sync.py` - Bpod-camera synchronization
-- `pose_camera_nwb.py` - Pose estimation NWB creation
-- `sync_recovery_demo.py` - TTL sync recovery
-
-</details>
-
-<details>
-<summary><b>🐳 Alternative Container Runtimes</b></summary>
-
-**Using Docker CLI directly** (without Rancher Desktop):
-
-```bash
-cd /data/my-experiment
-
-# Start services
-docker compose up -d
-
-# Check status
-docker compose ps
-
-# View logs
-docker compose logs -f server
-
-# Stop services
-docker compose down
-```
-
-**Using Podman** (Docker alternative):
-
-```bash
-cd /data/my-experiment
-
-# Start services
-podman-compose up -d
-
-# Check status
-podman-compose ps
-
-# Stop services
-podman-compose down
-```
-
-**Using Kubernetes/HPC Clusters**:
-
-For deployment on high-performance computing clusters, see [docs/containerization/deployment-guide.md](docs/containerization/deployment-guide.md)
-
-</details>
-
-<details>
-<summary><b>⚙️ Configuration Guide</b></summary>
-
-The pipeline uses TOML configuration files for all settings.
-
-**Pipeline Configuration** (`configuration.toml`):
-
-```toml
-[project]
-name = "my-experiment"
-
-[paths]
-raw_root = "data/raw"
-intermediate_root = "data/interim"
-output_root = "data/processed"
-models_root = "models"
-
-[synchronization]
-strategy = "hardware_pulse"
-reference_channel = "ttl_camera"
-
-[synchronization.alignment]
-method = "nearest"
-tolerance_s = 0.001
-
-[[bpod.sync.trial_types]]
-trial_type = 1
-sync_signal = "W2T_Audio"
-sync_ttl = "ttl_cue"
-```
-
-**Hierarchical Metadata**:
-
-Metadata cascades through multiple levels:
-
-1. `data/raw/metadata.toml` - Lab/experiment defaults
-2. `data/raw/subject-001/subject.toml` - Subject metadata
-3. `data/raw/subject-001/session-001/session.toml` - Session metadata
-
-Example `session.toml`:
-
-```toml
-session_description = "Behavioral training with pose tracking"
-identifier = "session-001"
-session_start_time = "2025-01-15T14:30:00Z"
-experimenter = ["Alice"]
-
-[subject]
-subject_id = "mouse-001"
-species = "Mus musculus"
-sex = "F"
-age = "P90D"
-
-[[cameras]]
-id = "camera_0"
-paths = "Video/cam0_*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-```
-
-See [docs/reference/configuration-parameters.md](docs/reference/configuration-parameters.md) for complete reference.
-
-</details>
-
-<details>
-<summary><b>🧪 Testing & Development</b></summary>
-
-The project includes comprehensive testing infrastructure:
-
-**Run tests**:
-
-```bash
-# Unit tests
-pytest tests/unit/ -v
-
-# Integration tests
-pytest tests/integration/ -v
-
-# All tests
-pytest tests/ -v
-```
-
-**Synthetic data generation**:
-
-```python
-from synthetic import build_raw_folder
-
-# Generate test session
-session = build_raw_folder(
-    out_root=Path("output/test/raw"),
-    project_name="test-project",
-    subject_id="subject-001",
-    session_id="session-001",
-    camera_ids=["cam0", "cam1"],
-    ttl_ids=["ttl_camera", "ttl_bpod"],
-    n_frames=300,
-    n_trials=10,
-)
-```
-
-</details>
+## Support
+
+- **Issues**: https://github.com/BorjaEst/w2t-bkin/issues
+- **Discussions**: https://github.com/BorjaEst/w2t-bkin/discussions
+- **Documentation**: https://github.com/BorjaEst/w2t-bkin/tree/main/docs

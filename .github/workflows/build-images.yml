@@ -24,10 +24,6 @@ jobs:
       packages: write
       security-events: write
 
-    strategy:
-      matrix:
-        target: [server, worker]
-
     steps:
       - name: Prepare image name
         id: image-name
@@ -72,26 +68,26 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}
           tags: |
-            type=ref,event=branch,suffix=-${{ matrix.target }}
-            type=ref,event=pr,suffix=-${{ matrix.target }}
-            type=semver,pattern={{version}},suffix=-${{ matrix.target }}
-            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.target }}
-            type=raw,value=latest-${{ matrix.target }},enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
           labels: |
-            org.opencontainers.image.title=w2t-bkin-${{ matrix.target }}
-            org.opencontainers.image.description=W2T Body Kinematics Pipeline - ${{ matrix.target }} container
+            org.opencontainers.image.title=w2t-bkin
+            org.opencontainers.image.description=W2T Body Kinematics Pipeline - Worker container
 
-      - name: Build and push ${{ matrix.target }} image
+      - name: Build and push worker image
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
-          target: ${{ matrix.target }}
+          file: docker/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
           platforms: linux/amd64
           # Temporarily disabled arm64 due to disk space constraints
           # platforms: linux/amd64,linux/arm64
@@ -100,17 +96,17 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-${{ matrix.target }}
+          image-ref: ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}
           format: 'sarif'
-          output: 'trivy-results-${{ matrix.target }}.sarif'
+          output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy results to GitHub Security
         if: github.event_name != 'pull_request'
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: 'trivy-results-${{ matrix.target }}.sarif'
-          category: 'trivy-${{ matrix.target }}'
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-worker'
 
       - name: Image digest
         if: github.event_name != 'pull_request'
@@ -142,33 +138,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull images
+      - name: Pull worker image
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-server
-          docker pull ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker
+          docker pull ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}
 
-      - name: Test server image
-        run: |
-          # Test that image runs and has correct dependencies
-          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-server python -c "import prefect; print(f'Prefect version: {prefect.__version__}')"
-          
-      - name: Test worker image
+      - name: Test worker image - CLI
         run: |
           # Test that CLI is available
-          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker python -m w2t_bkin.cli --version
+          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }} python -m w2t_bkin.cli --version
+
+      - name: Test worker image - Dependencies
+        run: |
+          # Test Prefect
+          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }} python -c "import prefect; print(f'Prefect version: {prefect.__version__}')"
           # Test ffmpeg
-          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker ffmpeg -version
+          docker run --rm ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }} ffmpeg -version
 
       - name: Test image size
         run: |
-          SERVER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-server --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
-          WORKER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }}-worker --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
-          echo "Server image size: ${SERVER_SIZE} GB"
+          WORKER_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ steps.image-name.outputs.value }}:${{ github.ref_name }} --format='{{.Size}}' | awk '{print $1/1024/1024/1024}')
           echo "Worker image size: ${WORKER_SIZE} GB"
-          # Warn if over 2GB
-          if (( $(echo "$SERVER_SIZE > 2" | bc -l) )); then
-            echo "::warning::Server image exceeds 2GB"
-          fi
-          if (( $(echo "$WORKER_SIZE > 2" | bc -l) )); then
-            echo "::warning::Worker image exceeds 2GB"
+          # Warn if over 3GB (worker has ML dependencies)
+          if (( $(echo "$WORKER_SIZE > 3" | bc -l) )); then
+            echo "::warning::Worker image exceeds 3GB"
           fi

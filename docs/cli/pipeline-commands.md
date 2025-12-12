@@ -1,50 +1,148 @@
 # Pipeline Commands
 
-Commands for processing behavioral and kinematic data through the w2t-bkin pipeline.
+Commands for running the w2t-bkin processing pipeline using Prefect orchestration.
 
-## `run` - Process Single Session
+## Overview
 
-Execute the complete pipeline for a single subject/session.
+The w2t-bkin pipeline uses a **UI-first workflow** powered by Prefect. Instead of CLI commands to run individual sessions, you:
 
-### Usage
+1. Start the Prefect server: `w2t-bkin server start`
+2. Use the Prefect UI at `http://localhost:4200` to trigger workflows
+3. Monitor execution in real-time
+
+## `server` - Prefect Server Management
+
+Manage the Prefect server for pipeline orchestration.
+
+### Server Commands
 
 ```bash
-w2t-bkin run CONFIG_PATH SUBJECT_ID SESSION_ID [OPTIONS]
+w2t-bkin server start [OPTIONS]   # Start Prefect server and create deployments
+w2t-bkin server stop               # Stop running server
+w2t-bkin server status             # Check if server is running
+w2t-bkin server restart [OPTIONS]  # Restart server
 ```
 
-### Arguments
+### Server Start Options
 
-- `CONFIG_PATH` - Path to configuration TOML file
-- `SUBJECT_ID` - Subject identifier (e.g., "subject-001")
-- `SESSION_ID` - Session identifier (e.g., "session-001")
-
-### Options
-
-- `--skip-bpod` - Skip Bpod processing
-- `--skip-pose` - Skip pose estimation
-- `--skip-ttl` - Skip TTL processing
-- `--skip-validation` - Skip NWB validation
-- `--log-level TEXT` - Logging level (DEBUG|INFO|WARNING|ERROR|CRITICAL)
+- `--config, -c PATH` - Default config file for deployments
+- `--work-pool, -w TEXT` - Work pool type (docker or local)
+- `--port, -p INT` - Prefect UI port (default: 4200)
+- `--browser/--no-browser` - Open browser automatically (default: true)
+- `--log-level TEXT` - Logging level (default: INFO)
 
 ### Examples
 
 ```bash
-# Basic usage
-w2t-bkin run config.toml subject-001 session-001
+# Start server with defaults
+w2t-bkin server start
 
-# Skip pose estimation (faster)
-w2t-bkin run config.toml subject-001 session-001 --skip-pose
+# Start with specific config
+w2t-bkin server start --config configs/standard.toml
 
-# Debug mode
-w2t-bkin run config.toml subject-001 session-001 --log-level DEBUG
+# Start with Docker work pool (recommended)
+w2t-bkin server start --work-pool docker
+
+# Start with local work pool (requires worker extras)
+w2t-bkin server start --work-pool local
+
+# Check server status
+w2t-bkin server status
+
+# Stop server
+w2t-bkin server stop
 ```
 
-### Pipeline Phases
+### What `server start` Does
 
-The `run` command executes these phases via Prefect:
+1. **Starts Prefect Server** - Launches at `http://localhost:4200`
+2. **Creates Work Pool** - Docker or local based on detection/options
+3. **Creates Deployments** - Automatically creates:
+   - `process-session` - Single session processing
+   - `batch-process` - Batch processing
+4. **Opens Browser** - Automatically opens Prefect UI
+
+---
+
+## Processing Workflows
+
+### Single Session Processing
+
+**Via Prefect UI:**
+
+1. Start server: `w2t-bkin server start`
+2. Navigate to `http://localhost:4200`
+3. Go to **Deployments** → **process-session**
+4. Click **Run**
+5. Set parameters:
+   - `config_path`: Path to configuration TOML
+   - `subject_id`: Subject identifier (e.g., "subject-001")
+   - `session_id`: Session identifier (e.g., "session-001")
+   - `skip_bpod`: Skip Bpod processing (optional)
+   - `skip_pose`: Skip pose estimation (optional)
+   - `skip_nwb_validation`: Skip NWB validation (optional)
+6. Click **Submit**
+7. Monitor in **Flow Runs** tab
+
+**Via Python API:**
+
+```python
+from w2t_bkin.flows import process_session_flow
+from w2t_bkin.api import SessionFlowConfig
+
+config = SessionFlowConfig(
+    config_path="configs/standard.toml",
+    subject_id="subject-001",
+    session_id="session-001"
+)
+
+# Direct execution (no UI)
+result = process_session_flow(config=config)
+```
+
+### Batch Processing
+
+**Via Prefect UI:**
+
+1. Start server: `w2t-bkin server start`
+2. Navigate to `http://localhost:4200`
+3. Go to **Deployments** → **batch-process**
+4. Click **Run**
+5. Set parameters:
+   - `config_path`: Path to configuration TOML
+   - `subject_filter`: Glob pattern for subjects (optional)
+   - `session_filter`: Glob pattern for sessions (optional)
+   - `max_parallel`: Maximum parallel sessions (1-16, default: 4)
+   - `skip_bpod`: Skip Bpod processing (optional)
+   - `skip_pose`: Skip pose estimation (optional)
+   - `skip_nwb_validation`: Skip NWB validation (optional)
+6. Click **Submit**
+7. Monitor parallel execution in **Flow Runs** tab
+
+**Via Python API:**
+
+```python
+from w2t_bkin.flows import batch_process_flow
+from w2t_bkin.api import BatchFlowConfig
+
+config = BatchFlowConfig(
+    config_path="configs/standard.toml",
+    subject_filter="subject-001",  # Optional
+    max_parallel=4
+)
+
+# Direct execution (no UI)
+result = batch_process_flow(config=config)
+```
+
+---
+
+## Pipeline Phases
+
+Both `process-session` and `batch-process` execute these phases:
 
 1. **Initialization** - Load config and create NWBFile
-2. **Discovery** - Find and verify files
+2. **Discovery** - Find and verify raw data files
 3. **Artifact Generation** - Generate pose estimation (optional)
 4. **Ingestion** - Process Bpod, Pose, and TTL data
 5. **Assembly** - Build NWB behavior tables
@@ -52,66 +150,118 @@ The `run` command executes these phases via Prefect:
 
 ---
 
-## `batch` - Process Multiple Sessions
+## Worker Configuration
 
-Process multiple sessions in parallel using Prefect orchestration.
+The pipeline can run with two types of workers:
 
-### Batch Usage
+### Docker Workers (Recommended)
+
+- **Isolation**: Each task runs in isolated container
+- **Dependencies**: All ML/video dependencies included
+- **Setup**: Automatic via `server start --work-pool docker`
+
+**Start Docker worker:**
 
 ```bash
-w2t-bkin batch CONFIG_PATH [OPTIONS]
+# Pull pre-built worker image
+docker pull ghcr.io/borjaest/w2t-bkin:latest
+
+# Run worker
+docker run -d \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/models:/models \
+  -v $(pwd)/configs:/configs \
+  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
+  --name w2t-worker \
+  ghcr.io/borjaest/w2t-bkin:latest
 ```
 
-### Batch Arguments
+### Local Workers (Optional)
 
-- `CONFIG_PATH` - Path to configuration TOML file
+- **Performance**: Faster startup (no container overhead)
+- **Dependencies**: Requires `pip install w2t-bkin[worker]` (~630 MB)
+- **Setup**: Automatic work pool creation via `server start --work-pool local`
+- **Use case**: Development, debugging, or machines without Docker
 
-### Batch Options
-
-- `--subject, -s TEXT` - Filter by specific subject ID
-- `--session, -x TEXT` - Filter by specific session ID
-- `--max-workers, -j INT` - Maximum concurrent sessions (default: 4)
-- `--skip-bpod` - Skip Bpod processing for all sessions
-- `--skip-pose` - Skip pose estimation for all sessions
-- `--skip-validation` - Skip NWB validation for all sessions
-- `--log-level TEXT` - Logging level
-
-### Batch Examples
+**Install and start local worker:**
 
 ```bash
-# Process all sessions with 4 parallel workers
+# Install worker extras (DeepLabCut, FFmpeg, scipy, etc.)
+pip install w2t-bkin[worker]
+
+# Start worker (in separate terminal from server)
+prefect worker start --pool local-pool
+```
+
+**Note**: Local workers require all ML/video dependencies on the host machine. This can conflict with other Python environments. Docker workers are recommended for production.
+
+---
+
+## Monitoring and Debugging
+
+### Prefect UI Features
+
+- **Flow Runs** - View all executions (running, completed, failed)
+- **Logs** - Real-time logs for each flow run
+- **Task Runs** - Detailed breakdown of each pipeline phase
+- **Artifacts** - View outputs and intermediate results
+- **Retries** - Automatic retry on transient failures
+
+### Command-Line Monitoring
+
+```bash
+# Check server status
+w2t-bkin server status
+
+# View logs (if running in terminal)
+# Press Ctrl+C to stop server
+
+# Stop server
+w2t-bkin server stop
+```
+
+---
+
+## Migration from Old CLI
+
+**Old CLI (Removed):**
+
+```bash
+# ❌ No longer available
+w2t-bkin run config.toml subject-001 session-001
 w2t-bkin batch config.toml --max-workers 4
-
-# Process specific subject
-w2t-bkin batch config.toml --subject subject-001 --max-workers 2
-
-# Process specific session across all subjects
-w2t-bkin batch config.toml --session session-001
-
-# Fast processing (skip pose and validation)
-w2t-bkin batch config.toml --skip-pose --skip-validation --max-workers 8
+w2t-bkin serve-session ...
+w2t-bkin serve-batch ...
 ```
 
-### Features
+**New Workflow:**
 
-- **Automatic Retries** - 2 retry attempts with 60-second delays
-- **Parallel Execution** - Configurable worker count
-- **Graceful Errors** - Partial failures don't stop batch
-- **Aggregated Results** - Summary statistics at end
+```bash
+# ✅ Start server once
+w2t-bkin server start
+
+# ✅ Use Prefect UI for all workflows
+# Open http://localhost:4200
+# Navigate to Deployments → process-session or batch-process
+# Configure parameters via UI
+# Submit and monitor
+```
+
+See [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md) for complete migration instructions.
 
 ### With Prefect UI
 
-For real-time monitoring:
+For real-time monitoring and batch processing:
 
 ```bash
-# Terminal 1: Start Prefect server
-docker compose up -d server
+# Start Prefect server (opens browser at http://localhost:4200)
+w2t-bkin server start
 
-# Terminal 2: Run batch processing
-w2t-bkin batch config.toml --max-workers 4
-
-# Open browser to http://localhost:4200
-# View real-time progress, logs, and statistics
+# In Prefect UI:
+# Navigate to Deployments → batch-process
+# Set parameters (config path, filters, max workers)
+# Click Run
+# Monitor real-time progress, logs, and statistics
 ```
 
 ---
@@ -198,7 +348,7 @@ w2t-bkin version
 ### Example Output
 
 ```text
-w2t-bkin version 0.0.10
+w2t-bkin version 0.0.11
 
 W2T Body Kinematics Pipeline
 Prefect-native NWB processing for behavioral neuroscience

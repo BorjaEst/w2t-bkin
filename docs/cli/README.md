@@ -85,32 +85,39 @@ w2t-bkin data --help
 w2t-bkin data init --help
 ```
 
-## Container Deployment
+### Server Management Commands
 
-For containerized deployment, use standard Docker Compose commands:
+- **`server start`** - Start Prefect server and create deployments
+- **`server stop`** - Stop the running Prefect server
+- **`server status`** - Check if Prefect server is running
+- **`server restart`** - Restart Prefect server
+
+## Starting the Prefect Server
+
+The server command starts a local Prefect server and automatically creates workflow deployments:
 
 ```bash
-# Start Prefect server
-docker compose up -d server
+# Start server (opens browser at http://localhost:4200)
+w2t-bkin server start
 
-# Start worker(s)
-docker compose up -d worker
+# Start with custom config
+w2t-bkin server start --config configs/custom.toml
 
-# Scale workers
-docker compose up -d --scale worker=4
+# Start with custom port
+w2t-bkin server start --port 5000
 
-# View status
-docker compose ps
+# Configure workers (Docker recommended, local alternative)
+w2t-bkin server start --pool docker-pool --pool-type docker  # Recommended
+w2t-bkin server start --pool local-pool --pool-type process  # Requires [worker] extras
 
-# View logs
-docker compose logs -f server
-docker compose logs -f worker
+# Check server status
+w2t-bkin server status
 
-# Stop all services
-docker compose down
+# Stop server
+w2t-bkin server stop
 ```
 
-The `.env` file for Docker is automatically generated during `data init`.
+After starting the server, use the Prefect UI at http://localhost:4200 to trigger workflows.
 
 ## CLI vs Prefect UI vs Python API
 
@@ -119,7 +126,7 @@ Choose the right interface for your workflow:
 | Interface            | Best For                                                                    | Advantages                                                                                | Limitations                                                               |
 | -------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | **CLI (`w2t-bkin`)** | • Project setup<br>• Quick tests<br>• Single sessions<br>• Debugging        | • Fast to use<br>• No browser needed<br>• Scriptable<br>• Immediate feedback              | • Limited parallelism<br>• No visual monitoring<br>• Manual batch control |
-| **Prefect UI**       | • Production runs<br>• Batch processing<br>• Team workflows<br>• Monitoring | • Visual progress<br>• Real-time logs<br>• Retry management<br>• True parallelism         | • Requires Docker setup<br>• Browser-based<br>• Slightly more complex     |
+| **Prefect UI**       | • Production runs<br>• Batch processing<br>• Team workflows<br>• Monitoring | • Visual progress<br>• Real-time logs<br>• Retry management<br>• True parallelism         | • Requires server start<br>• Browser-based                                |
 | **Python API**       | • Custom workflows<br>• Jupyter notebooks<br>• Integration<br>• Automation  | • Full flexibility<br>• Programmatic control<br>• Custom parameters<br>• Embedded in code | • Requires Python knowledge<br>• No built-in UI<br>• Manual orchestration |
 
 ### Decision Guide
@@ -169,26 +176,31 @@ w2t-bkin data add-subject /data/experiment-2024 mouse-002 --species "Mus musculu
 w2t-bkin data add-session /data/experiment-2024 mouse-001 session-001 -y
 w2t-bkin data add-session /data/experiment-2024 mouse-001 session-002 -y
 
-# Copy data files...
-# Edit configs...
+# Import raw data files
+w2t-bkin data import-raw /data/experiment-2024 mouse-001 session-001 /source/videos
 
-# Test single session
-w2t-bkin run config.toml mouse-001 session-001
+# Start Prefect server and use UI to trigger workflows
+cd /data/experiment-2024
+w2t-bkin server start
+# Opens browser at http://localhost:4200
 ```
 
 #### Workflow 2: Production Batch Processing (Prefect UI)
 
 ```bash
-# Start server once
-docker compose up -d
+# Start server
+cd /data/experiment-2024
+w2t-bkin server start
 
-# Open browser to http://localhost:4200
-# Navigate to Deployments → batch-processing
-# Set parameters:
-#   - config_path: /configs/container.toml
-#   - max_parallel: 8
+# Server automatically:
+# - Creates deployments (process-session, batch-process)
+# - Opens browser at http://localhost:4200
+
+# In Prefect UI:
+# Navigate to Deployments → batch-process
+# Set parameters via UI (config path, filters, max_parallel)
 # Click Run
-# Monitor in Flow Runs tab
+# Monitor progress in Flow Runs tab
 ```
 
 #### Workflow 3: Custom Analysis Pipeline (Python API)
@@ -221,26 +233,28 @@ print(f"Processed {len(successful)}/{len(results)} sessions")
 
 ### Migration Path
 
-Start with CLI for setup, migrate to Prefect UI for production:
+Start with CLI for setup, use Prefect UI for production:
 
-1. **Week 1**: Use CLI to set up experiment and test pipeline
+1. **Initial Setup**: Use CLI to create experiment structure
 
    ```bash
-   w2t-bkin data init ...
+   w2t-bkin data init /data/experiment
+   w2t-bkin data add-subject ...
+   w2t-bkin data add-session ...
+   ```
+
+2. **Test Pipeline**: Run single session via CLI
+
+   ```bash
    w2t-bkin run config.toml subject-001 session-001
    ```
 
-2. **Week 2**: Validate results, then set up Docker
-
+3. **Production Processing**: Start server and use Prefect UI
    ```bash
-   cd /data/experiment
-   docker compose up -d
+   w2t-bkin server start
+   # Opens browser at http://localhost:4200
+   # Use UI to run batch-process deployment
    ```
-
-3. **Week 3+**: Use Prefect UI for all batch processing
-   - Browser → http://localhost:4200
-   - Deployments → batch-processing → Run
-   - Monitor progress, check logs, review results
 
 ## Design Philosophy
 
@@ -250,7 +264,6 @@ The CLI follows these principles:
 2. **Prefect-First**: Commands invoke Prefect flows for consistency
 3. **User-Friendly**: Rich output, clear error messages, helpful hints
 4. **Safe Defaults**: Dry-run modes, confirmations for destructive operations
-5. **Standard Tools**: Use docker-compose directly, not custom wrappers
 
 ## Architecture
 

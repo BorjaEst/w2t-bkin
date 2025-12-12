@@ -1,258 +1,220 @@
-# Container Deployment
+# W2T-BKIN Docker Configuration
 
-This directory contains the containerization setup for w2t-bkin.
+This directory contains the Docker configuration for running w2t-bkin workers in containerized environments.
+
+**Note**: For users on Windows, we recommend [Rancher Desktop](https://rancherdesktop.io/) as it provides Docker runtime automatically without requiring Docker knowledge.
+
+## Prerequisites
+
+- **Rancher Desktop** (recommended for Windows)
+  - Download from [rancherdesktop.io](https://rancherdesktop.io/)
+  - Provides Docker automatically
+  - No Docker knowledge required
+- **OR Docker Desktop** (alternative)
 
 ## Quick Start
 
-### 1. Install Container Runtime
+### Using Pre-built Images (Recommended for Users)
 
-**Recommended: Podman Desktop** (free, open-source)
-
-- Download from: https://podman-desktop.io/downloads
-
-**Alternative: Docker**
-
-- Download from: https://docs.docker.com/get-docker/
-- ⚠️ Note: Docker Desktop requires paid license for organizations >250 employees
-
-### 2. Install w2t-bkin CLI
-
-Choose installation method based on your needs:
-
-**Option A: Minimal CLI Only** (Quick, ~30 seconds)
+Pull and run the official pre-built worker image from GitHub Container Registry:
 
 ```bash
-# For container management only
-pip install w2t-bkin
+# Pull latest worker image
+docker pull ghcr.io/borjaest/w2t-bkin:latest
+
+# Run worker (connects to Prefect server on host)
+docker run -d \
+  --name w2t-worker \
+  -v /path/to/data:/data:ro \
+  -v /path/to/models:/models:ro \
+  -v /path/to/configs:/configs:ro \
+  -v /path/to/output:/data/processed:rw \
+  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
+  -e WORK_POOL=process-pool \
+  ghcr.io/borjaest/w2t-bkin:latest
+
+# Check logs
+docker logs -f w2t-worker
+
+# Stop worker
+docker stop w2t-worker
+docker rm w2t-worker
 ```
 
-**Option B: Full Pipeline** (~15 minutes)
+### Manual Build (For Development)
+
+Build the worker image from repository root:
 
 ```bash
-# For local processing + container management
-pip install w2t-bkin[full]
+# CORRECT: Build from repository root with explicit Dockerfile path
+docker build -f docker/Dockerfile -t ghcr.io/borjaest/w2t-bkin:dev .
+
+# WRONG: This will fail because context is docker/ directory
+docker build -t ghcr.io/borjaest/w2t-bkin:dev docker
 ```
-
-**Note**: For container-based processing, Option A is sufficient. The containers include all heavy dependencies (PyTorch, DeepLabCut, etc.). Use Option B only if you need to run pipelines locally without containers.
-
-### 3. Start Server
-
-```bash
-w2t-bkin container start-server
-
-# Access web UI at http://localhost:4200
-```
-
-### 4. Start Workers
-
-```bash
-# Start 4 worker containers
-w2t-bkin container start-worker --workers 4
-```
-
-### 4. Run Pipeline
-
-```bash
-# Process all sessions
-w2t-bkin batch config.toml --max-workers 4
-
-# Or process specific subject
-w2t-bkin batch config.toml --subject subject-001 --max-workers 2
-```
-
-### 5. Stop Containers
-
-```bash
-w2t-bkin container stop
-```
-
-## Commands
-
-### Server Management
-
-```bash
-# Start server (default port 4200)
-w2t-bkin container start-server
-
-# Start on different port
-w2t-bkin container start-server --port 4201
-
-# Watch logs in foreground
-w2t-bkin container start-server --follow
-```
-
-### Worker Management
-
-```bash
-# Start workers
-w2t-bkin container start-worker --workers 4
-
-# With custom config
-w2t-bkin container start-worker --workers 2 --config ./configs/custom.toml
-```
-
-### Monitoring
-
-```bash
-# Show status of all containers
-w2t-bkin container status
-
-# View server logs
-w2t-bkin container logs server
-
-# Follow worker logs
-w2t-bkin container logs worker --follow
-
-# View last 100 lines
-w2t-bkin container logs server --tail 100
-```
-
-## Configuration
-
-### Environment Variables
-
-The CLI automatically generates `.env` files when initializing experiments:
-
-```bash
-# Initialize experiment (creates docker/.env automatically)
-w2t-bkin data init /data/my-experiment --lab "Lab Name" -y
-```
-
-For manual configuration, you can reference the template:
-
-```bash
-# View the template
-cat ~/.local/lib/python3.10/site-packages/w2t_bkin/templates/.env.template
-
-# Or copy from repository root (for developers)
-cp .env.template docker/.env
-```
-
-Key variables (automatically configured by CLI):
-
-- `DATA_ROOT`: Path to raw data directory
-- `MODELS_ROOT`: Path to pose estimation models
-- `CONFIG_ROOT`: Path to experiment configuration
-- `OUTPUT_ROOT`: Path for processed outputs
-- `WORKER_REPLICAS`: Number of workers to start
-- `PREFECT_UI_PORT`: Port for web UI (default: 4200)
-
-### Volume Mounts
-
-Data is mounted into containers (not copied):
-
-- `/data` - Raw data (read-only)
-- `/models` - Pose models (read-only)
-- `/configs` - Configuration files (read-only)
-- `/data/interim` - Intermediate outputs (read-write)
-- `/data/processed` - Final outputs (read-write)
-
-## Development
-
-### Local Development with Hot-Reload
-
-```bash
-# Start with development compose file
-podman compose -f docker-compose.yml -f docker-compose.dev.yml up
-
-# Changes to src/ automatically reflected in containers
-```
-
-### Build Images Locally
-
-```bash
-# Build server image
-podman build --target server -t w2t-bkin:server .
-
-# Build worker image
-podman build --target worker -t w2t-bkin:worker .
-
-# Or use compose
-podman compose build
-```
-
-## Troubleshooting
-
-### "No container runtime detected"
-
-- Install Podman Desktop or Docker
-- Restart terminal after installation
-- Verify: `podman --version` or `docker --version`
-
-### "Connection refused on port 4200"
-
-- Check if server is running: `podman ps | grep server`
-- View logs: `w2t-bkin container logs server`
-- Try different port: `w2t-bkin container start-server --port 4201`
-
-### "Permission denied" errors
-
-- Use Podman (better permission handling than Docker)
-- Check file ownership: `ls -l /your/data/path`
-- Ensure container user (uid 1000) can access files
-
-### Workers not appearing in UI
-
-- Wait 30 seconds (registration takes time)
-- Check logs: `w2t-bkin container logs worker`
-- Verify server is running: `w2t-bkin container status`
-
-## Architecture
-
-```
-┌─────────────────┐
-│   User Machine  │
-│                 │
-│  CLI Wrapper    │
-└────────┬────────┘
-         │
-         ▼
-┌────────────────────────────┐
-│  Container Runtime         │
-│  (Podman/Docker/Apptainer) │
-└──────┬─────────────────────┘
-       │
-       ├──► PostgreSQL (database)
-       │
-       ├──► Prefect Server (orchestrator)
-       │    └─► Web UI :4200
-       │
-       └──► Workers (executors)
-            ├─► Worker 1
-            ├─► Worker 2
-            └─► Worker N
-```
-
-## Documentation
-
-- **Full Guide**: [docs/containerization/deployment-guide.md](docs/containerization/deployment-guide.md)
-- **HPC Deployment**: [docs/containerization/hpc-guide.md](docs/containerization/hpc-guide.md)
-- **Requirements**: [docs/containerization/requirements.md](docs/containerization/requirements.md)
-- **Architecture**: [docs/containerization/design.md](docs/containerization/design.md)
-- **Tasks**: [docs/containerization/tasks.md](docs/containerization/tasks.md)
 
 ## Files
 
-| File                     | Purpose                                  |
-| ------------------------ | ---------------------------------------- |
-| `Dockerfile`             | Multi-stage build (base, server, worker) |
-| File                     | Purpose                                  |
-| ------------------------ | ---------------------------------------- |
-| `Dockerfile`             | Multi-stage build (base, server, worker) |
-| `docker-compose.yml`     | Production deployment                    |
-| `docker-compose.dev.yml` | Development overrides                    |
-| `docker/start-server.sh` | Server entrypoint script                 |
-| `docker/start-worker.sh` | Worker entrypoint script                 |
-| `.dockerignore`          | Build optimization                       |
+- **Dockerfile**: Multi-stage worker image with optimized layer caching
+- **start-worker.sh**: Entrypoint script for Prefect worker containers
+- **README.md**: This file
 
-**Templates** (bundled in package at `src/w2t_bkin/templates/`):
+## Build Context
 
-- `.env.template` - Environment variables template
-- `docker-compose.yml.template` - Compose configuration template
-- `scripts/*.template` - Startup scripts for experiments
+**Critical**: The Dockerfile must be built from the **repository root** (`.`) as the build context because it needs access to:
 
-## Support
+- `src/` - Python package source code
+- `nwb-extensions/` - Git submodules with NWB extensions
+- `pyproject.toml` - Package dependencies
+- `README.md` - Package metadata
 
-- **Issues**: <https://github.com/BorjaEst/w2t-bkin/issues>
-- **Discussions**: <https://github.com/BorjaEst/w2t-bkin/discussions>
-- **Documentation**: <https://github.com/BorjaEst/w2t-bkin/tree/main/docs>
+**Correct build command:**
+
+```bash
+docker build -f docker/Dockerfile -t w2t-bkin:worker .
+#            ^^^ Specify Dockerfile      Tag       ^^^ Context = repo root
+```
+
+## Environment Variables
+
+Configure worker behavior via environment variables (in `.env` file or `docker run -e` flags):
+
+### Prefect Connection
+
+- `PREFECT_API_URL`: Prefect server URL (default: `http://host.docker.internal:4200/api`)
+- `WORK_POOL`: Work pool name (default: `process-pool`)
+- `WORKER_NAME`: Worker identifier (default: `worker`)
+- `PREFECT_LOGGING_LEVEL`: Log verbosity (default: `INFO`)
+
+### Data Paths
+
+- `DATA_ROOT`: Mount point for data directory (default: `/data`)
+- `MODELS_ROOT`: Mount point for models (default: `/models`)
+- `CONFIG_ROOT`: Mount point for configs (default: `/configs`)
+- `OUTPUT_ROOT`: Mount point for outputs (default: `/output`)
+
+### Resource Limits
+
+- `WORKER_REPLICAS`: Number of worker containers (default: `1`)
+- `WORKER_CPU_LIMIT`: Max CPU cores per worker (default: `4`)
+- `WORKER_MEMORY_LIMIT`: Max memory per worker (default: `8G`)
+- `WORKER_CPU_RESERVATION`: Reserved CPU cores (default: `1`)
+- `WORKER_MEMORY_RESERVATION`: Reserved memory (default: `2G`)
+
+## Architecture
+
+The Docker deployment uses **Prefect Process Work Pools**:
+
+1. **PostgreSQL**: Prefect backend database
+2. **Prefect Server**: Orchestration server with web UI (port 4200)
+3. **Workers**: Execute pipeline flows as subprocesses
+
+**Why Process Pools?**
+
+- ✅ No Docker socket access required (better security)
+- ✅ No container-in-container overhead
+- ✅ Predictable resource usage
+- ✅ Simpler debugging with unified logs
+- ✅ Fast startup times
+
+## Image Tags
+
+Production images are published to GitHub Container Registry (GHCR):
+
+- `ghcr.io/borjaest/w2t-bkin:latest` - Latest stable release
+- `ghcr.io/borjaest/w2t-bkin:v0.0.10` - Specific version
+- `ghcr.io/borjaest/w2t-bkin:dev` - Development branch builds
+
+## Layer Caching Strategy
+
+The Dockerfile uses an optimized layer ordering to maximize Docker cache reuse:
+
+1. **NWB extensions** (rarely change) → Cached
+2. **pyproject.toml** (occasionally changes) → Triggers dependency rebuild
+3. **Dummy package + pip install** (10+ min) → Only when deps change
+4. **Source code** (frequently changes) → Fast rebuild (30 sec)
+
+**Result**: Editing Python code triggers only step 4, keeping rebuilds fast.
+
+## Troubleshooting
+
+### Build Fails: "/src: not found"
+
+**Problem**: Build context is set incorrectly.
+
+**Solution**: Always build from repository root:
+
+```bash
+# Correct - build from repository root
+docker build -f docker/Dockerfile -t w2t-bkin:worker .
+
+# Wrong - context is docker/ directory (can't see src/, nwb-extensions/, etc.)
+docker build -t w2t-bkin:worker docker
+```
+
+## Running Workers
+
+### Production (Manual Docker Run)
+
+```bash
+# Start Prefect server on host first
+prefect server start
+
+# In another terminal, run worker
+docker run -d \
+  --name w2t-worker \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/models:/models \
+  -v $(pwd)/configs:/configs \
+  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
+  -e WORK_POOL=process-pool \
+  w2t-bkin:worker
+```
+
+### Development (Local Python)
+
+For development, run workers locally without Docker:
+
+```bash
+# Install worker dependencies
+pip install -e .[worker]
+
+# Start worker
+prefect worker start --pool process-pool
+```
+
+### Worker Cannot Connect to Server
+
+**Problem**: `PREFECT_API_URL` points to wrong host.
+
+**Solution**: Use the correct URL for your setup:
+
+- **Docker worker → Host server**: `PREFECT_API_URL=http://host.docker.internal:4200/api`
+- **Local worker → Local server**: `PREFECT_API_URL=http://localhost:4200/api`
+
+### Submodule Errors
+
+**Problem**: NWB extension submodules not initialized.
+
+**Solution**:
+
+```bash
+git submodule update --init --recursive
+```
+
+### Permission Errors on Mounted Volumes
+
+**Problem**: Worker runs as uid 1000, host files owned by different user.
+
+**Solution**:
+
+```bash
+# Fix ownership to match container user (uid 1000)
+sudo chown -R 1000:1000 data/ models/ configs/ output/
+```
+
+## See Also
+
+- [Migration Guide](../docs/MIGRATION_GUIDE.md) - Migrating from Docker-first workflow
+- [Prefect UI Configuration](../docs/reference/prefect-ui-configuration.md) - Using the Prefect web interface
+- [Architecture Design](../docs/development/design.md) - Technical architecture overview

@@ -77,20 +77,20 @@ w2t-bkin data init /data/my-experiment \
 w2t-bkin data init /data/my-experiment --skip-docker-env -y
 ```
 
-### Docker Integration
+### Next Steps After Init
 
-By default, `data init` auto-generates a `.env` file for Docker Compose deployment. This includes:
-
-- Absolute paths for volume mounts
-- Prefect configuration
-- Resource limits
-
-To use containerized deployment after init:
+After initialization, start the Prefect server to enable workflow orchestration:
 
 ```bash
+# 1. Add subjects and sessions
+w2t-bkin data add-subject /data/my-experiment mouse-001 -y
+w2t-bkin data add-session /data/my-experiment mouse-001 session-001 -y
+
+# 2. Start the Prefect server
 cd /data/my-experiment
-docker compose up -d server
-docker compose up -d worker
+w2t-bkin server start
+
+# 3. Use the Prefect UI at http://localhost:4200 to trigger workflows
 ```
 
 ---

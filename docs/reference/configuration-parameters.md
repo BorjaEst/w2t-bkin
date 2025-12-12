@@ -543,9 +543,8 @@ Ensure these directories exist and pipeline completed initialization phase.
 
 ---
 
-## References
+## See Also
 
-- [Implementation Notes - Optional Cameras](/home/borja/w2t-bkin/temp/optional-camera-implementation.md)
-- [Implementation Notes - TTL Verification Fix](/home/borja/w2t-bkin/temp/fix-progress.md)
-- [Template Configuration](../src/w2t_bkin/templates/configuration.toml.template)
-- [Full Metadata Template](../src/w2t_bkin/templates/full-metadata.toml.template)
+- [Pipeline Commands](../cli/pipeline-commands.md) - Run and batch processing
+- [Data Management](../cli/data-management.md) - Experiment organization
+- [Caching and Reprocessing](../user-guide/caching-and-reprocessing.md) - Cache management

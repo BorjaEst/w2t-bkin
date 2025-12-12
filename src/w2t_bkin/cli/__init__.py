@@ -1,11 +1,13 @@
 """W2T-BKIN CLI - Thin presentation layer for Prefect flows.
 
 This CLI provides user-friendly commands for the w2t-bkin pipeline.
-All business logic resides in flows/ and operations/ modules.
+All processing happens through Prefect deployments in the UI.
 
 Command Structure:
-    w2t-bkin run              # Process single session
-    w2t-bkin batch            # Process multiple sessions
+    w2t-bkin server start     # Start Prefect server with deployments
+    w2t-bkin server stop      # Stop Prefect server
+    w2t-bkin server status    # Check server status
+    w2t-bkin server restart   # Restart Prefect server
     w2t-bkin discover         # List available sessions
     w2t-bkin validate         # Validate NWB file
     w2t-bkin inspect          # Inspect NWB file
@@ -15,6 +17,13 @@ Command Structure:
     w2t-bkin data add-session # Add session
     w2t-bkin data import-raw  # Import raw data
     w2t-bkin data validate    # Validate experiment structure
+
+Workflow:
+    1. w2t-bkin data init /path/to/workspace
+    2. w2t-bkin data add-subject ...
+    3. w2t-bkin data add-session ...
+    4. w2t-bkin server start
+    5. Use Prefect UI at http://localhost:4200 to run workflows
 """
 
 import typer
@@ -28,12 +37,11 @@ app = typer.Typer(
 
 # Import and register commands
 from .data import data_app
-from .pipeline import batch, discover, run, version
+from .pipeline import discover, version
+from .server import server_app
 from .validation import inspect, validate
 
 # Register root-level commands
-app.command()(run)
-app.command()(batch)
 app.command()(discover)
 app.command()(validate)
 app.command()(inspect)
@@ -41,5 +49,6 @@ app.command()(version)
 
 # Register subcommand groups
 app.add_typer(data_app, name="data")
+app.add_typer(server_app, name="server")
 
 __all__ = ["app"]
