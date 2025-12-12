@@ -78,9 +78,15 @@ def _process_pose_artifacts(discovery, session_config, skip_dlc: bool, skip_slea
     dlc_enabled = session_config.config.preprocessing.dlc.enabled
     if dlc_enabled and not skip_dlc:
         # Generate new DLC artifacts
+        force_rerun = session_config.config.preprocessing.force_rerun
+        if force_rerun:
+            run_logger.info("⚠️  force_rerun=True: Regenerating all DLC poses")
+        else:
+            run_logger.info("Using cached DLC poses (if available)")
+
         dlc_artifacts = generate_dlc_session_task(
             session_config=session_config,
-            force_rerun=False,
+            force_rerun=force_rerun,
         )
         run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
     elif dlc_enabled and skip_dlc:
@@ -349,6 +355,27 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
             subject_id=subject_id,
             session_id=session_id,
         )
+
+        # Apply configuration overrides from SessionFlowConfig
+        if config.force_rerun is not None:
+            run_logger.info(f"Overriding force_rerun: {config.force_rerun}")
+            session_config.config.preprocessing.force_rerun = config.force_rerun
+
+        if config.check_sync_mismatch is not None:
+            run_logger.info(f"Overriding check_sync_mismatch: {config.check_sync_mismatch}")
+            session_config.config.verification.check_sync_mismatch = config.check_sync_mismatch
+
+        if config.mismatch_tolerance_frames is not None:
+            run_logger.info(f"Overriding mismatch_tolerance_frames: {config.mismatch_tolerance_frames}")
+            session_config.config.verification.mismatch_tolerance_frames = config.mismatch_tolerance_frames
+
+        if config.gpu_index is not None:
+            run_logger.info(f"Overriding GPU index: {config.gpu_index}")
+            # Apply to DLC/SLEAP configs
+            if session_config.config.preprocessing.dlc.enabled:
+                session_config.config.preprocessing.dlc.gpu = config.gpu_index
+            if session_config.config.preprocessing.sleap.enabled:
+                session_config.config.preprocessing.sleap.gpu = config.gpu_index
 
         nwbfile = create_nwb_file_task(
             session_config=session_config,

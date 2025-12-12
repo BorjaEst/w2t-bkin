@@ -889,3 +889,68 @@ def validate_experiment_structure(
                         result.valid = False
 
     return result
+
+
+def validate_symlinks(root_path: Path, console: Optional[Console] = None) -> Tuple[bool, List[str]]:
+    """Validate symlinks in experiment structure.
+
+    Checks all symlinks in the data/raw directory to ensure they point to
+    existing targets. Broken symlinks are reported as issues.
+
+    Args:
+        root_path: Experiment root path
+        console: Rich console for output (optional, creates new if None)
+
+    Returns:
+        Tuple of (is_valid, list_of_issues)
+
+    Example:
+        >>> valid, issues = validate_symlinks(Path("/data/experiment"))
+        >>> if not valid:
+        ...     print(f"Found {len(issues)} broken symlinks")
+    """
+    if console is None:
+        console = Console()
+
+    issues = []
+    raw_root = root_path / "data" / "raw"
+
+    if not raw_root.exists():
+        console.print("[yellow]⚠[/yellow] No raw data directory found - skipping symlink validation")
+        return True, []
+
+    console.print("[cyan]🔍 Checking symlinks...[/cyan]")
+
+    # Find all symlinks recursively
+    symlinks = [p for p in raw_root.rglob("*") if p.is_symlink()]
+
+    if not symlinks:
+        console.print("[green]✓[/green] No symlinks found")
+        return True, []
+
+    console.print(f"Found {len(symlinks)} symlink(s)")
+
+    for link in symlinks:
+        rel_path = link.relative_to(raw_root)
+
+        try:
+            target = link.resolve(strict=True)
+            console.print(f"[green]✓[/green] {rel_path} → {target}")
+        except (FileNotFoundError, RuntimeError) as e:
+            # Symlink is broken (target doesn't exist)
+            try:
+                # Get the target path even if it doesn't exist
+                target = link.readlink() if hasattr(link, "readlink") else link.resolve(strict=False)
+            except Exception:
+                target = "unknown"
+
+            issue = f"Broken symlink: {rel_path} → {target} (target does not exist)"
+            console.print(f"[red]✗[/red] {issue}")
+            issues.append(issue)
+
+    if issues:
+        console.print(f"\n[red]Found {len(issues)} broken symlink(s)[/red]")
+        return False, issues
+    else:
+        console.print(f"\n[green]All {len(symlinks)} symlink(s) valid[/green]")
+        return True, []

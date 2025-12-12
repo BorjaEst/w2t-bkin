@@ -34,11 +34,20 @@ Used for processing a single experimental session.
 - `skip_camera_sync`: Skip camera-TTL frame counting verification (speeds up processing)
 - `skip_nwb_validation`: Skip NWB file validation
 
+**Configuration Overrides (all optional):**
+
+- `force_rerun`: Override `preprocessing.force_rerun` - regenerate all cached artifacts (boolean)
+- `check_sync_mismatch`: Override `verification.check_sync_mismatch` - skip TTL sync checks (boolean)
+- `mismatch_tolerance_frames`: Override `verification.mismatch_tolerance_frames` - max frame/TTL difference (0-100)
+- `gpu_index`: Override GPU device for pose estimation (0-7, auto-detect if not set)
+
 **Validation Rules:**
 
 - `config_path` must end with `.toml`
 - `subject_id` must match pattern: `^[\w\-]+$`
 - `session_id` must match pattern: `^[\w\-]+$`
+- `mismatch_tolerance_frames` must be between 0 and 100
+- `gpu_index` must be between 0 and 7
 
 ### BatchFlowConfig
 
@@ -63,6 +72,62 @@ Used for parallel processing of multiple sessions.
 
 - `config_path` must end with `.toml`
 - `max_parallel` must be between 1 and 16
+
+## Configuration Overrides
+
+You can override specific config parameters directly in the Prefect UI without editing your configuration file. This is useful for quick testing or one-off processing runs.
+
+### Available Overrides
+
+| Override                    | Type            | Description                          | Default (from config) |
+| --------------------------- | --------------- | ------------------------------------ | --------------------- |
+| `force_rerun`               | Boolean         | Regenerate all cached pose estimates | `false`               |
+| `check_sync_mismatch`       | Boolean         | Verify frame/TTL synchronization     | `true`                |
+| `mismatch_tolerance_frames` | Integer (0-100) | Max allowed frame/pulse difference   | `0`                   |
+| `gpu_index`                 | Integer (0-7)   | GPU device for pose estimation       | Auto-detect           |
+
+### When to Use Overrides
+
+✅ **Use overrides for:**
+
+- Quick testing of different settings
+- One-off processing with non-standard parameters
+- Debugging specific issues (e.g., disable sync checks to isolate problem)
+
+❌ **Don't use overrides for:**
+
+- Production batch processing (update config file instead)
+- Permanent changes to processing parameters
+- Settings that should be consistent across sessions
+
+### Usage Example
+
+**Via Prefect UI:**
+
+1. Go to Deployments → process-session → Run → Custom
+2. Fill required fields (config_path, subject_id, session_id)
+3. Expand **Configuration Overrides** section (if visible)
+4. Set `force_rerun = true` to regenerate poses
+5. Click Run
+
+**Via Python API:**
+
+```python
+from w2t_bkin.api import SessionFlowConfig
+from w2t_bkin.flows import process_session_flow
+
+config = SessionFlowConfig(
+    config_path="/configs/standard.toml",
+    subject_id="subject-001",
+    session_id="session-001",
+    # Override config file settings
+    force_rerun=True,
+    check_sync_mismatch=False,  # Skip sync checks
+    gpu_index=1,  # Use GPU 1 instead of auto-detect
+)
+
+result = process_session_flow(config)
+```
 
 ## Using the Prefect UI
 

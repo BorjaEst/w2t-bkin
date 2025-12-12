@@ -113,6 +113,40 @@ The CLI helps prevent mistakes and generates valid `.toml` files automatically.
 ln -s /storage/by-date/2024-01-15/videos/ data/raw/mouse-001/session-001/Video
 ```
 
+**Important:** The CLI command `w2t-bkin data validate` can check for broken symlinks (enabled by default):
+
+```bash
+w2t-bkin data validate /path/to/experiment --check-symlinks
+```
+
+### Q: Why is the directory structure so strict?
+
+**A:** The pipeline enforces a strict directory layout for several important reasons:
+
+1. **Reliability**: Predictable paths prevent runtime errors and data loss
+2. **NWB Compliance**: The structure maps directly to NWB file organization standards
+3. **Reproducibility**: Anyone can understand the experiment layout at a glance
+4. **Automation**: Tools can discover and process data without configuration
+5. **Collaboration**: Teams share a common language for data organization
+
+**The pipeline will fail immediately if**:
+
+- Required directories (`raw/`, `interim/`, `processed/`) don't exist
+- Metadata files (`metadata.toml`, `subject.toml`, `session.toml`) are missing
+- Session folders lack expected subfolders (`Video/`, `TTLs/`, `Bpod/`)
+- Symlinks are broken (if validation is enabled)
+
+**Design Philosophy**: "Fail fast, fail clearly." If something is wrong with the directory structure, you'll know immediately with a clear error message, rather than discovering issues after hours of processing.
+
+**Best Practices**:
+
+- Use `w2t-bkin data init` to create the root structure
+- Use `w2t-bkin data add-subject` and `w2t-bkin data add-session` to add entities
+- Run `w2t-bkin data validate` before starting processing runs
+- Use symlinks for flexible storage organization (but validate them regularly)
+
+**See**: [Data Management CLI Guide](cli/data-management.md) for detailed commands.
+
 ### Q: What is "hierarchical metadata"?
 
 **A:** Metadata cascades from experiment → subject → session levels:

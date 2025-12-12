@@ -124,11 +124,40 @@ config = SessionFlowConfig(
     config_path="config.toml",
     subject_id="subject-001",
     session_id="session-001",
-    # Currently force_rerun is controlled by config file only
-    # Future: may add per-flow override
+    force_rerun=True,  # Override config file setting
 )
 
 result = process_session_flow(config)
+```
+
+**Note**: You can override the config file's `force_rerun` setting using the `SessionFlowConfig` parameter. This is useful for one-off reprocessing without editing your config file.
+
+---
+
+### Verify force_rerun is Working
+
+Check your pipeline logs for confirmation that the setting is being applied:
+
+```log
+# ✅ Force rerun enabled:
+⚠️  force_rerun=True: Regenerating all DLC poses
+Running DLC inference on 5 video(s)
+
+# ❌ Force rerun disabled (using cache):
+Using cached DLC poses (if available)
+All DLC outputs cached for camera 'camera_0'
+```
+
+**Troubleshooting**: If you set `force_rerun = true` in your config file but still see "Using cached DLC poses" in the logs, ensure the setting is in the correct section:
+
+```toml
+# ✅ Correct location:
+[preprocessing]
+force_rerun = true
+
+# ❌ Wrong - this won't work:
+[preprocessing.dlc]
+force_rerun = true  # Not read from here
 ```
 
 ---

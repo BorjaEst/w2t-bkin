@@ -54,6 +54,7 @@ services:
       PREFECT_LOGGING_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
       PREFECT_LOGGING_SERVER_LEVEL: ${PREFECT_LOGGING_LEVEL:-INFO}
       # Deployment defaults (passed to deploy_flows.py)
+      WORKER_IMAGE: ${WORKER_IMAGE:-ghcr.io/borjaest/w2t-bkin:latest}
       DEFAULT_CONFIG_FILE: ${DEFAULT_CONFIG_FILE:-standard.toml}
       DEFAULT_MAX_WORKERS: ${DEFAULT_MAX_WORKERS:-4}
       DEFAULT_SUBJECT_FILTER: ${DEFAULT_SUBJECT_FILTER:-}

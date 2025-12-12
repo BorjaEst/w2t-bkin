@@ -33,7 +33,7 @@ Example:
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SessionFlowConfig(BaseModel):
@@ -109,6 +109,30 @@ class SessionFlowConfig(BaseModel):
         description="Skip NWB file validation with nwbinspector",
     )
 
+    # Configuration overrides (optional - override TOML config values)
+    force_rerun: Optional[bool] = Field(
+        None,
+        description="Override preprocessing.force_rerun from config file. "
+        "Set to true to regenerate all cached artifacts (pose estimates). "
+        "WARNING: Significantly increases processing time (requires GPU inference).",
+    )
+    check_sync_mismatch: Optional[bool] = Field(
+        None,
+        description="Override verification.check_sync_mismatch from config file. " "Set to false to skip TTL synchronization checks (useful for sessions without TTL data).",
+    )
+    mismatch_tolerance_frames: Optional[int] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="Override verification.mismatch_tolerance_frames from config file. " "Maximum allowed frame/TTL pulse count difference (0-100 frames).",
+    )
+    gpu_index: Optional[int] = Field(
+        None,
+        ge=0,
+        le=7,
+        description="GPU device to use for pose estimation (0-7). Overrides auto-detection. " "Leave empty to auto-detect available GPU.",
+    )
+
     @field_validator("config_path")
     @classmethod
     def validate_config_path(cls, v: str) -> str:
@@ -117,11 +141,12 @@ class SessionFlowConfig(BaseModel):
             raise ValueError("Config path must end with .toml")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "title": "Session Processing Configuration",
             "description": "Configuration for processing a single experimental session",
         }
+    )
 
 
 class BatchFlowConfig(BaseModel):
@@ -200,11 +225,12 @@ class BatchFlowConfig(BaseModel):
             raise ValueError("Config path must end with .toml")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "title": "Batch Processing Configuration",
             "description": "Configuration for parallel processing of multiple sessions",
         }
+    )
 
 
 __all__ = [

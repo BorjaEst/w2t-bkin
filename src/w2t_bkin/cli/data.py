@@ -279,6 +279,7 @@ def validate(
     experiment_root: Path = typer.Argument(..., help="Path to experiment root directory"),
     subject: Optional[str] = typer.Option(None, "--subject", help="Filter by specific subject ID"),
     session: Optional[str] = typer.Option(None, "--session", help="Filter by specific session ID"),
+    check_symlinks: bool = typer.Option(True, "--check-symlinks/--no-check-symlinks", help="Check for broken symlinks"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed validation info"),
 ):
     """Validate experiment folder structure and metadata.
@@ -290,11 +291,13 @@ def validate(
     - Session folders have session.toml
     - Referenced files in metadata exist
     - Camera/TTL configurations are complete
+    - Symlinks are not broken (optional, enabled by default)
 
     Example:
         $ w2t-bkin data validate /data/my-experiment
         $ w2t-bkin data validate /data/my-experiment --subject mouse-001
         $ w2t-bkin data validate /data/my-experiment --subject mouse-001 --session session-001 --verbose
+        $ w2t-bkin data validate /data/my-experiment --check-symlinks
     """
     result = dm_validate_structure(
         experiment_root=experiment_root,
@@ -302,6 +305,17 @@ def validate(
         session_filter=session,
         verbose=verbose,
     )
+
+    # Validate symlinks if requested
+    symlink_valid = True
+    if check_symlinks:
+        from ..data.manager import validate_symlinks
+
+        console.print("")  # Add spacing
+        symlink_valid, symlink_issues = validate_symlinks(experiment_root, console)
+        if not symlink_valid:
+            result.errors.extend(symlink_issues)
+            result.valid = False
 
     # Display errors
     if result.errors:
