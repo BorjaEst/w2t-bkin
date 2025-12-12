@@ -7,12 +7,12 @@ from typing import List, Optional
 from rich.prompt import Confirm, Prompt
 import typer
 
-from ..data_manager import ExperimentConfig, SessionConfig, SubjectConfig
-from ..data_manager import add_session as dm_add_session
-from ..data_manager import add_subject as dm_add_subject
-from ..data_manager import import_raw_data as dm_import_raw_data
-from ..data_manager import init_experiment as dm_init_experiment
-from ..data_manager import validate_experiment_structure as dm_validate_structure
+from ..data.manager import ExperimentConfig, SessionConfig, SubjectConfig
+from ..data.manager import add_session as dm_add_session
+from ..data.manager import add_subject as dm_add_subject
+from ..data.manager import import_raw_data as dm_import_raw_data
+from ..data.manager import init_experiment as dm_init_experiment
+from ..data.manager import validate_experiment_structure as dm_validate_structure
 from .utils import console, copy_docker_compose_template, create_startup_scripts, generate_docker_env
 
 data_app = typer.Typer(name="data", help="Experiment data management")

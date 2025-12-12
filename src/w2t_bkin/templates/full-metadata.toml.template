@@ -6,8 +6,8 @@
 # --- Required Fields ---
 
 session_description = "Behavioral training session with pose tracking and camera synchronization"
-identifier = "Session-000001"         # Unique file identifier (UUID or lab-specific ID)
-session_start_time = "2025-01-15T14:30:00"  # ISO 8601 format: YYYY-MM-DDTHH:MM:SS
+identifier = "Session-000001"                                                                     # Unique file identifier (UUID or lab-specific ID)
+session_start_time = "2025-01-15T14:30:00"                                                        # ISO 8601 format: YYYY-MM-DDTHH:MM:SS
 
 # --- Optional Metadata Fields ---
 
@@ -41,13 +41,13 @@ related_publications = []
 [subject]
 subject_id = "M001"
 description = "Adult male C57BL/6J mouse, 12 weeks old"
-species = "Mus musculus"              # Latin binomial name
-sex = "M"                              # F | M | U (unknown) | O (other)
-age = "P84D"                           # ISO 8601 Duration (e.g., P90D = 90 days)
-age__reference = "birth"               # birth | gestational
+species = "Mus musculus"                                # Latin binomial name
+sex = "M"                                               # F | M | U (unknown) | O (other)
+age = "P84D"                                            # ISO 8601 Duration (e.g., P90D = 90 days)
+age__reference = "birth"                                # birth | gestational
 genotype = "C57BL/6J wild-type"
 strain = "C57BL/6J"
-weight = "0.025 kg"                    # Include units
+weight = "0.025 kg"                                     # Include units
 date_of_birth = "2024-10-23T00:00:00Z"
 
 # =============================================================================
@@ -71,7 +71,8 @@ description = "High-speed camera - side view"
 manufacturer = "FLIR"
 model_name = "Blackfly S"
 
-# Example: Neuropixels probes (uncomment and configure if using ecephys)
+# ⚠️ ECEPHYS FEATURE NOT YET IMPLEMENTED
+# Example: Neuropixels probes (uncomment when ecephys support is added)
 # [[devices]]
 # name = "neuropixels_imec0"
 # description = "Neuropixels 2.0 probe - Motor Cortex"
@@ -134,11 +135,11 @@ description = "Synchronization data between Bpod and cameras"
 
 [[cameras]]
 id = "camera_0"
-paths = "Video/cam0_*.avi"        # Glob pattern
-order = "name_asc"                 # Sort: name_asc | name_desc | time_asc | time_desc
+paths = "Video/cam0_*.avi" # Glob pattern
+order = "name_asc"         # Sort: name_asc | name_desc | time_asc | time_desc
 fps = 150.0
 ttl_id = "ttl_camera"
-optional = false                   # Pipeline fails if missing
+optional = false           # Pipeline fails if missing
 
 [[cameras]]
 id = "camera_1"
@@ -165,7 +166,8 @@ id = "ttl_hitmiss"
 paths = "TTLs/*_hitmiss.txt"
 description = "Trial outcome signals"
 
-# Example: Neuropixels TTL channels (uncomment if using ecephys)
+# ⚠️ ECEPHYS FEATURE NOT YET IMPLEMENTED
+# Example: Neuropixels TTL channels (uncomment when ecephys support is added)
 # These are TTL pulses RECORDED BY Neuropixels NIDQ from other devices
 # Paths point to TPrime-corrected timestamps
 # [[TTLs]]
@@ -182,4 +184,3 @@ description = "Trial outcome signals"
 # id = "ttl_bpod_trials"
 # paths = "neural/TPrime_output/corrected_3_trials_TTLs.txt"
 # description = "Bpod trial start markers recorded by Neuropixels NIDQ XD_3_0"
-

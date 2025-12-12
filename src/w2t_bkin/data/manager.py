@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import importlib.resources
 import os
 from pathlib import Path
 import re
@@ -28,9 +29,102 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.tree import Tree
+import tomli
 import tomli_w
 
 console = Console()
+
+
+# =============================================================================
+# File System Utilities
+# =============================================================================
+
+
+def ensure_parent_dir(path: Path | str) -> Path:
+    """Ensure parent directory exists for the provided path and return Path.
+
+    Args:
+        path: File path whose parent directory should be created
+
+    Returns:
+        Path object (absolute) for the provided path
+
+    Example:
+        >>> p = ensure_parent_dir("data/raw/subject-001/session.toml")
+        >>> # Creates data/raw/subject-001/ if it doesn't exist
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+# =============================================================================
+# TOML Utilities
+# =============================================================================
+
+
+def read_toml(path: Path | str) -> dict:
+    """Read and parse a TOML file.
+
+    Args:
+        path: Path to TOML file
+
+    Returns:
+        Dictionary with parsed TOML content
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        tomli.TOMLDecodeError: If TOML is invalid
+    """
+    with open(path, "rb") as f:
+        return tomli.load(f)
+
+
+def write_toml(path: Path | str, data: dict, *, ensure_parents: bool = True) -> Path:
+    """Write dictionary to TOML file.
+
+    Args:
+        path: Target file path
+        data: Dictionary to serialize to TOML
+        ensure_parents: If True, creates parent directories
+
+    Returns:
+        Absolute Path to written file
+
+    Example:
+        >>> data = {"project": {"name": "experiment-001"}}
+        >>> write_toml("config.toml", data)
+    """
+    p = Path(path)
+    if ensure_parents:
+        p = ensure_parent_dir(p)
+
+    with open(p, "wb") as f:
+        tomli_w.dump(data, f)
+
+    return p.resolve()
+
+
+def validate_toml_syntax(path: Path | str) -> tuple[bool, str | None]:
+    """Validate TOML file syntax without loading into memory.
+
+    Args:
+        path: Path to TOML file
+
+    Returns:
+        Tuple of (is_valid, error_message)
+        - (True, None) if valid
+        - (False, error_string) if invalid
+    """
+    try:
+        read_toml(path)
+        return True, None
+    except FileNotFoundError:
+        return False, f"File not found: {path}"
+    except tomli.TOMLDecodeError as e:
+        return False, f"Invalid TOML: {e}"
+    except Exception as e:
+        return False, f"Error reading TOML: {e}"
 
 
 @dataclass
@@ -180,47 +274,28 @@ def init_experiment(
         ],
     }
 
-    metadata_path = folders["data/raw"] / "metadata.toml"
-    with open(metadata_path, "wb") as f:
-        tomli_w.dump(metadata, f)
+    metadata_path = write_toml(folders["data/raw"] / "metadata.toml", metadata)
 
     console.print(f"\n[green]✓[/green] Created metadata: {metadata_path.relative_to(root_path)}")
 
-    # Generate configuration.toml
-    config = {
-        "project": {"name": root_path.name},
-        "paths": {
-            "raw_root": "data/raw",
-            "intermediate_root": "data/interim",
-            "output_root": "data/processed",
-            "models_root": "models",
-        },
-        "synchronization": {
-            "strategy": "hardware_pulse",
-            "reference_channel": "ttl_camera",
-        },
-        "synchronization": {
-            "alignment": {
-                "method": "nearest",
-                "tolerance_s": 0.002,
-                "global_offset_s": 0.0,
-            }
-        },
-        "verification": {
-            "enabled": True,
-            "check_frame_counts": True,
-            "check_sync_mismatch": True,
-            "skip_nwb_requirements": False,
-            "mismatch_tolerance_frames": 0,
-            "warn_on_mismatch": False,
-        },
-        "bpod": {"sync": {"trial_types": []}},
-        "logging": {"level": "INFO", "structured": False},
-    }
+    # Copy configuration template and customize
+    # Read template from package
+    template_ref = importlib.resources.files("w2t_bkin.templates").joinpath("configuration.toml.template")
+    template_content = template_ref.read_text()
+
+    # Replace placeholders
+    config_content = (
+        template_content.replace('name = "w2t-bkin-pipeline"', f'name = "{root_path.name}"')
+        .replace('lab = "Your Lab Name"', f'lab = "{lab}"')
+        .replace('institution = "Your Institution"', f'institution = "{institution}"')
+    )
+
+    # Remove the header note about running data init (since we just did it)
+    config_content = config_content.replace("# For a minimal working configuration, run: w2t-bkin data init <path>\n", "")
 
     config_path = root_path / "configuration.toml"
-    with open(config_path, "wb") as f:
-        tomli_w.dump(config, f)
+    with open(config_path, "w") as f:
+        f.write(config_content)
 
     console.print(f"[green]✓[/green] Created config: {config_path.relative_to(root_path)}")
 
@@ -304,9 +379,7 @@ def add_subject(
     if subject_config.description:
         subject_data["subject"]["description"] = subject_config.description
 
-    subject_toml_path = subject_dir / "subject.toml"
-    with open(subject_toml_path, "wb") as f:
-        tomli_w.dump(subject_data, f)
+    subject_toml_path = write_toml(subject_dir / "subject.toml", subject_data)
 
     console.print(f"\n[green]✓ Subject added: {subject_config.subject_id}[/green]")
     console.print(f"  Location: {subject_dir.relative_to(experiment_root)}")
@@ -392,9 +465,7 @@ def add_session(
         "experimenter": [session_config.experimenter],
     }
 
-    session_toml_path = session_dir / "session.toml"
-    with open(session_toml_path, "wb") as f:
-        tomli_w.dump(session_data, f)
+    session_toml_path = write_toml(session_dir / "session.toml", session_data)
 
     console.print(f"\n[green]✓ Session added: {subject_id}/{session_config.session_id}[/green]")
     console.print(f"  Location: {session_dir.relative_to(experiment_root)}")
@@ -643,10 +714,7 @@ def import_raw_data(
         console.print(f"\n[cyan]Updating session metadata...[/cyan]")
 
         # Read existing session.toml
-        import tomli
-
-        with open(session_toml_path, "rb") as f:
-            session_data = tomli.load(f)
+        session_data = read_toml(session_toml_path)
 
         # Add cameras and TTLs
         if cameras_config:
@@ -655,8 +723,7 @@ def import_raw_data(
             session_data["TTLs"] = ttls_config
 
         # Write updated session.toml
-        with open(session_toml_path, "wb") as f:
-            tomli_w.dump(session_data, f)
+        write_toml(session_toml_path, session_data)
 
         console.print(f"[green]✓ Updated: {session_toml_path.relative_to(experiment_root)}[/green]")
         console.print(f"\n[yellow]⚠ Please review and update:[/yellow]")
@@ -729,13 +796,9 @@ def validate_experiment_structure(
     else:
         result.info.append(f"✓ Found root metadata")
         # Validate TOML syntax
-        try:
-            import tomli
-
-            with open(root_metadata, "rb") as f:
-                tomli.load(f)
-        except Exception as e:
-            result.errors.append(f"Invalid TOML in metadata.toml: {e}")
+        is_valid, error = validate_toml_syntax(root_metadata)
+        if not is_valid:
+            result.errors.append(f"Invalid TOML in metadata.toml: {error}")
             result.valid = False
 
     # Check configuration.toml
@@ -764,13 +827,9 @@ def validate_experiment_structure(
             if not subject_toml.exists():
                 result.warnings.append(f"Missing {subject_id}/subject.toml")
             else:
-                try:
-                    import tomli
-
-                    with open(subject_toml, "rb") as f:
-                        tomli.load(f)
-                except Exception as e:
-                    result.errors.append(f"Invalid TOML in {subject_id}/subject.toml: {e}")
+                is_valid, error = validate_toml_syntax(subject_toml)
+                if not is_valid:
+                    result.errors.append(f"Invalid TOML in {subject_id}/subject.toml: {error}")
                     result.valid = False
 
             # Check sessions
@@ -791,10 +850,7 @@ def validate_experiment_structure(
                     result.valid = False
                 else:
                     try:
-                        import tomli
-
-                        with open(session_toml, "rb") as f:
-                            session_data = tomli.load(f)
+                        session_data = read_toml(session_toml)
 
                         # Validate required fields
                         required_fields = ["session_description", "identifier", "session_start_time"]

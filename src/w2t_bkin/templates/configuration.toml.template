@@ -1,4 +1,13 @@
 # =============================================================================
+# w2t-bkin Pipeline Configuration Template
+# =============================================================================
+# This template shows ALL available configuration options.
+# Sections marked with ⚠️ are planned but not yet implemented.
+#
+# For a minimal working configuration, run: w2t-bkin data init <path>
+# =============================================================================
+
+# =============================================================================
 # Project Configuration
 # =============================================================================
 
@@ -10,20 +19,20 @@ raw_root = "data/raw"
 intermediate_root = "data/interim"
 output_root = "data/processed"
 models_root = "models"
-root_metadata = "/home/user/configs/metadata.toml"  # Optional: global metadata override
+root_metadata = "/home/user/configs/metadata.toml" # Optional: global metadata override
 
 # =============================================================================
 # Synchronization Strategy
 # =============================================================================
 
 [synchronization]
-strategy = "hardware_pulse"          # Options: rate_based | hardware_pulse | network_stream
-reference_channel = "ttl_camera"      # Master clock TTL channel
+strategy = "hardware_pulse"      # Options: rate_based | hardware_pulse | network_stream
+reference_channel = "ttl_camera" # Master clock TTL channel
 
 [synchronization.alignment]
-method = "nearest"                    # Options: nearest | linear
-tolerance_s = 0.002                   # Max allowed timing jitter (seconds)
-global_offset_s = 0.0                 # Global time offset correction
+method = "nearest"          # Options: nearest | linear
+tolerance_s = 0.002         # Max allowed timing jitter (seconds)
+global_offset_s = 0.0       # Global time offset correction
 
 # =============================================================================
 # Verification & Validation
@@ -32,88 +41,125 @@ global_offset_s = 0.0                 # Global time offset correction
 # =============================================================================
 
 [verification]
-enabled = true                        # Master switch (disables all checks when false)
-check_frame_counts = true             # Count frames via ffprobe (slow but accurate)
-check_sync_mismatch = true            # Verify frame/TTL counts match (false = skip TTL checks)
-skip_nwb_requirements = false         # Use FPS estimates instead of exact counts (not recommended)
-mismatch_tolerance_frames = 0         # Max allowed frame/pulse difference
-warn_on_mismatch = false              # Warn instead of fail when within tolerance
+enabled = true                # Master switch (disables all checks when false)
+check_frame_counts = true     # Count frames via ffprobe (slow but accurate)
+check_sync_mismatch = true    # Verify frame/TTL counts match (false = skip TTL checks)
+skip_nwb_requirements = false # Use FPS estimates instead of exact counts (not recommended)
+mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
+warn_on_mismatch = false      # Warn instead of fail when within tolerance
 
 # =============================================================================
-# Bpod Trial Synchronization
-# Maps trial types to TTL channels for behavioral alignment
+# Data Acquisition
 # =============================================================================
 
-[[bpod.sync.trial_types]]
-trial_type = 1
-description = "Active whisker touch trials"
-sync_signal = "W2T_Audio"             # Bpod state triggering TTL
-sync_ttl = "ttl_cue"                  # TTL channel (must exist in session metadata)
-
-[[bpod.sync.trial_types]]
-trial_type = 2
-description = "Passive whisker touch trials"
-sync_signal = "A2L_Audio"
-sync_ttl = "ttl_cue"
-
-[[bpod.sync.trial_types]]
-trial_type = 3
-description = "Microstim trials"
-sync_signal = "Microstim"
-sync_ttl = "ttl_cue"
+[acquisition]
+concat_strategy = "ffconcat" # Video concatenation: ffconcat | mkvmerge
 
 # =============================================================================
-# Video Transcoding (Global Defaults)
+# Preprocessing Configuration
 # =============================================================================
+
+[preprocessing]
+force_rerun = false # Force re-run even if outputs exist
+
+[preprocessing.dlc]
+enabled = false
+# model_path = "models/my-dlc-model/config.yaml"  # Path to DLC config
+# gpu = 0                                         # GPU device ID
+# save_csv = false                                # Save CSV outputs
+
+[preprocessing.sleap]
+enabled = false
+# model_path = "models/my-sleap-model"            # Path to SLEAP model
+# gpu = 0                                         # GPU device ID
+
+# =============================================================================
+# Video Processing
+# =============================================================================
+
+[video.analysis]
+frame_count_timeout = 30 # Timeout for frame counting (seconds)
 
 [video.transcode]
 enabled = true
-codec = "h264"                        # ffmpeg codec
-crf = 20                              # Quality: 0 (best) - 51 (worst)
-preset = "fast"                       # Encoding speed preset
-keyint = 15                           # GOP size (frames)
+codec = "h264"    # ffmpeg codec
+crf = 20          # Quality: 0 (best) - 51 (worst)
+preset = "fast"   # Encoding speed preset
+keyint = 15       # GOP size (frames)
+
+# =============================================================================
+# Bpod Behavioral Control
+# =============================================================================
+
+[bpod]
+parse = true # Parse Bpod .mat files
+
+# Trial Synchronization - Maps trial types to TTL channels
+# Example trial type configurations (customize for your experiment)
+#
+# [[bpod.sync.trial_types]]
+# trial_type = 1                # Trial type ID (from Bpod)
+# sync_signal = "W2T_Audio"     # Bpod state triggering TTL
+# sync_ttl = "ttl_cue"          # TTL channel (must exist in session metadata)
+#
+# [[bpod.sync.trial_types]]
+# trial_type = 2
+# sync_signal = "A2L_Audio"
+# sync_ttl = "ttl_cue"
+
+# =============================================================================
+# NWB Export Configuration
+# =============================================================================
+
+[nwb]
+link_external_video = true       # Use external links for video files
+lab = "Your Lab Name"            # Laboratory name
+institution = "Your Institution" # Institution name
+# file_name_template = "{session.id}.nwb"     # Optional: NWB filename template
+# session_description_template = "..."        # Optional: Session description template
+
+# =============================================================================
+# Quality Control
+# =============================================================================
+
+[qc]
+generate_report = true      # Generate QC HTML reports
+include_verification = true # Include verification results in reports
+# out_template = "qc/{session.id}"  # Optional: Output path template
 
 # =============================================================================
 # Extracellular Electrophysiology (Neuropixels)
 # =============================================================================
-
-[ecephys]
-enabled = false  # Master switch - set to true to enable ecephys processing
-
-# List of probe device names (must match [[devices]] in metadata.toml)
-# Example: ["neuropixels_imec0", "neuropixels_imec1"]
-probes = []
-
-[ecephys.storage]
-# How to handle raw AP band data in NWB file
-raw_data_strategy = "link"  # Options: "link" (HDF5 external link, recommended)
-                             #          "copy" (embed in NWB, large files)
-                             #          "skip" (don't include raw data)
-
-# Whether to compute and store LFP data (future feature)
-compute_lfp = false
-
-[ecephys.quality]
-# Filter units by cluster quality labels from Kilosort/Phy curation
-# Common labels: "good" (well-isolated single units), "mua" (multi-unit activity), "noise"
-include_labels = ["good", "mua"]
-
-# Minimum spike count per unit (units below threshold are excluded)
-min_spike_count = 100
-
-# Whether to include additional data in Units table (increases file size)
-add_waveforms = false         # Include mean waveforms from templates.npy
-add_quality_metrics = false   # Include ContamPct, Amplitude, etc. from Kilosort
-
-# Optional: Override brain region per probe (if not in metadata.toml)
-# location_imec0 = "Motor Cortex, M1"
-# location_imec1 = "Sensory Cortex, S1"
+# ⚠️  FEATURE NOT YET IMPLEMENTED - Configuration reserved for future use
+# ⚠️  DO NOT USE - Will cause validation errors if uncommented
+#
+# Planned features:
+# - Neuropixels probe data integration
+# - Kilosort/Phy spike sorting integration
+# - LFP computation and storage
+# - Unit quality filtering
+#
+# Status: Planned for future release
+# Tracking: See roadmap or GitHub issues for implementation timeline
+#
+# [ecephys]
+# enabled = false
+# probes = []
+#
+# [ecephys.storage]
+# raw_data_strategy = "link"
+# compute_lfp = false
+#
+# [ecephys.quality]
+# include_labels = ["good", "mua"]
+# min_spike_count = 100
+# add_waveforms = false
+# add_quality_metrics = false
 
 # =============================================================================
 # Logging Configuration
 # =============================================================================
 
 [logging]
-level = "INFO"                        # DEBUG | INFO | WARNING | ERROR | CRITICAL
-structured = false                    # Use JSON format
-
+level = "INFO"     # DEBUG | INFO | WARNING | ERROR | CRITICAL
+structured = false # Use JSON format
