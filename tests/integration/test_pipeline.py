@@ -9,6 +9,7 @@ from pynwb import NWBHDF5IO
 import pytest
 
 from synthetic import build_raw_folder
+from w2t_bkin.api import SessionFlowConfig
 from w2t_bkin.flows import process_session_flow
 
 
@@ -32,13 +33,14 @@ class TestSessionFlowIntegration:
         )
 
         # 2. Run flow
-        flow_result = process_session_flow(
-            config_path=result.config_path,
+        config = SessionFlowConfig(
+            config_path=str(result.config_path),
             subject_id="subject-001",
             session_id="session-001",
             skip_nwb_validation=True,  # Skip validation to avoid nwbinspector dependency in tests if not installed
             skip_pose=True,  # Skip pose for basic test
         )
+        flow_result = process_session_flow(config)
 
         # 3. Verify success
         assert flow_result.success
@@ -67,14 +69,15 @@ class TestSessionFlowIntegration:
         )
 
         # 2. Run flow with skip_bpod=True
-        flow_result = process_session_flow(
-            config_path=result.config_path,
+        config = SessionFlowConfig(
+            config_path=str(result.config_path),
             subject_id="subject-002",
             session_id="session-001",
             skip_bpod=True,  # Skip Bpod processing
             skip_nwb_validation=True,
             skip_pose=True,
         )
+        flow_result = process_session_flow(config)
 
         # 3. Verify success
         assert flow_result.success
@@ -94,11 +97,12 @@ class TestSessionFlowIntegration:
         invalid_config.touch()
 
         # 2. Run flow
-        flow_result = process_session_flow(
-            config_path=invalid_config,
+        config = SessionFlowConfig(
+            config_path=str(invalid_config),
             subject_id="subject-003",
             session_id="session-001",
         )
+        flow_result = process_session_flow(config)
 
         # 3. Verify failure
         assert not flow_result.success

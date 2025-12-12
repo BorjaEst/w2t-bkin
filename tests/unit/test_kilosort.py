@@ -9,7 +9,31 @@ import pandas as pd
 from pynwb import NWBFile
 import pytest
 
-from w2t_bkin.ingest.kilosort import add_units_from_kilosort, load_cluster_labels, load_cluster_metrics, load_kilosort_data
+from w2t_bkin.ingest.kilosort import build_units_table_from_kilosort, load_cluster_labels, load_cluster_metrics, load_kilosort_data
+
+
+def add_units_from_kilosort(nwbfile, **kwargs):
+    """Helper to mimic deprecated add_units_from_kilosort for tests."""
+    units_list = build_units_table_from_kilosort(**kwargs)
+
+    # Extract stats from last element
+    stats_dict = units_list.pop() if units_list and isinstance(units_list[-1], dict) and "__stats__" in units_list[-1] else {}
+    stats = stats_dict.get("__stats__", {}) if stats_dict else {}
+
+    if units_list:
+        # Add custom columns if needed
+        first_unit = units_list[0]
+        for key in first_unit.keys():
+            if key not in ["spike_times", "obs_intervals", "electrodes", "electrode_group", "waveform_mean", "waveform_sd", "id"]:
+                # Check if column exists in nwbfile.units (Units table)
+                if nwbfile.units is None or key not in nwbfile.units.colnames:
+                    nwbfile.add_unit_column(name=key, description=f"Kilosort {key}")
+
+    for unit in units_list:
+        nwbfile.add_unit(**unit)
+
+    return stats
+
 
 # ============================================================================
 # Fixtures
@@ -63,36 +87,46 @@ def nwbfile():
 @pytest.fixture
 def nwbfile_with_electrodes(nwbfile):
     """Create NWBFile with device and electrodes."""
-    from w2t_bkin.ingest.ecephys import create_device, create_electrode_group
+    from w2t_bkin.ingest.spikeglx import build_device_from_meta, build_electrode_group_from_meta
 
-    # Create device
-    device = create_device(
-        nwbfile=nwbfile,
-        name="neuropixels_imec0",
-        manufacturer="IMEC",
-        description="Neuropixels 2.0",
-    )
+    # Create mock metadata
+    mock_meta = {
+        "probe_type": "21",  # NP 2.0
+        "n_channels": 384,
+        "sampling_rate": 30000.0,
+        "geometry": [(0.0, 0.0)] * 384,
+        "filtering": "AP band: 300-10000 Hz",
+        "file_size_bytes": 1000000,
+    }
 
-    # Create electrode group
-    group = create_electrode_group(
-        nwbfile=nwbfile,
+    # Create device and add to NWBFile
+    device = build_device_from_meta(mock_meta, "imec0")
+    nwbfile.add_device(device)
+
+    # Create electrode group and add to NWBFile
+    group = build_electrode_group_from_meta(
         name="probe_imec0",
-        description="Neuropixels probe",
-        location="Motor Cortex",
         device=device,
+        location="Motor Cortex",
+        meta=mock_meta,
+    )
+    nwbfile.create_electrode_group(
+        name=group.name,
+        description=group.description,
+        location=group.location,
+        device=group.device,
     )
 
     # Add 384 electrodes
     for i in range(384):
         nwbfile.add_electrode(
-            id=i,
             x=float(i % 2 * 32),
             y=float(i // 2 * 15),
             z=0.0,
             imp=-1.0,
             location="Motor Cortex",
             filtering="AP band: 300-10000 Hz",
-            group=group,
+            group=nwbfile.electrode_groups["probe_imec0"],
         )
 
     return nwbfile

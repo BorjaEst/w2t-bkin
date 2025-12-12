@@ -46,11 +46,6 @@ def test_Should_CreateNominalTimebase_When_ConfiguredCorrectly_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent.parent)
 
-    # Update to new config structure
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
-    config_dict["synchronization"] = {"strategy": "rate_based", "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0}}
-
     # Create Config instance
     config = Config(**config_dict)
 
@@ -83,8 +78,6 @@ def test_Should_CreateTTLTimebase_When_ConfiguredWithManifest_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)  # parent of Session-000001
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {
         "strategy": "hardware_pulse",
         "reference_channel": "ttl_camera",
@@ -147,8 +140,6 @@ def test_Should_AlignDerivedSamples_When_UsingNominalTimebase_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent.parent)
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {"strategy": "rate_based", "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0}}
 
     config = Config(**config_dict)
@@ -191,8 +182,6 @@ def test_Should_EnforceJitterBudget_When_ExceededDuringAlignment_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent.parent)
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {"strategy": "rate_based", "alignment": {"method": "nearest", "tolerance_s": 0.0001, "global_offset_s": 0.0}}  # 100 microseconds
 
     config = Config(**config_dict)
@@ -226,8 +215,6 @@ def test_Should_PersistAlignmentStats_When_AlignmentCompletes_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent.parent)
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {"strategy": "rate_based", "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0}}
 
     config = Config(**config_dict)
@@ -293,13 +280,11 @@ def test_Should_UseLinearMapping_When_ConfiguredForLowerJitter_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent.parent)
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {"strategy": "rate_based", "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0}}
 
     # Create reference timebase
     base_config = Config(**config_dict)
-    provider = create_timebase_provider(base_config, manifest=None)
+    provider = create_timebase_provider_from_config(base_config, manifest=None)
     reference_times = provider.get_timestamps(n_samples=100)
 
     # Create samples between reference times to test interpolation
@@ -347,8 +332,6 @@ def test_Should_HandleRealSessionAlignment_When_UsingSession000001Data_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent)  # parent of Session-000001
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {"strategy": "rate_based", "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0}}
 
     config = Config(**config_dict)
@@ -410,8 +393,6 @@ def test_Should_RecordProvenanceFields_When_AlignmentStatsCreated_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent.parent)
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {"strategy": "rate_based", "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 1.5}}  # Non-zero offset for testing
 
     config = Config(**config_dict)
@@ -448,8 +429,6 @@ def test_Should_FailGracefully_When_TTLMissingWithTTLSource_Issue3(
     config_dict = minimal_config_dict.copy()
     config_dict["paths"]["raw_root"] = str(fixture_session_path.parent.parent)
 
-    if "timebase" in config_dict:
-        del config_dict["timebase"]
     config_dict["synchronization"] = {
         "strategy": "hardware_pulse",
         "reference_channel": "ttl_camera",

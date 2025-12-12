@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from w2t_bkin.data_manager import (
+from w2t_bkin.data.manager import (
     ExperimentConfig,
     SessionConfig,
     SubjectConfig,

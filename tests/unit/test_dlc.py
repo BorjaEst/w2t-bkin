@@ -533,7 +533,7 @@ class TestBatchInference:
         monkeypatch.setitem(sys.modules, "deeplabcut", MockDLC)
 
         # Mock GPU detection to return None (CPU)
-        monkeypatch.setattr("w2t_bkin.dlc.core.auto_detect_gpu", lambda: None)
+        monkeypatch.setattr("w2t_bkin.processors.dlc.auto_detect_gpu", lambda: None)
 
         # Run without options
         results = run_dlc_inference_batch(video_paths=[video], model_config_path=config_path, output_dir=output_dir, options=None)

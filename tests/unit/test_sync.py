@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from w2t_bkin.config import Config, TimebaseConfig
+from w2t_bkin.config import AlignmentConfig, Config
 from w2t_bkin.sync import (
     AlignmentStats,
     JitterExceedsBudgetError,
@@ -71,20 +71,20 @@ def create_sample_times_with_jitter(reference_times: list[float], offsets: list[
 
 def create_timebase_config(
     source: str = "nominal_rate", mapping: str = "nearest", jitter_budget_s: float = STANDARD_JITTER_BUDGET, offset_s: float = 0.0, **kwargs
-) -> TimebaseConfig:
-    """Create a TimebaseConfig for testing with sensible defaults.
+) -> AlignmentConfig:
+    """Create a AlignmentConfig for testing with sensible defaults.
 
     Args:
-        source: Timebase source (nominal_rate, ttl, neuropixels)
+        source: Timebase source (ignored for AlignmentConfig)
         mapping: Mapping strategy (nearest, linear)
         jitter_budget_s: Maximum allowed jitter in seconds
         offset_s: Time offset in seconds
-        **kwargs: Additional config parameters (ttl_id, neuropixels_stream, etc.)
+        **kwargs: Additional config parameters (ignored)
 
     Returns:
-        TimebaseConfig instance for testing
+        AlignmentConfig instance for testing
     """
-    return TimebaseConfig(source=source, mapping=mapping, jitter_budget_s=jitter_budget_s, offset_s=offset_s, **kwargs)
+    return AlignmentConfig(method=mapping, tolerance_s=jitter_budget_s, global_offset_s=offset_s)
 
 
 class TestTimebaseProviderCreation:
@@ -105,7 +105,7 @@ class TestTimebaseProviderCreation:
 
         assert isinstance(provider, TTLProvider)
         assert provider.source == "ttl"
-        assert provider.ttl_id == ttl_config.timebase.ttl_id
+        assert provider.ttl_id == ttl_config.synchronization.reference_channel
 
     def test_Should_CreateNeuropixelsProvider_When_SourceIsNeuropixels(self, neuropixels_config: Config):
         """FR-TB-2: Create Neuropixels provider when source='neuropixels'."""
@@ -113,11 +113,11 @@ class TestTimebaseProviderCreation:
 
         assert isinstance(provider, NeuropixelsProvider)
         assert provider.source == "neuropixels"
-        assert provider.stream == neuropixels_config.timebase.neuropixels_stream
+        assert provider.stream == neuropixels_config.synchronization.reference_channel
 
     def test_Should_ApplyOffset_When_OffsetConfigured(self, valid_config: Config):
         """FR-TB-5: Provider should respect configured offset_s."""
-        offset = valid_config.timebase.offset_s
+        offset = valid_config.synchronization.alignment.global_offset_s
 
         provider = create_timebase_provider_from_config(valid_config, manifest=None)
         timestamps = provider.get_timestamps(n_samples=STANDARD_SAMPLE_COUNT)

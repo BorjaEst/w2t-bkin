@@ -11,10 +11,11 @@ Note:
     labels/facemap sections. Pose estimation is configured via preprocessing.
 """
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import pytest
 import tomli
@@ -99,17 +100,19 @@ def tmp_session_copy(tmp_work_dir: Path, fixture_session_path: Path) -> Path:
 
 @pytest.fixture
 def minimal_config_dict(tmp_work_dir: Path, fixtures_raw_root: Path) -> Dict[str, Any]:
-    """Minimal valid config dictionary for testing."""
+    """Minimal valid config dictionary for testing (updated schema)."""
     return {
         "project": {"name": "test-w2t-bkin"},
         "paths": {
             "raw_root": str(fixtures_raw_root),
             "intermediate_root": str(tmp_work_dir / "interim"),
             "output_root": str(tmp_work_dir / "processed"),
-            "metadata_file": "metadata.toml",
             "models_root": str(tmp_work_dir / "external" / "models"),
         },
-        "timebase": {"source": "nominal_rate", "mapping": "nearest", "jitter_budget_s": 0.001, "offset_s": 0.0},
+        "synchronization": {
+            "strategy": "rate_based",
+            "alignment": {"method": "nearest", "tolerance_s": 0.01, "global_offset_s": 0.0},
+        },
         "acquisition": {"concat_strategy": "ffconcat"},
         "verification": {"mismatch_tolerance_frames": 2, "warn_on_mismatch": True},
         "bpod": {"parse": True},
@@ -123,14 +126,12 @@ def minimal_config_dict(tmp_work_dir: Path, fixtures_raw_root: Path) -> Dict[str
         },
         "qc": {"generate_report": True, "out_template": "{session_id}_qc.html", "include_verification": True},
         "logging": {"level": "INFO", "structured": True},
-        "labels": {"dlc": {"run_inference": False, "model": ""}, "sleap": {"run_inference": False, "model": ""}},
-        "facemap": {"run_inference": False, "ROIs": []},
     }
 
 
 @pytest.fixture
 def minimal_config_toml(tmp_work_dir: Path, fixtures_raw_root: Path) -> Path:
-    """Minimal valid config.toml file."""
+    """Minimal valid config.toml file (updated schema)."""
     config_path = tmp_work_dir / "config.toml"
     config_content = f"""
 [project]
@@ -140,14 +141,15 @@ name = "test-w2t-bkin"
 raw_root = "{fixtures_raw_root}"
 intermediate_root = "{tmp_work_dir / "interim"}"
 output_root = "{tmp_work_dir / "processed"}"
-metadata_file = "metadata.toml"
 models_root = "{tmp_work_dir / "external" / "models"}"
 
-[timebase]
-source = "nominal_rate"
-mapping = "nearest"
-jitter_budget_s = 0.001
-offset_s = 0.0
+[synchronization]
+strategy = "rate_based"
+
+[synchronization.alignment]
+method = "nearest"
+tolerance_s = 0.01
+global_offset_s = 0.0
 
 [acquisition]
 concat_strategy = "ffconcat"
@@ -181,18 +183,6 @@ include_verification = true
 [logging]
 level = "INFO"
 structured = true
-
-[labels.dlc]
-run_inference = false
-model = ""
-
-[labels.sleap]
-run_inference = false
-model = ""
-
-[facemap]
-run_inference = false
-ROIs = []
 """
     with open(config_path, "w") as f:
         f.write(config_content)
@@ -201,17 +191,25 @@ ROIs = []
 
 @pytest.fixture
 def ttl_timebase_config_dict(minimal_config_dict: Dict[str, Any]) -> Dict[str, Any]:
-    """Config with TTL timebase source."""
+    """Config with TTL timebase source (updated schema)."""
     config = minimal_config_dict.copy()
-    config["timebase"] = {"source": "ttl", "mapping": "linear", "jitter_budget_s": 0.002, "offset_s": 0.0, "ttl_id": "ttl_camera"}
+    config["synchronization"] = {
+        "strategy": "ttl_based",
+        "reference_channel": "ttl_camera",
+        "alignment": {"method": "linear", "tolerance_s": 0.002, "global_offset_s": 0.0},
+    }
     return config
 
 
 @pytest.fixture
 def neuropixels_timebase_config_dict(minimal_config_dict: Dict[str, Any]) -> Dict[str, Any]:
-    """Config with Neuropixels timebase source."""
+    """Config with Neuropixels timebase source (updated schema)."""
     config = minimal_config_dict.copy()
-    config["timebase"] = {"source": "neuropixels", "mapping": "linear", "jitter_budget_s": 0.001, "offset_s": 0.0, "neuropixels_stream": "imec0.ap"}
+    config["synchronization"] = {
+        "strategy": "hardware_pulse",
+        "reference_channel": "imec0.ap",
+        "alignment": {"method": "linear", "tolerance_s": 0.001, "global_offset_s": 0.0},
+    }
     return config
 
 
@@ -229,6 +227,7 @@ def valid_config(tmp_path):
     """
     from w2t_bkin.config import (
         AcquisitionConfig,
+        AlignmentConfig,
         BpodConfig,
         Config,
         LoggingConfig,
@@ -236,7 +235,7 @@ def valid_config(tmp_path):
         PathsConfig,
         ProjectConfig,
         QCConfig,
-        TimebaseConfig,
+        SynchronizationConfig,
         TranscodeConfig,
         VerificationConfig,
         VideoConfig,
@@ -248,14 +247,11 @@ def valid_config(tmp_path):
             raw_root=str(tmp_path / "raw"),
             intermediate_root=str(tmp_path / "interim"),
             output_root=str(tmp_path / "output"),
-            metadata_file="metadata.toml",
             models_root=str(tmp_path / "models"),
         ),
-        timebase=TimebaseConfig(
-            source="nominal_rate",
-            mapping="nearest",
-            jitter_budget_s=0.010,
-            offset_s=0.0,
+        synchronization=SynchronizationConfig(
+            strategy="rate_based",
+            alignment=AlignmentConfig(method="nearest", tolerance_s=0.010, global_offset_s=0.0),
         ),
         acquisition=AcquisitionConfig(concat_strategy="ffconcat"),
         verification=VerificationConfig(mismatch_tolerance_frames=0, warn_on_mismatch=False),
@@ -280,8 +276,8 @@ def ttl_config(valid_config):
     Derives from valid_config and modifies timebase to use TTL source.
     """
     config_dict = valid_config.model_dump()
-    config_dict["timebase"]["source"] = "ttl"
-    config_dict["timebase"]["ttl_id"] = "ttl_camera"
+    config_dict["synchronization"]["strategy"] = "hardware_pulse"
+    config_dict["synchronization"]["reference_channel"] = "ttl_camera"
 
     from w2t_bkin.config import Config
 
@@ -295,8 +291,8 @@ def neuropixels_config(valid_config):
     Derives from valid_config and modifies timebase to use Neuropixels source.
     """
     config_dict = valid_config.model_dump()
-    config_dict["timebase"]["source"] = "neuropixels"
-    config_dict["timebase"]["neuropixels_stream"] = "AP0"
+    config_dict["synchronization"]["strategy"] = "network_stream"
+    config_dict["synchronization"]["reference_channel"] = "AP0"
 
     from w2t_bkin.config import Config
 
@@ -306,6 +302,17 @@ def neuropixels_config(valid_config):
 # ============================================================================
 # TTL Testing Fixtures
 # ============================================================================
+
+
+@dataclass
+class MockTTL:
+    ttl_id: str
+    files: List[str]
+
+
+@dataclass
+class MockManifest:
+    ttls: List[MockTTL]
 
 
 @pytest.fixture
@@ -323,6 +330,12 @@ def ttl_files(tmp_path):
     ttl_file.write_text("".join(timestamps))
 
     return [str(ttl_file)]
+
+
+@pytest.fixture
+def ttl_manifest(ttl_files):
+    """Mock manifest with TTL files."""
+    return MockManifest(ttls=[MockTTL(ttl_id="ttl_camera", files=ttl_files)])
 
 
 # ============================================================================

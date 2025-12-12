@@ -136,8 +136,11 @@ class TestTrialsAndRecording:
         events, event_indices = extract_events(parsed_bpod_data, event_types)
         actions, action_indices = extract_actions(parsed_bpod_data, action_types)
 
+        # Build TaskRecording first
+        recording = build_task_recording(states, events, actions)
+
         # Build trials table
-        trials = build_trials_table(parsed_bpod_data, states, events, actions, state_indices, event_indices, action_indices)
+        trials = build_trials_table(parsed_bpod_data, recording, state_indices, event_indices, action_indices)
 
         # Check that we got a TrialsTable
         assert trials is not None
@@ -148,7 +151,7 @@ class TestTrialsAndRecording:
         assert len(trials) == n_trials
 
     def test_trials_contain_references(self, parsed_bpod_data):
-        """Test that TrialsTable contains actual references to states/events/actions (not empty)."""
+        """Test that TrialsTable contains proper references to states/events/actions."""
         # Extract all components
         state_types = extract_state_types(parsed_bpod_data)
         event_types = extract_event_types(parsed_bpod_data)
@@ -158,8 +161,11 @@ class TestTrialsAndRecording:
         events, event_indices = extract_events(parsed_bpod_data, event_types)
         actions, action_indices = extract_actions(parsed_bpod_data, action_types)
 
+        # Build TaskRecording first
+        recording = build_task_recording(states, events, actions)
+
         # Build trials table
-        trials = build_trials_table(parsed_bpod_data, states, events, actions, state_indices, event_indices, action_indices)
+        trials = build_trials_table(parsed_bpod_data, recording, state_indices, event_indices, action_indices)
 
         # Verify that at least one trial has non-empty references
         # (depends on test data having states/events/actions)
@@ -224,9 +230,9 @@ class TestEndToEnd:
         events, event_indices = extract_events(parsed_bpod_data, event_types)
         actions, action_indices = extract_actions(parsed_bpod_data, action_types)
 
-        # Build trials and recording
-        trials = build_trials_table(parsed_bpod_data, states, events, actions, state_indices, event_indices, action_indices)
+        # Build recording and trials
         task_recording = build_task_recording(states, events, actions)
+        trials = build_trials_table(parsed_bpod_data, task_recording, state_indices, event_indices, action_indices)
 
         # Verify complete structure
         assert state_types is not None
@@ -245,10 +251,13 @@ class TestEndToEnd:
 
     def test_extract_trials_table_convenience(self, parsed_bpod_data):
         """Test high-level extract_trials_table convenience function."""
-        from w2t_bkin.ingest.behavior import extract_trials_table
+        from w2t_bkin.ingest.behavior import extract_task_recording, extract_trials_table
+
+        # Build TaskRecording first
+        recording = extract_task_recording(parsed_bpod_data)
 
         # Use convenience function
-        trials = extract_trials_table(parsed_bpod_data)
+        trials = extract_trials_table(parsed_bpod_data, recording)
 
         # Verify TrialsTable structure
         assert trials is not None
@@ -275,14 +284,17 @@ class TestEndToEnd:
 
     def test_extract_trials_table_with_offsets(self, parsed_bpod_data):
         """Test extract_trials_table with time offsets."""
-        from w2t_bkin.ingest.behavior import extract_trials_table
+        from w2t_bkin.ingest.behavior import extract_task_recording, extract_trials_table
 
         # Create trial offsets
         n_trials = parsed_bpod_data["SessionData"]["nTrials"]
         trial_offsets = {i + 1: float(i * 100.0) for i in range(n_trials)}
 
+        # Build TaskRecording with offsets
+        recording = extract_task_recording(parsed_bpod_data, trial_offsets=trial_offsets)
+
         # Extract with offsets
-        trials = extract_trials_table(parsed_bpod_data, trial_offsets=trial_offsets)
+        trials = extract_trials_table(parsed_bpod_data, recording, trial_offsets=trial_offsets)
 
         # Verify trial count
         assert len(trials) == n_trials
@@ -501,9 +513,9 @@ class TestTaskMetadata:
         events, event_indices = extract_events(parsed_bpod_data, event_types)
         actions, action_indices = extract_actions(parsed_bpod_data, action_types)
 
-        # Build trials and recording
-        trials = build_trials_table(parsed_bpod_data, states, events, actions, state_indices, event_indices, action_indices)
+        # Build recording and trials
         task_recording = build_task_recording(states, events, actions)
+        trials = build_trials_table(parsed_bpod_data, task_recording, state_indices, event_indices, action_indices)
 
         # Build Task
         task_args = extract_task_arguments(parsed_bpod_data)

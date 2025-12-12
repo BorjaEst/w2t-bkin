@@ -11,9 +11,31 @@ from dateutil.tz import tzlocal
 from pynwb import NWBHDF5IO, NWBFile
 import pytest
 
-from w2t_bkin.ingest.ecephys import create_device
-from w2t_bkin.ingest.kilosort import add_units_from_kilosort
-from w2t_bkin.ingest.spikeglx import add_electrodes_from_spikeglx, parse_spikeglx_meta
+from w2t_bkin.ingest.kilosort import build_units_table_from_kilosort
+from w2t_bkin.ingest.spikeglx import build_device_from_meta, build_electrode_group_from_meta, build_electrodes_table_from_meta, parse_spikeglx_meta
+
+
+def add_units_from_kilosort(nwbfile, **kwargs):
+    """Helper to mimic deprecated add_units_from_kilosort for integration tests."""
+    units_list = build_units_table_from_kilosort(**kwargs)
+
+    # Extract stats from last element
+    stats_dict = units_list.pop() if units_list and isinstance(units_list[-1], dict) and "__stats__" in units_list[-1] else {}
+    stats = stats_dict.get("__stats__", {}) if stats_dict else {}
+
+    if units_list:
+        # Add custom columns if needed
+        first_unit = units_list[0]
+        for key in first_unit.keys():
+            if key not in ["spike_times", "obs_intervals", "electrodes", "electrode_group", "waveform_mean", "waveform_sd", "id"]:
+                # Check if column exists in nwbfile.units (Units table)
+                if nwbfile.units is None or key not in nwbfile.units.colnames:
+                    nwbfile.add_unit_column(name=key, description=f"Kilosort {key}")
+
+    for unit in units_list:
+        nwbfile.add_unit(**unit)
+
+    return stats
 
 
 class TestPhase1Integration:
@@ -43,27 +65,42 @@ class TestPhase1Integration:
             institution="Test Institution",
         )
 
-        # Create device
-        device = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec0",
-            manufacturer="IMEC",
-            description="Neuropixels 2.0 - Test probe for integration test",
-        )
+        # Parse metadata
+        meta = parse_spikeglx_meta(sample_meta_path)
+
+        # Create device and add to NWBFile
+        device = build_device_from_meta(meta, "imec0")
+        nwbfile.add_device(device)
 
         assert device.name == "neuropixels_imec0"
 
-        # Add electrodes from .meta
-        n_added = add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
+        # Create electrode group using builder for metadata
+        electrode_group_template = build_electrode_group_from_meta(
+            name="probe_imec0",
             device=device,
-            probe_id="imec0",
             location="Motor Cortex, M1",
+            meta=meta,
         )
 
-        assert n_added == 384
-        assert len(nwbfile.electrodes) == 384
+        # Add electrode group to NWBFile and get the actual instance
+        electrode_group = nwbfile.create_electrode_group(
+            name=electrode_group_template.name,
+            description=electrode_group_template.description,
+            location=electrode_group_template.location,
+            device=electrode_group_template.device,
+        )
+
+        # Build electrode rows using the template (for metadata), but we'll use the actual group
+        electrode_rows = build_electrodes_table_from_meta(meta, electrode_group_template, "Motor Cortex, M1")
+        # Update each row to use the actual electrode group from nwbfile
+        for row in electrode_rows:
+            row["group"] = electrode_group
+        for row in electrode_rows:
+            nwbfile.add_electrode(**row)
+
+        n_added = len(electrode_rows)
+        assert n_added == meta["n_channels"]
+        assert len(nwbfile.electrodes) == meta["n_channels"]
 
         # Write to disk
         nwb_path = tmp_path / "phase1_test.nwb"
@@ -103,34 +140,54 @@ class TestPhase1Integration:
         )
 
         # Add first probe
-        device0 = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec0",
-            manufacturer="IMEC",
+        meta0 = parse_spikeglx_meta(sample_meta_path)
+        device0 = build_device_from_meta(meta0, "imec0")
+        nwbfile.add_device(device0)
+
+        electrode_group0_template = build_electrode_group_from_meta(
+            name="probe_imec0",
+            device=device0,
+            location="Motor Cortex, M1",
+            meta=meta0,
+        )
+        electrode_group0 = nwbfile.create_electrode_group(
+            name=electrode_group0_template.name,
+            description=electrode_group0_template.description,
+            location=electrode_group0_template.location,
+            device=electrode_group0_template.device,
         )
 
-        n_added0 = add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device0,
-            probe_id="imec0",
-            location="Motor Cortex, M1",
-        )
+        electrode_rows0 = build_electrodes_table_from_meta(meta0, electrode_group0_template, "Motor Cortex, M1")
+        for row in electrode_rows0:
+            row["group"] = electrode_group0
+        for row in electrode_rows0:
+            nwbfile.add_electrode(**row)
+        n_added0 = len(electrode_rows0)
 
         # Add second probe
-        device1 = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec1",
-            manufacturer="IMEC",
+        meta1 = parse_spikeglx_meta(sample_meta_path)
+        device1 = build_device_from_meta(meta1, "imec1")
+        nwbfile.add_device(device1)
+
+        electrode_group1_template = build_electrode_group_from_meta(
+            name="probe_imec1",
+            device=device1,
+            location="Sensory Cortex, S1",
+            meta=meta1,
+        )
+        electrode_group1 = nwbfile.create_electrode_group(
+            name=electrode_group1_template.name,
+            description=electrode_group1_template.description,
+            location=electrode_group1_template.location,
+            device=electrode_group1_template.device,
         )
 
-        n_added1 = add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device1,
-            probe_id="imec1",
-            location="Sensory Cortex, S1",
-        )
+        electrode_rows1 = build_electrodes_table_from_meta(meta1, electrode_group1_template, "Sensory Cortex, S1")
+        for row in electrode_rows1:
+            row["group"] = electrode_group1
+        for row in electrode_rows1:
+            nwbfile.add_electrode(**row)
+        n_added1 = len(electrode_rows1)
 
         # Verify total electrodes
         assert n_added0 == 384
@@ -170,19 +227,30 @@ class TestPhase1Integration:
             session_start_time=datetime.now(tzlocal()),
         )
 
-        # Use all defaults
-        device = create_device(
-            nwbfile=nwbfile,
-            name="test_probe",
-            manufacturer="IMEC",
+        # Use builder pattern
+        meta = parse_spikeglx_meta(sample_meta_path)
+        device = build_device_from_meta(meta, "test")
+        nwbfile.add_device(device)
+
+        electrode_group_template = build_electrode_group_from_meta(
+            name="probe_test",
+            device=device,
+            location="Unknown",
+            meta=meta,
+        )
+        electrode_group = nwbfile.create_electrode_group(
+            name=electrode_group_template.name,
+            description=electrode_group_template.description,
+            location=electrode_group_template.location,
+            device=electrode_group_template.device,
         )
 
-        n_added = add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device,
-            probe_id="test",
-        )
+        electrode_rows = build_electrodes_table_from_meta(meta, electrode_group_template, "Unknown")
+        for row in electrode_rows:
+            row["group"] = electrode_group
+        for row in electrode_rows:
+            nwbfile.add_electrode(**row)
+        n_added = len(electrode_rows)
 
         assert n_added == 384
 
@@ -231,25 +299,33 @@ class TestPhase2Integration:
         )
 
         # Phase 1: Create device and electrodes
-        device = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec0",
-            manufacturer="IMEC",
-            description="Neuropixels 2.0 probe",
+        meta = parse_spikeglx_meta(sample_meta_path)
+        device = build_device_from_meta(meta, "imec0")
+        nwbfile.add_device(device)
+
+        electrode_group_template = build_electrode_group_from_meta(
+            name="probe_imec0",
+            device=device,
+            location="Motor Cortex, M1",
+            meta=meta,
+        )
+        electrode_group = nwbfile.create_electrode_group(
+            name=electrode_group_template.name,
+            description=electrode_group_template.description,
+            location=electrode_group_template.location,
+            device=electrode_group_template.device,
         )
 
-        n_electrodes = add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device,
-            probe_id="imec0",
-            location="Motor Cortex, M1",
-        )
+        electrode_rows = build_electrodes_table_from_meta(meta, electrode_group_template, "Motor Cortex, M1")
+        for row in electrode_rows:
+            row["group"] = electrode_group
+        for row in electrode_rows:
+            nwbfile.add_electrode(**row)
+        n_electrodes = len(electrode_rows)
 
         assert n_electrodes == 384
 
         # Phase 2: Add spike sorting results
-        meta = parse_spikeglx_meta(sample_meta_path)
         sampling_rate = meta["sampling_rate"]
 
         stats = add_units_from_kilosort(
@@ -316,22 +392,30 @@ class TestPhase2Integration:
         )
 
         # Phase 1: Setup
-        device = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec0",
-            manufacturer="IMEC",
+        meta = parse_spikeglx_meta(sample_meta_path)
+        device = build_device_from_meta(meta, "imec0")
+        nwbfile.add_device(device)
+
+        electrode_group_template = build_electrode_group_from_meta(
+            name="probe_imec0",
+            device=device,
+            location="Motor Cortex",
+            meta=meta,
+        )
+        electrode_group = nwbfile.create_electrode_group(
+            name=electrode_group_template.name,
+            description=electrode_group_template.description,
+            location=electrode_group_template.location,
+            device=electrode_group_template.device,
         )
 
-        add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device,
-            probe_id="imec0",
-            location="Motor Cortex",
-        )
+        electrode_rows = build_electrodes_table_from_meta(meta, electrode_group_template, "Motor Cortex")
+        for row in electrode_rows:
+            row["group"] = electrode_group
+        for row in electrode_rows:
+            nwbfile.add_electrode(**row)
 
         # Phase 2: Only include "good" units
-        meta = parse_spikeglx_meta(sample_meta_path)
 
         stats = add_units_from_kilosort(
             nwbfile=nwbfile,
@@ -368,22 +452,30 @@ class TestPhase2Integration:
         )
 
         # Phase 1: Setup
-        device = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec0",
-            manufacturer="IMEC",
+        meta = parse_spikeglx_meta(sample_meta_path)
+        device = build_device_from_meta(meta, "imec0")
+        nwbfile.add_device(device)
+
+        electrode_group_template = build_electrode_group_from_meta(
+            name="probe_imec0",
+            device=device,
+            location="Motor Cortex",
+            meta=meta,
+        )
+        electrode_group = nwbfile.create_electrode_group(
+            name=electrode_group_template.name,
+            description=electrode_group_template.description,
+            location=electrode_group_template.location,
+            device=electrode_group_template.device,
         )
 
-        add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device,
-            probe_id="imec0",
-            location="Motor Cortex",
-        )
+        electrode_rows = build_electrodes_table_from_meta(meta, electrode_group_template, "Motor Cortex")
+        for row in electrode_rows:
+            row["group"] = electrode_group
+        for row in electrode_rows:
+            nwbfile.add_electrode(**row)
 
         # Phase 2: Set high spike count threshold
-        meta = parse_spikeglx_meta(sample_meta_path)
 
         stats = add_units_from_kilosort(
             nwbfile=nwbfile,
@@ -423,19 +515,27 @@ class TestPhase2Integration:
         meta = parse_spikeglx_meta(sample_meta_path)
 
         # Add first probe (imec0)
-        device0 = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec0",
-            manufacturer="IMEC",
+        device0 = build_device_from_meta(meta, "imec0")
+        nwbfile.add_device(device0)
+
+        electrode_group0_template = build_electrode_group_from_meta(
+            name="probe_imec0",
+            device=device0,
+            location="Motor Cortex",
+            meta=meta,
+        )
+        electrode_group0 = nwbfile.create_electrode_group(
+            name=electrode_group0_template.name,
+            description=electrode_group0_template.description,
+            location=electrode_group0_template.location,
+            device=electrode_group0_template.device,
         )
 
-        add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device0,
-            probe_id="imec0",
-            location="Motor Cortex",
-        )
+        electrode_rows0 = build_electrodes_table_from_meta(meta, electrode_group0_template, "Motor Cortex")
+        for row in electrode_rows0:
+            row["group"] = electrode_group0
+        for row in electrode_rows0:
+            nwbfile.add_electrode(**row)
 
         stats0 = add_units_from_kilosort(
             nwbfile=nwbfile,
@@ -447,19 +547,27 @@ class TestPhase2Integration:
         )
 
         # Add second probe (imec1) - reuse same fixture data
-        device1 = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec1",
-            manufacturer="IMEC",
+        device1 = build_device_from_meta(meta, "imec1")
+        nwbfile.add_device(device1)
+
+        electrode_group1_template = build_electrode_group_from_meta(
+            name="probe_imec1",
+            device=device1,
+            location="Sensory Cortex",
+            meta=meta,
+        )
+        electrode_group1 = nwbfile.create_electrode_group(
+            name=electrode_group1_template.name,
+            description=electrode_group1_template.description,
+            location=electrode_group1_template.location,
+            device=electrode_group1_template.device,
         )
 
-        add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device1,
-            probe_id="imec1",
-            location="Sensory Cortex",
-        )
+        electrode_rows1 = build_electrodes_table_from_meta(meta, electrode_group1_template, "Sensory Cortex")
+        for row in electrode_rows1:
+            row["group"] = electrode_group1
+        for row in electrode_rows1:
+            nwbfile.add_electrode(**row)
 
         stats1 = add_units_from_kilosort(
             nwbfile=nwbfile,

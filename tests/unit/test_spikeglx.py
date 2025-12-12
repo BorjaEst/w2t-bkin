@@ -6,17 +6,31 @@ Tests SpikeGLX metadata parsing and electrode table population.
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict
 
 from dateutil.tz import tzlocal
 from pynwb import NWBFile
+from pynwb.device import Device
+from pynwb.ecephys import ElectrodeGroup
 import pytest
 
-from w2t_bkin.ingest.ecephys import create_device
-from w2t_bkin.ingest.spikeglx import add_electrodes_from_spikeglx, parse_spikeglx_meta
+from w2t_bkin.ingest.spikeglx import build_device_from_meta, build_electrode_group_from_meta, build_electrodes_table_from_meta, parse_spikeglx_meta
 
 
-class TestCreateNeuropixelsDevice:
-    """Test Device creation for Neuropixels probes."""
+class TestSpikeGLXIngest:
+    """Test NWB object creation from SpikeGLX metadata."""
+
+    @pytest.fixture
+    def mock_meta(self) -> Dict[str, Any]:
+        """Create a mock parsed metadata dictionary."""
+        return {
+            "sampling_rate": 30000.0,
+            "n_channels": 4,  # Small number for testing
+            "probe_type": "0",  # Neuropixels 1.0
+            "geometry": [(0.0, 0.0), (32.0, 0.0), (0.0, 20.0), (32.0, 20.0)],
+            "filtering": "AP band: 300Hz high-pass",
+            "file_size_bytes": 1000000,
+        }
 
     @pytest.fixture
     def nwbfile(self):
@@ -27,157 +41,96 @@ class TestCreateNeuropixelsDevice:
             session_start_time=datetime.now(tzlocal()),
         )
 
-    def test_create_device_basic(self, nwbfile):
-        """Test creating a device with default parameters."""
-        device = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec0",
-            manufacturer="IMEC",
-        )
+    def test_build_device_from_meta(self, mock_meta):
+        """Test creating a Device object from metadata."""
+        device = build_device_from_meta(mock_meta, "imec0")
 
+        assert isinstance(device, Device)
         assert device.name == "neuropixels_imec0"
         assert device.manufacturer == "IMEC"
+        assert "Neuropixels 1.0" in device.description
 
-    def test_create_device_custom_params(self, nwbfile):
-        """Test creating a device with custom parameters."""
-        device = create_device(
-            nwbfile=nwbfile,
-            name="neuropixels_imec1",
-            manufacturer="IMEC",
-            description="Neuropixels 1.0 - Custom probe description",
-        )
+    def test_build_device_unknown_probe_type(self, mock_meta):
+        """Test device creation with unknown probe type."""
+        mock_meta["probe_type"] = "9999"
+        device = build_device_from_meta(mock_meta, "imec1")
 
         assert device.name == "neuropixels_imec1"
-        assert device.manufacturer == "IMEC"
-        assert "Custom probe description" in device.description
+        assert "type 9999" in device.description
 
-    def test_create_duplicate_device(self, nwbfile):
-        """Test error when creating duplicate device."""
-        create_device(nwbfile, "probe1")
+    def test_build_electrode_group_from_meta(self, mock_meta):
+        """Test creating an ElectrodeGroup from metadata."""
+        device = build_device_from_meta(mock_meta, "imec0")
 
-        with pytest.raises(ValueError, match="already exists"):
-            create_device(nwbfile, "probe1")
-
-    def test_device_added_to_nwbfile(self, nwbfile):
-        """Test that device is added to nwbfile.devices."""
-        device = create_device(nwbfile, "test_probe")
-
-        assert "test_probe" in nwbfile.devices
-        assert nwbfile.devices["test_probe"] is device
-
-
-class TestAddElectrodesFromMeta:
-    """Test electrodes table population from .meta file."""
-
-    @pytest.fixture
-    def nwbfile(self):
-        """Create NWBFile with a device."""
-        nwb = NWBFile(
-            session_description="test session",
-            identifier="test-002",
-            session_start_time=datetime.now(tzlocal()),
-        )
-        create_device(nwb, "neuropixels_imec0")
-        return nwb
-
-    @pytest.fixture
-    def sample_meta_path(self):
-        """Path to sample .meta fixture."""
-        return Path(__file__).parent.parent / "fixtures/spikeglx/sample_np20.imec0.ap.meta"
-
-    def test_add_electrodes_basic(self, nwbfile, sample_meta_path):
-        """Test adding electrodes from .meta file."""
-        device = nwbfile.devices["neuropixels_imec0"]
-
-        n_added = add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
+        group = build_electrode_group_from_meta(
+            name="probe_imec0",
             device=device,
-            probe_id="imec0",
-            location="Motor Cortex, M1",
+            location="Motor Cortex",
+            meta=mock_meta,
         )
 
-        assert n_added == 384
-        assert len(nwbfile.electrodes) == 384
+        assert isinstance(group, ElectrodeGroup)
+        assert group.name == "probe_imec0"
+        assert group.device is device
+        assert group.location == "Motor Cortex"
+        assert "neuropixels_imec0" in group.description
+        assert "4 channels" in group.description
 
-    def test_electrodes_have_correct_attributes(self, nwbfile, sample_meta_path):
-        """Test that electrodes have correct attributes."""
-        device = nwbfile.devices["neuropixels_imec0"]
-
-        add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
+    def test_build_electrodes_table_from_meta(self, mock_meta):
+        """Test creating electrode table rows from metadata."""
+        device = build_device_from_meta(mock_meta, "imec0")
+        group = build_electrode_group_from_meta(
+            name="probe_imec0",
             device=device,
-            probe_id="imec0",
-            location="Motor Cortex, M1",
+            location="Motor Cortex",
+            meta=mock_meta,
         )
 
-        # Check electrodes table structure
-        assert "filtering" in nwbfile.electrodes.colnames
-        assert "location" in nwbfile.electrodes.colnames
+        rows = build_electrodes_table_from_meta(mock_meta, group, "Motor Cortex")
 
-        # Check first electrode via DataFrame
-        df = nwbfile.electrodes.to_dataframe()
-        assert df.iloc[0]["location"] == "Motor Cortex, M1"
+        assert len(rows) == 4  # Matches n_channels/geometry length
 
-    def test_electrode_group_created(self, nwbfile, sample_meta_path):
-        """Test that ElectrodeGroup is created."""
-        device = nwbfile.devices["neuropixels_imec0"]
+        # Check first row
+        row0 = rows[0]
+        assert row0["x"] == 0.0
+        assert row0["y"] == 0.0
+        assert row0["z"] == 0.0
+        assert row0["group"] is group
+        assert row0["location"] == "Motor Cortex"
+        assert row0["filtering"] == mock_meta["filtering"]
 
-        add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
+        # Check second row
+        row1 = rows[1]
+        assert row1["x"] == 32.0
+        assert row1["y"] == 0.0
+        assert row1["z"] == 0.0
+
+    def test_integration_with_nwbfile(self, nwbfile, mock_meta):
+        """Test adding created objects to an NWBFile."""
+        # 1. Create Device
+        device = build_device_from_meta(mock_meta, "imec0")
+        nwbfile.add_device(device)
+        assert "neuropixels_imec0" in nwbfile.devices
+
+        # 2. Create ElectrodeGroup
+        group = build_electrode_group_from_meta(
+            name="probe_imec0",
             device=device,
-            probe_id="imec0",
+            location="Striatum",
+            meta=mock_meta,
         )
-
-        # Check electrode group exists
+        nwbfile.create_electrode_group(
+            name=group.name,
+            description=group.description,
+            location=group.location,
+            device=group.device,
+        )
         assert "probe_imec0" in nwbfile.electrode_groups
 
-    def test_custom_group_name(self, nwbfile, sample_meta_path):
-        """Test custom electrode group name."""
-        device = nwbfile.devices["neuropixels_imec0"]
+        # 3. Add Electrodes
+        rows = build_electrodes_table_from_meta(mock_meta, group, "Striatum")
+        for row in rows:
+            nwbfile.add_electrode(**row)
 
-        add_electrodes_from_spikeglx(
-            nwbfile=nwbfile,
-            meta_path=sample_meta_path,
-            device=device,
-            probe_id="imec0",
-            group_name="custom_group",
-        )
-
-        assert "custom_group" in nwbfile.electrode_groups
-
-    def test_multiple_probes_unique_ids(self, sample_meta_path):
-        """Test that electrode IDs are unique across multiple probes."""
-        nwb = NWBFile(
-            session_description="multi-probe test",
-            identifier="test-003",
-            session_start_time=datetime.now(tzlocal()),
-        )
-
-        # Add two probes
-        device0 = create_device(nwb, "neuropixels_imec0")
-        device1 = create_device(nwb, "neuropixels_imec1")
-
-        add_electrodes_from_spikeglx(nwb, sample_meta_path, device0, "imec0")
-        add_electrodes_from_spikeglx(nwb, sample_meta_path, device1, "imec1")
-
-        # Should have 384 * 2 = 768 electrodes with unique IDs
-        assert len(nwb.electrodes) == 768
-
-        # Check that electrode IDs are sequential and unique
-        electrode_ids = [row.index for row in nwb.electrodes.to_dataframe().itertuples()]
-        assert len(set(electrode_ids)) == 768  # All unique
-
-    def test_missing_meta_file(self, nwbfile):
-        """Test error handling for missing .meta file."""
-        device = nwbfile.devices["neuropixels_imec0"]
-
-        with pytest.raises(FileNotFoundError):
-            add_electrodes_from_spikeglx(
-                nwbfile=nwbfile,
-                meta_path=Path("/nonexistent/file.meta"),
-                device=device,
-                probe_id="imec0",
-            )
+        assert len(nwbfile.electrodes) == 4
+        assert nwbfile.electrodes[0, "location"] == "Striatum"

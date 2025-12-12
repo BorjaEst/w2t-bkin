@@ -8,6 +8,7 @@ import pytest
 
 from synthetic import build_raw_folder
 from synthetic.pose_synth import PoseH5Params, create_sleap_pose_h5
+from w2t_bkin.api import SessionFlowConfig
 from w2t_bkin.flows import process_session_flow
 
 
@@ -57,29 +58,26 @@ class TestFlowSLEAPIngestion:
         )
         create_sleap_pose_h5(sleap_path, pose_params)
 
-        # 2.5 Update config to enable SLEAP preprocessing
+        # Enable SLEAP preprocessing in config (needed for ingestion)
+        # But we skip generation with skip_sleap=True to use pre-existing files
         config_content = result.config_path.read_text()
-
-        # Add [preprocessing.sleap] section
-        if "[preprocessing.sleap]" not in config_content:
-            config_content += "\n[preprocessing.sleap]\nenabled = true\n"
-        else:
+        if "[preprocessing.sleap]" in config_content:
             config_content = config_content.replace("[preprocessing.sleap]\nenabled = false", "[preprocessing.sleap]\nenabled = true")
-
-        # Disable DLC to isolate SLEAP test (optional but cleaner)
-        config_content = config_content.replace("[preprocessing.dlc]\nenabled = true", "[preprocessing.dlc]\nenabled = false")
-
+        else:
+            config_content += "\n[preprocessing.sleap]\nenabled = true\n"
         result.config_path.write_text(config_content)
 
         # 3. Run flow
-        flow_result = process_session_flow(
-            config_path=result.config_path,
+        config = SessionFlowConfig(
+            config_path=str(result.config_path),
             subject_id=subject_id,
             session_id=session_id,
             skip_nwb_validation=True,
             skip_pose=False,
+            skip_sleap=True,  # Skip generation, use pre-generated files
             skip_bpod=True,
         )
+        flow_result = process_session_flow(config)
 
         # 4. Verify success
         assert flow_result.success, f"Flow failed: {flow_result.error}"

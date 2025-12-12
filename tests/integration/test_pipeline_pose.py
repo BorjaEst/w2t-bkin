@@ -8,6 +8,7 @@ import pytest
 
 from synthetic import build_raw_folder
 from synthetic.pose_synth import PoseH5Params, create_dlc_pose_h5
+from w2t_bkin.api import SessionFlowConfig
 from w2t_bkin.flows import process_session_flow
 
 
@@ -59,37 +60,26 @@ class TestFlowPoseIngestion:
         )
         create_dlc_pose_h5(dlc_path, pose_params)
 
-        # 2.5 Update config to enable DLC preprocessing
-        # The synthetic config generator defaults to dlc.enabled=False
+        # Enable DLC preprocessing in config (needed for ingestion)
+        # But we skip generation with skip_dlc=True to use pre-existing files
         config_content = result.config_path.read_text()
-        if "[preprocessing.dlc]" not in config_content:
-            # Append if missing (it should be there now with my changes, but defaults to false)
-            # Actually, since I just updated config_synth.py, build_raw_folder will write it.
-            # But build_raw_folder uses defaults, so enabled=False.
-            # We can just replace it.
-            config_content = config_content.replace("enabled = false", "enabled = true")
-            # If it wasn't there (e.g. if I didn't update config_synth correctly), append it
-            if "enabled = true" not in config_content:
-                config_content += "\n[preprocessing.dlc]\nenabled = true\n"
+        if "[preprocessing.dlc]" in config_content:
+            config_content = config_content.replace("[preprocessing.dlc]\nenabled = false", "[preprocessing.dlc]\nenabled = true")
         else:
-            config_content = config_content.replace("enabled = false", "enabled = true")
-
+            config_content += "\n[preprocessing.dlc]\nenabled = true\n"
         result.config_path.write_text(config_content)
 
-        # 3. Initialize pipeline
-        # Ensure config points to our interim root
-        # build_raw_folder sets intermediate_root to out_root.parent / "interim"
-        # which matches our tmp_path / "interim" if raw_root is tmp_path / "raw"
-
         # 4. Run flow
-        flow_result = process_session_flow(
-            config_path=result.config_path,
+        config = SessionFlowConfig(
+            config_path=str(result.config_path),
             subject_id=subject_id,
             session_id=session_id,
             skip_nwb_validation=True,
             skip_pose=False,  # Enable pose
+            skip_dlc=True,  # Skip generation, use pre-generated files
             skip_bpod=True,  # Skip bpod to focus on pose
         )
+        flow_result = process_session_flow(config)
 
         # 5. Verify success
         assert flow_result.success, f"Flow failed: {flow_result.error}"
