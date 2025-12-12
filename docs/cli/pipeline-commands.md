@@ -29,27 +29,31 @@ w2t-bkin server restart [OPTIONS]  # Restart server
 - `--work-pool, -w TEXT` - Work pool type (docker or local)
 - `--port, -p INT` - Prefect UI port (default: 4200)
 - `--browser/--no-browser` - Open browser automatically (default: true)
+- `--workers INT` - Number of workers to auto-start (default: 1, set to 0 to disable)
 - `--log-level TEXT` - Logging level (default: INFO)
 
 ### Examples
 
 ```bash
-# Start server with defaults
+# Start server with defaults (auto-starts 1 worker)
 w2t-bkin server start
 
-# Start with specific config
-w2t-bkin server start --config configs/standard.toml
+# Start with 4 workers for parallel processing
+w2t-bkin server start --workers 4
 
-# Start with Docker work pool (recommended)
+# Start without auto-starting workers (manual setup)
+w2t-bkin server start --workers 0
+
+# Start with Docker work pool (workers run in containers)
 w2t-bkin server start --work-pool docker
 
-# Start with local work pool (requires worker extras)
+# Start with local work pool (workers run as subprocesses)
 w2t-bkin server start --work-pool local
 
 # Check server status
 w2t-bkin server status
 
-# Stop server
+# Stop server (also stops all auto-started workers)
 w2t-bkin server stop
 ```
 
@@ -60,7 +64,48 @@ w2t-bkin server stop
 3. **Creates Deployments** - Automatically creates:
    - `process-session` - Single session processing
    - `batch-process` - Batch processing
-4. **Opens Browser** - Automatically opens Prefect UI
+4. **Auto-starts Workers** - Starts the specified number of workers (default: 1)
+   - **Docker workers**: Run in Docker containers (requires Docker running)
+   - **Local workers**: Run as subprocesses (requires `pip install -e ".[worker]"`)
+5. **Opens Browser** - Automatically opens Prefect UI (unless `--no-browser`)
+
+The work pools are now **immediately ready** to accept and execute jobs!
+
+### Worker Management
+
+**Auto-start (recommended)**:
+
+```bash
+# Automatically starts 1 worker
+w2t-bkin server start
+
+# Start with 4 workers for parallel processing
+w2t-bkin server start --workers 4
+```
+
+**Manual setup** (if you disabled auto-start with `--workers 0`):
+
+**For Docker work pools**:
+
+```bash
+# In a new terminal
+prefect worker start --pool docker-pool
+
+# Or using Docker container
+docker run -d --name w2t-worker \
+  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  --network host \
+  ghcr.io/borjaest/w2t-bkin:latest \
+  prefect worker start --pool docker-pool
+```
+
+**For local work pools** (requires `pip install -e ".[worker]"`):
+
+```bash
+# Manual start in new terminal
+prefect worker start --pool local-pool
+```
 
 ---
 
@@ -70,7 +115,7 @@ w2t-bkin server stop
 
 **Via Prefect UI:**
 
-1. Start server: `w2t-bkin server start`
+1. Start server: `w2t-bkin server start` (workers auto-start by default)
 2. Navigate to `http://localhost:4200`
 3. Go to **Deployments** → **process-session**
 4. Click **Run**

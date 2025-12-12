@@ -1,11 +1,14 @@
 """Server management commands for Prefect."""
 
+from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
+import platform
 import subprocess
+import sys
 import time
-from typing import Optional
+from typing import List, Optional, Tuple
 import urllib.request
 import webbrowser
 
@@ -18,29 +21,81 @@ from .utils import console, setup_logging
 server_app = typer.Typer(name="server", help="Prefect server management")
 
 
+@dataclass
+class WorkerInfo:
+    """Information about a started worker."""
+    worker_type: str  # "process" or "docker"
+    name: str
+    reference: any  # subprocess.Popen for process, container_id for docker
+
+
+def _get_prefect_cmd() -> List[str]:
+    """Get the prefect command using the current Python interpreter."""
+    return [sys.executable, "-m", "prefect"]
+
+
+def _is_windows() -> bool:
+    """Check if running on Windows."""
+    return platform.system() == "Windows"
+
+
+def _get_api_url(port: int) -> str:
+    """Get the Prefect API URL for the given platform.
+    
+    Args:
+        port: Port number for the Prefect server
+        
+    Returns:
+        Appropriate API URL based on platform and context
+    """
+    # For local workers, always use localhost/127.0.0.1
+    # For Docker workers on Linux with --network host, use 127.0.0.1
+    # For Docker workers on Windows/Mac, use host.docker.internal
+    return f"http://127.0.0.1:{port}/api"
+
+
+def _get_docker_api_url(port: int) -> str:
+    """Get the Prefect API URL for Docker workers based on platform.
+    
+    Args:
+        port: Port number for the Prefect server
+        
+    Returns:
+        Appropriate API URL for Docker workers
+    """
+    if _is_windows():
+        # Windows: Use host.docker.internal
+        return f"http://host.docker.internal:{port}/api"
+    else:
+        # Linux with --network host: Use 127.0.0.1
+        return f"http://127.0.0.1:{port}/api"
+
+
 @server_app.command(name="start")
 def start(
     config_path: Optional[Path] = typer.Option(None, "--config", "-c", help="Default config file for deployments"),
     work_pool: Optional[str] = typer.Option(None, "--work-pool", "-w", help="Work pool type (docker or local)"),
     port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"),
     open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
+    workers: int = typer.Option(1, "--workers", help="Number of workers to start (0 to disable auto-start)"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
-    """Start Prefect server, create deployments, and open UI.
+    """Start Prefect server, create deployments, and auto-start workers.
 
     This command:
     1. Starts the Prefect server
     2. Creates flow deployments automatically
-    3. Opens the Prefect UI in your browser
+    3. Auto-starts workers (Docker or local based on work pool type)
+    4. Opens the Prefect UI in your browser
 
-    The deployments are created with a work pool that can execute flows either:
-    - Using Docker containers (default, recommended)
-    - Using local Python if you installed w2t-bkin[worker]
+    Workers are automatically started by default (--workers 1). For Docker pools,
+    workers run in containers. For local pools, workers run as subprocesses.
 
     Example:
-        $ w2t-bkin server start
-        $ w2t-bkin server start --config configs/standard.toml
-        $ w2t-bkin server start --work-pool local --port 4200
+        $ w2t-bkin server start                    # Auto-starts 1 worker
+        $ w2t-bkin server start --workers 4        # Start with 4 workers
+        $ w2t-bkin server start --workers 0        # No auto-start, manual setup
+        $ w2t-bkin server start --work-pool local  # Use local workers
     """
     setup_logging(log_level)
 
@@ -68,7 +123,7 @@ def start(
     try:
         # Start server process
         server_process = subprocess.Popen(
-            ["prefect", "server", "start", "--host", "0.0.0.0", "--port", str(port)],
+            _get_prefect_cmd() + ["server", "start", "--host", "0.0.0.0", "--port", str(port)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -102,6 +157,47 @@ def start(
         console.print(f"\n[green]✅ W2T-BKIN Server Ready![/green]")
         console.print(f"\n[bold]Prefect UI:[/bold] {ui_url}")
         console.print(f"[bold]Work Pool:[/bold] {work_pool}-pool")
+
+        # Start workers if requested
+        worker_processes: List[WorkerInfo] = []
+        if workers > 0:
+            console.print(f"\n[cyan]Starting {workers} worker(s)...[/cyan]")
+
+            for i in range(workers):
+                worker_name = f"{work_pool}-worker-{i+1}"
+
+                if work_pool == "docker":
+                    worker_info = _start_docker_worker(worker_name, work_pool, port)
+                    if worker_info:
+                        worker_processes.append(worker_info)
+                else:  # local
+                    worker_info = _start_local_worker(worker_name, work_pool, port)
+                    if worker_info:
+                        worker_processes.append(worker_info)
+
+            # Wait for workers to connect
+            _verify_workers(worker_processes, workers, work_pool)
+
+        else:
+            # No auto-start - show manual instructions
+            if work_pool == "docker":
+                console.print("\n[bold cyan]📋 To start Docker workers:[/bold cyan]")
+                console.print("[dim]  Run in a new terminal:[/dim]")
+                console.print(f"[yellow]     prefect worker start --pool docker-pool[/yellow]")
+                console.print("\n[dim]  Or use Docker container:[/dim]")
+                console.print(f"[yellow]     docker run -d --name w2t-worker \\[/yellow]")
+                console.print(f"[yellow]       -e PREFECT_API_URL=http://host.docker.internal:{port}/api \\[/yellow]")
+                console.print(f"[yellow]       -v /var/run/docker.sock:/var/run/docker.sock \\[/yellow]")
+                console.print(f"[yellow]       --network host \\[/yellow]")
+                console.print(f"[yellow]       ghcr.io/borjaest/w2t-bkin:latest \\[/yellow]")
+                console.print(f"[yellow]       prefect worker start --pool docker-pool[/yellow]")
+            else:
+                console.print("\n[bold cyan]📋 To start local workers:[/bold cyan]")
+                console.print("[dim]  Run in a new terminal:[/dim]")
+                console.print(f"[yellow]     prefect worker start --pool local-pool[/yellow]")
+                console.print("\n[dim]  Or restart with --workers flag:[/dim]")
+                console.print(f"[yellow]     w2t-bkin server start --workers 1[/yellow]")
+
         console.print("\n[dim]Press Ctrl+C to stop the server[/dim]\n")
 
         # Keep server running
@@ -111,6 +207,23 @@ def start(
             console.print("\n[yellow]Stopping server...[/yellow]")
             server_process.terminate()
             server_process.wait(timeout=5)
+
+            # Stop workers
+            if worker_processes:
+                console.print("[yellow]Stopping workers...[/yellow]")
+                for worker_type, worker_name, worker_ref in worker_processes:
+                    try:
+                        if worker_type == "docker":
+                            # Stop and remove Docker container
+                            subprocess.run(["docker", "stop", worker_name], capture_output=True, timeout=5)
+                            subprocess.run(["docker", "rm", worker_name], capture_output=True, timeout=5)
+                        else:
+                            # Terminate subprocess
+                            worker_ref.terminate()
+                            worker_ref.wait(timeout=5)
+                    except Exception:
+                        pass  # Best effort cleanup
+
             console.print("[green]✓[/green] Server stopped")
 
     except Exception as e:
@@ -234,7 +347,7 @@ def _create_work_pool(pool_type: str):
     pool_name = f"{pool_type}-pool"
 
     # Check if pool already exists
-    result = subprocess.run(["prefect", "work-pool", "inspect", pool_name], capture_output=True, text=True)
+    result = subprocess.run(_get_prefect_cmd() + ["work-pool", "inspect", pool_name], capture_output=True, text=True)
 
     if result.returncode == 0:
         console.print(f"[dim]  Work pool '{pool_name}' already exists[/dim]")
@@ -243,7 +356,7 @@ def _create_work_pool(pool_type: str):
     # Create pool
     pool_type_arg = "process" if pool_type == "local" else "docker"
     subprocess.run(
-        ["prefect", "work-pool", "create", pool_name, "--type", pool_type_arg],
+        _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", pool_type_arg],
         check=True,
         capture_output=True,
     )
