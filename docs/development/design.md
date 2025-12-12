@@ -321,3 +321,28 @@ Production-ready containerized deployment via Docker Compose:
 - Automatic flow deployment on server startup
 - Configurable resources and replicas
 - `.env` auto-generation via `data init` command
+
+## Testing Strategy
+
+The testing strategy ensures the reliability of the pipeline through a layered approach:
+
+1.  **Unit Tests**:
+
+    - Focus: Individual modules (`config`, `utils`, `session`).
+    - Goal: Verify logic correctness and error handling.
+    - Mocking: Heavy use of mocks for filesystem and external dependencies.
+
+2.  **Integration Tests**:
+
+    - Focus: `process_session_flow` and component interactions.
+    - Goal: Verify data flow from raw input to NWB output.
+    - Data: Uses `synthetic` module to generate compliant raw data on the fly.
+
+3.  **Synthetic Data**:
+
+    - The `synthetic` module is a critical component of the test infrastructure.
+    - It must be kept in sync with the production schema to ensure valid test inputs.
+
+4.  **Continuous Integration**:
+    - Tests run on every PR.
+    - Linting and type checking are enforced.

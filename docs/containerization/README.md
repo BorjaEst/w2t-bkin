@@ -110,6 +110,8 @@ WORKER_REPLICAS=2
    - `session_id`: Session identifier (e.g., `session-001`)
    - `skip_bpod`: Skip Bpod processing (default: `false`)
    - `skip_pose`: Skip pose processing (default: `false`)
+   - `skip_ecephys`: Skip electrophysiology processing (default: `false`)
+   - `skip_camera_sync`: Skip camera verification (default: `false`)
    - `skip_nwb_validation`: Skip NWB validation (default: `false`)
 
    **For batch processing (batch-processing)**:
@@ -120,6 +122,8 @@ WORKER_REPLICAS=2
    - `max_parallel`: Concurrent sessions (default: 4)
    - `skip_bpod`: Skip Bpod processing (default: `false`)
    - `skip_pose`: Skip pose processing (default: `false`)
+   - `skip_ecephys`: Skip electrophysiology processing (default: `false`)
+   - `skip_camera_sync`: Skip camera verification (default: `false`)
    - `skip_nwb_validation`: Skip NWB validation (default: `false`)
 
 6. Click "Run" to start

@@ -1,377 +1,254 @@
 # W2T Body Kinematics Pipeline (w2t-bkin)
 
-A modular, reproducible Python pipeline for processing multi-camera rodent behavior recordings. It integrates synchronization, pose estimation (DeepLabCut/SLEAP), facial metrics, and behavioral events into standardized **NWB (Neurodata Without Borders)** datasets.
+A modular, reproducible Python pipeline for processing multi-camera rodent behavior recordings into standardized **NWB (Neurodata Without Borders)** datasets.
 
-## Key Features
+## 🚀 Quick Links
 
-- **NWB-First Architecture**: Produces NWB-native data structures directly, eliminating intermediate conversion layers
-- **Hierarchical Metadata**: Supports cascading configuration from global → subject → session levels
-- **Bpod Integration**: Parses Bpod `.mat` files and converts them to `ndx-structured-behavior` format
-- **Pose Estimation**: Imports and harmonizes data from DeepLabCut and SLEAP into `ndx-pose`
-- **Synchronization**: Robust alignment of behavioral data and video frames using TTL pulses
-- **Container Orchestration**: Prefect-based workflow engine with web UI for monitoring
-- **User-Friendly CLI**: Comprehensive command-line tools for experiment management
+- **❓ [FAQ](docs/FAQ.md)** - Common questions and answers
+- **🔧 [Troubleshooting](docs/TROUBLESHOOTING.md)** - Solutions to common issues
+- **📚 [Full Documentation](docs/README.md)** - Complete documentation index
+- **💻 [CLI Reference](docs/cli/README.md)** - Command-line tools guide
+- **🐳 [Docker Deployment](docs/containerization/README.md)** - Container setup
+
+## ✨ Key Features
+
+- **NWB-First Architecture** - Direct NWB output, no intermediate conversions
+- **Hierarchical Metadata** - Cascading config (experiment → subject → session)
+- **Bpod Integration** - Converts Bpod `.mat` to `ndx-structured-behavior`
+- **Pose Estimation** - Imports DeepLabCut/SLEAP into `ndx-pose`
+- **Synchronization** - TTL-based alignment of video/behavior/hardware
+- **Container Orchestration** - Prefect web UI for monitoring
+- **User-Friendly CLI** - Complete command-line interface
+
+## 📋 Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Installation](#installation)
+3. [Quick Start](#quick-start)
+4. [Usage Examples](#usage-examples)
+5. [Documentation](#documentation)
+6. [Module Overview](#module-overview)
+7. [Contributing & License](#contributing)
 
 ---
 
-## Quick Start Guide
+## Prerequisites
 
-### Step 1: Install the CLI Tools
+### Required
+
+- **Python 3.10+** ([Download](https://www.python.org/downloads/))
+- **Git** (for manual dependency installation)
+- **Raw data files**: Videos (`.mp4`, `.avi`), TTL pulses (`.csv`, `.mat`), Bpod data (`.mat`), pose models (DLC/SLEAP)
+
+### Optional (for Docker)
+
+- **Docker Desktop** (Windows/Mac) or **Docker Engine** (Linux)
+- **8GB+ RAM** (16GB+ recommended for parallel processing)
+- **10GB+ free disk space**
+
+---
+
+## Installation
+
+### Option A: Docker (Recommended)
+
+**For running the complete processing pipeline with web UI.**
+
+1. **Install Docker**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) or [Docker Engine](https://docs.docker.com/engine/install/) (Linux)
+2. **Install CLI tools**: `pip install w2t-bkin`
+
+✅ **Done!** All pipeline dependencies are included in the Docker image. Continue to [Quick Start](#quick-start).
+
+---
+
+### Option B: Python Development
+
+**Only for developers using w2t-bkin modules (Bpod parsing, sync utilities, etc.) in custom Python applications.**
 
 ```bash
-# Install w2t-bkin CLI tools
-pip install w2t-bkin
-```
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate  # Windows
 
-> 💡 **Note**: The CLI tools work immediately for data management (creating folders, organizing experiments). Pipeline processing requires the additional manual installation below and container setup (see Step 3).
-
-**Required Manual Installation** (not yet on PyPI):
-
-The `ndx-structured-behavior` extension must be installed manually:
-
-```bash
+# Install manual dependency (not yet on PyPI)
 git clone https://github.com/rly/ndx-structured-behavior.git
-pip install -U ./ndx-structured-behavior
-```
+pip install ./ndx-structured-behavior
 
-After this, install the full pipeline dependencies:
-
-```bash
+# Install w2t-bkin with all features
 pip install w2t-bkin[full,prefect]
 ```
 
-### Step 2: Create Your Experiment Structure
+**Note**: `ndx-structured-behavior` must be installed manually as it's not yet on PyPI.
 
-Use the CLI to set up your experiment folder structure:
+This is **not needed** for pipeline processing - use Option A instead.
+
+---
+
+## Quick Start
+
+### 1. Initialize Experiment
 
 ```bash
-# Initialize experiment
+# Create experiment structure
 w2t-bkin data init /data/my-experiment \
   --lab "Your Lab Name" \
   --institution "Your Institution" \
   --experimenters "Alice,Bob" \
   -y
-
-# Add a subject
-w2t-bkin data add-subject /data/my-experiment mouse-001 \
-  --species "Mus musculus" \
-  --sex F \
-  --age P90D \
-  -y
-
-# Add a session
-w2t-bkin data add-session /data/my-experiment mouse-001 session-001 \
-  --description "Baseline recording" \
-  --experimenter Alice \
-  -y
 ```
 
-This creates the following structure:
+This creates the complete folder structure with Docker configuration and startup scripts.
 
-```
-/data/my-experiment/
-├── configuration.toml       # Pipeline configuration
-├── data/
-│   ├── raw/
-│   │   ├── metadata.toml   # Experiment metadata
-│   │   └── mouse-001/
-│   │       ├── subject.toml
-│   │       └── session-001/
-│   │           ├── session.toml
-│   │           ├── Video/   # Place your videos here
-│   │           ├── TTLs/    # Place TTL files here
-│   │           └── Bpod/    # Place Bpod .mat files here
-│   ├── interim/            # Intermediate processing files
-│   ├── processed/          # Final NWB outputs
-│   └── external/           # External data
-├── models/                 # Pose estimation models (DLC/SLEAP)
-└── docker/                 # Docker configuration
-    └── .env               # Auto-generated for containers
-```
-
-**Next**: Copy your raw data files (videos, TTL files, Bpod files) into the appropriate session folders, or use `w2t-bkin data import-raw` to safely import existing data using symbolic links.
-
-> 💡 **Manual Folder Creation**: You can also create the folder structure manually without the CLI if you prefer. The CLI tools are provided to prevent mistakes and ensure consistency. Just follow the structure shown above and create the required `.toml` metadata files.
-
-**Understanding Hierarchical Metadata**:
-
-Metadata files cascade and override from top to bottom:
-
-1. **Experiment Level** (`data/raw/metadata.toml`) - Lab-wide defaults (experimenter names, institution, lab name)
-2. **Subject Level** (`data/raw/mouse-001/subject.toml`) - Subject-specific information (species, sex, age, genotype)
-3. **Session Level** (`data/raw/mouse-001/session-001/session.toml`) - Session details (date, description, camera settings)
-
-Each level **extends and overrides** the previous level. For example:
-
-- Set default `experimenter = ["Alice", "Bob"]` at experiment level
-- Override with `experimenter = ["Alice"]` at session level when Bob wasn't present
-- Subject metadata like `species` and `sex` only needs to be set once at subject level
-
-This hierarchical approach reduces repetition and keeps metadata organized.
-
-📚 **CLI Documentation**: See [docs/cli/data-management.md](docs/cli/data-management.md) for complete data management guide.
-
-### Step 3: Set Up Processing Pipeline (Container-Based)
-
-The processing pipeline runs in Docker containers using Prefect for orchestration. This approach is recommended as it handles all dependencies automatically.
-
-#### 3.1 Install Container Runtime
-
-**For Windows Users** - Use Rancher Desktop for easy GUI management:
-
-<details>
-<summary><b>📦 Windows: Rancher Desktop Installation</b></summary>
-
-1. Download **Rancher Desktop** from [rancherdesktop.io](https://rancherdesktop.io/)
-2. Run the installer (`Rancher.Desktop.Setup.X.X.X.exe`)
-3. During setup:
-   - Choose **dockerd (moby)** as the container runtime
-   - Kubernetes is optional (not required for this pipeline)
-4. Launch Rancher Desktop
-5. Wait for initialization (green status indicator in system tray)
-
-**First-time setup**:
-
-- Click the Rancher Desktop icon in system tray
-- Verify status shows "Running"
-- Go to **Settings** → **Container Engine** → Ensure "dockerd (moby)" is selected
-
-</details>
-
-**For Linux Users** - Use Docker directly (recommended):
-
-<details>
-<summary><b>🐧 Linux: Docker Installation</b></summary>
-
-Most Linux users are familiar with Docker. Install using your distribution's package manager:
-
-**Ubuntu/Debian:**
-
-```bash
-# Install Docker
-sudo apt-get update
-sudo apt-get install docker.io docker-compose-plugin
-
-# Add your user to docker group (logout/login required)
-sudo usermod -aG docker $USER
-
-# Verify installation
-docker --version
-docker compose version
-```
-
-**Fedora/RHEL:**
-
-```bash
-sudo dnf install docker docker-compose-plugin
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-```
-
-**Arch Linux:**
-
-```bash
-sudo pacman -S docker docker-compose
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-```
-
-After installation, logout and login for group changes to take effect.
-
-</details>
-
-> 💡 **Alternative for Linux**: If you prefer a GUI, you can use [Podman Desktop](https://podman-desktop.io/) or [Docker Desktop](https://docs.docker.com/desktop/install/linux-install/), but the command-line Docker is simpler and more common on Linux.
-
-#### 3.2 Start the Pipeline Services
-
-**Method 1: Command Line** (Recommended - Works on all platforms):
+### 2. Start Pipeline
 
 ```bash
 cd /data/my-experiment
 
-# Pull the latest images
-docker pull ghcr.io/borjaest/w2t-bkin:latest-server
-docker pull ghcr.io/borjaest/w2t-bkin:latest-worker
-
-# Start services
-docker compose up -d
-
-# Check status (all should show "Up")
-docker compose ps
-
-# View logs (optional)
-docker compose logs -f
+# Windows: Double-click start-server.bat
+# Linux/Mac:
+./start-server.sh
 ```
 
-**Method 2: Rancher Desktop GUI** (Windows users):
+### 3. Open Web UI
 
-> ⚠️ **Note**: Rancher Desktop primarily supports Kubernetes deployments. For Docker Compose files, using the command line (Method 1) is more reliable. The Rancher GUI "Compose" feature may not work as expected.
+Browser → <http://localhost:4200>
 
-**For Docker Compose with Rancher Desktop**:
-
-1. Open Rancher Desktop
-2. Ensure dockerd is running (check status indicator)
-3. Open a terminal/command prompt (PowerShell or CMD)
-4. Use the docker commands from Method 1 above
-
-**Alternative - Using Rancher Desktop with Kubernetes** (Advanced):
-
-If you prefer Rancher's GUI and want to use Kubernetes instead of Docker Compose, you can convert the compose file to Kubernetes manifests using [kompose](https://kompose.io/). However, for most users, the command-line Docker Compose approach (Method 1) is simpler.
-
-**For most users, we recommend using Method 1 (command line) as it's simpler and more reliable.**
-
-The services will start:
-
-- **PostgreSQL**: Database for Prefect (internal use)
-- **Prefect Server**: Orchestration engine and API on port 4200
-- **Prefect Worker**: Executes pipeline tasks
-
-**Verify Services**:
+### 4. Add Your Data
 
 ```bash
-docker compose ps
+# Add subject and session
+w2t-bkin data add-subject /data/my-experiment mouse-001 \
+  --species "Mus musculus" --sex F --age P90D -y
 
-# Expected output:
-# NAME                        STATUS              PORTS
-# my-experiment-postgres-1    Up                  5432/tcp
-# my-experiment-server-1      Up                  0.0.0.0:4200->4200/tcp
-# my-experiment-worker-1      Up
+w2t-bkin data add-session /data/my-experiment mouse-001 session-001 \
+  --description "Baseline recording" -y
+
+# Copy your raw data files
+cp /path/to/videos/* data/raw/mouse-001/session-001/Video/
+cp /path/to/ttls/* data/raw/mouse-001/session-001/TTLs/
+cp /path/to/bpod/* data/raw/mouse-001/session-001/Bpod/
+cp /path/to/dlc-model models/
 ```
 
-#### 3.3 Access the Prefect Web Interface
+### 5. Configure & Run
 
-Once services are running:
+Edit `configuration.toml` to match your setup, then in Prefect UI:
 
-1. **Open your web browser**
-2. Navigate to: **http://localhost:4200**
-3. You'll see the Prefect UI dashboard
+1. Navigate to **Deployments**
+2. Select **process-session**
+3. Click **Run** and fill in parameters
+4. Monitor progress in **Flow Runs**
 
-**Understanding the Prefect UI** (Basics for Beginners):
-
-The Prefect interface has several main sections:
-
-- **📊 Dashboard** (Home page)
-
-  - Overview of your pipeline runs
-  - Shows recent activity and system health
-  - Green = everything working, Red = errors
-
-- **🔄 Flows**
-
-  - Lists available processing pipelines
-  - Think of these as "recipes" for data processing
-  - You don't usually interact here directly
-
-- **🚀 Deployments** (Most Important!)
-
-  - This is where you run your pipelines
-  - Pre-configured pipelines ready to execute
-  - Click here to process your data
-
-- **💼 Work Pools**
-
-  - Shows worker computers executing tasks
-  - Should show your worker as "Online"
-
-- **📝 Runs**
-  - History of all pipeline executions
-  - Click any run to see detailed logs
-  - Shows success/failure status
-
-**Running Your First Pipeline**:
-
-1. Click **Deployments** in the left sidebar
-2. Find `process-session-deployment` in the list
-3. Click the deployment name to open details
-4. Click **Run** button (▶ icon in top right)
-5. A form appears - fill in the parameters:
-   - **config_path**: `/data/my-experiment/configuration.toml`
-   - **subject_id**: `mouse-001`
-   - **session_id**: `session-001`
-6. Click **Run** at the bottom
-7. You'll be redirected to the run details page
-8. Watch real-time progress with logs and status updates
-9. When complete, check `/data/my-experiment/data/processed/` for your NWB file
-
-**Running Batch Processing** (Multiple Sessions):
-
-1. Click **Deployments** → `batch-process-deployment`
-2. Click **Run**
-3. Fill in parameters:
-   - **config_path**: `/data/my-experiment/configuration.toml`
-   - **max_workers**: `4` (number of parallel processes)
-4. Pipeline will automatically discover and process all sessions
-5. Monitor progress in the **Runs** tab
-
-**Deployment Note**: The first time you start services, deployments are automatically created by the server startup script. If deployments don't appear after 1-2 minutes:
-
-```bash
-# Manually trigger deployment (from command line)
-docker compose exec worker python /app/docker/deploy_flows.py
-
-# Or restart services
-docker compose restart server worker
-```
-
-📚 **More Details**: See [Prefect Documentation](https://docs.prefect.io/) for advanced features like scheduling, notifications, and distributed execution.
+📚 **Complete guides**: [CLI Reference](docs/cli/data-management.md) | [Configuration](docs/reference/configuration-parameters.md) | [Docker Deployment](docs/containerization/README.md)
 
 ---
 
 ## Usage Examples
 
-### Data Management
+### Process Single Session
+
+**Via Prefect UI** (Recommended):
+
+1. Open <http://localhost:4200>
+2. Deployments → **process-session** → Run
+3. Fill parameters and monitor in Flow Runs
+
+**Via CLI** (Alternative):
 
 ```bash
-# Initialize experiment
-w2t-bkin data init /data/experiment --lab "Lab Name" -y
-
-# Add subject and session
-w2t-bkin data add-subject /data/experiment subj-001 -y
-w2t-bkin data add-session /data/experiment subj-001 sess-001 -y
-
-# Import existing raw data (safe - uses symbolic links)
-w2t-bkin data import-raw /storage/raw/2024-01-15 \
-  -e /data/experiment \
-  -s subj-001 \
-  --session sess-001 \
-  --confirm
-
-# Validate structure
-w2t-bkin data validate /data/experiment
+prefect deployment run process-session/default \
+  --param config_path="/configs/standard.toml" \
+  --param subject_id="mouse-001" \
+  --param session_id="session-001"
 ```
 
-### Pipeline Processing (Alternative: Local CLI)
-
-Once containers are running, you can also trigger pipelines from the command line instead of the web UI:
+### Batch Processing
 
 ```bash
-# Process single session
-w2t-bkin run configuration.toml subj-001 sess-001
+# Process multiple sessions via Prefect UI
+# Deployments → batch-processing → Run
 
-# Batch process all sessions
-w2t-bkin batch configuration.toml --workers 4
-
-# Discover available sessions
-w2t-bkin discover configuration.toml
+# Or use CLI batch command
+w2t-bkin batch configuration.toml --max-workers 4
 ```
 
-### NWB Validation
-
-After processing completes, validate your output files:
+### Validate NWB Output
 
 ```bash
-# Validate NWB file
-w2t-bkin validate data/processed/subj-001_sess-001.nwb
-
-# Inspect NWB contents
-w2t-bkin inspect data/processed/subj-001_sess-001.nwb
+w2t-bkin validate data/processed/mouse-001/session-001/*.nwb
 ```
 
-📚 **Complete CLI Reference**:
+---
 
-- [Pipeline Commands](docs/cli/pipeline-commands.md)
-- [Validation Commands](docs/cli/validation.md)
-- [Data Management](docs/cli/data-management.md)
+## Documentation
+
+### User Guides
+
+- **[FAQ](docs/FAQ.md)** - Frequently asked questions (50+ answers)
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[CLI Reference](docs/cli/README.md)** - Complete command-line documentation
+
+### Technical References
+
+- **[Configuration Parameters](docs/reference/configuration-parameters.md)** - Complete config reference
+- **[Architecture Diagram](docs/reference/architecture_diagram.mmd)** - System design
+- **[Prefect UI Guide](docs/reference/prefect-ui-configuration.md)** - Orchestration setup
+
+### Deployment
+
+- **[Docker Deployment](docs/containerization/README.md)** - Container setup
+- **[Deployment Guide](docs/containerization/deployment-guide.md)** - Detailed instructions
+
+### Developer
+
+- **[Technical Design](docs/development/design.md)** - System architecture
+- **[Requirements](docs/development/requirements.md)** - Project requirements
+- **[Development Tasks](docs/development/tasks.md)** - Roadmap
+
+---
+
+## Module Overview
+
+| Module                     | Description                                               |
+| -------------------------- | --------------------------------------------------------- |
+| `w2t_bkin.ingest.behavior` | Bpod → `ndx-structured-behavior` (States, Events, Trials) |
+| `w2t_bkin.ingest.pose`     | DLC/SLEAP → `ndx-pose` format                             |
+| `w2t_bkin.ingest.ttl`      | Hardware TTL pulses → `ndx-events`                        |
+| `w2t_bkin.sync`            | Timebase alignment (video/behavior/TTLs)                  |
+| `w2t_bkin.core.session`    | Hierarchical metadata + NWB assembly                      |
+| `w2t_bkin.flows`           | Prefect orchestration (single/batch)                      |
+| `w2t_bkin.cli`             | Command-line interface                                    |
+| `w2t_bkin.data`            | Experiment structure + validation                         |
+
+---
+
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon).
+
+---
+
+## License
+
+Apache License 2.0 - See [LICENSE](LICENSE) for details.
+
+---
+
+## Citation
+
+```bibtex
+@software{w2t_bkin,
+  author = {Larkum Lab},
+  title = {W2T Body Kinematics Pipeline},
+  year = {2025},
+  url = {https://github.com/BorjaEst/w2t-bkin}
+}
+```
+
+---
+
+**Need Help?** Check [FAQ](docs/FAQ.md), [Troubleshooting](docs/TROUBLESHOOTING.md), or open a [GitHub issue](https://github.com/BorjaEst/w2t-bkin/issues).
 
 ---
 
@@ -383,9 +260,9 @@ w2t-bkin inspect data/processed/subj-001_sess-001.nwb
 For development or advanced usage without containers:
 
 ```bash
-# 1. Install ndx-structured-behavior from source
+# 1. Install ndx-structured-behavior from source (not on PyPI)
 git clone https://github.com/rly/ndx-structured-behavior.git
-pip install -U ./ndx-structured-behavior
+pip install ./ndx-structured-behavior
 
 # 2. Install system dependencies
 # Ubuntu/Debian
@@ -398,7 +275,7 @@ brew install ffmpeg
 # Download from https://ffmpeg.org/download.html
 
 # 3. Install w2t-bkin with all dependencies
-pip install w2t-bkin[prefect,dev]
+pip install w2t-bkin[full,prefect]
 
 # 4. Start local Prefect server (optional)
 prefect server start --host 0.0.0.0
@@ -515,7 +392,7 @@ podman-compose down
 
 **Using Kubernetes/HPC Clusters**:
 
-For deployment on high-performance computing clusters, see [docs/containerization/hpc-guide.md](docs/containerization/hpc-guide.md)
+For deployment on high-performance computing clusters, see [docs/containerization/deployment-guide.md](docs/containerization/deployment-guide.md)
 
 </details>
 
@@ -579,7 +456,7 @@ fps = 150.0
 ttl_id = "ttl_camera"
 ```
 
-See [docs/configuration-parameters.md](docs/configuration-parameters.md) for complete reference.
+See [docs/reference/configuration-parameters.md](docs/reference/configuration-parameters.md) for complete reference.
 
 </details>
 
@@ -620,59 +497,3 @@ session = build_raw_folder(
 ```
 
 </details>
-
----
-
-## Module Overview
-
-| Module                     | Description                                                              |
-| :------------------------- | :----------------------------------------------------------------------- |
-| `w2t_bkin.ingest.behavior` | Converts Bpod data to `ndx-structured-behavior` (States, Events, Trials) |
-| `w2t_bkin.ingest.bpod`     | Low-level Bpod `.mat` file parsing and validation                        |
-| `w2t_bkin.ingest.pose`     | Imports DLC/SLEAP pose data into `ndx-pose` format                       |
-| `w2t_bkin.ingest.ttl`      | Loads hardware TTL pulses as `ndx-events` tables                         |
-| `w2t_bkin.sync`            | Timebase alignment and synchronization of video/behavior/TTLs            |
-| `w2t_bkin.core.session`    | Hierarchical metadata loading and NWB file assembly                      |
-| `w2t_bkin.flows`           | Prefect orchestration flows for single and batch processing              |
-| `w2t_bkin.operations`      | Core business logic for discovery, ingestion, and artifact generation    |
-| `w2t_bkin.cli`             | Command-line interface for all user interactions                         |
-| `w2t_bkin.data_manager`    | Experiment structure creation and validation                             |
-
----
-
-## Container Documentation
-
-For detailed information about containerized deployment:
-
-- **[Quick Start](docs/containerization/README.md)** - Container deployment overview
-- **[Deployment Guide](docs/containerization/deployment-guide.md)** - Detailed setup
-- **[Configuration](docs/containerization/CONFIGURATION.md)** - Customize settings
-- **[HPC/Apptainer](docs/containerization/hpc-guide.md)** - Cluster deployment
-- **[Architecture & Design](docs/containerization/design.md)** - System design
-
----
-
-## Contributing
-
-Contributions are welcome! Please see our contributing guidelines (coming soon).
-
----
-
-## License
-
-Apache License 2.0 - See [LICENSE](LICENSE) file for details.
-
----
-
-## Citation
-
-If you use this pipeline in your research, please cite:
-
-```bibtex
-@software{w2t_bkin,
-  author = {Larkum Lab},
-  title = {W2T Body Kinematics Pipeline},
-  year = {2025},
-  url = {https://github.com/BorjaEst/w2t-bkin}
-}
-```
