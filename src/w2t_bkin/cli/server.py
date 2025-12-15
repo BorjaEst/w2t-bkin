@@ -362,17 +362,20 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
 
     pool_name = f"{pool_type}-pool"
 
-    # Default config path
-    if config_path is None:
-        config_path = Path("configs/standard.toml")
-
-    default_config_path = str(config_path.absolute())
-
-    console.print(f"[dim]  Using config: {default_config_path}[/dim]")
-
     # Get package root directory (where flows are located)
     # This ensures deployments work regardless of current working directory
     package_root = Path(__file__).parent.parent.parent.parent.absolute()
+
+    # Base config always comes from package root
+    base_config_path = package_root / "configs" / "standard.toml"
+
+    # Project config from user (optional)
+    project_config_path = config_path.resolve() if config_path else None
+
+    console.print(f"[dim]  Base config: {base_config_path}[/dim]")
+    if project_config_path:
+        console.print(f"[dim]  Project config: {project_config_path}[/dim]")
+
     original_cwd = Path.cwd()
 
     try:
@@ -381,7 +384,8 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
 
         # Deploy session flow
         session_config = SessionFlowConfig(
-            config_path=default_config_path,
+            base_config_path=str(base_config_path),
+            project_config_path=str(project_config_path) if project_config_path else None,
             subject_id="subject-001",  # Example placeholder
             session_id="session-001",  # Example placeholder
         )
@@ -407,7 +411,8 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
 
         # Deploy batch flow
         batch_config = BatchFlowConfig(
-            config_path=default_config_path,
+            base_config_path=str(base_config_path),
+            project_config_path=str(project_config_path) if project_config_path else None,
             max_parallel=4,
         )
 
@@ -467,9 +472,16 @@ def _start_docker_worker(worker_name: str, work_pool: str, port: int) -> Optiona
         f"PREFECT_API_URL={api_url}",
         "-v",
         "/var/run/docker.sock:/var/run/docker.sock",
-        "-v",
-        f"{package_root}:/workspace:ro",  # Mount code as read-only
-    ]  # Add network configuration based on platform
+    ]
+
+    # Mount code based on platform
+    if _is_windows():
+        # Windows: Mount to /workspace (absolute paths won't work cross-platform anyway)
+        docker_cmd.extend(["-v", f"{package_root}:/workspace:ro"])
+    else:
+        # Linux: Mount to same path as host to support absolute paths
+        docker_cmd.extend(["-v", f"{package_root}:{package_root}:ro"])
+
     if not _is_windows():
         # Linux: Use host network mode for simplicity
         docker_cmd.extend(["--network", "host"])

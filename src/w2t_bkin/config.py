@@ -484,6 +484,85 @@ def load_config(path: Union[str, Path]) -> Config:
     return Config(**data)
 
 
+def load_config_hierarchy(
+    base_config: Optional[Union[str, Path]] = None,
+    project_config: Optional[Union[str, Path]] = None,
+    runtime_config: Optional[Union[str, Path]] = None,
+) -> Config:
+    """Load and merge configuration from up to 3 hierarchical layers.
+
+    Implements a Base → Project → Runtime layering pattern where each layer
+    can override values from previous layers. This enables:
+    - Base: Package-level defaults (e.g., configs/standard.toml)
+    - Project: User/experiment-specific settings (e.g., data paths)
+    - Runtime: Flow/session-specific overrides (e.g., skip flags)
+
+    Configuration dictionaries are merged using deep merge (recursive_dict_update),
+    where nested dictionaries are recursively merged rather than replaced.
+    Later layers override earlier layers.
+
+    Args:
+        base_config: Base/default configuration path (optional).
+        project_config: Project-specific configuration path (optional).
+        runtime_config: Runtime/session-specific configuration path (optional).
+
+    Returns:
+        Validated Config instance with all paths resolved to absolute.
+
+    Raises:
+        ValueError: If no config paths are provided.
+        FileNotFoundError: If any specified config file doesn't exist.
+        ValidationError: If merged config violates Pydantic schema.
+
+    Example:
+        >>> # Use only base config
+        >>> config = load_config_hierarchy(base_config="configs/standard.toml")
+        >>>
+        >>> # Override with project settings
+        >>> config = load_config_hierarchy(
+        ...     base_config="configs/standard.toml",
+        ...     project_config="experiments/exp1/config.toml"
+        ... )
+        >>>
+        >>> # Full hierarchy with runtime overrides
+        >>> config = load_config_hierarchy(
+        ...     base_config="configs/standard.toml",
+        ...     project_config="experiments/exp1/config.toml",
+        ...     runtime_config="sessions/session-001/overrides.toml"
+        ... )
+    """
+    from w2t_bkin.utils import recursive_dict_update
+
+    # Validate at least one config is provided
+    if not any([base_config, project_config, runtime_config]):
+        raise ValueError("At least one config path must be provided")
+
+    # Initialize merged dictionary
+    merged_dict: Dict[str, Any] = {}
+
+    # Merge layers in order (first to last, later overrides earlier)
+    for layer_name, config_path in [
+        ("base", base_config),
+        ("project", project_config),
+        ("runtime", runtime_config),
+    ]:
+        if config_path is not None:
+            try:
+                layer_dict = read_toml(config_path)
+                recursive_dict_update(merged_dict, layer_dict)
+            except FileNotFoundError as e:
+                raise FileNotFoundError(f"Config layer '{layer_name}' not found: {config_path}") from e
+
+    # Pre-validate enums for clearer error messages
+    _validate_config_enums(merged_dict)
+
+    # Pre-validate conditional requirements
+    _validate_config_conditionals(merged_dict)
+
+    # Validate and create Config instance
+    return Config(**merged_dict)
+
+
 def compute_config_hash(config: Config) -> str:
     """Compute deterministic SHA256 hash of configuration.
 

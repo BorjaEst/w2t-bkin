@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Optional
 
 from pynwb import NWBFile
 
@@ -12,14 +13,27 @@ from w2t_bkin.models import SessionConfig
 logger = logging.getLogger(__name__)
 
 
-def load_session_config(config_path: Path, subject_id: str, session_id: str) -> SessionConfig:
-    """Load complete session configuration.
+def load_session_config(
+    base_config_path: Optional[Path] = None,
+    project_config_path: Optional[Path] = None,
+    subject_id: str = ...,
+    session_id: str = ...,
+) -> SessionConfig:
+    """Load complete session configuration using 2-layer config hierarchy.
 
     This is a pure function that loads all configuration and metadata
     without any side effects. Returns an immutable SessionConfig object.
 
+    The configuration system uses a 2-layer hierarchy:
+    - Base: Package defaults (if not provided, uses built-in standard.toml)
+    - Project: User/experiment settings (optional, from 'w2t-bkin data init')
+
+    Runtime overrides are handled via flow parameters rather than a third config file.
+
     Args:
-        config_path: Path to configuration TOML file
+        base_config_path: Base configuration file (package defaults, optional).
+                         If None, uses built-in configs/standard.toml.
+        project_config_path: Project-specific configuration (optional).
         subject_id: Subject identifier (e.g., "subject-001")
         session_id: Session identifier (e.g., "session-001")
 
@@ -30,10 +44,20 @@ def load_session_config(config_path: Path, subject_id: str, session_id: str) -> 
         FileNotFoundError: If config or metadata files not found
         ValueError: If configuration is invalid
     """
-    logger.debug(f"Loading configuration from {config_path}")
+    logger.debug("Loading configuration hierarchy")
 
-    # Load configuration (paths auto-resolved by Pydantic validators)
-    config = config_pkg.load_config(config_path)
+    # Get package root for default base config
+    if base_config_path is None:
+        package_root = Path(__file__).parent.parent.parent.absolute()
+        base_config_path = package_root / "configs" / "standard.toml"
+        logger.debug(f"Using default base config: {base_config_path}")
+
+    # Load hierarchical configuration (2 layers)
+    config = config_pkg.load_config_hierarchy(
+        base_config=base_config_path,
+        project_config=project_config_path,
+        runtime_config=None,  # Not used in 2-layer system
+    )
 
     logger.info(f"Configuration loaded: {config.project.name}")
     logger.debug(f"  Raw root: {config.paths.raw_root}")
@@ -54,8 +78,11 @@ def load_session_config(config_path: Path, subject_id: str, session_id: str) -> 
     interim_dir = config.paths.intermediate_root / subject_id / session_id
     output_dir = config.paths.output_root / subject_id / session_id
 
+    # Store the effective config path for tracking (use base as primary reference)
+    effective_config_path = base_config_path
+
     return SessionConfig(
-        config_path=config_path,
+        config_path=effective_config_path,
         subject_id=subject_id,
         session_id=session_id,
         config=config,

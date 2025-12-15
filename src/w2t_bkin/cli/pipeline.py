@@ -11,9 +11,9 @@ from w2t_bkin.cli.utils import console, display_batch_result, display_session_re
 
 
 def run(
-    config_path: Path = typer.Argument(..., help="Path to config.toml file"),
     subject_id: str = typer.Argument(..., help="Subject identifier (e.g., 'subject-001')"),
     session_id: str = typer.Argument(..., help="Session identifier (e.g., 'session-001')"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Project configuration file (defaults to package standard.toml)"),
     skip_bpod: bool = typer.Option(False, "--skip-bpod", help="Skip Bpod processing"),
     skip_pose: bool = typer.Option(False, "--skip-pose", help="Skip pose estimation"),
     skip_ttl: bool = typer.Option(False, "--skip-ttl", help="Skip TTL processing"),
@@ -40,22 +40,28 @@ def run(
     """
     setup_logging(log_level)
 
-    if not config_path.exists():
-        console.print(f"[red]Error: Config file not found: {config_path}[/red]")
+    # Validate config path if provided
+    if config is not None and not config.exists():
+        console.print(f"[red]Error: Config file not found: {config}[/red]")
         raise typer.Exit(1)
 
     try:
         from w2t_bkin.flows import process_session_flow
 
         console.print("[cyan]Starting session processing...[/cyan]")
-        console.print(f"  Config: [dim]{config_path}[/dim]")
+        if config:
+            console.print(f"  Config: [dim]{config}[/dim]")
+        else:
+            console.print(f"  Config: [dim]Using package defaults (configs/standard.toml)[/dim]")
         console.print(f"  Subject: [yellow]{subject_id}[/yellow]")
         console.print(f"  Session: [yellow]{session_id}[/yellow]")
         console.print()
 
-        # Create Pydantic config model (flow expects this, not individual kwargs)
+        # Create Pydantic config model
+        # Base config is always from package, project config from --config flag
         flow_config = SessionFlowConfig(
-            config_path=str(config_path),
+            base_config_path=None,  # Will default to package configs/standard.toml
+            project_config_path=str(config) if config else None,
             subject_id=subject_id,
             session_id=session_id,
             skip_bpod=skip_bpod,
@@ -76,8 +82,8 @@ def run(
 
 
 def batch(
-    config_path: Path = typer.Argument(..., exists=True, file_okay=True, dir_okay=False, readable=True, help="Path to configuration TOML file"),
     subject_filter: Optional[str] = typer.Option(None, "--subject", "-s", help="Filter by specific subject ID"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Project configuration file (defaults to package standard.toml)"),
     session_filter: Optional[str] = typer.Option(None, "--session", "-x", help="Filter by specific session ID"),
     max_parallel: int = typer.Option(4, "--max-workers", "-j", help="Maximum concurrent sessions (default: 4)"),
     skip_bpod: bool = typer.Option(False, "--skip-bpod", help="Skip Bpod processing"),
@@ -104,11 +110,19 @@ def batch(
     """
     setup_logging(log_level)
 
+    # Validate config path if provided
+    if config is not None and not config.exists():
+        console.print(f"[red]Error: Config file not found: {config}[/red]")
+        raise typer.Exit(1)
+
     try:
         from w2t_bkin.flows import batch_process_flow
 
         console.print("[cyan]Starting batch processing...[/cyan]")
-        console.print(f"  Config: [dim]{config_path}[/dim]")
+        if config:
+            console.print(f"  Config: [dim]{config}[/dim]")
+        else:
+            console.print(f"  Config: [dim]Using package defaults (configs/standard.toml)[/dim]")
         if subject_filter:
             console.print(f"  Subject filter: [yellow]{subject_filter}[/yellow]")
         if session_filter:
@@ -116,9 +130,11 @@ def batch(
         console.print(f"  Max parallel: [yellow]{max_parallel}[/yellow]")
         console.print()
 
-        # Create Pydantic config model (flow expects this, not individual kwargs)
+        # Create Pydantic config model
+        # Base config is always from package, project config from --config flag
         flow_config = BatchFlowConfig(
-            config_path=str(config_path),
+            base_config_path=None,  # Will default to package configs/standard.toml
+            project_config_path=str(config) if config else None,
             subject_filter=subject_filter,
             session_filter=session_filter,
             max_parallel=max_parallel,

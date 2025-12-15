@@ -141,7 +141,8 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
     start_time = datetime.now()
 
     # Extract values from Pydantic model
-    config_path = config.config_path
+    base_config_path = config.base_config_path
+    project_config_path = config.project_config_path
     subject_filter = config.subject_filter
     session_filter = config.session_filter
     max_parallel = config.max_parallel
@@ -157,12 +158,48 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
         # =====================================================================
         run_logger.info("Discovering sessions from raw data directory")
 
-        # Discover all sessions using config path
-        sessions = discover_sessions(
-            config_path=config_path,
-            subject_filter=subject_filter,
-            session_filter=session_filter,
+        # Discover all sessions using hierarchical config
+        # Note: discover_sessions only needs config to get paths.raw_root
+        # We'll load the hierarchy here to get the merged config
+        from pathlib import Path as PathLib
+
+        from w2t_bkin.config import load_config_hierarchy
+
+        # Get package root for default base config
+        if base_config_path is None:
+            package_root = PathLib(__file__).parent.parent.parent.absolute()
+            base_config_path_resolved = package_root / "configs" / "standard.toml"
+        else:
+            base_config_path_resolved = PathLib(base_config_path)
+
+        # Load config hierarchy to get raw_root for discovery
+        temp_config = load_config_hierarchy(
+            base_config=base_config_path_resolved,
+            project_config=PathLib(project_config_path) if project_config_path else None,
+            runtime_config=None,  # Not used in 2-layer system
         )
+
+        # Discover sessions from raw_root
+        from w2t_bkin.utils import discover_sessions as discover_sessions_util
+
+        sessions = []
+        for subject_dir in sorted(temp_config.paths.raw_root.iterdir()):
+            if not subject_dir.is_dir() or subject_dir.name.startswith("."):
+                continue
+
+            subject_id = subject_dir.name
+            if subject_filter and subject_id != subject_filter:
+                continue
+
+            for session_dir in sorted(subject_dir.iterdir()):
+                if not session_dir.is_dir() or session_dir.name.startswith("."):
+                    continue
+
+                session_id = session_dir.name
+                if session_filter and session_id != session_filter:
+                    continue
+
+                sessions.append({"subject": subject_id, "session": session_id})
 
         if not sessions:
             run_logger.warning(f"No sessions found matching filters " f"(subject: {subject_filter}, session: {session_filter})")
@@ -192,7 +229,8 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
             session_id = session_info["session"]
 
             session_config = SessionFlowConfig(
-                config_path=config_path,
+                base_config_path=base_config_path,
+                project_config_path=project_config_path,
                 subject_id=subject_id,
                 session_id=session_id,
                 skip_bpod=skip_bpod,

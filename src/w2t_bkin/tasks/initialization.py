@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from prefect import task
 from pynwb import NWBFile
@@ -15,18 +15,28 @@ logger = logging.getLogger(__name__)
 
 @task(
     name="Load Session Config",
-    description="Load session configuration and metadata",
+    description="Load session configuration and metadata using 2-layer config hierarchy",
     tags=["config", "io"],
     retries=2,
     retry_delay_seconds=5,
 )
-def load_session_config_task(config_path: Path, subject_id: str, session_id: str) -> SessionConfig:
-    """Load session configuration and validate paths.
+def load_session_config_task(
+    base_config_path: Optional[Path] = None,
+    project_config_path: Optional[Path] = None,
+    subject_id: str = ...,
+    session_id: str = ...,
+) -> SessionConfig:
+    """Load session configuration using 2-layer config hierarchy.
 
     Prefect task wrapper for load_session_config operation.
 
+    The configuration system uses a 2-layer hierarchy:
+    - Base: Package defaults (if not provided, uses built-in standard.toml)
+    - Project: User/experiment settings (optional, from 'w2t-bkin data init')
+
     Args:
-        config_path: Path to configuration TOML file
+        base_config_path: Base configuration file (package defaults, optional)
+        project_config_path: Project-specific configuration (optional)
         subject_id: Subject identifier
         session_id: Session identifier
 
@@ -39,7 +49,12 @@ def load_session_config_task(config_path: Path, subject_id: str, session_id: str
     """
     logger.info(f"Loading configuration for {subject_id}/{session_id}")
 
-    return load_session_config(config_path=config_path, subject_id=subject_id, session_id=session_id)
+    return load_session_config(
+        base_config_path=base_config_path,
+        project_config_path=project_config_path,
+        subject_id=subject_id,
+        session_id=session_id,
+    )
 
 
 @task(

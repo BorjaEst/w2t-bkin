@@ -331,7 +331,8 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
     start_time = datetime.now()
 
     # Extract values from Pydantic model
-    config_path = config.config_path
+    base_config_path = config.base_config_path
+    project_config_path = config.project_config_path
     subject_id = config.subject_id
     session_id = config.session_id
     skip_bpod = config.skip_bpod
@@ -351,7 +352,8 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
         run_logger.info("Phase 0: Loading configuration")
 
         session_config = load_session_config_task(
-            config_path=Path(config_path),
+            base_config_path=Path(base_config_path) if base_config_path else None,
+            project_config_path=Path(project_config_path) if project_config_path else None,
             subject_id=subject_id,
             session_id=session_id,
         )
