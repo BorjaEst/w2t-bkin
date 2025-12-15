@@ -30,25 +30,23 @@ global_offset_s = 0.0
 # =============================================================================
 
 [verification]
-enabled = true                        # Master switch
-check_frame_counts = true             # Count frames via ffprobe (slow)
-check_sync_mismatch = true            # Verify frame/TTL sync (false = skip TTL checks)
-skip_nwb_requirements = false         # Use FPS estimates (not recommended)
-mismatch_tolerance_frames = 0         # Max allowed frame/pulse difference
-warn_on_mismatch = false              # Warn instead of fail
+enabled = true                # Master switch
+check_frame_counts = true     # Count frames via ffprobe (slow)
+check_sync_mismatch = true    # Verify frame/TTL sync (false = skip TTL checks)
+skip_nwb_requirements = false # Use FPS estimates (not recommended)
+mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
+warn_on_mismatch = false      # Warn instead of fail
 
 # =============================================================================
 # Preprocessing Configuration
 # =============================================================================
 
 [preprocessing]
-force_rerun = false                   # Regenerate all intermediate files
+force_rerun = false # Regenerate all intermediate files
 
 [preprocessing.dlc]
 enabled = true
-model_path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to models_root
 # gpu = 0                               # GPU index (omit for auto-detect)
-save_csv = false                      # Generate CSV in addition to H5
 
 # =============================================================================
 # Bpod Trial Synchronization
@@ -56,8 +54,8 @@ save_csv = false                      # Generate CSV in addition to H5
 
 [[bpod.sync.trial_types]]
 trial_type = 1
-sync_signal = "W2T_Audio"             # Bpod state triggering TTL
-sync_ttl = "ttl_cue"                  # TTL channel (must exist in metadata)
+sync_signal = "W2T_Audio" # Bpod state triggering TTL
+sync_ttl = "ttl_cue"      # TTL channel (must exist in metadata)
 
 [[bpod.sync.trial_types]]
 trial_type = 2
@@ -74,5 +72,5 @@ sync_ttl = "ttl_cue"
 # =============================================================================
 
 [logging]
-level = "INFO"                        # DEBUG | INFO | WARNING | ERROR | CRITICAL
-structured = false                    # Use JSON format
+level = "INFO"     # DEBUG | INFO | WARNING | ERROR | CRITICAL
+structured = false # Use JSON format

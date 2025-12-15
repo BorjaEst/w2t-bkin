@@ -494,24 +494,33 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
     # Load and merge configuration to bake into deployment
     merged_config = {}
 
+    # Store original CWD for path resolution
+    original_cwd = Path.cwd()
+
     # 1. Base config
     if base_config_path.exists():
         base_dict = read_toml(base_config_path)
         recursive_dict_update(merged_config, base_dict)
 
-    # 2. Project config
+    # 2. Project config (has priority - resolve relative paths from project directory)
     if project_config_path and project_config_path.exists():
         project_dict = read_toml(project_config_path)
         recursive_dict_update(merged_config, project_dict)
 
-    # Serialize to JSON string for env var
-    # We use a custom encoder or just default since config should be JSON serializable
-    # Note: Path objects in config need to be handled if present.
-    # read_toml returns dicts with basic types usually, but let's be safe.
-    # Actually read_toml uses tomllib which returns basic types.
-    config_json = json.dumps(merged_config)
+    # 3. Resolve all paths to absolute paths NOW (at deployment time)
+    #    This ensures paths are resolved relative to the CWD where server was started
+    #    For Docker deployments, these absolute paths will be ignored and container
+    #    paths from container.toml will be used instead
+    if "paths" in merged_config:
+        paths = merged_config["paths"]
+        for key in ["raw_root", "intermediate_root", "output_root", "models_root", "root_metadata"]:
+            if key in paths and paths[key]:
+                # Resolve relative to original CWD (where user started server)
+                resolved = (original_cwd / paths[key]).resolve()
+                paths[key] = str(resolved)  # Convert to string for JSON serialization
 
-    original_cwd = Path.cwd()
+    # Serialize to JSON string for env var
+    config_json = json.dumps(merged_config)
 
     try:
         # Change to package root for deployment creation

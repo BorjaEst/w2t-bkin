@@ -32,23 +32,22 @@ global_offset_s = 0.0
 # =============================================================================
 
 [verification]
-enabled = true                        # Master switch
-check_frame_counts = true             # Count frames via ffprobe (slow)
-check_sync_mismatch = true            # Verify frame/TTL sync (false = skip TTL checks)
-skip_nwb_requirements = false         # Use FPS estimates (not recommended)
-mismatch_tolerance_frames = 0         # Max allowed frame/pulse difference
-warn_on_mismatch = false              # Warn instead of fail
+enabled = true                # Master switch
+check_frame_counts = true     # Count frames via ffprobe (slow)
+check_sync_mismatch = true    # Verify frame/TTL sync (false = skip TTL checks)
+skip_nwb_requirements = false # Use FPS estimates (not recommended)
+mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
+warn_on_mismatch = false      # Warn instead of fail
 
 # =============================================================================
 # Preprocessing Configuration
 # =============================================================================
 
 [preprocessing]
-force_rerun = false                   # Regenerate all intermediate files
+force_rerun = false # Regenerate all intermediate files
 
 [preprocessing.dlc]
 enabled = true
-model_path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to models_root
 # gpu = 0                               # GPU index (omit for auto-detect)
 
 [preprocessing.sleap]

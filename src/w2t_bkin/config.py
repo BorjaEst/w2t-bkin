@@ -101,12 +101,20 @@ class PathsConfig(BaseModel, extra="forbid"):
 
         Converts relative paths to absolute paths based on current working directory.
         This ensures consistent path handling regardless of execution context.
+
+        Note: If paths are already absolute (e.g., from deployment config), they are
+        kept as-is. This allows deployments to pre-resolve paths at deployment time.
         """
-        self.raw_root = self.raw_root.resolve()
-        self.intermediate_root = self.intermediate_root.resolve()
-        self.output_root = self.output_root.resolve()
-        self.models_root = self.models_root.resolve()
-        if self.root_metadata:
+        # Only resolve if path is relative
+        if not self.raw_root.is_absolute():
+            self.raw_root = self.raw_root.resolve()
+        if not self.intermediate_root.is_absolute():
+            self.intermediate_root = self.intermediate_root.resolve()
+        if not self.output_root.is_absolute():
+            self.output_root = self.output_root.resolve()
+        if not self.models_root.is_absolute():
+            self.models_root = self.models_root.resolve()
+        if self.root_metadata and not self.root_metadata.is_absolute():
             self.root_metadata = self.root_metadata.resolve()
         return self
 
