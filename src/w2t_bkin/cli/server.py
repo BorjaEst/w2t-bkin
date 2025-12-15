@@ -1,6 +1,7 @@
 """Server management commands for Prefect."""
 
 from dataclasses import dataclass
+import json
 import logging
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ import typer
 from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
 from w2t_bkin.cli.utils import console, setup_logging
 from w2t_bkin.flows import batch_process_flow, process_session_flow
+from w2t_bkin.utils import read_toml, recursive_dict_update
 
 server_app = typer.Typer(name="server", help="Prefect server management")
 
@@ -489,6 +491,26 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
     if project_config_path:
         console.print(f"[dim]  Project config: {project_config_path}[/dim]")
 
+    # Load and merge configuration to bake into deployment
+    merged_config = {}
+
+    # 1. Base config
+    if base_config_path.exists():
+        base_dict = read_toml(base_config_path)
+        recursive_dict_update(merged_config, base_dict)
+
+    # 2. Project config
+    if project_config_path and project_config_path.exists():
+        project_dict = read_toml(project_config_path)
+        recursive_dict_update(merged_config, project_dict)
+
+    # Serialize to JSON string for env var
+    # We use a custom encoder or just default since config should be JSON serializable
+    # Note: Path objects in config need to be handled if present.
+    # read_toml returns dicts with basic types usually, but let's be safe.
+    # Actually read_toml uses tomllib which returns basic types.
+    config_json = json.dumps(merged_config)
+
     original_cwd = Path.cwd()
 
     try:
@@ -515,8 +537,7 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
             parameters={"config": session_config.model_dump()},
             job_variables={
                 "env": {
-                    "W2T_BASE_CONFIG_PATH": str(base_config_path),
-                    "W2T_PROJECT_CONFIG_PATH": str(project_config_path) if project_config_path else "configuration.toml",
+                    "W2T_RUNTIME_CONFIG_JSON": config_json,
                 }
             },
             tags=["w2t-bkin", "session", pool_type],
@@ -541,8 +562,7 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
             parameters={"config": batch_config.model_dump()},
             job_variables={
                 "env": {
-                    "W2T_BASE_CONFIG_PATH": str(base_config_path),
-                    "W2T_PROJECT_CONFIG_PATH": str(project_config_path) if project_config_path else "configuration.toml",
+                    "W2T_RUNTIME_CONFIG_JSON": config_json,
                 }
             },
             tags=["w2t-bkin", "batch", pool_type],

@@ -151,36 +151,23 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
     skip_camera_sync = config.skip_camera_sync
     skip_nwb_validation = config.skip_nwb_validation
 
-    # Get config paths from environment variables
-    base_config_path = os.getenv("W2T_BASE_CONFIG_PATH")
-    project_config_path = os.getenv("W2T_PROJECT_CONFIG_PATH", "configuration.toml")
-
     try:
         # =====================================================================
         # Phase 1: Discover Sessions
         # =====================================================================
         run_logger.info("Discovering sessions from raw data directory")
 
-        # Discover all sessions using hierarchical config
-        # Note: discover_sessions only needs config to get paths.raw_root
-        # We'll load the hierarchy here to get the merged config
-        from pathlib import Path as PathLib
+        # Load configuration from environment variable (baked at deployment time)
+        import json
 
-        from w2t_bkin.config import load_config_hierarchy
+        from w2t_bkin.config import load_config_from_dict
 
-        # Get package root for default base config
-        if base_config_path is None:
-            package_root = PathLib(__file__).parent.parent.parent.absolute()
-            base_config_path_resolved = package_root / "configs" / "standard.toml"
-        else:
-            base_config_path_resolved = PathLib(base_config_path)
+        config_json = os.getenv("W2T_RUNTIME_CONFIG_JSON")
+        if not config_json:
+            raise ValueError("W2T_RUNTIME_CONFIG_JSON environment variable not set. Deployment configuration missing.")
 
-        # Load config hierarchy to get raw_root for discovery
-        temp_config = load_config_hierarchy(
-            base_config=base_config_path_resolved,
-            project_config=PathLib(project_config_path) if project_config_path else None,
-            runtime_config=None,  # Not used in 2-layer system
-        )
+        config_dict = json.loads(config_json)
+        temp_config = load_config_from_dict(config_dict)
 
         # Discover sessions from raw_root
         from w2t_bkin.utils import discover_sessions as discover_sessions_util

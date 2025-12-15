@@ -563,6 +563,27 @@ def load_config_hierarchy(
     return Config(**merged_dict)
 
 
+def load_config_from_dict(config_dict: Dict[str, Any]) -> Config:
+    """Load configuration from a dictionary.
+
+    Useful when configuration is loaded from a source other than a file
+    (e.g., environment variable, database).
+
+    Args:
+        config_dict: Dictionary containing configuration data.
+
+    Returns:
+        Validated Config instance.
+    """
+    # Pre-validate enums for clearer error messages
+    _validate_config_enums(config_dict)
+
+    # Pre-validate conditional requirements
+    _validate_config_conditionals(config_dict)
+
+    return Config(**config_dict)
+
+
 def compute_config_hash(config: Config) -> str:
     """Compute deterministic SHA256 hash of configuration.
 

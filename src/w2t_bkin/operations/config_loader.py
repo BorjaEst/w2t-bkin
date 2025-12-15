@@ -53,11 +53,23 @@ def load_session_config(
         logger.debug(f"Using default base config: {base_config_path}")
 
     # Load hierarchical configuration (2 layers)
-    config = config_pkg.load_config_hierarchy(
-        base_config=base_config_path,
-        project_config=project_config_path,
-        runtime_config=None,  # Not used in 2-layer system
-    )
+    # If W2T_RUNTIME_CONFIG_JSON is set, use it (baked config)
+    # Otherwise, fall back to file loading (legacy/local dev)
+    import json
+    import os
+
+    config_json = os.getenv("W2T_RUNTIME_CONFIG_JSON")
+    if config_json:
+        logger.info("Loading configuration from environment (baked deployment config)")
+        config_dict = json.loads(config_json)
+        config = config_pkg.load_config_from_dict(config_dict)
+    else:
+        logger.info("Loading configuration from files (legacy/local mode)")
+        config = config_pkg.load_config_hierarchy(
+            base_config=base_config_path,
+            project_config=project_config_path,
+            runtime_config=None,  # Not used in 2-layer system
+        )
 
     logger.info(f"Configuration loaded: {config.project.name}")
     logger.debug(f"  Raw root: {config.paths.raw_root}")

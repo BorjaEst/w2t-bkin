@@ -343,10 +343,6 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
     skip_camera_sync = config.skip_camera_sync
     skip_nwb_validation = config.skip_nwb_validation
 
-    # Get config paths from environment variables
-    base_config_path = os.getenv("W2T_BASE_CONFIG_PATH")
-    project_config_path = os.getenv("W2T_PROJECT_CONFIG_PATH", "configuration.toml")
-
     try:
         run_logger.info(f"Starting session processing: {subject_id}/{session_id}")
 
@@ -355,9 +351,10 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
         # =====================================================================
         run_logger.info("Phase 0: Loading configuration")
 
+        # Note: Paths are optional if W2T_RUNTIME_CONFIG_JSON is set
         session_config = load_session_config_task(
-            base_config_path=Path(base_config_path) if base_config_path else None,
-            project_config_path=Path(project_config_path) if project_config_path else None,
+            base_config_path=None,
+            project_config_path=None,
             subject_id=subject_id,
             session_id=session_id,
         )
