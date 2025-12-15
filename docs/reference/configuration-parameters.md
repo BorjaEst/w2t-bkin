@@ -1,93 +1,149 @@
 # Configuration Parameters Guide
 
-This document describes the new configuration parameters added to the w2t-bkin pipeline.
+This document describes configuration parameters for the w2t-bkin pipeline. Configuration controls **HOW** the pipeline processes data.
+
+> **Note**: For data description parameters (cameras, TTLs, subjects), see [Metadata Parameters Guide](metadata-parameters.md).
+
+## Configuration vs Metadata
+
+- **Configuration (`config.toml`)**: Pipeline behavior and processing parameters
+
+  - Examples: `force_rerun`, `gpu_index`, `check_sync_mismatch`, `verification` settings
+  - Location: Project root or specified via `--config` flag
+  - Scope: Project-wide processing behavior
+
+- **Metadata** (`.toml` files in `data/raw/`): Data description and NWB metadata
+  - Examples: Camera paths, TTL channels, Bpod sync mappings, subject info
+  - Location: Hierarchical files in raw data directory
+  - Scope: Experiment/subject/session specific
+  - See: [Metadata Parameters Guide](metadata-parameters.md)
 
 ## Table of Contents
 
-- [Optional Camera Support](#optional-camera-support)
+- [Project Settings](#project-settings)
+- [Path Configuration](#path-configuration)
+- [Synchronization Settings](#synchronization-settings)
 - [Verification Settings](#verification-settings)
+- [Preprocessing Settings](#preprocessing-settings)
 - [Session-Level Logging](#session-level-logging)
-- [Configuration File Hierarchy](#configuration-file-hierarchy)
 - [Usage Examples](#usage-examples)
 
 ---
 
-## Optional Camera Support
+## Project Settings
 
-### Overview
+### `[project]`
 
-The pipeline now supports marking cameras as optional, allowing graceful handling of incomplete experimental data where some camera recordings may be missing.
-
-### Configuration
-
-**Location:** Session metadata files (`metadata.toml`, `session.toml`)
-
-**Parameter:** `optional` (boolean, default: `false`)
+Basic project identification.
 
 ```toml
-[[cameras]]
-id = "camera_name"
-paths = "Video/camera_name/*.avi"
-order = "name_asc"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = true  # Set to true to skip camera if files are missing
+[project]
+name = "w2t-bkin-pipeline"
 ```
 
-### Behavior
+**Parameters**:
 
-#### When `optional = false` (default)
+- `name` (string): Project name for identification
 
-- Pipeline **fails** if no files match the pattern
-- Error message includes helpful hint to set `optional = true`
-- This is the recommended setting for critical cameras
+---
 
-#### When `optional = true`
+## Path Configuration
 
-- Pipeline **continues** if no files match the pattern
-- Warning logged: `⊘ Camera 'camera_name' is optional and no files found - skipping`
-- Camera is skipped in all subsequent phases:
-  - **Discovery**: Empty file list created, no error raised
-  - **Verification**: TTL synchronization check skipped
-  - **Ingestion**: Pose data loading skipped
-  - **Assembly**: Only available cameras processed
+### `[paths]`
 
-### Use Cases
-
-- Cameras that may not be present in all sessions
-- Equipment failures or missing recordings
-- Incomplete data sets where some cameras are unavailable
-- Batch processing of mixed complete/incomplete sessions
-
-### Visual Indicators
-
-The pipeline uses the `⊘` symbol to indicate skipped optional cameras in logs.
-
-### Example
+File system paths for pipeline data organization.
 
 ```toml
-# Example: Required overhead camera, optional side cameras
-[[cameras]]
-id = "overhead"
-paths = "Video/overhead/*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = false  # Critical camera - must be present
-
-[[cameras]]
-id = "side_left"
-paths = "Video/side_left/*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = true  # Nice to have, but not required
-
-[[cameras]]
-id = "side_right"
-paths = "Video/side_right/*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = true  # Nice to have, but not required
+[paths]
+raw_root = "data/raw"
+intermediate_root = "data/interim"
+output_root = "data/processed"
+models_root = "models"
+root_metadata = "config/metadata.toml"  # Optional
 ```
+
+**Parameters**:
+
+- `raw_root` (path, required): Root directory containing raw experimental data
+- `intermediate_root` (path, required): Directory for intermediate processing artifacts (DLC poses, etc.)
+- `output_root` (path, required): Directory for final NWB files and results
+- `models_root` (path, default: `"models"`): Directory containing pose estimation models
+- `root_metadata` (path, optional): Global metadata file loaded before raw_root hierarchy
+
+**Notes**:
+
+- All paths can be absolute or relative to config file location
+- Paths are resolved and validated on load
+- `root_metadata` provides a base layer for metadata hierarchy (see [Metadata Guide](metadata-parameters.md))
+
+### Environment Variable Overrides
+
+Paths can be overridden using environment variables. This is particularly useful for containerized environments (e.g., Docker workers) where paths inside the container differ from the host.
+
+**Supported Variables:**
+
+- `W2T_RAW_ROOT`: Overrides `paths.raw_root`
+- `W2T_INTERMEDIATE_ROOT`: Overrides `paths.intermediate_root`
+- `W2T_OUTPUT_ROOT`: Overrides `paths.output_root`
+- `W2T_MODELS_ROOT`: Overrides `paths.models_root`
+- `W2T_ROOT_METADATA`: Overrides `paths.root_metadata`
+
+**Precedence:** Environment variables > `config.toml` settings.
+
+---
+
+## Synchronization Settings
+
+### `[synchronization]`
+
+Controls time synchronization strategy across data streams.
+
+```toml
+[synchronization]
+strategy = "hardware_pulse"
+reference_channel = "ttl_camera"
+
+[synchronization.alignment]
+method = "nearest"
+tolerance_s = 0.002
+global_offset_s = 0.0
+```
+
+**Parameters**:
+
+#### `synchronization.strategy`
+
+- Type: string
+- Default: `"hardware_pulse"`
+- Options: `"hardware_pulse"`, `"rate_based"`, `"none"`
+- Description: Synchronization method for aligning data streams
+
+#### `synchronization.reference_channel`
+
+- Type: string
+- Default: `"ttl_camera"`
+- Description: TTL channel ID used as timing reference (must match metadata `[[TTLs]].id`)
+
+#### `synchronization.alignment.method`
+
+- Type: string
+- Default: `"nearest"`
+- Options: `"nearest"`, `"linear"`, `"previous"`, `"next"`
+- Description: Interpolation method for timestamp alignment
+
+#### `synchronization.alignment.tolerance_s`
+
+- Type: float
+- Default: `0.002`
+- Units: seconds
+- Description: Maximum allowed time difference for alignment matches
+
+#### `synchronization.alignment.global_offset_s`
+
+- Type: float
+- Default: `0.0`
+- Units: seconds
+- Description: Global time offset applied to all streams
 
 ---
 
@@ -229,6 +285,72 @@ warn_on_mismatch = true  # Only warn, don't fail
 
 ---
 
+## Preprocessing Settings
+
+### `[preprocessing]`
+
+Controls artifact generation and pose estimation.
+
+```toml
+[preprocessing]
+force_rerun = false
+
+[preprocessing.dlc]
+enabled = true
+# gpu = 0  # Optional: specify GPU index
+
+[preprocessing.sleap]
+enabled = false
+# gpu = 0  # Optional: specify GPU index
+```
+
+**Parameters**:
+
+#### `preprocessing.force_rerun`
+
+- Type: boolean
+- Default: `false`
+- Description: Regenerate all intermediate artifacts even if cached versions exist
+- Use cases:
+  - Changed pose estimation models
+  - Updated processing parameters
+  - Suspected cache corruption
+
+#### `preprocessing.dlc.enabled`
+
+- Type: boolean
+- Default: `true`
+- Description: Enable DeepLabCut pose estimation
+
+#### `preprocessing.dlc.gpu`
+
+- Type: integer
+- Default: Auto-detect
+- Range: 0-7
+- Description: GPU device index for DLC inference
+
+#### `preprocessing.sleap.enabled`
+
+- Type: boolean
+- Default: `false`
+- Description: Enable SLEAP pose estimation
+
+#### `preprocessing.sleap.gpu`
+
+- Type: integer
+- Default: Auto-detect
+- Range: 0-7
+- Description: GPU device index for SLEAP inference
+
+**Notes**:
+
+- Both DLC and SLEAP can be enabled simultaneously
+- GPU selection is per-framework (can use different GPUs)
+- If GPU not specified, pipeline auto-detects available devices
+- `force_rerun` affects all preprocessing (DLC, SLEAP, video processing)
+
+---
+
 ## Session-Level Logging
 
 ### Logging Overview
@@ -298,74 +420,9 @@ grep "Camera.*skipping" /path/to/output_root/{subject}/{session}/pipeline.log
 
 ---
 
-## Configuration File Hierarchy
-
-Configuration and metadata are loaded in layers, with later layers overriding earlier ones:
-
-### Loading Order
-
-1. **Root metadata:** `{raw_root}/metadata.toml` (if exists)
-2. **Root metadata from config:** `config.paths.root_metadata` (if specified in config)
-3. **Subject metadata:** `{raw_root}/{subject}/subject.toml` (if exists)
-4. **Session metadata:** `{raw_root}/{subject}/{session}/session.toml` (if exists)
-
-### Metadata Best Practices
-
-- **Root metadata:** Define common cameras, TTLs, and devices used across all sessions
-- **Subject metadata:** Define subject-specific settings (age, weight, genotype, etc.)
-- **Session metadata:** Define session-specific overrides or additions
-
-### Example Structure
-
-```text
-data/raw/
-├── metadata.toml              # Common cameras, TTLs, devices for all sessions
-├── subject-001/
-│   ├── subject.toml          # Subject-specific info (age, weight, etc.)
-│   ├── session-001/
-│   │   ├── session.toml      # Session-specific overrides
-│   │   └── Video/            # Session data
-│   └── session-002/
-│       ├── session.toml      # Different camera settings
-│       └── Video/
-└── subject-002/
-    └── ...
-```
-
----
-
 ## Usage Examples
 
-### Example 1: Handling Incomplete Session
-
-**Problem:** Session has missing camera recordings
-
-**Solution:**
-
-```toml
-# In session.toml or metadata.toml
-[[cameras]]
-id = "side_camera"
-paths = "Video/side/*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = true  # Skip if missing
-
-[[cameras]]
-id = "overhead_camera"
-paths = "Video/overhead/*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = false  # Required
-```
-
-**Result:**
-
-- Pipeline processes overhead camera normally
-- Side camera skipped with warning in `pipeline.log`
-- Session completes successfully
-
-### Example 2: Processing Sessions Without TTL
+### Example 1: Processing Sessions Without TTL
 
 **Problem:** Older sessions don't have TTL synchronization files
 
@@ -385,43 +442,7 @@ check_sync_mismatch = false  # Skip TTL verification
 - TTL synchronization checks skipped
 - No false failures due to missing TTL files
 
-### Example 3: Batch Processing Mixed Sessions
-
-**Problem:** Processing multiple sessions, some complete and some incomplete
-
-**Setup:**
-
-```toml
-# Root metadata.toml (applies to all sessions)
-[[cameras]]
-id = "cam0"
-paths = "Video/cam0/*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = false  # Required for all sessions
-
-[[cameras]]
-id = "cam1"
-paths = "Video/cam1/*.avi"
-fps = 150.0
-ttl_id = "ttl_camera"
-optional = true  # Optional - may be missing in some sessions
-```
-
-**Command:**
-
-```bash
-python -m w2t_bkin.cli batch config.toml --max-workers 4
-```
-
-**Result:**
-
-- All sessions processed
-- Sessions with cam1: Both cameras processed
-- Sessions without cam1: Only cam0 processed, warning logged
-- Check individual `pipeline.log` files for session-specific issues
-
-### Example 4: Development vs Production
+### Example 2: Development vs Production
 
 **Development Configuration:**
 
@@ -449,36 +470,41 @@ warn_on_mismatch = false  # Fail on mismatch
 
 ---
 
-## CLI Override Options
+## Complete Configuration Example
 
-The CLI provides options to override verification settings:
-
-```bash
-# Disable all verification
-python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-verification
-
-# Skip frame counting
-python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-frame-count
-
-# Skip TTL synchronization check
-python -m w2t_bkin.cli run config.toml subject-001 session-001 --no-sync-check
-
-# Set tolerance
-python -m w2t_bkin.cli run config.toml subject-001 session-001 --tolerance 5
-
-# Warn on mismatch
-python -m w2t_bkin.cli run config.toml subject-001 session-001 --warn-on-mismatch
-```
-
----
-
-## Migration Guide
-
-### Updating Existing Configurations
-
-#### Step 1: Add verification section to config.toml
+See [`templates/standard.toml`](../../templates/standard.toml) for a complete, annotated configuration file.
 
 ```toml
+# =============================================================================
+# Project Configuration
+# =============================================================================
+
+[project]
+name = "w2t-bkin-pipeline"
+
+[paths]
+raw_root = "data/raw"
+intermediate_root = "data/interim"
+output_root = "data/processed"
+models_root = "models"
+
+# =============================================================================
+# Synchronization Strategy
+# =============================================================================
+
+[synchronization]
+strategy = "hardware_pulse"
+reference_channel = "ttl_camera"
+
+[synchronization.alignment]
+method = "nearest"
+tolerance_s = 0.002
+global_offset_s = 0.0
+
+# =============================================================================
+# Verification & Validation
+# =============================================================================
+
 [verification]
 enabled = true
 check_frame_counts = true
@@ -486,43 +512,34 @@ check_sync_mismatch = true
 skip_nwb_requirements = false
 mismatch_tolerance_frames = 0
 warn_on_mismatch = false
+
+# =============================================================================
+# Preprocessing Configuration
+# =============================================================================
+
+[preprocessing]
+force_rerun = false
+
+[preprocessing.dlc]
+enabled = true
+# gpu = 0  # Optional
+
+[preprocessing.sleap]
+enabled = false
+# gpu = 0  # Optional
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+
+[logging]
+level = "INFO"
+structured = false
 ```
-
-#### Step 2: Add optional field to cameras (if needed)
-
-```toml
-[[cameras]]
-id = "camera_name"
-# ... other fields ...
-optional = false  # Add this field (default behavior)
-```
-
-#### Step 3: Test with single session
-
-```bash
-python -m w2t_bkin.cli run config.toml subject-001 session-001
-```
-
-#### Step 4: Check session logs
-
-```bash
-cat output_root/subject-001/session-001/pipeline.log
-```
-
-### Backward Compatibility
-
-- **Default values:** All new parameters have sensible defaults
-- **Optional fields:** Can be omitted (defaults to `false`)
-- **Existing configs:** Continue to work without modification
-- **Verification settings:** Old style verification settings are automatically migrated
 
 ---
 
 ## Troubleshooting
-
-### Issue: Camera marked optional but still causing failure
-
-**Solution:** Check that `optional = true` is set in the correct metadata file (session or root metadata).
 
 ### Issue: TTL verification failing for sessions without TTL
 
@@ -537,14 +554,26 @@ cat output_root/subject-001/session-001/pipeline.log
 
 Ensure these directories exist and pipeline completed initialization phase.
 
-### Issue: Too many warnings in session logs
+### Issue: Figures not being generated
 
-**Solution:** This is expected behavior. Session logs only capture WARNING and ERROR messages for troubleshooting. Use `grep "ERROR"` to filter for critical issues only.
+**Possible causes:**
+
+1. Missing trial synchronization configuration in metadata (see [Metadata Guide](metadata-parameters.md#bpod-trial-synchronization))
+2. No TTL or Bpod data available
+3. matplotlib not installed (install with `pip install -e .[worker]`)
+
+**Solution:** Check `pipeline.log` for messages like "Skipping trial alignment (no trial_type configs in metadata)"
+
+### Issue: Force rerun not regenerating artifacts
+
+**Solution:** Ensure `preprocessing.force_rerun = true` in config.toml, not in metadata files.
 
 ---
 
 ## See Also
 
+- **[Metadata Parameters Guide](metadata-parameters.md)** - Camera, TTL, Bpod, and subject configuration
+- **[Templates](../../templates/README.md)** - Example configuration and metadata files
 - [Pipeline Commands](../cli/pipeline-commands.md) - Run and batch processing
 - [Data Management](../cli/data-management.md) - Experiment organization
 - [Caching and Reprocessing](../user-guide/caching-and-reprocessing.md) - Cache management

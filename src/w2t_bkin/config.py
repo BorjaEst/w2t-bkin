@@ -40,6 +40,7 @@ Typical usage example:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -50,7 +51,7 @@ except ImportError:
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from w2t_bkin.utils import compute_hash, read_toml
+from w2t_bkin.utils import compute_hash, read_toml, recursive_dict_update
 
 # =============================================================================
 # Constants
@@ -448,6 +449,34 @@ class Config(BaseModel, extra="forbid"):
 # =============================================================================
 # Public API Functions
 # =============================================================================
+# Configuration Loading
+# =============================================================================
+
+
+def _load_paths_from_env() -> Dict[str, Any]:
+    """Load path configuration from environment variables.
+
+    Environment variables override configuration file settings.
+    Supported variables:
+    - W2T_RAW_ROOT
+    - W2T_INTERMEDIATE_ROOT
+    - W2T_OUTPUT_ROOT
+    - W2T_MODELS_ROOT
+    - W2T_ROOT_METADATA
+    """
+    paths = {}
+    if raw := os.getenv("W2T_RAW_ROOT"):
+        paths["raw_root"] = raw
+    if interim := os.getenv("W2T_INTERMEDIATE_ROOT"):
+        paths["intermediate_root"] = interim
+    if output := os.getenv("W2T_OUTPUT_ROOT"):
+        paths["output_root"] = output
+    if models := os.getenv("W2T_MODELS_ROOT"):
+        paths["models_root"] = models
+    if metadata := os.getenv("W2T_ROOT_METADATA"):
+        paths["root_metadata"] = metadata
+
+    return {"paths": paths} if paths else {}
 
 
 def load_config(path: Union[str, Path]) -> Config:
@@ -458,6 +487,7 @@ def load_config(path: Union[str, Path]) -> Config:
     - Enum validation for strategy, method, and level fields
     - Numeric constraints (e.g., tolerance_s >= 0)
     - Conditional requirements (e.g., reference_channel when strategy='hardware_pulse')
+    - Environment variable overrides for paths
 
     Args:
         path: Path to config.toml file.
@@ -482,6 +512,11 @@ def load_config(path: Union[str, Path]) -> Config:
         ...     )
     """
     data = read_toml(path)
+
+    # Override with environment variables
+    env_paths = _load_paths_from_env()
+    if env_paths:
+        recursive_dict_update(data, env_paths)
 
     # Pre-validate enums for clearer error messages
     _validate_config_enums(data)
@@ -560,6 +595,11 @@ def load_config_hierarchy(
                 recursive_dict_update(merged_dict, layer_dict)
             except FileNotFoundError as e:
                 raise FileNotFoundError(f"Config layer '{layer_name}' not found: {config_path}") from e
+
+    # Override with environment variables
+    env_paths = _load_paths_from_env()
+    if env_paths:
+        recursive_dict_update(merged_dict, env_paths)
 
     # Pre-validate enums for clearer error messages
     _validate_config_enums(merged_dict)

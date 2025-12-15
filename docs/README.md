@@ -25,9 +25,10 @@ Complete documentation for the W2T Body Kinematics Pipeline.
 
 ## Technical References
 
-### Configuration
+### Configuration and Metadata
 
-- **[Configuration Parameters](reference/configuration-parameters.md)** - Complete TOML reference
+- **[Configuration Parameters](reference/configuration-parameters.md)** - Pipeline processing behavior (HOW to process)
+- **[Metadata Parameters](reference/metadata-parameters.md)** - Data description and equipment (WHAT data exists)
 - **[Pydantic Config Implementation](reference/pydantic-config-implementation.md)** - Type-safe config models
 
 ### Architecture

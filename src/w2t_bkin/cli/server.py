@@ -90,7 +90,7 @@ def _get_docker_api_url(port: int) -> str:
 
 @server_app.command(name="start")
 def start(
-    config_path: Optional[Path] = typer.Option(None, "--config", "-c", help="Default config file for deployments"),
+    config_path: Path = typer.Option(Path("configuration.toml"), "--config", "-c", help="Default config file for deployments"),
     work_pool: Optional[str] = typer.Option(None, "--work-pool", "-w", help="Work pool type (docker or local)"),
     port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"),
     open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
@@ -623,6 +623,24 @@ def _start_docker_worker(worker_name: str, work_pool: str, port: int) -> Optiona
         "-v",
         "/var/run/docker.sock:/var/run/docker.sock",
     ]
+
+    # Load environment variables from .workers/.env if it exists
+    # This allows the worker to pick up path overrides (W2T_RAW_ROOT, etc.)
+    env_file = Path.cwd() / ".workers" / ".env"
+    if env_file.exists():
+        console.print(f"[dim]  Loading env vars from {env_file}[/dim]")
+        try:
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, val = line.split("=", 1)
+                        # Only pass W2T_ variables to avoid conflicts and ensure we only
+                        # override pipeline configuration, not internal docker vars
+                        if key.startswith("W2T_"):
+                            docker_cmd.extend(["-e", f"{key}={val}"])
+        except Exception as e:
+            console.print(f"[yellow]⚠ Failed to read .workers/.env: {e}[/yellow]")
 
     # Mount code based on platform
     if _is_windows():

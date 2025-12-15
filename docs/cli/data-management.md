@@ -56,8 +56,8 @@ w2t-bkin data init ROOT_PATH [OPTIONS]
 │   ├── processed/       # Final outputs
 │   └── external/        # External data
 ├── models/              # Trained models
-└── docker/              # Auto-generated Docker config
-    └── .env            # Environment variables
+└── .workers/            # Auto-generated Docker worker config
+    └── .env            # Environment variables for container paths
 ```
 
 ### Examples

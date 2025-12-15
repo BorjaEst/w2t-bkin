@@ -1,0 +1,200 @@
+# NWB Session Configuration File
+# Based on pynwb.file.NWBFile specification
+# Documentation: https://pynwb.readthedocs.io/en/stable/pynwb.file.html#pynwb.file.NWBFile
+
+# =============================================================================
+# OPTIONAL METADATA FIELDS
+# =============================================================================
+
+# Lab-specific ID for the session
+session_id = "000001"
+
+# Name of person(s) who performed experiment (can be a list)
+experimenter = ["Esteban, Borja", "Python, Code"]
+
+# General description of the experiment
+experiment_description = """
+Water-to-target behavioral task with simultaneous video tracking.
+Animal navigates to target location while pose is tracked using
+DeepLabCut and synchronized with Bpod behavioral events.
+"""
+
+# Institution(s) where experiment is performed
+institution = "Neural Dynamics Laboratory, University Example"
+
+# Lab where experiment was performed
+lab = "Larkum Lab"
+
+# Terms to search over (keywords)
+keywords = [
+    "behavior",
+    "pose tracking",
+    "synchronization",
+    "water reward",
+    "navigation",
+]
+
+# Notes about the experiment
+notes = """
+Session conducted with standard lighting conditions.
+Animal showed normal behavior throughout the session.
+All equipment functioning properly.
+"""
+
+# Experimental protocol reference (e.g., IACUC protocol number)
+protocol = "IACUC-2025-001"
+
+# Publication information (PMID, DOI, URL, etc.)
+related_publications = []
+
+# Description of drugs used, including administration details
+pharmacology = "None"
+
+# Description of slices (for in vitro experiments)
+slices = "N/A - in vivo experiment"
+
+# Notes about data collection and analysis
+data_collection = """
+Data collected using Bpod behavioral control system.
+Video recorded at 30 fps using synchronized cameras.
+Pose estimated using DeepLabCut model trained on lab-specific data.
+"""
+
+# Narrative description about surgery/surgeries
+surgery = """
+Cranial window implant surgery performed 2 weeks prior to recording.
+No complications observed. Animal recovered fully.
+"""
+
+# Information about virus(es) used
+virus = "None"
+
+# Notes about stimuli presentation
+stimulus_notes = "Visual target displayed on LED screen at variable locations"
+
+# Date and time corresponding to time zero of all timestamps
+# If not specified, defaults to session_start_time
+# timestamps_reference_time = "2025-01-15T14:30:00"
+
+# =============================================================================
+# DEVICES
+# =============================================================================
+
+# Devices used in the experiment
+[[devices]]
+name = "bpod"
+description = "Bpod State Machine r2.5 for behavioral control"
+manufacturer = "Sanworks"
+
+[[devices]]
+name = "camera_0"
+description = "High-speed camera for pose tracking - overhead view"
+manufacturer = "FLIR"
+model_name = "Blackfly S"
+
+[[devices]]
+name = "camera_1"
+description = "High-speed camera for pose tracking - side view"
+manufacturer = "FLIR"
+model_name = "Blackfly S"
+
+# =============================================================================
+# ELECTRODE GROUPS (for electrophysiology, if applicable)
+# =============================================================================
+
+# Example electrode group (remove if not applicable)
+[[electrode_groups]]
+name = "tetrode1"
+description = "Tetrode in motor cortex"
+location = "M1, right hemisphere"
+device = "neuropixels"
+
+# =============================================================================
+# IMAGING PLANES (for optical imaging, if applicable)
+# =============================================================================
+
+# Example imaging plane (remove if not applicable)
+[[imaging_planes]]
+name = "imaging_plane_1"
+description = "Imaging plane in primary motor cortex"
+excitation_lambda = 920.0
+indicator = "GCaMP6f"
+location = "M1"
+device = "two_photon_microscope"
+imaging_rate = 30.0
+
+# =============================================================================
+# OPTOGENETIC SITES (if applicable)
+# =============================================================================
+
+# Example optogenetic site (remove if not applicable)
+[[ogen_sites]]
+name = "stim_site_1"
+description = "Optogenetic stimulation site in M1"
+excitation_lambda = 473.0
+location = "M1, left hemisphere"
+device = "laser_473"
+
+# =============================================================================
+# PROCESSING MODULES
+# =============================================================================
+
+# Processing modules for organizing processed data
+[[processing_modules]]
+name = "behavior"
+description = "Processed behavioral data including pose estimates and synchronized events"
+
+[[processing_modules]]
+name = "sync"
+description = "Synchronization data between Bpod and cameras"
+
+# =============================================================================
+# PIPELINE SOURCE DEFINITIONS (Not NWB Metadata)
+# =============================================================================
+
+[bpod]
+path = "Bpod/*.mat"
+order = "time_asc"
+continuous_time = false
+
+# Bpod-TTL synchronization configuration
+# Maps each trial type to its sync signal and TTL channel
+[[bpod.sync.trial_types]]
+trial_type = 1            # Trial type ID (from Bpod)
+sync_signal = "W2T_Audio" # Bpod state/event name that triggers sync TTL
+sync_ttl = "ttl_cue"      # TTL channel ID (must match [[TTLs]].id below)
+
+[[bpod.sync.trial_types]]
+trial_type = 2
+sync_signal = "A2L_Audio"
+sync_ttl = "ttl_cue"
+
+# Camera configurations
+# Each camera used in the experiment 
+[[cameras]]
+id = "camera_0"
+paths = "Video/top/*.avi"
+fps = 30.0
+ttl_id = "ttl_camera"
+
+[[cameras]]
+id = "camera_1"
+paths = "Video/pupil_left/*.avi"
+fps = 30.0
+ttl_id = "ttl_camera"
+
+# TTL synchronization channels
+[[TTLs]]
+id = "ttl_camera"
+paths = "TTLs/*_frame.txt"
+description = "Camera exposure pulses (frame sync)"
+
+[[TTLs]]
+id = "ttl_cue"
+paths = "TTLs/*_cue.txt"
+description = "Audio cue onset pulses"
+
+[[TTLs]]
+id = "ttl_hitmiss"
+paths = "TTLs/*_hitmiss.txt"
+description = "Trial outcome signals"

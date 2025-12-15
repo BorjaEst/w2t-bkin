@@ -185,6 +185,7 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
 
 ### User Guides
 
+- **[Templates](templates/README.md)** - Example configuration and metadata files
 - **[Cheat Sheet](CHEATSHEET.md)** - Quick reference for common tasks
 - **[Migration Guide](docs/MIGRATION_GUIDE.md)** - Migrate from old workflow
 - **[FAQ](docs/FAQ.md)** - Frequently asked questions
@@ -193,7 +194,8 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
 
 ### Technical References
 
-- **[Configuration Parameters](docs/reference/configuration-parameters.md)** - Complete config reference
+- **[Configuration Parameters](docs/reference/configuration-parameters.md)** - Pipeline behavior (HOW to process)
+- **[Metadata Parameters](docs/reference/metadata-parameters.md)** - Data description (WHAT data exists)
 - **[Architecture Diagram](docs/reference/architecture_diagram.mmd)** - System design
 - **[Prefect UI Guide](docs/reference/prefect-ui-configuration.md)** - Orchestration setup
 

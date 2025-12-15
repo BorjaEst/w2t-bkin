@@ -14,6 +14,17 @@
 [project]
 name = "w2t-bkin-pipeline"
 
+# =============================================================================
+# Paths Configuration
+# =============================================================================
+# Paths can be configured here OR via environment variables (recommended for workers).
+# Environment variables override these settings:
+# - W2T_RAW_ROOT
+# - W2T_INTERMEDIATE_ROOT
+# - W2T_OUTPUT_ROOT
+# - W2T_MODELS_ROOT
+# - W2T_ROOT_METADATA
+#
 [paths]
 raw_root = "data/raw"
 intermediate_root = "data/interim"

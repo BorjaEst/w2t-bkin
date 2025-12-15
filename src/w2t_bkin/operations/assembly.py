@@ -131,8 +131,9 @@ def assemble_pose_estimation(
 
     behavior_module = nwbfile.processing["behavior"]
 
-    # Get camera parameters
-    fps = camera_config.get("fps", 30.0)
+    # Get camera parameters with type validation
+    fps_raw = camera_config.get("fps", 30.0)
+    fps = float(fps_raw) if fps_raw is not None else 30.0
     ttl_id = camera_config.get("ttl_id")
     target_skel_id = camera_config.get("skeleton_id")
 

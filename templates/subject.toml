@@ -1,0 +1,38 @@
+# NWB Session Configuration File
+# Based on pynwb.file.NWBFile specification
+# Documentation: https://pynwb.readthedocs.io/en/stable/pynwb.file.html#pynwb.file.NWBFile
+
+# =============================================================================
+# SUBJECT INFORMATION
+# =============================================================================
+
+[subject]
+# Subject identifier
+subject_id = "M002"
+
+# Description of the subject
+description = "Adult male C57BL/6J mouse, 12 weeks old"
+
+# Species (formal latin binomial name recommended)
+species = "Mus musculus"
+
+# Sex: "F" (female), "M" (male), "U" (unknown), or "O" (other)
+sex = "M"
+
+# Age (ISO 8601 Duration format recommended, e.g., "P90D" for 90 days)
+age = "P84D"
+
+# Age reference: "birth" or "gestational"
+age__reference = "birth"
+
+# Genotype
+genotype = "C57BL/6J wild-type"
+
+# Strain
+strain = "C57BL/6J"
+
+# Weight (include units, e.g., "0.025 kg" or just the number for kg)
+weight = "0.025 kg"
+
+# Date of birth (ISO 8601 format)
+date_of_birth = "2024-10-23T00:00:00Z"

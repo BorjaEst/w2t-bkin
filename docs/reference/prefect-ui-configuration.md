@@ -134,10 +134,10 @@ result = process_session_flow(config)
 ### 1. Deploy Flows
 
 Flows are automatically deployed when the Prefect server container starts.
-Deployment parameters are controlled by environment variables in `docker/.env`:
+Deployment parameters are controlled by environment variables in `.workers/.env`:
 
 ```bash
-# Environment variables (in docker/.env)
+# Environment variables (in .workers/.env)
 DEFAULT_CONFIG_FILE=standard.toml      # Config file in /configs/
 DEFAULT_MAX_WORKERS=4                   # Max parallel sessions
 DEFAULT_SUBJECT_FILTER=                 # Optional: regex for subjects

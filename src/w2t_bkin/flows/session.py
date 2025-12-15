@@ -34,6 +34,7 @@ from typing import Dict, List, Optional
 from prefect import flow, get_run_logger
 from pynwb import NWBFile
 
+from w2t_bkin import utils
 from w2t_bkin.api import SessionFlowConfig
 from w2t_bkin.models import SessionResult
 from w2t_bkin.tasks import (  # Config tasks; Discovery tasks; Verification tasks; Artifact tasks; Ingestion tasks; Sync tasks; Assembly tasks; Finalization tasks
@@ -47,6 +48,7 @@ from w2t_bkin.tasks import (  # Config tasks; Discovery tasks; Verification task
     discover_sleap_poses_task,
     finalize_session_task,
     generate_dlc_session_task,
+    generate_figures_task,
     ingest_bpod_task,
     ingest_dlc_poses_task,
     ingest_sleap_poses_task,
@@ -214,7 +216,7 @@ def _align_trials_with_ttl(bpod_data, ttl_data, session_config, run_logger):
     # Extract trial_type configs from metadata
     bpod_meta = session_config.metadata.get("bpod", {})
     sync_meta = bpod_meta.get("sync", {}) if isinstance(bpod_meta, dict) else {}
-    trial_type_configs = sync_meta.get("trial_types", {}) if isinstance(sync_meta, dict) else {}
+    trial_type_configs = sync_meta.get("trial_types", []) if isinstance(sync_meta, dict) else []
 
     if not trial_type_configs:
         run_logger.info("Skipping trial alignment (no trial_type configs in metadata)")
@@ -252,8 +254,11 @@ def _compute_sync_stats(trial_alignment, ttl_data, run_logger):
 
     ttl_channels = {ttl_id: len(ttl.timestamps) for ttl_id, ttl in ttl_data.items()}
 
+    # Convert trial_offsets dict to list of values
+    trial_offsets_list = list(trial_alignment.trial_offsets.values()) if isinstance(trial_alignment.trial_offsets, dict) else trial_alignment.trial_offsets
+
     alignment_stats = compute_alignment_stats_task(
-        trial_offsets=trial_alignment.trial_offsets,
+        trial_offsets=trial_offsets_list,
         ttl_channels=ttl_channels,
     )
 
@@ -343,6 +348,10 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
     skip_camera_sync = config.skip_camera_sync
     skip_nwb_validation = config.skip_nwb_validation
 
+    # Initialize variables for later use
+    file_handler = None
+    session_config = None
+
     try:
         run_logger.info(f"Starting session processing: {subject_id}/{session_id}")
 
@@ -359,7 +368,15 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
             session_id=session_id,
         )
 
-        # Apply configuration overrides from SessionFlowConfig
+        # Setup file logging to pipeline.log
+        log_file = session_config.output_dir / "pipeline.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_file, mode="w")
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        file_handler.setFormatter(formatter)
+        logging.getLogger("w2t_bkin").addHandler(file_handler)
+        run_logger.info(f"File logging enabled: {log_file}")  # Apply configuration overrides from SessionFlowConfig (outside PhaseTimer)
         if config.force_rerun is not None:
             run_logger.info(f"Overriding force_rerun: {config.force_rerun}")
             session_config.config.preprocessing.force_rerun = config.force_rerun
@@ -510,6 +527,20 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
             skip_validation=skip_nwb_validation,
         )
 
+        # Generate diagnostic figures
+        try:
+            figure_paths = generate_figures_task(
+                output_dir=session_config.output_dir,
+                alignment_stats=alignment_stats,
+                trial_alignment=trial_alignment,
+                bpod_data=bpod_data,
+                ttl_data=ttl_data,
+                pose_data=pose_data,
+            )
+            run_logger.info(f"Generated {len(figure_paths)} diagnostic figures")
+        except Exception as e:
+            run_logger.warning(f"Figure generation failed: {e}")
+
         # Build successful result
         result = SessionResult(
             success=True,
@@ -536,6 +567,19 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
         duration = (datetime.now() - start_time).total_seconds()
         run_logger.error(f"Session processing failed: {e}", exc_info=True)
 
+        # Write error profile if possible
+        if session_config:
+            try:
+                profile_path = session_config.output_dir / "pipeline_profile.json"
+                profile_data = {
+                    "success": False,
+                    "error": str(e),
+                    "phases": [],
+                }
+                utils.write_json(profile_data, profile_path)
+            except Exception:
+                pass  # Ignore errors during error handling
+
         return SessionResult(
             success=False,
             subject_id=subject_id,
@@ -543,3 +587,8 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
             error=str(e),
             duration_seconds=duration,
         )
+    finally:
+        # Clean up file handler
+        if file_handler:
+            logging.getLogger("w2t_bkin").removeHandler(file_handler)
+            file_handler.close()

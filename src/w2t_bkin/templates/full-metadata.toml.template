@@ -184,3 +184,21 @@ description = "Trial outcome signals"
 # id = "ttl_bpod_trials"
 # paths = "neural/TPrime_output/corrected_3_trials_TTLs.txt"
 # description = "Bpod trial start markers recorded by Neuropixels NIDQ XD_3_0"
+
+# Bpod Behavioral Data
+[bpod]
+path = "Bpod/*.mat"
+order = "time_asc"
+continuous_time = false
+
+# Bpod-TTL synchronization configuration
+# Maps each trial type to its sync signal and TTL channel
+[[bpod.sync.trial_types]]
+trial_type = 1            # Trial type ID (from Bpod)
+sync_signal = "W2T_Audio" # Bpod state/event name that triggers sync TTL
+sync_ttl = "ttl_cue"      # TTL channel ID (must match [[TTLs]].id above)
+
+[[bpod.sync.trial_types]]
+trial_type = 2
+sync_signal = "A2L_Audio"
+sync_ttl = "ttl_cue"

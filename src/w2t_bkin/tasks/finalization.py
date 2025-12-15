@@ -7,6 +7,16 @@ from typing import Any, Dict, List, Optional
 from prefect import task
 from pynwb import NWBFile
 
+from w2t_bkin.figures import (
+    plot_alignment_grid,
+    plot_pose_keypoints_grid,
+    plot_sync_quality_and_completeness,
+    plot_synchronization_stats,
+    plot_trial_offsets,
+    plot_ttl_inter_pulse_intervals,
+    plot_ttl_timeline,
+)
+from w2t_bkin.models import BpodData, PoseData, TrialAlignment, TTLData
 from w2t_bkin.operations import create_provenance_data, finalize_session, validate_nwb_file, write_nwb_file, write_sidecar_files
 
 logger = logging.getLogger(__name__)
@@ -153,3 +163,121 @@ def finalize_session_task(
     return finalize_session(
         nwbfile=nwbfile, output_dir=output_dir, session_id=session_id, config_dict=config_dict, alignment_stats=alignment_stats, skip_validation=skip_validation
     )
+
+
+@task(
+    name="Generate Figures",
+    description="Generate diagnostic figures for the session",
+    tags=["figures", "visualization"],
+    retries=0,
+)
+def generate_figures_task(
+    output_dir: Path,
+    alignment_stats: Optional[Dict[str, Any]] = None,
+    trial_alignment: Optional[TrialAlignment] = None,
+    bpod_data: Optional[BpodData] = None,
+    ttl_data: Optional[Dict[str, TTLData]] = None,
+    pose_data: Optional[Dict[str, List[PoseData]]] = None,
+) -> List[Path]:
+    """Generate diagnostic figures for the session.
+
+    Args:
+        output_dir: Directory to save figures
+        alignment_stats: Alignment statistics dictionary
+        trial_alignment: Trial alignment result
+        bpod_data: Bpod behavioral data
+        ttl_data: TTL pulse data
+        pose_data: Pose estimation data
+
+    Returns:
+        List of generated figure paths
+    """
+    # Configure matplotlib for non-interactive backend (worker scope)
+    from w2t_bkin.figures import configure_matplotlib_backend
+
+    configure_matplotlib_backend("Agg")
+
+    logger.info("Generating diagnostic figures")
+
+    figures_dir = output_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    generated_files = []
+
+    # 1. Synchronization Stats
+    if alignment_stats:
+        try:
+            path = plot_synchronization_stats(stats=alignment_stats, save_path=figures_dir / "synchronization_stats.png")
+            if path:
+                generated_files.append(path)
+        except Exception as e:
+            logger.warning(f"Failed to plot synchronization stats: {e}")
+
+    # 3. TTL Timeline
+    if ttl_data:
+        try:
+            # Convert TTLData objects to dict of timestamps
+            ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
+            path = plot_ttl_timeline(ttl_pulses=ttl_pulses, out_path=figures_dir / "ttl_timeline.png")
+            if path:
+                generated_files.append(path)
+        except Exception as e:
+            logger.warning(f"Failed to plot TTL timeline: {e}")
+
+        # TTL Inter-pulse intervals
+        try:
+            # Convert TTLData objects to dict of timestamps
+            ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
+            path = plot_ttl_inter_pulse_intervals(ttl_data=ttl_pulses, save_path=figures_dir / "ttl_inter_pulse_intervals.png")
+            if path:
+                generated_files.append(path)
+        except Exception as e:
+            logger.warning(f"Failed to plot TTL inter-pulse intervals: {e}")
+
+    # 4. Trial Offsets
+    if trial_alignment:
+        try:
+            path = plot_trial_offsets(offsets=trial_alignment.trial_offsets, out_path=figures_dir / "trial_offsets.png")
+            if path:
+                generated_files.append(path)
+        except Exception as e:
+            logger.warning(f"Failed to plot trial offsets: {e}")
+
+    # 5. Alignment Grid/Example
+    if trial_alignment and bpod_data and ttl_data:
+        try:
+            ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
+            # Note: plot_alignment_grid requires trials_info list which is complex to build here.
+            # Skipping for now to avoid complexity, relying on sync_quality_and_completeness
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to plot alignment grid: {e}")
+
+    # 6. Sync Quality and Completeness
+    if trial_alignment and bpod_data and ttl_data:
+        try:
+            ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
+            path = plot_sync_quality_and_completeness(
+                bpod_data=bpod_data.data,
+                ttl_data=ttl_pulses,
+                trial_offsets=trial_alignment.trial_offsets,
+                save_path=figures_dir / "sync_quality_and_completeness.png",
+            )
+            if path:
+                generated_files.append(path)
+        except Exception as e:
+            logger.warning(f"Failed to plot sync quality: {e}")
+
+    # 7. Pose Keypoints
+    if pose_data:
+        for camera_id, poses in pose_data.items():
+            for i, pose in enumerate(poses):
+                try:
+                    # Assuming pose is PoseData
+                    path = plot_pose_keypoints_grid(bundle=pose, video_path=pose.video_path, out_path=figures_dir / f"pose_keypoints_{camera_id}_{i}.png")
+                    if path:
+                        generated_files.append(path)
+                except Exception as e:
+                    logger.warning(f"Failed to plot pose keypoints for {camera_id}: {e}")
+
+    return generated_files
