@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from pynwb import NWBFile
 
-from . import config as config_pkg
+from w2t_bkin import config as config_pkg
 
 
 @dataclass(frozen=True)

@@ -2,18 +2,18 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 import typer
 
-from ..data.manager import ExperimentConfig, SessionConfig, SubjectConfig
-from ..data.manager import add_session as dm_add_session
-from ..data.manager import add_subject as dm_add_subject
-from ..data.manager import import_raw_data as dm_import_raw_data
-from ..data.manager import init_experiment as dm_init_experiment
-from ..data.manager import validate_experiment_structure as dm_validate_structure
-from .utils import console, generate_docker_env
+from w2t_bkin.cli.utils import console, generate_docker_env
+from w2t_bkin.data.manager import SessionConfig, SubjectConfig
+from w2t_bkin.data.manager import add_session as dm_add_session
+from w2t_bkin.data.manager import add_subject as dm_add_subject
+from w2t_bkin.data.manager import import_raw_data as dm_import_raw_data
+from w2t_bkin.data.manager import init_experiment as dm_init_experiment
+from w2t_bkin.data.manager import validate_experiment_structure as dm_validate_structure
 
 data_app = typer.Typer(name="data", help="Experiment data management")
 
@@ -291,7 +291,7 @@ def validate(
     # Validate symlinks if requested
     symlink_valid = True
     if check_symlinks:
-        from ..data.manager import validate_symlinks
+        from w2t_bkin.data.manager import validate_symlinks
 
         console.print("")  # Add spacing
         symlink_valid, symlink_issues = validate_symlinks(experiment_root, console)

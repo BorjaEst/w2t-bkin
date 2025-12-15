@@ -33,8 +33,8 @@ except ImportError:
     loadmat = None
     savemat = None
 
-from ..exceptions import BpodParseError, BpodValidationError
-from ..utils import convert_matlab_struct, discover_files, sanitize_string, sort_files, validate_against_whitelist, validate_file_exists, validate_file_size
+from w2t_bkin.exceptions import BpodParseError, BpodValidationError
+from w2t_bkin.utils import convert_matlab_struct, discover_files, sanitize_string, sort_files, validate_against_whitelist, validate_file_exists, validate_file_size
 
 logger = logging.getLogger(__name__)
 

@@ -4,11 +4,11 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .. import sync, utils
-from ..ingest import bpod as bpod_ingest
-from ..ingest import pose as pose_ingest
-from ..ingest import ttl as ttl_ingest
-from ..models import BpodData, PoseData, SessionConfig, TrialAlignment, TTLData
+from w2t_bkin import sync, utils
+from w2t_bkin.ingest import bpod as bpod_ingest
+from w2t_bkin.ingest import pose as pose_ingest
+from w2t_bkin.ingest import ttl as ttl_ingest
+from w2t_bkin.models import BpodData, PoseData, SessionConfig, TrialAlignment, TTLData
 
 logger = logging.getLogger(__name__)
 

@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, List, Optional
 
-from ..exceptions import SyncError
+from w2t_bkin.exceptions import SyncError
 
 # =============================================================================
 # Timebase Provider Abstraction

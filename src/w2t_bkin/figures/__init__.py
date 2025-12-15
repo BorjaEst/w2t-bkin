@@ -4,9 +4,9 @@ This package provides utilities for generating diagnostic plots and
 profiling visualizations to understand pipeline execution and validate results.
 """
 
-from .ecephys import plot_electrode_locations, plot_firing_rate_distribution, plot_spike_raster, plot_unit_quality_metrics
-from .pose import plot_pose_keypoints_grid, plot_ttl_detection_from_pose
-from .profiling import (
+from w2t_bkin.figures.ecephys import plot_electrode_locations, plot_firing_rate_distribution, plot_spike_raster, plot_unit_quality_metrics
+from w2t_bkin.figures.pose import plot_pose_keypoints_grid, plot_ttl_detection_from_pose
+from w2t_bkin.figures.profiling import (
     PhaseProfile,
     PhaseTimer,
     PipelineProfile,
@@ -17,7 +17,7 @@ from .profiling import (
     plot_trial_completeness,
     plot_ttl_inter_pulse_intervals,
 )
-from .sync import plot_alignment_example, plot_alignment_grid, plot_sync_recovery, plot_trial_offsets, plot_ttl_timeline
+from w2t_bkin.figures.sync import plot_alignment_example, plot_alignment_grid, plot_sync_recovery, plot_trial_offsets, plot_ttl_timeline
 
 __all__ = [
     # Synchronization plots

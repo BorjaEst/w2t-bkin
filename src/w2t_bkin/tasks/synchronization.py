@@ -5,8 +5,8 @@ from typing import Dict, List, Optional
 
 from prefect import task
 
-from ..models import TrialAlignment
-from ..operations import compute_alignment_statistics, compute_alignment_statistics_from_result
+from w2t_bkin.models import TrialAlignment
+from w2t_bkin.operations import compute_alignment_statistics, compute_alignment_statistics_from_result
 
 logger = logging.getLogger(__name__)
 

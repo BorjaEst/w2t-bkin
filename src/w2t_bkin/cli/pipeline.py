@@ -6,8 +6,8 @@ from typing import Optional
 
 import typer
 
-from ..api import BatchFlowConfig, SessionFlowConfig
-from .utils import console, display_batch_result, display_session_result, format_discoveries, setup_logging
+from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.cli.utils import console, display_batch_result, display_session_result, format_discoveries, setup_logging
 
 
 def run(
@@ -45,7 +45,7 @@ def run(
         raise typer.Exit(1)
 
     try:
-        from ..flows import process_session_flow
+        from w2t_bkin.flows import process_session_flow
 
         console.print("[cyan]Starting session processing...[/cyan]")
         console.print(f"  Config: [dim]{config_path}[/dim]")
@@ -105,7 +105,7 @@ def batch(
     setup_logging(log_level)
 
     try:
-        from ..flows import batch_process_flow
+        from w2t_bkin.flows import batch_process_flow
 
         console.print("[cyan]Starting batch processing...[/cyan]")
         console.print(f"  Config: [dim]{config_path}[/dim]")
@@ -163,7 +163,7 @@ def discover(
         $ w2t-bkin discover config.toml --format tsv | parallel --col-sep '\\t' w2t-bkin run config.toml {1} {2}
     """
     try:
-        from ..utils import discover_sessions
+        from w2t_bkin.utils import discover_sessions
 
         sessions = discover_sessions(
             config_path=config_path,
@@ -186,7 +186,7 @@ def discover(
 def version():
     """Display version information."""
     try:
-        from .. import __version__
+        from w2t_bkin import __version__
 
         console.print(f"[bold cyan]w2t-bkin[/bold cyan] version [yellow]{__version__}[/yellow]")
         console.print("\nW2T Body Kinematics Pipeline")

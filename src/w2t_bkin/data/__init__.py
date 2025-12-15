@@ -1,6 +1,6 @@
 """Data management module for W2T-BKIN pipeline."""
 
-from .manager import (
+from w2t_bkin.data.manager import (
     ExperimentConfig,
     FilePattern,
     SessionConfig,

@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from pynwb import NWBFile
 
-from .. import utils
-from ..core import session, validate
+from w2t_bkin import utils
+from w2t_bkin.core import session, validate
 
 logger = logging.getLogger(__name__)
 

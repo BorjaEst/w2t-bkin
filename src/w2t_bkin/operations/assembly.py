@@ -7,8 +7,8 @@ import warnings
 import numpy as np
 from pynwb import NWBFile
 
-from ..ingest import behavior, pose
-from ..models import BpodData, PoseData, TTLData
+from w2t_bkin.ingest import behavior, pose
+from w2t_bkin.models import BpodData, PoseData, TTLData
 
 logger = logging.getLogger(__name__)
 

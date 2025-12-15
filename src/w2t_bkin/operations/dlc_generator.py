@@ -5,9 +5,9 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
-from .. import utils
-from ..models import DLCArtifact, SessionConfig
-from ..processors.dlc import DLCInferenceOptions, predict_output_paths, run_dlc_inference_batch, validate_dlc_model
+from w2t_bkin import utils
+from w2t_bkin.models import DLCArtifact, SessionConfig
+from w2t_bkin.processors.dlc import DLCInferenceOptions, predict_output_paths, run_dlc_inference_batch, validate_dlc_model
 
 logger = logging.getLogger(__name__)
 

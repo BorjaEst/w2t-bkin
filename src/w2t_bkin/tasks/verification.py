@@ -5,8 +5,8 @@ from typing import Any, Dict
 
 from prefect import task
 
-from ..models import DiscoveryResult, SessionConfig
-from ..operations import verify_session_inputs
+from w2t_bkin.models import DiscoveryResult, SessionConfig
+from w2t_bkin.operations import verify_session_inputs
 
 logger = logging.getLogger(__name__)
 

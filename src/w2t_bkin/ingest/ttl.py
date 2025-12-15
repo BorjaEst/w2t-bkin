@@ -94,7 +94,7 @@ import numpy as np
 import pandas as pd
 from pynwb import NWBFile
 
-from ..exceptions import SyncError
+from w2t_bkin.exceptions import SyncError
 
 logger = logging.getLogger(__name__)
 
@@ -389,7 +389,7 @@ def get_sync_time_from_bpod_trial(trial_data: Dict, sync_signal: str) -> Optiona
     Returns:
         Start time relative to trial start, or None if not found
     """
-    from ..utils import convert_matlab_struct, is_nan_or_none
+    from w2t_bkin.utils import convert_matlab_struct, is_nan_or_none
 
     # Convert MATLAB struct to dict if needed
     trial_data = convert_matlab_struct(trial_data)
@@ -461,7 +461,7 @@ def align_bpod_trials_to_ttl(
     Raises:
         SyncError: If trial_type config missing or data structure invalid
     """
-    from ..utils import convert_matlab_struct, to_scalar
+    from w2t_bkin.utils import convert_matlab_struct, to_scalar
 
     # Validate Bpod structure
     if "SessionData" not in bpod_data:

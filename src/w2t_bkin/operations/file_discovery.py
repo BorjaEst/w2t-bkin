@@ -4,9 +4,9 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
-from .. import utils
-from ..exceptions import IngestError
-from ..models import DiscoveryResult, SessionConfig
+from w2t_bkin import utils
+from w2t_bkin.exceptions import IngestError
+from w2t_bkin.models import DiscoveryResult, SessionConfig
 
 logger = logging.getLogger(__name__)
 

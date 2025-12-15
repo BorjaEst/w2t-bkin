@@ -34,9 +34,9 @@ from typing import Dict, List, Optional
 from prefect import flow, get_run_logger
 from pynwb import NWBFile
 
-from ..api import SessionFlowConfig
-from ..models import SessionResult
-from ..tasks import (  # Config tasks; Discovery tasks; Verification tasks; Artifact tasks; Ingestion tasks; Sync tasks; Assembly tasks; Finalization tasks
+from w2t_bkin.api import SessionFlowConfig
+from w2t_bkin.models import SessionResult
+from w2t_bkin.tasks import (  # Config tasks; Discovery tasks; Verification tasks; Artifact tasks; Ingestion tasks; Sync tasks; Assembly tasks; Finalization tasks
     add_skeletons_task,
     align_trials_task,
     assemble_behavior_task,

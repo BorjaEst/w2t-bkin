@@ -11,9 +11,9 @@ Flows:
 Note: Flow configuration models are in w2t_bkin.api for clear API/domain separation.
 """
 
-from ..api import BatchFlowConfig, SessionFlowConfig
-from .batch import batch_process_flow
-from .session import process_session_flow
+from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.flows.batch import batch_process_flow
+from w2t_bkin.flows.session import process_session_flow
 
 __all__ = [
     "process_session_flow",

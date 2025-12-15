@@ -72,8 +72,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from ndx_structured_behavior import ActionsTable, ActionTypesTable, EventsTable, EventTypesTable, StatesTable, StateTypesTable, Task, TaskArgumentsTable, TaskRecording, TrialsTable
 import numpy as np
 
-from ..exceptions import BpodParseError
-from ..utils import convert_matlab_struct, is_nan_or_none, to_scalar
+from w2t_bkin.exceptions import BpodParseError
+from w2t_bkin.utils import convert_matlab_struct, is_nan_or_none, to_scalar
 
 logger = logging.getLogger(__name__)
 

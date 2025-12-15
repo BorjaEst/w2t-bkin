@@ -36,10 +36,10 @@ app = typer.Typer(
 )
 
 # Import and register commands
-from .data import data_app
-from .pipeline import discover, version
-from .server import server_app
-from .validation import inspect, validate
+from w2t_bkin.cli.data import data_app
+from w2t_bkin.cli.pipeline import discover, version
+from w2t_bkin.cli.server import server_app
+from w2t_bkin.cli.validation import inspect, validate
 
 # Register root-level commands
 app.command()(discover)

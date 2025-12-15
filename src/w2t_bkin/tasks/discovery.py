@@ -6,8 +6,8 @@ from typing import Dict, List
 
 from prefect import task
 
-from ..models import DiscoveryResult, SessionConfig
-from ..operations import discover_all_files, discover_bpod_files, discover_camera_files, discover_ttl_files
+from w2t_bkin.models import DiscoveryResult, SessionConfig
+from w2t_bkin.operations import discover_all_files, discover_bpod_files, discover_camera_files, discover_ttl_files
 
 logger = logging.getLogger(__name__)
 

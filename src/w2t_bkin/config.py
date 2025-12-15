@@ -50,7 +50,7 @@ except ImportError:
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from .utils import compute_hash, read_toml
+from w2t_bkin.utils import compute_hash, read_toml
 
 # =============================================================================
 # Constants

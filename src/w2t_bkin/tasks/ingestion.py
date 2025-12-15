@@ -6,8 +6,8 @@ from typing import Any, Dict, List
 
 from prefect import task
 
-from ..models import BpodData, PoseData, TrialAlignment, TTLData
-from ..operations import align_trials_to_ttl, ingest_bpod_data, ingest_dlc_poses, ingest_sleap_poses, ingest_ttl_pulses
+from w2t_bkin.models import BpodData, PoseData, TrialAlignment, TTLData
+from w2t_bkin.operations import align_trials_to_ttl, ingest_bpod_data, ingest_dlc_poses, ingest_sleap_poses, ingest_ttl_pulses
 
 logger = logging.getLogger(__name__)
 

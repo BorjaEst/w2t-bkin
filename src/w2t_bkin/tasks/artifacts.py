@@ -6,8 +6,8 @@ from typing import Dict, List
 
 from prefect import task
 
-from ..models import DLCArtifact, SessionConfig, SLEAPArtifact
-from ..operations import discover_dlc_poses, discover_sleap_poses, generate_dlc_poses, generate_dlc_poses_for_session
+from w2t_bkin.models import DLCArtifact, SessionConfig, SLEAPArtifact
+from w2t_bkin.operations import discover_dlc_poses, discover_sleap_poses, generate_dlc_poses, generate_dlc_poses_for_session
 
 logger = logging.getLogger(__name__)
 

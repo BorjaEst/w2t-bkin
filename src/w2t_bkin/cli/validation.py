@@ -7,7 +7,7 @@ from typing import Optional
 from pynwb import NWBHDF5IO
 import typer
 
-from .utils import console, display_nwb_structure, display_validation_results
+from w2t_bkin.cli.utils import console, display_nwb_structure, display_validation_results
 
 
 def validate(

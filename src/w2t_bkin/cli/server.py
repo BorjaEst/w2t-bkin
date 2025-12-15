@@ -14,9 +14,9 @@ import webbrowser
 
 import typer
 
-from ..api import BatchFlowConfig, SessionFlowConfig
-from ..flows import batch_process_flow, process_session_flow
-from .utils import console, setup_logging
+from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.cli.utils import console, setup_logging
+from w2t_bkin.flows import batch_process_flow, process_session_flow
 
 server_app = typer.Typer(name="server", help="Prefect server management")
 

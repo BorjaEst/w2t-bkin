@@ -12,10 +12,10 @@ Example:
 """
 
 # Exceptions
-from ..exceptions import JitterExceedsBudgetError, SyncError
+from w2t_bkin.exceptions import JitterExceedsBudgetError, SyncError
 
 # Core synchronization (formerly primitives, streams, protocols)
-from .core import (
+from w2t_bkin.sync.core import (
     TimebaseConfigProtocol,
     align_pose_frames_to_reference,
     align_samples,
@@ -28,13 +28,13 @@ from .core import (
 )
 
 # Alignment statistics (formerly models, stats)
-from .stats import AlignmentStats, compute_alignment, create_alignment_stats, load_alignment_manifest, write_alignment_stats
+from w2t_bkin.sync.stats import AlignmentStats, compute_alignment, create_alignment_stats, load_alignment_manifest, write_alignment_stats
 
 # Timebase providers
-from .timebase import NeuropixelsProvider, NominalRateProvider, TimebaseProvider, TTLProvider, create_timebase_provider, create_timebase_provider_from_config
+from w2t_bkin.sync.timebase import NeuropixelsProvider, NominalRateProvider, TimebaseProvider, TTLProvider, create_timebase_provider, create_timebase_provider_from_config
 
 # TTL synchronization
-from .ttl import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
+from w2t_bkin.sync.ttl import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
 
 __all__ = [
     # Exceptions

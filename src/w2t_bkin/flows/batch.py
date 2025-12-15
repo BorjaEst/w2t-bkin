@@ -32,10 +32,10 @@ from typing import Dict, List, Optional
 
 from prefect import flow, get_run_logger, task
 
-from ..api import BatchFlowConfig, SessionFlowConfig
-from ..models import SessionResult
-from ..utils import discover_sessions
-from .session import process_session_flow
+from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.flows.session import process_session_flow
+from w2t_bkin.models import SessionResult
+from w2t_bkin.utils import discover_sessions
 
 logger = logging.getLogger(__name__)
 

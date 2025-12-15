@@ -5,9 +5,9 @@ from pathlib import Path
 
 from pynwb import NWBFile
 
-from .. import config as config_pkg
-from .. import utils
-from ..models import SessionConfig
+from w2t_bkin import config as config_pkg
+from w2t_bkin import utils
+from w2t_bkin.models import SessionConfig
 
 logger = logging.getLogger(__name__)
 

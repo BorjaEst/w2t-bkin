@@ -5,8 +5,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
-from .. import utils
-from ..models import SessionConfig, SLEAPArtifact
+from w2t_bkin import utils
+from w2t_bkin.models import SessionConfig, SLEAPArtifact
 
 logger = logging.getLogger(__name__)
 

@@ -48,7 +48,7 @@ import warnings
 import numpy as np
 from scipy import stats
 
-from ..exceptions import JitterExceedsBudgetError, SyncError
+from w2t_bkin.exceptions import JitterExceedsBudgetError, SyncError
 
 logger = logging.getLogger(__name__)
 

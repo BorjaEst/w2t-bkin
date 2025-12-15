@@ -30,8 +30,8 @@ import numpy as np
 import pandas as pd
 from pynwb import TimeSeries
 
-from ..exceptions import PoseError
-from ..utils import derive_bodyparts_from_data, log_missing_keypoints, normalize_keypoints_to_dict
+from w2t_bkin.exceptions import PoseError
+from w2t_bkin.utils import derive_bodyparts_from_data, log_missing_keypoints, normalize_keypoints_to_dict
 
 logger = logging.getLogger(__name__)
 

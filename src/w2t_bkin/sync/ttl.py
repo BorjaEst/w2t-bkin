@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Protocol, Tuple
 
 import numpy as np
 
-from ..exceptions import SyncError
+from w2t_bkin.exceptions import SyncError
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def get_sync_time_from_bpod_trial(trial_data: Dict, sync_signal: str) -> Optiona
     Example:
         >>> sync_time = get_sync_time_from_bpod_trial(trial, "W2L_Audio")
     """
-    from ..utils import convert_matlab_struct, is_nan_or_none
+    from w2t_bkin.utils import convert_matlab_struct, is_nan_or_none
 
     # Convert MATLAB struct to dict if needed
     trial_data = convert_matlab_struct(trial_data)
@@ -146,7 +146,7 @@ def align_bpod_trials_to_ttl(
         ...     trial_configs, bpod_data, ttl_pulses
         ... )
     """
-    from ..utils import convert_matlab_struct, to_scalar
+    from w2t_bkin.utils import convert_matlab_struct, to_scalar
 
     # Validate Bpod structure
     if "SessionData" not in bpod_data:

@@ -7,8 +7,8 @@ from typing import Any, Dict
 from prefect import task
 from pynwb import NWBFile
 
-from ..models import SessionConfig
-from ..operations import create_nwb_file, load_session_config
+from w2t_bkin.models import SessionConfig
+from w2t_bkin.operations import create_nwb_file, load_session_config
 
 logger = logging.getLogger(__name__)
 

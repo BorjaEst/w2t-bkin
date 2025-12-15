@@ -23,8 +23,8 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
-from ..exceptions import SyncError
-from ..utils import write_json
+from w2t_bkin.exceptions import SyncError
+from w2t_bkin.utils import write_json
 
 logger = logging.getLogger(__name__)
 

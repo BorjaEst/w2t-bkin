@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from ..models import TrialAlignment
+from w2t_bkin.models import TrialAlignment
 
 logger = logging.getLogger(__name__)
 

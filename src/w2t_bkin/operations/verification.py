@@ -12,10 +12,10 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .. import utils
-from ..core.validate import verify_sync_counts
-from ..exceptions import CameraUnverifiableError, VerificationError
-from ..models import DiscoveryResult, SessionConfig
+from w2t_bkin import utils
+from w2t_bkin.core.validate import verify_sync_counts
+from w2t_bkin.exceptions import CameraUnverifiableError, VerificationError
+from w2t_bkin.models import DiscoveryResult, SessionConfig
 
 logger = logging.getLogger(__name__)
 

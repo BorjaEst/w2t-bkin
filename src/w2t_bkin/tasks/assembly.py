@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from prefect import task
 from pynwb import NWBFile
 
-from ..models import BpodData, PoseData, TTLData
-from ..operations import add_skeletons_container, assemble_behavior_tables, assemble_pose_estimation
+from w2t_bkin.models import BpodData, PoseData, TTLData
+from w2t_bkin.operations import add_skeletons_container, assemble_behavior_tables, assemble_pose_estimation
 
 logger = logging.getLogger(__name__)
 

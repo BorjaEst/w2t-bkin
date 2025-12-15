@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from prefect import task
 from pynwb import NWBFile
 
-from ..operations import create_provenance_data, finalize_session, validate_nwb_file, write_nwb_file, write_sidecar_files
+from w2t_bkin.operations import create_provenance_data, finalize_session, validate_nwb_file, write_nwb_file, write_sidecar_files
 
 logger = logging.getLogger(__name__)
 

@@ -67,13 +67,13 @@ Documentation:
 See docs/ for detailed module documentation and design principles.
 """
 
-from . import config, sync, utils
-from .api import BatchFlowConfig, SessionFlowConfig
-from .core import session
+from w2t_bkin import config, sync, utils
+from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.core import session
 
 # Import main modules for convenient access
-from .ingest import behavior, bpod, pose, ttl
-from .processors import facemap, transcode
+from w2t_bkin.ingest import behavior, bpod, pose, ttl
+from w2t_bkin.processors import facemap, transcode
 
 __version__ = "0.0.11"
 
