@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import platform
+import socket
 import subprocess
 import sys
 import time
@@ -28,6 +29,19 @@ class WorkerInfo:
     worker_type: str  # "process" or "docker"
     name: str
     reference: any  # subprocess.Popen for process, container_id for docker
+
+
+def _is_port_in_use(port: int) -> bool:
+    """Check if a port is already in use.
+
+    Args:
+        port: Port number to check
+
+    Returns:
+        True if port is in use, False otherwise
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
 
 
 def _get_prefect_cmd() -> List[str]:
@@ -80,6 +94,7 @@ def start(
     open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
     workers: int = typer.Option(1, "--workers", help="Number of workers to start (0 to disable auto-start)"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging and show server output"),
 ):
     """Start Prefect server, create deployments, and auto-start workers.
 
@@ -97,10 +112,22 @@ def start(
         $ w2t-bkin server start --workers 4        # Start with 4 workers
         $ w2t-bkin server start --workers 0        # No auto-start, manual setup
         $ w2t-bkin server start --work-pool local  # Use local workers
+        $ w2t-bkin server start --debug            # Show server logs
     """
-    setup_logging(log_level)
+    setup_logging("DEBUG" if debug else log_level)
 
     console.print("[cyan]🚀 Starting W2T-BKIN Prefect Server...[/cyan]\n")
+
+    # Project isolation: Use local .prefect directory
+    prefect_home = Path.cwd() / ".prefect"
+    prefect_home.mkdir(exist_ok=True)
+    os.environ["PREFECT_HOME"] = str(prefect_home)
+    console.print(f"[dim]  Project isolation: Using {prefect_home}[/dim]")
+
+    # Ensure API URL is set to localhost for local connections
+    # This fixes issues where it might default to 0.0.0.0 or other unreachable addresses
+    api_url = f"http://127.0.0.1:{port}/api"
+    os.environ["PREFECT_API_URL"] = api_url
 
     # Detect if worker extras are installed
     has_worker_extras = _check_worker_extras()
@@ -118,26 +145,56 @@ def start(
     console.print(f"[dim]  Work pool: {work_pool}[/dim]")
     console.print(f"[dim]  Port: {port}[/dim]\n")
 
+    # Check if port is already in use
+    if _is_port_in_use(port):
+        console.print(f"[red]✗ Port {port} is already in use[/red]")
+        console.print(f"[yellow]Tip: Stop the existing server with 'w2t-bkin server stop' or use a different port[/yellow]")
+        raise typer.Exit(1)
+
     # Start Prefect server in background
     console.print("[cyan]Starting Prefect server...[/cyan]")
 
     try:
         # Start server process
+        server_cmd = _get_prefect_cmd() + ["server", "start", "--host", "0.0.0.0", "--port", str(port)]
+
+        if debug:
+            server_cmd.extend(["--log-level", "DEBUG"])
+            stdout_dest = None
+            stderr_dest = None
+        else:
+            # Redirect to DEVNULL to avoid hanging due to full pipe buffers
+            # We don't use PIPE because we aren't reading from it continuously
+            stdout_dest = subprocess.DEVNULL
+            stderr_dest = subprocess.DEVNULL
+
+        # Set SQLite timeout to avoid "database is locked" errors
+        server_env = os.environ.copy()
+        # Increase timeout for SQLite (default is often too low for concurrent ops)
+        server_env.setdefault("PREFECT_API_DATABASE_CONNECTION_TIMEOUT", "60.0")
+        server_env.setdefault("PREFECT_API_DATABASE_TIMEOUT", "60.0")
+
         server_process = subprocess.Popen(
-            _get_prefect_cmd() + ["server", "start", "--host", "0.0.0.0", "--port", str(port)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            server_cmd,
+            stdout=stdout_dest,
+            stderr=stderr_dest,
             text=True,
+            env=server_env,
         )
 
         # Wait for server to be ready
         console.print("[dim]Waiting for server to be ready...[/dim]")
-        if not _wait_for_server(port):
+        if not _wait_for_server(server_process, port):
             console.print("[red]✗ Server failed to start[/red]")
             server_process.terminate()
+            if not debug:
+                console.print("[yellow]Tip: Run with --debug to see server logs[/yellow]")
             raise typer.Exit(1)
 
         console.print("[green]✓[/green] Prefect server started\n")
+
+        # Give the server a moment to settle
+        time.sleep(2)
 
         # Create work pool
         console.print(f"[cyan]Creating work pool '{work_pool}-pool'...[/cyan]")
@@ -217,6 +274,8 @@ def start(
 
             console.print("[green]✓[/green] Server stopped")
 
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"\n[red]✗ Error: {e}[/red]")
         logging.exception("Failed to start server")
@@ -245,6 +304,47 @@ def stop():
         else:
             console.print("[yellow]![/yellow] No running server found")
 
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@server_app.command(name="reset")
+def reset(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm reset without prompt"),
+):
+    """Reset the Prefect database.
+
+    WARNING: This will delete all flow run history and deployments.
+    Use this if the database is locked or corrupted.
+
+    Example:
+        $ w2t-bkin server reset
+    """
+    if not yes:
+        confirm = typer.confirm("Are you sure you want to reset the Prefect database? This will delete all history.")
+        if not confirm:
+            raise typer.Abort()
+
+    console.print("[cyan]Resetting Prefect database...[/cyan]")
+
+    try:
+        # Stop server first
+        stop()
+        time.sleep(1)
+
+        # Run prefect server database reset
+        subprocess.run(
+            _get_prefect_cmd() + ["server", "database", "reset", "-y"],
+            check=True,
+            capture_output=True,
+        )
+        console.print("[green]✓[/green] Database reset successfully")
+
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]✗ Failed to reset database[/red]")
+        console.print(f"[dim]  Error: {e.stderr}[/dim]")
+        raise typer.Exit(1)
     except Exception as e:
         console.print(f"[red]✗ Error: {e}[/red]")
         raise typer.Exit(1)
@@ -318,12 +418,25 @@ def _check_worker_extras() -> bool:
         return False
 
 
-def _wait_for_server(port: int, max_retries: int = 30) -> bool:
-    """Wait for Prefect server to be ready."""
+def _wait_for_server(process: subprocess.Popen, port: int, max_retries: int = 30) -> bool:
+    """Wait for Prefect server to be ready.
 
+    Args:
+        process: The server subprocess to monitor
+        port: Port number for the Prefect server
+        max_retries: Maximum number of retries (seconds)
+
+    Returns:
+        True if server is ready, False if it failed or timed out
+    """
     health_url = f"http://localhost:{port}/api/health"
 
     for i in range(max_retries):
+        # Check if process crashed
+        if process.poll() is not None:
+            console.print(f"[red]Server process exited with code {process.returncode}[/red]")
+            return False
+
         try:
             urllib.request.urlopen(health_url, timeout=1)
             return True
@@ -384,8 +497,6 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
 
         # Deploy session flow
         session_config = SessionFlowConfig(
-            base_config_path=str(base_config_path),
-            project_config_path=str(project_config_path) if project_config_path else None,
             subject_id="subject-001",  # Example placeholder
             session_id="session-001",  # Example placeholder
         )
@@ -402,6 +513,12 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
             name="process-session",
             work_pool_name=pool_name,
             parameters={"config": session_config.model_dump()},
+            job_variables={
+                "env": {
+                    "W2T_BASE_CONFIG_PATH": str(base_config_path),
+                    "W2T_PROJECT_CONFIG_PATH": str(project_config_path) if project_config_path else "configuration.toml",
+                }
+            },
             tags=["w2t-bkin", "session", pool_type],
             description="Process a single experimental session through the w2t-bkin pipeline.",
             version="1.0.0",
@@ -411,8 +528,6 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
 
         # Deploy batch flow
         batch_config = BatchFlowConfig(
-            base_config_path=str(base_config_path),
-            project_config_path=str(project_config_path) if project_config_path else None,
             max_parallel=4,
         )
 
@@ -424,6 +539,12 @@ def _create_deployments(pool_type: str, config_path: Optional[Path]):
             name="batch-process",
             work_pool_name=pool_name,
             parameters={"config": batch_config.model_dump()},
+            job_variables={
+                "env": {
+                    "W2T_BASE_CONFIG_PATH": str(base_config_path),
+                    "W2T_PROJECT_CONFIG_PATH": str(project_config_path) if project_config_path else "configuration.toml",
+                }
+            },
             tags=["w2t-bkin", "batch", pool_type],
             description="Process multiple experimental sessions in parallel.",
             version="1.0.0",

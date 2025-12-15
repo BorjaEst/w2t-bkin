@@ -93,6 +93,9 @@ class BatchResult:
     duration_seconds: float
 
 
+import os
+
+
 @flow(
     name="batch-process-sessions",
     description="Process multiple sessions in parallel",
@@ -123,7 +126,6 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
     Example:
         >>> from w2t_bkin.flows.config_models import BatchFlowConfig
         >>> config = BatchFlowConfig(
-        ...     config_path="configs/standard.toml",
         ...     subject_filter="subject-001",
         ...     max_parallel=2
         ... )
@@ -131,7 +133,6 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
         >>>
         >>> # Process specific session pattern across subjects
         >>> config = BatchFlowConfig(
-        ...     config_path="configs/standard.toml",
         ...     session_filter="session-001",
         ...     max_parallel=4
         ... )
@@ -141,8 +142,6 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
     start_time = datetime.now()
 
     # Extract values from Pydantic model
-    base_config_path = config.base_config_path
-    project_config_path = config.project_config_path
     subject_filter = config.subject_filter
     session_filter = config.session_filter
     max_parallel = config.max_parallel
@@ -151,6 +150,10 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
     skip_ecephys = config.skip_ecephys
     skip_camera_sync = config.skip_camera_sync
     skip_nwb_validation = config.skip_nwb_validation
+
+    # Get config paths from environment variables
+    base_config_path = os.getenv("W2T_BASE_CONFIG_PATH")
+    project_config_path = os.getenv("W2T_PROJECT_CONFIG_PATH", "configuration.toml")
 
     try:
         # =====================================================================
@@ -229,8 +232,6 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
             session_id = session_info["session"]
 
             session_config = SessionFlowConfig(
-                base_config_path=base_config_path,
-                project_config_path=project_config_path,
                 subject_id=subject_id,
                 session_id=session_id,
                 skip_bpod=skip_bpod,

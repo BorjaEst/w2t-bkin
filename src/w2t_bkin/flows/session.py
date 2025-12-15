@@ -292,6 +292,9 @@ def _assemble_pose_data(nwbfile, pose_data, session_config, ttl_data, run_logger
     run_logger.info(f"Assembled pose data for {len(pose_data)} cameras")
 
 
+import os
+
+
 @flow(
     name="process-session",
     description="Process single session with atomic task orchestration",
@@ -318,7 +321,6 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
     Example:
         >>> from w2t_bkin.flows.config_models import SessionFlowConfig
         >>> config = SessionFlowConfig(
-        ...     config_path="configs/standard.toml",
         ...     subject_id="subject-001",
         ...     session_id="session-001",
         ...     skip_nwb_validation=True
@@ -331,8 +333,6 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
     start_time = datetime.now()
 
     # Extract values from Pydantic model
-    base_config_path = config.base_config_path
-    project_config_path = config.project_config_path
     subject_id = config.subject_id
     session_id = config.session_id
     skip_bpod = config.skip_bpod
@@ -342,6 +342,10 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
     skip_ecephys = config.skip_ecephys
     skip_camera_sync = config.skip_camera_sync
     skip_nwb_validation = config.skip_nwb_validation
+
+    # Get config paths from environment variables
+    base_config_path = os.getenv("W2T_BASE_CONFIG_PATH")
+    project_config_path = os.getenv("W2T_PROJECT_CONFIG_PATH", "configuration.toml")
 
     try:
         run_logger.info(f"Starting session processing: {subject_id}/{session_id}")

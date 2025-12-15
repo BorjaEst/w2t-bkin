@@ -82,14 +82,14 @@ def init(
         console.print("\n[cyan]🐳 Setting up Docker worker environment...[/cyan]")
 
         # Create docker directory
-        docker_dir = root_path / "docker"
+        docker_dir = root_path / ".workers"
         docker_dir.mkdir(exist_ok=True)
 
         # Generate .env file for Docker workers
         env_path = docker_dir / ".env"
         try:
             generate_docker_env(root_path, env_path)
-            console.print(f"[green]✓[/green] Generated docker/.env (for Docker workers)")
+            console.print(f"[green]✓[/green] Generated .workers/.env (for Docker workers)")
         except Exception as e:
             console.print(f"[yellow]⚠ Could not generate .env: {e}[/yellow]")
 
