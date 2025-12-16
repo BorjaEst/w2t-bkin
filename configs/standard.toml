@@ -49,25 +49,6 @@ enabled = true
 # gpu = 0                               # GPU index (omit for auto-detect)
 
 # =============================================================================
-# Bpod Trial Synchronization
-# =============================================================================
-
-[[bpod.sync.trial_types]]
-trial_type = 1
-sync_signal = "W2T_Audio" # Bpod state triggering TTL
-sync_ttl = "ttl_cue"      # TTL channel (must exist in metadata)
-
-[[bpod.sync.trial_types]]
-trial_type = 2
-sync_signal = "A2L_Audio"
-sync_ttl = "ttl_cue"
-
-[[bpod.sync.trial_types]]
-trial_type = 3
-sync_signal = "Microstim"
-sync_ttl = "ttl_cue"
-
-# =============================================================================
 # Logging Configuration
 # =============================================================================
 

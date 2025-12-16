@@ -99,33 +99,11 @@ preset = "fast"   # Encoding speed preset
 keyint = 15       # GOP size (frames)
 
 # =============================================================================
-# Bpod Behavioral Control
-# =============================================================================
-
-[bpod]
-parse = true # Parse Bpod .mat files
-
-# Trial Synchronization - Maps trial types to TTL channels
-# Example trial type configurations (customize for your experiment)
-#
-# [[bpod.sync.trial_types]]
-# trial_type = 1                # Trial type ID (from Bpod)
-# sync_signal = "W2T_Audio"     # Bpod state triggering TTL
-# sync_ttl = "ttl_cue"          # TTL channel (must exist in session metadata)
-#
-# [[bpod.sync.trial_types]]
-# trial_type = 2
-# sync_signal = "A2L_Audio"
-# sync_ttl = "ttl_cue"
-
-# =============================================================================
 # NWB Export Configuration
 # =============================================================================
 
 [nwb]
-link_external_video = true       # Use external links for video files
-lab = "Your Lab Name"            # Laboratory name
-institution = "Your Institution" # Institution name
+link_external_video = true # Use external links for video files
 # file_name_template = "{session.id}.nwb"     # Optional: NWB filename template
 # session_description_template = "..."        # Optional: Session description template
 
