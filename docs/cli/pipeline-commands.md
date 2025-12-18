@@ -29,20 +29,14 @@ w2t-bkin server restart [OPTIONS]  # Restart server
 - `--dev` - Development mode (serves flows locally with Runner, requires worker extras)
 - `--port, -p INT` - Prefect UI port (default: 4200)
 - `--browser/--no-browser` - Open browser automatically (default: true)
-- `--workers INT` - Number of Docker workers to auto-start (default: 1 for production, 0 for dev)
 - `--log-level TEXT` - Logging level (default: INFO)
+- `--debug` - Enable debug logging and show server output
 
 ### Examples
 
 ```bash
-# Production mode (default) - uses Docker workers
+# Production mode (default) - requires manual worker start
 w2t-bkin server start
-
-# Start with 4 Docker workers for parallel processing
-w2t-bkin server start --workers 4
-
-# Start without auto-starting workers (manual setup)
-w2t-bkin server start --workers 0
 
 # Development mode - runs flows locally (requires worker extras)
 w2t-bkin server start --dev
@@ -50,7 +44,7 @@ w2t-bkin server start --dev
 # Check server status
 w2t-bkin server status
 
-# Stop server (also stops all auto-started workers)
+# Stop server
 w2t-bkin server stop
 ```
 
@@ -63,10 +57,10 @@ w2t-bkin server stop
 3. **Creates Deployments** - Uses `.deploy()` to create:
    - `process-session` - Single session processing
    - `batch-process` - Batch processing
-4. **Auto-starts Workers** - Starts the specified number of Docker workers (default: 1)
-   - Workers pull image from `.workers/.env` (default: `ghcr.io/borjaest/w2t-bkin:latest`)
-   - Each worker starts containers for flow runs
-5. **Opens Browser** - Automatically opens Prefect UI (unless `--no-browser`)
+4. **Opens Browser** - Automatically opens Prefect UI (unless `--no-browser`)
+5. **Waits for workers** - You must manually start workers in a separate terminal
+
+**⚠️ Important**: Production mode requires Docker workers to execute flows. Start them manually using the instructions provided by the server.
 
 #### Development Mode (--dev)
 
@@ -82,33 +76,50 @@ Runtime config is injected via `W2T_RUNTIME_CONFIG_JSON` environment variable (s
 
 ### Worker Management
 
-**Production Mode (Docker Workers)**:
+**Production Mode (Docker Workers):**
 
-Auto-start (recommended):
+Workers must be started manually in a separate terminal. The server will display OS-specific instructions when started.
 
-```bash
-# Automatically starts 1 Docker worker
-w2t-bkin server start
-
-# Start with 4 workers for parallel processing
-w2t-bkin server start --workers 4
-```
-
-Manual setup (if you disabled auto-start with `--workers 0`):
+**Windows / WSL (Docker Desktop):**
 
 ```bash
 # In a new terminal
-w2t-bkin worker start
+w2t-bkin worker start              # Start 1 Docker worker
+w2t-bkin worker start --workers 2  # Start 2 Docker workers
 ```
 
-Alternatively, use the raw Prefect command:
+**Linux (Docker Engine):**
 
 ```bash
-source .workers/.env
-prefect worker start --pool docker-pool --type docker
+# In a new terminal
+w2t-bkin worker start              # Start 1 Docker worker (uses --network host)
+w2t-bkin worker start --workers 2  # Start 2 Docker workers
 ```
 
-````
+**Alternative - Raw Docker command:**
+
+```bash
+# Linux with --network host
+docker run -d \
+  --name w2t-worker \
+  --network host \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/models:/models \
+  -v $(pwd)/configs:/configs \
+  -e PREFECT_API_URL=http://127.0.0.1:4200/api \
+  ghcr.io/borjaest/w2t-bkin:latest \
+  prefect worker start --pool docker-pool --type docker
+
+# Windows/WSL with host.docker.internal
+docker run -d \
+  --name w2t-worker \
+  -v $(pwd)/data:/data \
+  -v $(pwd)/models:/models \
+  -v $(pwd)/configs:/configs \
+  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
+  ghcr.io/borjaest/w2t-bkin:latest \
+  prefect worker start --pool docker-pool --type docker
+```
 
 **Development Mode (No Workers)**:
 
@@ -117,7 +128,7 @@ prefect worker start --pool docker-pool --type docker
 w2t-bkin server start --dev
 
 # No worker needed - flows execute directly!
-````
+```
 
 ---
 
@@ -127,25 +138,27 @@ w2t-bkin server start --dev
 
 **Via Prefect UI (Production Mode):**
 
-1. Start server: `w2t-bkin server start` (Docker workers auto-start by default)
-2. Navigate to `http://localhost:4200`
-3. Go to **Deployments** → **process-session**
-4. Click **Run**
-5. Set parameters:
+1. Start server: `w2t-bkin server start`
+2. **Start workers in a new terminal:** `w2t-bkin worker start`
+3. Navigate to `http://localhost:4200`
+4. Go to **Deployments** → **process-session**
+5. Click **Run**
+6. Set parameters:
    - `config_path`: Path to configuration TOML
    - `subject_id`: Subject identifier (e.g., "subject-001")
    - `session_id`: Session identifier (e.g., "session-001")
    - `skip_bpod`: Skip Bpod processing (optional)
    - `skip_pose`: Skip pose estimation (optional)
    - `skip_nwb_validation`: Skip NWB validation (optional)
-6. Click **Submit**
-7. Monitor in **Flow Runs** tab
+7. Click **Submit**
+8. Monitor in **Flow Runs** tab
 
 **Via Prefect UI (Development Mode):**
 
 Same as above, but start server with: `w2t-bkin server start --dev`
 
 Flows run directly in the server process - faster iteration, no Docker builds needed!
+**No workers required** in development mode.
 
 **Via Python API:**
 

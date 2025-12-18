@@ -97,7 +97,7 @@ w2t-bkin data init --help
 The server command starts a local Prefect server and automatically creates workflow deployments:
 
 ```bash
-# Production mode (uses Docker workers)
+# Production mode (uses Docker workers - start workers separately)
 w2t-bkin server start
 
 # Development mode (runs flows locally with Runner - requires worker extras)
@@ -109,15 +109,23 @@ w2t-bkin server start --config configs/custom.toml
 # Start with custom port
 w2t-bkin server start --port 5000
 
-# Customize number of workers (production mode only, default: 1)
-w2t-bkin server start --workers 4  # 4 Docker workers
-w2t-bkin server start --workers 0  # No auto-start, manual worker setup
-
 # Check server status
 w2t-bkin server status
 
 # Stop server
 w2t-bkin server stop
+```
+
+**Starting Workers (Production Mode):**
+
+After starting the server, start workers in a new terminal:
+
+```bash
+# Start 1 Docker worker
+w2t-bkin worker start
+
+# Start multiple workers for parallel processing
+w2t-bkin worker start --workers 4
 ```
 
 After starting the server, use the Prefect UI at http://localhost:4200 to trigger workflows.
@@ -182,10 +190,14 @@ w2t-bkin data add-session /data/experiment-2024 mouse-001 session-002 -y
 # Import raw data files
 w2t-bkin data import-raw /data/experiment-2024 mouse-001 session-001 /source/videos
 
-# Start Prefect server and use UI to trigger workflows
+# Start Prefect server
 cd /data/experiment-2024
 w2t-bkin server start
-# Opens browser at http://localhost:4200
+
+# In a new terminal, start workers
+w2t-bkin worker start
+
+# Opens browser at http://localhost:4200 - use UI to trigger workflows
 ```
 
 #### Workflow 2: Production Batch Processing (Prefect UI)
@@ -194,6 +206,9 @@ w2t-bkin server start
 # Start server
 cd /data/experiment-2024
 w2t-bkin server start
+
+# In a new terminal, start workers for parallel processing
+w2t-bkin worker start --workers 4
 
 # Server automatically:
 # - Creates deployments (process-session, batch-process)

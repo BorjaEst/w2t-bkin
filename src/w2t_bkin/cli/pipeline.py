@@ -1,4 +1,27 @@
-"""Pipeline processing commands."""
+"""Pipeline processing commands.
+
+IMPORTANT: The run() and batch() functions in this module are NOT registered
+in the CLI (see cli/__init__.py) because they require heavy processing dependencies
+from the [worker] extra (DeepLabCut, Facemap, NWB validation, etc.).
+
+These functions are available for:
+- Programmatic API usage: from w2t_bkin.cli.pipeline import run, batch
+- Testing and development workflows
+- Custom scripts with explicit dependency management
+
+Production Workflow:
+    Instead of calling these functions directly, users should:
+    1. Install base package: pip install w2t-bkin
+    2. Start server: w2t-bkin server start
+    3. Install worker package elsewhere: pip install w2t-bkin[worker]
+    4. Start worker: w2t-bkin worker start
+    5. Submit flows through Prefect UI at http://localhost:4200
+
+    This separation allows:
+    - Lightweight orchestration (server/UI) without heavy dependencies
+    - Distributed workers with full processing capabilities
+    - Proper dependency isolation and version control
+"""
 
 import logging
 from pathlib import Path
