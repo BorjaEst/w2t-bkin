@@ -27,7 +27,16 @@ cd /path/to/experiment
 w2t-bkin server start --config configs/standard.toml
 
 # Start Docker worker (in a separate terminal)
-w2t-bkin worker start
+# Option 1: Using worker environment created by server
+source .workers/.env
+prefect worker start --pool docker-pool --type docker
+
+# Option 2: Direct Docker command (Linux)
+docker run -d --name w2t-worker --network host \
+  -v $(pwd)/data:/data -v $(pwd)/models:/models \
+  -e PREFECT_API_URL=http://127.0.0.1:4200/api \
+  ghcr.io/borjaest/w2t-bkin:latest \
+  prefect worker start --pool docker-pool --type docker
 ```
 
 The worker will automatically:
@@ -173,17 +182,29 @@ docker build -t w2t-bkin:worker docker
 
 ## Running Workers
 
-### Production (Recommended: Use CLI)
+### Production (Docker Workers)
+
+> **⚠️ Important:** The `w2t-bkin worker` command does not exist. Use one of these methods:
+
+**Method 1: Using worker environment**
 
 ```bash
 # Start Prefect server
 w2t-bkin server start
 
-# In another terminal, start workers
-w2t-bkin worker start
+# In another terminal, use the worker environment
+source .workers/.env
+prefect worker start --pool docker-pool --type docker
+```
 
-# Or with multiple workers
-w2t-bkin worker start --count 4
+**Method 2: Process workers (requires `pip install w2t-bkin[worker]`)**
+
+```bash
+# Start Prefect server
+w2t-bkin server start
+
+# In another terminal, start process workers
+prefect worker start --pool default-pool --type process --limit 4
 ```
 
 ### Development (No Workers Needed)

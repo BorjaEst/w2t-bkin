@@ -76,30 +76,28 @@ Runtime config is injected via `W2T_RUNTIME_CONFIG_JSON` environment variable (s
 
 ### Worker Management
 
+> **⚠️ Important:** The `w2t-bkin worker` command does not exist. Workers must be started using Prefect CLI or Docker.
+
 **Production Mode (Docker Workers):**
 
-Workers must be started manually in a separate terminal. The server will display OS-specific instructions when started.
+Workers must be started manually in a separate terminal. Choose one method:
 
-**Windows / WSL (Docker Desktop):**
+**Method 1: Prefect CLI (requires `pip install w2t-bkin[worker]`)**
 
 ```bash
 # In a new terminal
-w2t-bkin worker start              # Start 1 Docker worker
-w2t-bkin worker start --workers 2  # Start 2 Docker workers
+prefect worker start --pool default-pool --type process
+
+# With concurrency limit for parallel processing
+prefect worker start --pool default-pool --type process --limit 4
 ```
+
+**Method 2: Docker (recommended for production)**
 
 **Linux (Docker Engine):**
 
 ```bash
 # In a new terminal
-w2t-bkin worker start              # Start 1 Docker worker (uses --network host)
-w2t-bkin worker start --workers 2  # Start 2 Docker workers
-```
-
-**Alternative - Raw Docker command:**
-
-```bash
-# Linux with --network host
 docker run -d \
   --name w2t-worker \
   --network host \
@@ -109,8 +107,12 @@ docker run -d \
   -e PREFECT_API_URL=http://127.0.0.1:4200/api \
   ghcr.io/borjaest/w2t-bkin:latest \
   prefect worker start --pool docker-pool --type docker
+```
 
-# Windows/WSL with host.docker.internal
+**Windows/WSL (Docker Desktop):**
+
+```bash
+# In a new terminal
 docker run -d \
   --name w2t-worker \
   -v $(pwd)/data:/data \
@@ -118,6 +120,15 @@ docker run -d \
   -v $(pwd)/configs:/configs \
   -e PREFECT_API_URL=http://host.docker.internal:4200/api \
   ghcr.io/borjaest/w2t-bkin:latest \
+  prefect worker start --pool docker-pool --type docker
+```
+
+**Method 3: Using Docker with Worker Environment**
+
+```bash
+# Source the worker environment created by server start
+source .workers/.env
+prefect worker start --pool docker-pool --type docker \
   prefect worker start --pool docker-pool --type docker
 ```
 

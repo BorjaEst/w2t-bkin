@@ -12,12 +12,12 @@ w2t-bkin [COMMAND] [ARGS] [OPTIONS]
 
 ### Main Commands
 
-- **`run`** - Process single session
-- **`batch`** - Process multiple sessions in parallel
 - **`discover`** - List available sessions
 - **`validate`** - Validate NWB file
 - **`inspect`** - Inspect NWB file contents
 - **`version`** - Show version information
+
+> **Note:** The `run` and `batch` commands are not available in the CLI. They exist in `w2t_bkin.cli.pipeline` as Python functions for programmatic use but require `[worker]` extras. For processing sessions, use the Prefect UI (see below).
 
 ### Data Management Commands
 
@@ -27,22 +27,20 @@ w2t-bkin [COMMAND] [ARGS] [OPTIONS]
 - **`data import-raw`** - Import existing raw data (safe symlinks)
 - **`data validate`** - Validate experiment folder structure
 
-## Quick Start
+### Quick Start
 
-### Process a Single Session
-
-```bash
-w2t-bkin run config.toml subject-001 session-001
-```
-
-### Process Multiple Sessions
+### Process Sessions via Prefect UI
 
 ```bash
-# Process all sessions with 4 parallel workers
-w2t-bkin batch config.toml --max-workers 4
+# 1. Start the Prefect server with deployments
+w2t-bkin server start
 
-# Process specific subject
-w2t-bkin batch config.toml --subject subject-001 --max-workers 2
+# 2. In a new terminal, start workers (requires pip install w2t-bkin[worker])
+prefect worker start --pool default-pool --type process
+
+# 3. Open browser at http://localhost:4200
+# 4. Navigate to Deployments → process-session or batch-process
+# 5. Click "Run" and configure parameters in the UI
 ```
 
 ### Initialize New Experiment
@@ -69,9 +67,11 @@ w2t-bkin discover config.toml --format tsv
 
 ## Documentation Structure
 
-- **[Pipeline Commands](pipeline-commands.md)** - run, batch, discover, version
+- **[Pipeline Commands](pipeline-commands.md)** - discover, version, server management
 - **[Validation Commands](validation.md)** - validate, inspect
 - **[Data Management](data-management.md)** - init, add-subject, add-session, import-raw, validate
+
+> **Note:** Session processing (`run`/`batch`) happens through the Prefect UI, not CLI commands. See [Pipeline Commands](pipeline-commands.md) for details.
 
 ## Getting Help
 
@@ -118,17 +118,24 @@ w2t-bkin server stop
 
 **Starting Workers (Production Mode):**
 
-After starting the server, start workers in a new terminal:
+After starting the server, start Prefect workers in a new terminal:
 
 ```bash
-# Start 1 Docker worker
-w2t-bkin worker start
+# Option 1: Use Prefect CLI directly (requires worker extras installed)
+prefect worker start --pool default-pool --type process
 
-# Start multiple workers for parallel processing
-w2t-bkin worker start --workers 4
+# Option 2: Use Docker with worker image (recommended for production)
+# See docker/README.md for complete Docker worker setup instructions
+docker run --rm -d \
+  --name w2t-worker \
+  -v /path/to/data:/data \
+  -e PREFECT_API_URL="http://host.docker.internal:4200/api" \
+  w2t-bkin-worker:latest
 ```
 
-After starting the server, use the Prefect UI at http://localhost:4200 to trigger workflows.
+> **⚠️ Important:** The `w2t-bkin worker` command does not exist. You must use `prefect worker start` or Docker directly.
+
+After starting workers, use the Prefect UI at http://localhost:4200 to trigger workflows.
 
 ## CLI vs Prefect UI vs Python API
 
@@ -146,10 +153,10 @@ Choose the right interface for your workflow:
 
 - ✅ Setting up a new experiment (`w2t-bkin data init`)
 - ✅ Adding subjects/sessions (`w2t-bkin data add-subject`)
-- ✅ Testing a single session (`w2t-bkin run`)
+- ✅ Discovering available sessions (`w2t-bkin discover`)
 - ✅ Quick validation (`w2t-bkin validate`)
 - ✅ Inspecting NWB files (`w2t-bkin inspect`)
-- ✅ Debugging pipeline issues
+- ✅ Starting/stopping Prefect server (`w2t-bkin server start/stop`)
 
 **Use Prefect UI when**:
 
@@ -194,8 +201,8 @@ w2t-bkin data import-raw /data/experiment-2024 mouse-001 session-001 /source/vid
 cd /data/experiment-2024
 w2t-bkin server start
 
-# In a new terminal, start workers
-w2t-bkin worker start
+# In a new terminal, start workers (requires worker extras: pip install w2t-bkin[worker])
+prefect worker start --pool default-pool --type process
 
 # Opens browser at http://localhost:4200 - use UI to trigger workflows
 ```
@@ -208,7 +215,8 @@ cd /data/experiment-2024
 w2t-bkin server start
 
 # In a new terminal, start workers for parallel processing
-w2t-bkin worker start --workers 4
+# Requires worker extras: pip install w2t-bkin[worker]
+prefect worker start --pool default-pool --type process --limit 4
 
 # Server automatically:
 # - Creates deployments (process-session, batch-process)
@@ -261,17 +269,23 @@ Start with CLI for setup, use Prefect UI for production:
    w2t-bkin data add-session ...
    ```
 
-2. **Test Pipeline**: Run single session via CLI
+2. **Verify Setup**: Discover available sessions
 
    ```bash
-   w2t-bkin run config.toml subject-001 session-001
+   w2t-bkin discover config.toml --format plain
    ```
 
-3. **Production Processing**: Start server and use Prefect UI
+3. **Production Processing**: Start server/workers and use Prefect UI
+
    ```bash
+   # Terminal 1: Start server
    w2t-bkin server start
-   # Opens browser at http://localhost:4200
-   # Use UI to run batch-process deployment
+
+   # Terminal 2: Start workers (requires pip install w2t-bkin[worker])
+   prefect worker start --pool default-pool --type process
+
+   # Browser: http://localhost:4200
+   # Use UI to run process-session or batch-process deployment
    ```
 
 ## Design Philosophy

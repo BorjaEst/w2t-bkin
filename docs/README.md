@@ -4,7 +4,6 @@ Complete documentation for the W2T Body Kinematics Pipeline.
 
 ## Getting Started
 
-- **[Quick Reference](QUICK_REFERENCE.md)** - Fast lookup for common tasks
 - **[Migration Guide](MIGRATION_GUIDE.md)** - Migrate from Docker-first to Python-first workflow
 - **[FAQ](FAQ.md)** - Frequently asked questions
 - **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
@@ -21,7 +20,6 @@ Complete documentation for the W2T Body Kinematics Pipeline.
 ### Workflow Patterns
 
 - **[Caching and Reprocessing](user-guide/caching-and-reprocessing.md)** - Understanding artifact caching
-- **[Advanced Configuration](user-guide/advanced-configuration.md)** - Customizing pipeline behavior
 
 ## Technical References
 
@@ -29,7 +27,6 @@ Complete documentation for the W2T Body Kinematics Pipeline.
 
 - **[Configuration Parameters](reference/configuration-parameters.md)** - Pipeline processing behavior (HOW to process)
 - **[Metadata Parameters](reference/metadata-parameters.md)** - Data description and equipment (WHAT data exists)
-- **[Pydantic Config Implementation](reference/pydantic-config-implementation.md)** - Type-safe config models
 
 ### Architecture
 
@@ -44,9 +41,9 @@ Complete documentation for the W2T Body Kinematics Pipeline.
 
 ### Development
 
-- **[Requirements](development/requirements.md)** - Project requirements specification
 - **[Design](development/design.md)** - Technical design and architecture
-- **[Tasks](development/tasks.md)** - Development task tracking
+
+> **Note:** Some advanced documentation is still in development.
 
 ## Quick Links by Task
 

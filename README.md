@@ -34,11 +34,11 @@ pip install w2t-bkin[worker]
 
 **Installation guide:**
 
-- **Base**: `pip install w2t-bkin` (~30 MB, no ML dependencies)
+- **Base**: `pip install w2t-bkin` (~MB, no ML dependencies)
   - Run Prefect UI and orchestration
   - Use Docker containers for processing (recommended)
   - Best for most users
-- **Worker extras**: `pip install w2t-bkin[worker]` (~630 MB, includes DeepLabCut, etc.)
+- **Worker extras**: `pip install w2t-bkin[worker]` (~Gb, includes DeepLabCut, etc.)
   - Run processing tasks directly without Docker
   - Good for development or machines without Docker
   - All-in-one installation for single-user workstations
@@ -100,19 +100,21 @@ w2t-bkin server start --config configs/standard.toml --dev
 
 ### 5. Start Workers (Production Mode Only)
 
-**Production mode** requires a Docker worker to execute flows:
+> **⚠️ Important:** The `w2t-bkin worker` command does not exist. Use Prefect CLI or Docker directly.
+
+**Production mode** requires workers to execute flows. Choose one method:
+
+**Method 1: Prefect CLI (requires `pip install w2t-bkin[worker]`)**
 
 ```bash
-# Start workers (pulls image automatically)
-w2t-bkin worker start
-
-# Or start multiple workers
-w2t-bkin worker start --count 4
+# Start a process worker with concurrency limit
+prefect worker start --pool default-pool --type process --limit 4
 ```
 
-Alternatively, use the raw Prefect command:
+**Method 2: Docker (recommended for production)**
 
 ```bash
+# Source the worker environment and start Docker worker
 source .workers/.env
 prefect worker start --pool docker-pool --type docker
 ```
