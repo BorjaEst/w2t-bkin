@@ -67,14 +67,6 @@ Documentation:
 See docs/ for detailed module documentation and design principles.
 """
 
-from w2t_bkin import config, sync, utils
-from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
-from w2t_bkin.core import session
-
-# Import main modules for convenient access
-from w2t_bkin.ingest import behavior, bpod, pose, ttl
-from w2t_bkin.processors import facemap, transcode
-
 __version__ = "0.0.11"
 
 __all__ = [
@@ -92,4 +84,67 @@ __all__ = [
     "SessionFlowConfig",
     "BatchFlowConfig",
 ]
-# Test comment for build optimization
+
+
+def __getattr__(name: str):
+    """Lazy-load modules to avoid importing worker dependencies at package import time.
+
+    This defers imports of modules like sync (requires scipy), processors (may import
+    heavy dependencies), etc. until they are actually accessed. This keeps the base
+    CLI installation lightweight.
+    """
+    from importlib import import_module
+    import sys
+
+    # Submodules - import directly to avoid recursion
+    if name == "config":
+        import w2t_bkin.config
+
+        return w2t_bkin.config
+    elif name == "sync":
+        import w2t_bkin.sync
+
+        return w2t_bkin.sync
+    elif name == "utils":
+        import w2t_bkin.utils
+
+        return w2t_bkin.utils
+    elif name == "session":
+        from w2t_bkin.core import session
+
+        return session
+    elif name == "behavior":
+        from w2t_bkin.ingest import behavior
+
+        return behavior
+    elif name == "bpod":
+        from w2t_bkin.ingest import bpod
+
+        return bpod
+    elif name == "pose":
+        from w2t_bkin.ingest import pose
+
+        return pose
+    elif name == "ttl":
+        from w2t_bkin.ingest import ttl
+
+        return ttl
+    elif name == "facemap":
+        from w2t_bkin.processors import facemap
+
+        return facemap
+    elif name == "transcode":
+        from w2t_bkin.processors import transcode
+
+        return transcode
+    # API models
+    elif name == "SessionFlowConfig":
+        from w2t_bkin.api import SessionFlowConfig
+
+        return SessionFlowConfig
+    elif name == "BatchFlowConfig":
+        from w2t_bkin.api import BatchFlowConfig
+
+        return BatchFlowConfig
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
