@@ -97,8 +97,11 @@ w2t-bkin data init --help
 The server command starts a local Prefect server and automatically creates workflow deployments:
 
 ```bash
-# Start server (opens browser at http://localhost:4200)
+# Production mode (uses Docker workers)
 w2t-bkin server start
+
+# Development mode (runs flows locally with Runner - requires worker extras)
+w2t-bkin server start --dev
 
 # Start with custom config
 w2t-bkin server start --config configs/custom.toml
@@ -106,9 +109,9 @@ w2t-bkin server start --config configs/custom.toml
 # Start with custom port
 w2t-bkin server start --port 5000
 
-# Configure workers (Docker recommended, local alternative)
-w2t-bkin server start --pool docker-pool --pool-type docker  # Recommended
-w2t-bkin server start --pool local-pool --pool-type process  # Requires [worker] extras
+# Customize number of workers (production mode only, default: 1)
+w2t-bkin server start --workers 4  # 4 Docker workers
+w2t-bkin server start --workers 0  # No auto-start, manual worker setup
 
 # Check server status
 w2t-bkin server status

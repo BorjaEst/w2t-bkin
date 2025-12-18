@@ -7,7 +7,7 @@ from typing import Optional
 from rich.prompt import Prompt
 import typer
 
-from w2t_bkin.cli.utils import console, generate_docker_env
+from w2t_bkin.cli.utils import console
 from w2t_bkin.data.manager import SessionConfig, SubjectConfig
 from w2t_bkin.data.manager import add_session as dm_add_session
 from w2t_bkin.data.manager import add_subject as dm_add_subject
@@ -76,24 +76,34 @@ def init(
         console.print("[red]✗ Failed to initialize experiment[/red]")
         raise typer.Exit(1)
 
-    # Setup Docker worker environment (unless explicitly skipped)
-    # Only needed if users want to run Docker workers instead of local workers
+    # Setup worker environment configuration
     if not skip_docker_env:
-        console.print("\n[cyan]🐳 Setting up Docker worker environment...[/cyan]")
+        console.print("\n[cyan]⚙️  Setting up worker configuration...[/cyan]")
 
-        # Create docker directory
-        docker_dir = root_path / ".workers"
-        docker_dir.mkdir(exist_ok=True)
+        # Create workers directory
+        workers_dir = root_path / ".workers"
+        workers_dir.mkdir(exist_ok=True)
 
-        # Generate .env file for Docker workers
-        env_path = docker_dir / ".env"
+        # Copy worker configuration template
         try:
-            generate_docker_env(root_path, env_path)
-            console.print(f"[green]✓[/green] Generated .workers/.env (for Docker workers)")
-        except Exception as e:
-            console.print(f"[yellow]⚠ Could not generate .env: {e}[/yellow]")
+            from w2t_bkin.cli.utils import _load_template
 
-        console.print("[dim]  This .env file configures Docker workers to connect to Prefect server[/dim]")
+            # Worker env file
+            env_path = workers_dir / ".env"
+            env_template = _load_template(".env.template")
+            env_path.write_text(env_template)
+            console.print(f"[green]✓[/green] Created .workers/.env (Worker configuration)")
+
+            # Worker README
+            readme_path = workers_dir / "README.md"
+            readme_template = _load_template(".workers-README.md")
+            readme_path.write_text(readme_template)
+            console.print(f"[green]✓[/green] Created .workers/README.md (Worker documentation)")
+
+        except Exception as e:
+            console.print(f"[yellow]⚠ Could not generate worker config: {e}[/yellow]")
+
+        console.print("[dim]  Edit .workers/.env to customize Docker image and paths[/dim]")
 
     # Show usage instructions
     console.print("\n[bold green]✓ Experiment initialized successfully![/bold green]")
@@ -101,6 +111,8 @@ def init(
     console.print(f"  1. Add subjects: [cyan]w2t-bkin data add-subject {root_path} <subject-id>[/cyan]")
     console.print(f"  2. Add sessions: [cyan]w2t-bkin data add-session {root_path} <subject-id> <session-id>[/cyan]")
     console.print(f"  3. Start server: [cyan]cd {root_path} && w2t-bkin server start[/cyan]")
+    console.print(f"  4. Development: [cyan]w2t-bkin server start --dev[/cyan] (requires worker extras)")
+
     console.print(f"  4. Use Prefect UI at [cyan]http://localhost:4200[/cyan] to run workflows")
 
     console.print("\n[dim]Other server commands:[/dim]")

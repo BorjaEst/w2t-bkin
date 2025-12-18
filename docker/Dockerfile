@@ -167,9 +167,10 @@ ENV CONFIG_ROOT=/configs
 ENV OUTPUT_ROOT=/output
 
 # Prefect worker environment variables
-ENV PREFECT_API_URL=http://server:4200/api
-ENV WORK_POOL=process-pool
-ENV WORKER_NAME=worker
+ENV PREFECT_API_URL=http://host.docker.internal:4200/api
+ENV WORK_POOL=docker-pool
+ENV WORKER_NAME=docker-worker
+ENV LIMIT=1
 ENV PREFECT_LOGGING_LEVEL=INFO
 
 # Copy worker entrypoint script (from docker/ subdirectory since build context is repo root)

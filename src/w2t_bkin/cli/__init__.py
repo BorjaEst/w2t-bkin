@@ -8,6 +8,9 @@ Command Structure:
     w2t-bkin server stop      # Stop Prefect server
     w2t-bkin server status    # Check server status
     w2t-bkin server restart   # Restart Prefect server
+    w2t-bkin worker start     # Start Prefect worker(s)
+    w2t-bkin worker stop      # Stop running workers
+    w2t-bkin worker status    # Show worker status
     w2t-bkin discover         # List available sessions
     w2t-bkin validate         # Validate NWB file
     w2t-bkin inspect          # Inspect NWB file
@@ -23,7 +26,9 @@ Workflow:
     2. w2t-bkin data add-subject ...
     3. w2t-bkin data add-session ...
     4. w2t-bkin server start
-    5. Use Prefect UI at http://localhost:4200 to run workflows
+    5. w2t-bkin worker start (production mode)
+       OR use --dev flag in step 4 for development
+    6. Use Prefect UI at http://localhost:4200 to run workflows
 """
 
 import typer
@@ -40,6 +45,7 @@ from w2t_bkin.cli.data import data_app
 from w2t_bkin.cli.pipeline import discover, version
 from w2t_bkin.cli.server import server_app
 from w2t_bkin.cli.validation import inspect, validate
+from w2t_bkin.cli.worker import worker_app
 
 # Register root-level commands
 app.command()(discover)
@@ -50,5 +56,6 @@ app.command()(version)
 # Register subcommand groups
 app.add_typer(data_app, name="data")
 app.add_typer(server_app, name="server")
+app.add_typer(worker_app, name="worker")
 
 __all__ = ["app"]

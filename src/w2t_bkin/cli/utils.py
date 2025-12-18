@@ -265,26 +265,3 @@ def _load_template(template_name: str) -> str:
         raise FileNotFoundError(f"Template not found: {template_name} " f"(expected at {template_path})")
 
     return template_path.read_text()
-
-
-def generate_docker_env(root_path: Path, env_path: Path) -> None:
-    """Generate .env file for Docker Compose deployment using template.
-
-    Args:
-        root_path: Experiment root path
-        env_path: Path to .env file to create
-    """
-    # Ensure docker directory exists
-    env_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load template and substitute variables
-    # Paths are relative to docker/ subdirectory (where docker-compose.yml lives)
-    template = _load_template(".env.template")
-    env_content = template.replace("{{DATA_ROOT}}", "../data")
-    env_content = env_content.replace("{{MODELS_ROOT}}", "../models")
-    env_content = env_content.replace("{{CONFIG_ROOT}}", "..")
-    env_content = env_content.replace("{{OUTPUT_ROOT}}", "../data/processed")
-    # Use 'dev' branch images by default (latest development images)
-    env_content = env_content.replace("{{BRANCH}}", "dev")
-
-    env_path.write_text(env_content)

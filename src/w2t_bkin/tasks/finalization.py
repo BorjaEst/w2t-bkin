@@ -165,6 +165,53 @@ def finalize_session_task(
     )
 
 
+def _build_data_streams(
+    bpod_data: Optional[BpodData],
+    ttl_data: Optional[Dict[str, TTLData]],
+    pose_data: Optional[Dict[str, List[PoseData]]],
+    trial_alignment: Optional[TrialAlignment],
+) -> Optional[Dict[str, List[bool]]]:
+    """Build per-trial data availability dictionary.
+
+    Args:
+        bpod_data: Bpod behavioral data
+        ttl_data: TTL pulse data by channel
+        pose_data: Pose estimation data by camera
+        trial_alignment: Trial alignment result
+
+    Returns:
+        Dict mapping stream names to per-trial boolean availability
+        Example: {"Bpod": [True, True, ...], "ttl_camera": [True, False, ...]}
+        Returns None if no data available to track
+    """
+    if not bpod_data:
+        return None
+
+    n_trials = bpod_data.n_trials
+    data_streams = {}
+
+    # Bpod availability: trial has alignment offset
+    if trial_alignment:
+        bpod_available = [(i + 1) in trial_alignment.trial_offsets for i in range(n_trials)]
+        data_streams["Bpod"] = bpod_available
+
+    # TTL availability by channel
+    # For now, mark all trials as available if TTL data exists
+    # Could be enhanced to check per-trial pulse presence
+    if ttl_data:
+        for ttl_id in ttl_data.keys():
+            data_streams[ttl_id] = [True] * n_trials
+
+    # Pose availability by camera
+    # Check if pose data exists for each trial (assuming sequential mapping)
+    if pose_data:
+        for camera_id, poses in pose_data.items():
+            # Mark trials as having pose data if corresponding video was processed
+            data_streams[f"pose_{camera_id}"] = [i < len(poses) for i in range(n_trials)]
+
+    return data_streams if data_streams else None
+
+
 @task(
     name="Generate Figures",
     description="Generate diagnostic figures for the session",
@@ -207,7 +254,7 @@ def generate_figures_task(
     # 1. Synchronization Stats
     if alignment_stats:
         try:
-            path = plot_synchronization_stats(stats=alignment_stats, save_path=figures_dir / "synchronization_stats.png")
+            path = plot_synchronization_stats(alignment_stats, figures_dir / "synchronization_stats.png")
             if path:
                 generated_files.append(path)
         except Exception as e:
@@ -228,7 +275,8 @@ def generate_figures_task(
         try:
             # Convert TTLData objects to dict of timestamps
             ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
-            path = plot_ttl_inter_pulse_intervals(ttl_data=ttl_pulses, save_path=figures_dir / "ttl_inter_pulse_intervals.png")
+            # TODO: Extract expected_fps from camera config for better diagnostics
+            path = plot_ttl_inter_pulse_intervals(ttl_pulses, None, figures_dir / "ttl_inter_pulse_intervals.png")
             if path:
                 generated_files.append(path)
         except Exception as e:
@@ -237,7 +285,7 @@ def generate_figures_task(
     # 4. Trial Offsets
     if trial_alignment:
         try:
-            path = plot_trial_offsets(offsets=trial_alignment.trial_offsets, out_path=figures_dir / "trial_offsets.png")
+            path = plot_trial_offsets(trial_alignment.trial_offsets, out_path=figures_dir / "trial_offsets.png")
             if path:
                 generated_files.append(path)
         except Exception as e:
@@ -254,14 +302,15 @@ def generate_figures_task(
             logger.warning(f"Failed to plot alignment grid: {e}")
 
     # 6. Sync Quality and Completeness
-    if trial_alignment and bpod_data and ttl_data:
+    if trial_alignment and bpod_data:
         try:
-            ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
+            # Build per-trial data availability tracking
+            data_streams = _build_data_streams(bpod_data, ttl_data, pose_data, trial_alignment)
             path = plot_sync_quality_and_completeness(
-                bpod_data=bpod_data.data,
-                ttl_data=ttl_pulses,
-                trial_offsets=trial_alignment.trial_offsets,
-                save_path=figures_dir / "sync_quality_and_completeness.png",
+                trial_alignment.trial_offsets,
+                data_streams,
+                figures_dir / "sync_quality_and_completeness.png",
+                csv_output_dir=figures_dir,
             )
             if path:
                 generated_files.append(path)

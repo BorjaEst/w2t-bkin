@@ -137,11 +137,11 @@ class TrialAlignment:
     """Trial alignment result.
 
     Attributes:
-        trial_offsets: Trial offset times
+        trial_offsets: Mapping from trial number to offset time (seconds)
         warnings: Alignment warnings
     """
 
-    trial_offsets: List[float]
+    trial_offsets: Dict[int, float]
     warnings: List[str]
 
 

@@ -76,12 +76,15 @@ cp /path/to/dlc-model /data/my-experiment/models/
 ```bash
 cd /data/my-experiment
 
-# Start server with automatic deployment creation
+# Production mode (uses Docker workers)
 w2t-bkin server start --config configs/standard.toml
+
+# Development mode (runs flows locally with Runner - requires worker extras)
+w2t-bkin server start --config configs/standard.toml --dev
 
 # This will:
 # 1. Start Prefect server
-# 2. Create flow deployments (process-session, batch-process)
+# 2. Create flow deployments (prod) or serve flows (dev)
 # 3. Open browser to http://localhost:4200
 ```
 
@@ -95,31 +98,26 @@ w2t-bkin server start --config configs/standard.toml
    - `session_id`: session-001
 5. Monitor progress in **Flow Runs** tab
 
-### 5. Start Workers
+### 5. Start Workers (Production Mode Only)
 
-**Option A: Docker Worker** (Recommended - uses pre-built image):
-
-```bash
-# Pull pre-built worker image from GitHub Container Registry
-docker pull ghcr.io/borjaest/w2t-bkin:latest
-
-# Run worker
-docker run -d \
-  -v $(pwd)/data:/data \
-  -v $(pwd)/models:/models \
-  -v $(pwd)/configs:/configs \
-  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
-  -e WORK_POOL=docker-pool \
-  --name w2t-worker \
-  ghcr.io/borjaest/w2t-bkin:latest
-```
-
-**Option B: Local Worker** (If you installed `w2t-bkin[worker]`):
+**Production mode** requires a Docker worker to execute flows:
 
 ```bash
-# Start local worker
-prefect worker start --pool local-pool --type process
+# Start workers (pulls image automatically)
+w2t-bkin worker start
+
+# Or start multiple workers
+w2t-bkin worker start --count 4
 ```
+
+Alternatively, use the raw Prefect command:
+
+```bash
+source .workers/.env
+prefect worker start --pool docker-pool --type docker
+```
+
+**Development mode** runs flows in the server process - no worker needed!
 
 ---
 
@@ -157,7 +155,7 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
 ```
 ┌─────────────────────────────────────────┐
 │  User                                   │
-│  1. w2t-bkin server start               │
+│  1. w2t-bkin server start [--dev]       │
 │  2. Open http://localhost:4200          │
 │  3. Trigger workflows in UI             │
 └────────────┬────────────────────────────┘
@@ -165,17 +163,21 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
              ▼
 ┌─────────────────────────────────────────┐
 │  Prefect Server (localhost:4200)        │
-│  - Flow Deployments                     │
-│  - Work Pools (docker-pool/local-pool)  │
+│  - Flow Deployments (production)        │
+│  - Flow Services via Runner (dev mode)  │
+│  - Work Pool (docker-pool, type: docker)│
 │  - UI Monitoring                        │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
-│  Workers                                │
-│  - Docker containers (default)          │
-│  - Local Python (if [worker] installed) │
-│  - Execute pipeline tasks               │
+│  Workers (Production Only)              │
+│  - Docker containers execute flows      │
+│  - Managed via docker-pool              │
+│                                         │
+│  Dev Mode (No Worker Needed)            │
+│  - Flows run in server via Runner       │
+│  - No work pool required                │
 └─────────────────────────────────────────┘
 ```
 
@@ -229,20 +231,19 @@ docker run ... ghcr.io/borjaest/w2t-bkin:latest  # Contains all ML/video depende
 - No dependency conflicts on server machine
 - Easy scaling: Run multiple Docker workers
 
-**Option 2: All-in-One Local**
+**Option 2: Development Mode (Local)**
 
 ```bash
-# Single machine
+# Single machine with worker extras installed
 pip install w2t-bkin[worker]       # ~630 MB (everything)
-w2t-bkin server start --work-pool local
-prefect worker start --pool local-pool
+w2t-bkin server start --dev        # Flows run in server process via Runner
 ```
 
 **Benefits:**
 
-- Faster task startup (no container overhead)
-- Simpler setup for single-user workstations
-- Good for development and debugging
+- Fastest iteration (no container overhead)
+- Simplest setup for development and debugging
+- Live code changes without rebuild
 
 ### Dependency Breakdown
 

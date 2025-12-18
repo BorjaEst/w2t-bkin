@@ -14,43 +14,60 @@ This directory contains the Docker configuration for running w2t-bkin workers in
 
 ## Quick Start
 
-### Using Pre-built Images (Recommended for Users)
+### Using Pre-built Images (Recommended)
 
-Pull and run the official pre-built worker image from GitHub Container Registry:
+This is the **primary deployment method** for w2t-bkin. Production mode uses Docker workers exclusively:
 
 ```bash
 # Pull latest worker image
 docker pull ghcr.io/borjaest/w2t-bkin:latest
 
-# Run worker (connects to Prefect server on host)
-docker run -d \
-  --name w2t-worker \
-  -v /path/to/data:/data:ro \
-  -v /path/to/models:/models:ro \
-  -v /path/to/configs:/configs:ro \
-  -v /path/to/output:/data/processed:rw \
-  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
-  -e WORK_POOL=process-pool \
-  ghcr.io/borjaest/w2t-bkin:latest
+# Start Prefect server in production mode (from experiment directory)
+cd /path/to/experiment
+w2t-bkin server start --config configs/standard.toml
 
-# Check logs
-docker logs -f w2t-worker
-
-# Stop worker
-docker stop w2t-worker
-docker rm w2t-worker
+# Start Docker worker (in a separate terminal)
+w2t-bkin worker start
 ```
 
-### Manual Build (For Development)
+The worker will automatically:
 
-Build the worker image from repository root:
+- Connect to the Prefect server via the API URL
+- Poll the `docker-pool` for flow runs
+- Start containers for each flow run with the specified image
+- Mount data directories from `.workers/.env`
+
+**Configuration** (`.workers/.env`):
 
 ```bash
-# CORRECT: Build from repository root with explicit Dockerfile path
-docker build -f docker/Dockerfile -t ghcr.io/borjaest/w2t-bkin:dev .
+W2T_DOCKER_IMAGE=ghcr.io/borjaest/w2t-bkin:latest
+# Add data paths as needed
+```
 
-# WRONG: This will fail because context is docker/ directory
-docker build -t ghcr.io/borjaest/w2t-bkin:dev docker
+### Development Mode (Optional)
+
+For rapid iteration without Docker builds, use dev mode:
+
+```bash
+# Requires worker extras: pip install -e .[worker]
+w2t-bkin server start --config configs/standard.toml --dev
+```
+
+This uses Prefect Runner to serve flows in the server process - no Docker worker needed!
+
+### Manual Build (For Customization)
+
+Build custom worker images from repository root:
+
+```bash
+# Build from repository root with explicit Dockerfile path
+docker build -f docker/Dockerfile -t w2t-bkin:local-dev .
+
+# Tag for testing
+docker tag w2t-bkin:local-dev ghcr.io/borjaest/w2t-bkin:custom
+
+# Update .workers/.env to use your custom image
+W2T_DOCKER_IMAGE=ghcr.io/borjaest/w2t-bkin:custom
 ```
 
 ## Files
@@ -82,8 +99,8 @@ Configure worker behavior via environment variables (in `.env` file or `docker r
 ### Prefect Connection
 
 - `PREFECT_API_URL`: Prefect server URL (default: `http://host.docker.internal:4200/api`)
-- `WORK_POOL`: Work pool name (default: `process-pool`)
-- `WORKER_NAME`: Worker identifier (default: `worker`)
+- `WORK_POOL`: Work pool name (default: `docker-pool`)
+- `WORKER_NAME`: Worker identifier (default: `docker-worker`)
 - `PREFECT_LOGGING_LEVEL`: Log verbosity (default: `INFO`)
 
 ### Data Paths
@@ -103,19 +120,21 @@ Configure worker behavior via environment variables (in `.env` file or `docker r
 
 ## Architecture
 
-The Docker deployment uses **Prefect Process Work Pools**:
+The production deployment uses **Prefect Docker Work Pool**:
 
-1. **PostgreSQL**: Prefect backend database
-2. **Prefect Server**: Orchestration server with web UI (port 4200)
-3. **Workers**: Execute pipeline flows as subprocesses
+1. **Prefect Server**: Orchestration server with web UI (port 4200)
+2. **Docker Work Pool** (`docker-pool`): Infrastructure configuration for Docker-based execution
+3. **Docker Workers**: Poll the work pool and execute flows in fresh containers per run
 
-**Why Process Pools?**
+**Why Docker Workers?**
 
-- ✅ No Docker socket access required (better security)
-- ✅ No container-in-container overhead
-- ✅ Predictable resource usage
-- ✅ Simpler debugging with unified logs
-- ✅ Fast startup times
+- ✅ **Isolation**: Each flow run executes in a fresh container
+- ✅ **Reproducibility**: Same image guarantees consistent environment
+- ✅ **Flexibility**: Different flows can use different images
+- ✅ **Resource management**: Container limits prevent runaway processes
+- ✅ **Simple scaling**: Start more workers to handle more concurrent runs
+
+**Development Alternative**: Use `--dev` mode for rapid iteration without Docker overhead (flows run via Prefect Runner in server process)
 
 ## Image Tags
 
@@ -154,33 +173,48 @@ docker build -t w2t-bkin:worker docker
 
 ## Running Workers
 
-### Production (Manual Docker Run)
+### Production (Recommended: Use CLI)
 
 ```bash
-# Start Prefect server on host first
-prefect server start
+# Start Prefect server
+w2t-bkin server start
 
-# In another terminal, run worker
-docker run -d \
-  --name w2t-worker \
-  -v $(pwd)/data:/data \
-  -v $(pwd)/models:/models \
-  -v $(pwd)/configs:/configs \
-  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
-  -e WORK_POOL=process-pool \
-  w2t-bkin:worker
+# In another terminal, start workers
+w2t-bkin worker start
+
+# Or with multiple workers
+w2t-bkin worker start --count 4
 ```
 
-### Development (Local Python)
+### Development (No Workers Needed)
 
-For development, run workers locally without Docker:
+For development, use `--dev` mode which serves flows without workers:
 
 ```bash
 # Install worker dependencies
 pip install -e .[worker]
 
-# Start worker
-prefect worker start --pool process-pool
+# Start in dev mode (flows run in server process)
+w2t-bkin server start --dev
+```
+
+### Advanced: Manual Docker Worker (Alternative)
+
+If you need to run workers manually:
+
+```bash
+# Start Prefect server first
+w2t-bkin server start
+
+# In another terminal, run worker container manually
+docker run -d \
+  --name w2t-worker \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
+  -e WORK_POOL=docker-pool \
+  -e WORKER_NAME=manual-worker \
+  ghcr.io/borjaest/w2t-bkin:latest \
+  prefect worker start --pool docker-pool --name manual-worker
 ```
 
 ### Worker Cannot Connect to Server

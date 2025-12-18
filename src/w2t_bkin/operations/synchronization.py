@@ -20,11 +20,19 @@ def compute_alignment_statistics(trial_offsets: List[float], ttl_channels: Dict[
         ttl_channels: Dictionary mapping TTL channel ID to pulse count
 
     Returns:
-        Dictionary containing alignment statistics
+        Dictionary containing alignment statistics with structure:
+        {
+            "trial_offsets": {trial_num: offset_seconds, ...},
+            "ttl_channels": {channel_name: pulse_count, ...},
+            "statistics": {...}
+        }
     """
     logger.info("Computing alignment statistics")
 
-    stats = {"ttl_channels": ttl_channels, "trial_offsets": trial_offsets}
+    # Convert list to dict for plotting compatibility
+    trial_offsets_dict = {i + 1: offset for i, offset in enumerate(trial_offsets)}
+
+    stats = {"ttl_channels": ttl_channels, "trial_offsets": trial_offsets_dict}
 
     if trial_offsets:
         offsets_array = np.array(trial_offsets)

@@ -1,6 +1,5 @@
 """Server management commands for Prefect."""
 
-from dataclasses import dataclass
 import json
 import logging
 import os
@@ -10,7 +9,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 import urllib.request
 import webbrowser
 
@@ -24,257 +23,78 @@ from w2t_bkin.utils import read_toml, recursive_dict_update
 server_app = typer.Typer(name="server", help="Prefect server management")
 
 
-@dataclass
-class WorkerInfo:
-    """Information about a started worker."""
-
-    worker_type: str  # "process" or "docker"
-    name: str
-    reference: any  # subprocess.Popen for process, container_id for docker
-
-
-def _is_port_in_use(port: int) -> bool:
-    """Check if a port is already in use.
-
-    Args:
-        port: Port number to check
-
-    Returns:
-        True if port is in use, False otherwise
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
-
-
-def _get_prefect_cmd() -> List[str]:
-    """Get the prefect command using the current Python interpreter."""
-    return [sys.executable, "-m", "prefect"]
-
-
-def _is_windows() -> bool:
-    """Check if running on Windows."""
-    return platform.system() == "Windows"
-
-
-def _get_api_url(port: int) -> str:
-    """Get the Prefect API URL for the given platform.
-
-    Args:
-        port: Port number for the Prefect server
-
-    Returns:
-        Appropriate API URL based on platform and context
-    """
-    # For local workers, always use localhost/127.0.0.1
-    # For Docker workers on Linux with --network host, use 127.0.0.1
-    # For Docker workers on Windows/Mac, use host.docker.internal
-    return f"http://127.0.0.1:{port}/api"
-
-
-def _get_docker_api_url(port: int) -> str:
-    """Get the Prefect API URL for Docker workers based on platform.
-
-    Args:
-        port: Port number for the Prefect server
-
-    Returns:
-        Appropriate API URL for Docker workers
-    """
-    if _is_windows():
-        # Windows: Use host.docker.internal
-        return f"http://host.docker.internal:{port}/api"
-    else:
-        # Linux with --network host: Use 127.0.0.1
-        return f"http://127.0.0.1:{port}/api"
+# ============================================================================
+# Commands
+# ============================================================================
 
 
 @server_app.command(name="start")
 def start(
     config_path: Path = typer.Option(Path("configuration.toml"), "--config", "-c", help="Default config file for deployments"),
-    work_pool: Optional[str] = typer.Option(None, "--work-pool", "-w", help="Work pool type (docker or local)"),
+    dev: bool = typer.Option(False, "--dev", help="Development mode: serve flows with local code changes"),
     port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"),
     open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
-    workers: int = typer.Option(1, "--workers", help="Number of workers to start (0 to disable auto-start)"),
+    workers: Optional[int] = typer.Option(None, "--workers", help="Number of workers to start (0 to disable auto-start, default: 1 for prod, 0 for dev)"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging and show server output"),
 ):
-    """Start Prefect server, create deployments, and auto-start workers.
+    """Start Prefect server and deploy/serve flows.
 
-    This command:
-    1. Starts the Prefect server
-    2. Creates flow deployments automatically
-    3. Auto-starts workers (Docker or local based on work pool type)
-    4. Opens the Prefect UI in your browser
+    Production Mode (default):
+    - Starts Prefect server
+    - Creates docker-pool work pool
+    - Deploys flows with Docker image reference
+    - Optionally auto-starts Docker workers (use --workers N)
+    - Recommended for reliable, isolated execution
 
-    Workers are automatically started by default (--workers 1). For Docker pools,
-    workers run in containers. For local pools, workers run as subprocesses.
+    Development Mode (--dev):
+    - Starts Prefect server
+    - Serves flows from local installation using Runner
+    - No workers needed (flows run in server process)
+    - Requires worker extras: pip install -e .[worker]
+    - Fast iteration with live code changes
 
     Example:
-        $ w2t-bkin server start                    # Auto-starts 1 worker
-        $ w2t-bkin server start --workers 4        # Start with 4 workers
-        $ w2t-bkin server start --workers 0        # No auto-start, manual setup
-        $ w2t-bkin server start --work-pool local  # Use local workers
-        $ w2t-bkin server start --debug            # Show server logs
+        $ w2t-bkin server start                # Production mode (no workers)
+        $ w2t-bkin server start --workers 2    # Production with 2 Docker workers
+        $ w2t-bkin server start --dev          # Development mode (serve flows)
+        $ w2t-bkin server start --debug        # Show server logs
     """
     setup_logging("DEBUG" if debug else log_level)
 
-    console.print("[cyan]🚀 Starting W2T-BKIN Prefect Server...[/cyan]\n")
+    # Set worker defaults based on mode
+    if workers is None:
+        workers = 0 if dev else 1
 
-    # Project isolation: Use local .prefect directory
-    prefect_home = Path.cwd() / ".prefect"
-    prefect_home.mkdir(exist_ok=True)
-    os.environ["PREFECT_HOME"] = str(prefect_home)
-    console.print(f"[dim]  Project isolation: Using {prefect_home}[/dim]")
+    # Validate mode and print banner
+    _validate_and_print_mode(dev, port)
 
-    # Ensure API URL is set to localhost for local connections
-    # This fixes issues where it might default to 0.0.0.0 or other unreachable addresses
-    api_url = f"http://127.0.0.1:{port}/api"
-    os.environ["PREFECT_API_URL"] = api_url
+    # Setup Prefect environment
+    _setup_prefect_env(port)
+    _ensure_prefect_api_config(port)
 
-    # Detect if worker extras are installed
-    has_worker_extras = _check_worker_extras()
-
-    # Determine work pool type
-    if work_pool is None:
-        if has_worker_extras:
-            work_pool = "local"
-            console.print("[green]✓[/green] Worker extras detected, using local work pool")
-        else:
-            work_pool = "docker"
-            console.print("[yellow]![/yellow] Worker extras not installed, using Docker work pool (recommended)")
-            console.print("[dim]  For local workers: pip install -e .[worker] (~630 MB with ML dependencies)[/dim]")
-
-    console.print(f"[dim]  Work pool: {work_pool}[/dim]")
-    console.print(f"[dim]  Port: {port}[/dim]\n")
-
-    # Check if port is already in use
+    # Check port availability
     if _is_port_in_use(port):
         console.print(f"[red]✗ Port {port} is already in use[/red]")
-        console.print(f"[yellow]Tip: Stop the existing server with 'w2t-bkin server stop' or use a different port[/yellow]")
+        console.print("[yellow]Tip: Stop the existing server with 'w2t-bkin server stop' or use a different port[/yellow]")
         raise typer.Exit(1)
 
-    # Start Prefect server in background
-    console.print("[cyan]Starting Prefect server...[/cyan]")
-
+    # Start server and flows
     try:
-        # Start server process
-        server_cmd = _get_prefect_cmd() + ["server", "start", "--host", "0.0.0.0", "--port", str(port)]
+        server_process = _start_prefect_server(port, debug)
 
-        if debug:
-            server_cmd.extend(["--log-level", "DEBUG"])
-            stdout_dest = None
-            stderr_dest = None
+        # Deploy or serve flows based on mode
+        if dev:
+            _handle_dev_mode(config_path)
         else:
-            # Redirect to DEVNULL to avoid hanging due to full pipe buffers
-            # We don't use PIPE because we aren't reading from it continuously
-            stdout_dest = subprocess.DEVNULL
-            stderr_dest = subprocess.DEVNULL
+            _handle_prod_mode(config_path, workers, port)
 
-        # Set SQLite timeout to avoid "database is locked" errors
-        server_env = os.environ.copy()
-        # Increase timeout for SQLite (default is often too low for concurrent ops)
-        server_env.setdefault("PREFECT_API_DATABASE_CONNECTION_TIMEOUT", "60.0")
-        server_env.setdefault("PREFECT_API_DATABASE_TIMEOUT", "60.0")
-
-        server_process = subprocess.Popen(
-            server_cmd,
-            stdout=stdout_dest,
-            stderr=stderr_dest,
-            text=True,
-            env=server_env,
-        )
-
-        # Wait for server to be ready
-        console.print("[dim]Waiting for server to be ready...[/dim]")
-        if not _wait_for_server(server_process, port):
-            console.print("[red]✗ Server failed to start[/red]")
-            server_process.terminate()
-            if not debug:
-                console.print("[yellow]Tip: Run with --debug to see server logs[/yellow]")
-            raise typer.Exit(1)
-
-        console.print("[green]✓[/green] Prefect server started\n")
-
-        # Give the server a moment to settle
-        time.sleep(2)
-
-        # Create work pool
-        console.print(f"[cyan]Creating work pool '{work_pool}-pool'...[/cyan]")
-        _create_work_pool(work_pool)
-        console.print("[green]✓[/green] Work pool created\n")
-
-        # Create deployments
-        console.print("[cyan]Creating flow deployments...[/cyan]")
-        _create_deployments(work_pool, config_path)
-        console.print("[green]✓[/green] Deployments created\n")
-
-        # Open browser
-        ui_url = f"http://localhost:{port}"
-        if open_browser:
-            console.print(f"[cyan]Opening browser to {ui_url}...[/cyan]")
-            webbrowser.open(ui_url)
-
-        console.print(f"\n[green]✅ W2T-BKIN Server Ready![/green]")
-        console.print(f"\n[bold]Prefect UI:[/bold] {ui_url}")
-        console.print(f"[bold]Work Pool:[/bold] {work_pool}-pool")
-
-        # Start workers if requested
-        worker_processes: List[WorkerInfo] = []
-        if workers > 0:
-            console.print(f"\n[cyan]Starting {workers} worker(s)...[/cyan]")
-
-            for i in range(workers):
-                worker_name = f"{work_pool}-worker-{i+1}"
-
-                if work_pool == "docker":
-                    worker_info = _start_docker_worker(worker_name, work_pool, port)
-                    if worker_info:
-                        worker_processes.append(worker_info)
-                else:  # local
-                    worker_info = _start_local_worker(worker_name, work_pool, port)
-                    if worker_info:
-                        worker_processes.append(worker_info)
-
-            # Wait for workers to connect
-            _verify_workers(worker_processes, workers, work_pool)
-
-        else:
-            # No auto-start - show manual instructions
-            if work_pool == "docker":
-                console.print("\n[bold cyan]📋 To start Docker workers:[/bold cyan]")
-                console.print("[dim]  Run in a new terminal:[/dim]")
-                console.print(f"[yellow]     prefect worker start --pool docker-pool[/yellow]")
-                console.print("\n[dim]  Or use Docker container:[/dim]")
-                console.print(f"[yellow]     docker run -d --name w2t-worker \\[/yellow]")
-                console.print(f"[yellow]       -e PREFECT_API_URL=http://host.docker.internal:{port}/api \\[/yellow]")
-                console.print(f"[yellow]       -v /var/run/docker.sock:/var/run/docker.sock \\[/yellow]")
-                console.print(f"[yellow]       --network host \\[/yellow]")
-                console.print(f"[yellow]       ghcr.io/borjaest/w2t-bkin:latest \\[/yellow]")
-                console.print(f"[yellow]       prefect worker start --pool docker-pool[/yellow]")
-            else:
-                console.print("\n[bold cyan]📋 To start local workers:[/bold cyan]")
-                console.print("[dim]  Run in a new terminal:[/dim]")
-                console.print(f"[yellow]     prefect worker start --pool local-pool[/yellow]")
-                console.print("\n[dim]  Or restart with --workers flag:[/dim]")
-                console.print(f"[yellow]     w2t-bkin server start --workers 1[/yellow]")
-
-        console.print("\n[dim]Press Ctrl+C to stop the server[/dim]\n")
+        # Open UI and print summary
+        ui_url = _open_ui(port, open_browser)
+        _print_ready_summary(ui_url, dev, workers)
 
         # Keep server running
-        try:
-            server_process.wait()
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Stopping server...[/yellow]")
-            server_process.terminate()
-            server_process.wait(timeout=5)
-
-            # Stop workers
-            if worker_processes:
-                console.print("[yellow]Stopping workers...[/yellow]")
-                for worker_info in worker_processes:
-                    _stop_worker(worker_info)
-
-            console.print("[green]✓[/green] Server stopped")
+        _run_server_until_interrupted(server_process)
 
     except typer.Exit:
         raise
@@ -294,7 +114,6 @@ def stop():
     console.print("[cyan]Stopping Prefect server...[/cyan]")
 
     try:
-        # Find and kill prefect server processes
         result = subprocess.run(
             ["pkill", "-f", "prefect server start"],
             capture_output=True,
@@ -331,11 +150,9 @@ def reset(
     console.print("[cyan]Resetting Prefect database...[/cyan]")
 
     try:
-        # Stop server first
         stop()
         time.sleep(1)
 
-        # Run prefect server database reset
         subprocess.run(
             _get_prefect_cmd() + ["server", "database", "reset", "-y"],
             check=True,
@@ -358,12 +175,10 @@ def status(port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"
 
     Example:
         $ w2t-bkin server status
-        $ w2t-bkin server status --port 4200
     """
     console.print("[cyan]Checking Prefect server status...[/cyan]\n")
 
     try:
-
         health_url = f"http://localhost:{port}/api/health"
 
         try:
@@ -381,7 +196,7 @@ def status(port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"
 @server_app.command(name="restart")
 def restart(
     config_path: Optional[Path] = typer.Option(None, "--config", "-c", help="Default config file for deployments"),
-    work_pool: Optional[str] = typer.Option(None, "--work-pool", "-w", help="Work pool type (docker or local)"),
+    dev: bool = typer.Option(False, "--dev", help="Development mode"),
     port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
 ):
@@ -389,25 +204,494 @@ def restart(
 
     Example:
         $ w2t-bkin server restart
-        $ w2t-bkin server restart --work-pool docker
+        $ w2t-bkin server restart --dev
     """
     console.print("[cyan]Restarting Prefect server...[/cyan]\n")
 
-    # Stop existing server
     stop()
     time.sleep(2)
 
-    # Start new server
-    start(
-        config_path=config_path,
-        work_pool=work_pool,
-        port=port,
-        open_browser=False,
-        log_level=log_level,
+    start(config_path=config_path, dev=dev, port=port, open_browser=False, log_level=log_level)
+
+
+# ============================================================================
+# Configuration Loading
+# ============================================================================
+
+
+def _load_and_normalize_config(config_path: Optional[Path]) -> Tuple[dict, str]:
+    """Load and merge base + project config, normalize paths to absolute.
+
+    Args:
+        config_path: Optional project config path (merged on top of base)
+
+    Returns:
+        Tuple of (merged_config_dict, config_json_string)
+    """
+    package_root = Path(__file__).parent.parent.parent.parent.absolute()
+    base_config_path = package_root / "configs" / "standard.toml"
+    project_config_path = config_path.resolve() if config_path else None
+
+    console.print(f"[dim]  Base config: {base_config_path}[/dim]")
+    if project_config_path:
+        console.print(f"[dim]  Project config: {project_config_path}[/dim]")
+
+    merged_config = {}
+    original_cwd = Path.cwd()
+
+    # Merge base config
+    if base_config_path.exists():
+        base_dict = read_toml(base_config_path)
+        recursive_dict_update(merged_config, base_dict)
+
+    # Merge project config
+    if project_config_path and project_config_path.exists():
+        project_dict = read_toml(project_config_path)
+        recursive_dict_update(merged_config, project_dict)
+
+    # Resolve paths to absolute paths
+    if "paths" in merged_config:
+        paths = merged_config["paths"]
+        for key in ["raw_root", "intermediate_root", "output_root", "models_root", "root_metadata"]:
+            if key in paths and paths[key]:
+                resolved = (original_cwd / paths[key]).resolve()
+                paths[key] = str(resolved)
+
+    config_json = json.dumps(merged_config)
+    return merged_config, config_json
+
+
+# ============================================================================
+# Prefect Environment Setup
+# ============================================================================
+
+
+def _setup_prefect_env(port: int) -> None:
+    """Configure Prefect environment for project isolation.
+
+    Args:
+        port: Prefect UI port for API URL
+    """
+    # Project isolation: Use local .prefect directory
+    prefect_home = Path.cwd() / ".prefect"
+    prefect_home.mkdir(exist_ok=True)
+    os.environ["PREFECT_HOME"] = str(prefect_home)
+    os.environ["PREFECT_PROFILES_PATH"] = str(prefect_home / "profiles.toml")
+    console.print(f"[dim]  Project isolation: Using {prefect_home}[/dim]")
+
+    # Set API URL for local connections
+    api_url = f"http://127.0.0.1:{port}/api"
+    os.environ["PREFECT_API_URL"] = api_url
+
+
+def _ensure_prefect_api_config(port: int) -> None:
+    """Persist PREFECT_API_URL to profile non-interactively.
+
+    Args:
+        port: Prefect UI port
+    """
+    api_url = f"http://127.0.0.1:{port}/api"
+    try:
+        subprocess.run(
+            _get_prefect_cmd() + ["config", "set", f"PREFECT_API_URL={api_url}"],
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+            check=False,
+        )
+    except Exception:
+        # Best-effort; env var is still set for this process
+        pass
+
+
+# ============================================================================
+# Server Lifecycle
+# ============================================================================
+
+
+def _start_prefect_server(port: int, debug: bool) -> subprocess.Popen:
+    """Start Prefect server subprocess.
+
+    Args:
+        port: Port for Prefect UI
+        debug: Whether to show server output
+
+    Returns:
+        Server subprocess
+
+    Raises:
+        typer.Exit: If server fails to start or become ready
+    """
+    console.print("[cyan]Starting Prefect server...[/cyan]")
+
+    server_cmd = _get_prefect_cmd() + ["server", "start", "--host", "0.0.0.0", "--port", str(port)]
+
+    if debug:
+        server_cmd.extend(["--log-level", "DEBUG"])
+        stdout_dest = None
+        stderr_dest = None
+    else:
+        stdout_dest = subprocess.DEVNULL
+        stderr_dest = subprocess.DEVNULL
+
+    # Set SQLite timeout to avoid "database is locked" errors
+    server_env = os.environ.copy()
+    server_env.setdefault("PREFECT_API_DATABASE_CONNECTION_TIMEOUT", "60.0")
+    server_env.setdefault("PREFECT_API_DATABASE_TIMEOUT", "60.0")
+
+    server_process = subprocess.Popen(
+        server_cmd,
+        stdout=stdout_dest,
+        stderr=stderr_dest,
+        text=True,
+        env=server_env,
+    )
+
+    # Wait for server to be ready
+    console.print("[dim]Waiting for server to be ready...[/dim]")
+    if not _wait_for_server(server_process, port):
+        console.print("[red]✗ Server failed to start[/red]")
+        server_process.terminate()
+        if not debug:
+            console.print("[yellow]Tip: Run with --debug to see server logs[/yellow]")
+        raise typer.Exit(1)
+
+    console.print("[green]✓[/green] Prefect server started\n")
+    time.sleep(2)
+    return server_process
+
+
+def _open_ui(port: int, open_browser: bool) -> str:
+    """Open browser to Prefect UI if requested.
+
+    Args:
+        port: Prefect UI port
+        open_browser: Whether to open browser
+
+    Returns:
+        UI URL
+    """
+    ui_url = f"http://localhost:{port}"
+    if open_browser:
+        console.print(f"[cyan]Opening browser to {ui_url}...[/cyan]")
+        webbrowser.open(ui_url)
+    return ui_url
+
+
+# ============================================================================
+# Flow Deployment (Production)
+# ============================================================================
+
+
+def _handle_prod_mode(config_path: Optional[Path], workers: int, port: int) -> None:
+    """Handle production mode: create work pool, deploy flows, start workers.
+
+    Args:
+        config_path: Config file path
+        workers: Number of workers to auto-start (0 = manual)
+        port: Prefect server port
+    """
+    console.print("[cyan]Creating work pool 'docker-pool'...[/cyan]")
+    _create_work_pool()
+    console.print("[green]✓[/green] Work pool created\n")
+
+    console.print("[cyan]Deploying flows with Docker image...[/cyan]")
+    _deploy_flows(config_path)
+    console.print("[green]✓[/green] Flows deployed\n")
+
+    # Worker auto-start
+    if workers > 0:
+        _auto_start_workers(workers, port)
+    else:
+        _print_manual_worker_instructions()
+
+
+def _create_work_pool() -> None:
+    """Create Prefect Docker work pool idempotently."""
+    pool_name = "docker-pool"
+
+    # Check if pool already exists
+    result = subprocess.run(
+        _get_prefect_cmd() + ["work-pool", "inspect", pool_name],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        console.print(f"[dim]  Work pool '{pool_name}' already exists[/dim]")
+        return
+
+    # Create docker-type work pool
+    subprocess.run(
+        _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", "docker"],
+        check=True,
+        capture_output=True,
     )
 
 
-# Helper functions
+def _deploy_flows(config_path: Optional[Path]) -> None:
+    """Deploy flows for production using Docker image.
+
+    Args:
+        config_path: Config file path
+    """
+    package_root = Path(__file__).parent.parent.parent.parent.absolute()
+    _, config_json = _load_and_normalize_config(config_path)
+
+    # Get Docker image
+    docker_image = _get_docker_image()
+    console.print(f"[dim]  Docker image: {docker_image}[/dim]")
+
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(package_root)
+
+        # Common deployment parameters
+        common_params = {
+            "work_pool_name": "docker-pool",
+            "image": docker_image,
+            "build": False,
+            "push": False,
+            "job_variables": {
+                "env": {
+                    "W2T_RUNTIME_CONFIG_JSON": config_json,
+                }
+            },
+            "tags": ["w2t-bkin", "production"],
+            "version": "1.0.0",
+        }
+
+        # Deploy session flow
+        session_config = SessionFlowConfig(
+            subject_id="subject-001",
+            session_id="session-001",
+        )
+        process_session_flow.deploy(
+            name="process-session",
+            parameters={"config": session_config.model_dump()},
+            description="Process a single experimental session through the w2t-bkin pipeline.",
+            **common_params,
+        )
+        console.print("[dim]  ✓ process-session deployed[/dim]")
+
+        # Deploy batch flow
+        batch_config = BatchFlowConfig(max_parallel=4)
+        batch_process_flow.deploy(
+            name="batch-process",
+            parameters={"config": batch_config.model_dump()},
+            description="Process multiple experimental sessions in parallel.",
+            **common_params,
+        )
+        console.print("[dim]  ✓ batch-process deployed[/dim]")
+
+    finally:
+        os.chdir(original_cwd)
+
+
+# ============================================================================
+# Flow Serving (Development)
+# ============================================================================
+
+
+def _handle_dev_mode(config_path: Optional[Path]) -> None:
+    """Handle development mode: serve flows from local code.
+
+    Args:
+        config_path: Config file path
+    """
+    console.print("[cyan]Serving flows from local code...[/cyan]")
+    _serve_flows(config_path)
+    console.print("[green]✓[/green] Flows served\n")
+
+
+def _serve_flows(config_path: Optional[Path]) -> None:
+    """Serve flows for development using local code.
+
+    Args:
+        config_path: Config file path
+    """
+    from prefect.runner import Runner
+
+    package_root = Path(__file__).parent.parent.parent.parent.absolute()
+    _, config_json = _load_and_normalize_config(config_path)
+
+    # Inject runtime config into environment for dev mode
+    os.environ["W2T_RUNTIME_CONFIG_JSON"] = config_json
+
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(package_root)
+
+        # Use Runner to serve multiple flows
+        runner = Runner(name="w2t-dev-runner")
+
+        # Add session flow
+        session_config = SessionFlowConfig(
+            subject_id="subject-001",
+            session_id="session-001",
+        )
+        runner.add_flow(
+            process_session_flow,
+            name="process-session",
+            parameters={"config": session_config.model_dump()},
+            tags=["w2t-bkin", "development"],
+        )
+        console.print("[dim]  ✓ process-session added to runner[/dim]")
+
+        # Add batch flow
+        batch_config = BatchFlowConfig(max_parallel=4)
+        runner.add_flow(
+            batch_process_flow,
+            name="batch-process",
+            parameters={"config": batch_config.model_dump()},
+            tags=["w2t-bkin", "development"],
+        )
+        console.print("[dim]  ✓ batch-process added to runner[/dim]")
+
+        # Start runner (non-blocking)
+        runner.start()
+        console.print("[dim]  ✓ Runner started in background[/dim]")
+
+    finally:
+        os.chdir(original_cwd)
+
+
+# ============================================================================
+# Worker Management
+# ============================================================================
+
+
+def _auto_start_workers(count: int, port: int) -> None:
+    """Auto-start Docker workers and verify pool readiness.
+
+    Args:
+        count: Number of workers to start
+        port: Prefect server port
+    """
+    console.print(f"\n[cyan]Starting {count} worker(s) via w2t-bkin worker start...[/cyan]")
+
+    api_url = f"http://127.0.0.1:{port}/api"
+    worker_cmd = [
+        sys.executable,
+        "-m",
+        "w2t_bkin.cli",
+        "worker",
+        "start",
+        "--count",
+        str(count),
+        "--api-url",
+        api_url,
+    ]
+
+    try:
+        worker_result = subprocess.run(
+            worker_cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        console.print(worker_result.stdout)
+        _verify_work_pool_readiness(api_url)
+
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]✗ Failed to start workers[/red]")
+        if e.stdout:
+            console.print(f"[dim]Output: {e.stdout}[/dim]")
+        if e.stderr:
+            console.print(f"[dim]Error: {e.stderr}[/dim]")
+        console.print("[yellow]Continuing without workers...[/yellow]")
+
+
+def _verify_work_pool_readiness(api_url: str) -> None:
+    """Verify work pool status and show troubleshooting if needed.
+
+    Args:
+        api_url: Prefect API URL
+    """
+    console.print("\n[cyan]Verifying work pool readiness...[/cyan]")
+    time.sleep(3)  # Give workers time to poll
+
+    try:
+        inspect_cmd = _get_prefect_cmd() + ["work-pool", "inspect", "docker-pool", "--output", "json"]
+        inspect_result = subprocess.run(
+            inspect_cmd,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PREFECT_API_URL": api_url},
+        )
+
+        if inspect_result.returncode != 0:
+            raise RuntimeError(inspect_result.stderr.strip() or "work-pool inspect failed")
+
+        pool_info = json.loads(inspect_result.stdout)
+        pool_status = str(pool_info.get("status", "")).upper()
+
+        if pool_status == "READY":
+            console.print("[green]✓ Work pool is READY[/green]")
+        else:
+            console.print(f"[yellow]⚠ Work pool status: {pool_status or 'UNKNOWN'}[/yellow]")
+            last_polled = pool_info.get("last_polled")
+            if last_polled:
+                console.print(f"  last_polled: {last_polled}")
+            _print_troubleshooting_tips(api_url)
+
+    except Exception as e:
+        console.print(f"[yellow]Could not verify pool status: {e}[/yellow]")
+
+
+def _print_troubleshooting_tips(api_url: str) -> None:
+    """Print worker troubleshooting guidance.
+
+    Args:
+        api_url: Prefect API URL
+    """
+    console.print("\n[yellow]Troubleshooting:[/yellow]")
+    console.print("  • Check worker logs: docker logs docker-worker")
+    console.print(f"  • Verify API URL: {api_url}")
+    console.print("  • Run in foreground: w2t-bkin worker start --foreground")
+
+
+def _print_manual_worker_instructions() -> None:
+    """Print manual worker start instructions."""
+    console.print("\n[bold cyan]📋 To start Docker workers:[/bold cyan]")
+    console.print("[dim]  Run in a new terminal:[/dim]")
+    console.print("[yellow]     w2t-bkin worker start[/yellow]")
+    console.print("[dim]  Or with more workers:[/dim]")
+    console.print("[yellow]     w2t-bkin worker start --count 4[/yellow]")
+
+
+# ============================================================================
+# Platform Utilities
+# ============================================================================
+
+
+def _get_docker_image() -> str:
+    """Get Docker image for deployments.
+
+    Checks environment variables and .workers/.env for image configuration.
+    Falls back to latest tag if not specified.
+
+    Returns:
+        Docker image tag (e.g., "ghcr.io/borjaest/w2t-bkin:latest")
+    """
+    # Check environment variable first
+    if image := os.getenv("W2T_DOCKER_IMAGE"):
+        return image
+
+    # Check .workers/.env file
+    env_file = Path.cwd() / ".workers" / ".env"
+    if env_file.exists():
+        try:
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("W2T_DOCKER_IMAGE="):
+                        return line.split("=", 1)[1].strip("\"'")
+        except Exception:
+            pass  # Fall through to default
+
+    # Default to latest tag (stable release)
+    return "ghcr.io/borjaest/w2t-bkin:latest"
 
 
 def _check_worker_extras() -> bool:
@@ -418,6 +702,19 @@ def _check_worker_extras() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _is_port_in_use(port: int) -> bool:
+    """Check if a port is already in use.
+
+    Args:
+        port: Port number to check
+
+    Returns:
+        True if port is in use, False otherwise
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
 
 
 def _wait_for_server(process: subprocess.Popen, port: int, max_retries: int = 30) -> bool:
@@ -434,7 +731,6 @@ def _wait_for_server(process: subprocess.Popen, port: int, max_retries: int = 30
     health_url = f"http://localhost:{port}/api/health"
 
     for i in range(max_retries):
-        # Check if process crashed
         if process.poll() is not None:
             console.print(f"[red]Server process exited with code {process.returncode}[/red]")
             return False
@@ -448,336 +744,105 @@ def _wait_for_server(process: subprocess.Popen, port: int, max_retries: int = 30
     return False
 
 
-def _create_work_pool(pool_type: str):
-    """Create Prefect work pool.
+def _get_prefect_cmd() -> list[str]:
+    """Get the prefect command using the current Python interpreter."""
+    return [sys.executable, "-m", "prefect"]
 
-    Note: Both local and docker pools use 'process' type.
-    Docker workers run process-type workers inside containers.
+
+def _is_windows() -> bool:
+    """Check if running on Windows."""
+    return platform.system() == "Windows"
+
+
+def _is_wsl() -> bool:
+    """Check if running under WSL.
+
+    WSL reports platform.system() == 'Linux', but Docker containers started via
+    Docker Desktop cannot reach services on WSL via --network host/127.0.0.1.
     """
-    pool_name = f"{pool_type}-pool"
-
-    # Check if pool already exists
-    result = subprocess.run(_get_prefect_cmd() + ["work-pool", "inspect", pool_name], capture_output=True, text=True)
-
-    if result.returncode == 0:
-        console.print(f"[dim]  Work pool '{pool_name}' already exists[/dim]")
-        return
-
-    # Create pool - both local and docker use process type
-    # Docker workers run process workers inside containers (not nested Docker)
-    subprocess.run(
-        _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", "process"],
-        check=True,
-        capture_output=True,
-    )
-
-
-def _create_deployments(pool_type: str, config_path: Optional[Path]):
-    """Create Prefect deployments using Python API."""
-
-    pool_name = f"{pool_type}-pool"
-
-    # Get package root directory (where flows are located)
-    # This ensures deployments work regardless of current working directory
-    package_root = Path(__file__).parent.parent.parent.parent.absolute()
-
-    # Base config always comes from package root
-    base_config_path = package_root / "configs" / "standard.toml"
-
-    # Project config from user (optional)
-    project_config_path = config_path.resolve() if config_path else None
-
-    console.print(f"[dim]  Base config: {base_config_path}[/dim]")
-    if project_config_path:
-        console.print(f"[dim]  Project config: {project_config_path}[/dim]")
-
-    # Load and merge configuration to bake into deployment
-    merged_config = {}
-
-    # Store original CWD for path resolution
-    original_cwd = Path.cwd()
-
-    # 1. Base config
-    if base_config_path.exists():
-        base_dict = read_toml(base_config_path)
-        recursive_dict_update(merged_config, base_dict)
-
-    # 2. Project config (has priority - resolve relative paths from project directory)
-    if project_config_path and project_config_path.exists():
-        project_dict = read_toml(project_config_path)
-        recursive_dict_update(merged_config, project_dict)
-
-    # 3. Resolve all paths to absolute paths NOW (at deployment time)
-    #    This ensures paths are resolved relative to the CWD where server was started
-    #    For Docker deployments, these absolute paths will be ignored and container
-    #    paths from container.toml will be used instead
-    if "paths" in merged_config:
-        paths = merged_config["paths"]
-        for key in ["raw_root", "intermediate_root", "output_root", "models_root", "root_metadata"]:
-            if key in paths and paths[key]:
-                # Resolve relative to original CWD (where user started server)
-                resolved = (original_cwd / paths[key]).resolve()
-                paths[key] = str(resolved)  # Convert to string for JSON serialization
-
-    # Serialize to JSON string for env var
-    config_json = json.dumps(merged_config)
-
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
     try:
-        # Change to package root for deployment creation
-        os.chdir(package_root)
-
-        # Deploy session flow
-        session_config = SessionFlowConfig(
-            subject_id="subject-001",  # Example placeholder
-            session_id="session-001",  # Example placeholder
-        )
-
-        # Deploy session flow
-        # Use from_source pointing to local package root
-        # Docker workers will have this code mounted at /app
-        console.print(f"[dim]  Using code from: {package_root}[/dim]")
-
-        process_session_flow.from_source(
-            source=str(package_root),
-            entrypoint="src/w2t_bkin/flows/session.py:process_session_flow",
-        ).deploy(
-            name="process-session",
-            work_pool_name=pool_name,
-            parameters={"config": session_config.model_dump()},
-            job_variables={
-                "env": {
-                    "W2T_RUNTIME_CONFIG_JSON": config_json,
-                }
-            },
-            tags=["w2t-bkin", "session", pool_type],
-            description="Process a single experimental session through the w2t-bkin pipeline.",
-            version="1.0.0",
-            ignore_warnings=True,
-        )
-        console.print("[dim]  ✓ process-session deployment created[/dim]")
-
-        # Deploy batch flow
-        batch_config = BatchFlowConfig(
-            max_parallel=4,
-        )
-
-        # Deploy batch flow
-        batch_process_flow.from_source(
-            source=str(package_root),
-            entrypoint="src/w2t_bkin/flows/batch.py:batch_process_flow",
-        ).deploy(
-            name="batch-process",
-            work_pool_name=pool_name,
-            parameters={"config": batch_config.model_dump()},
-            job_variables={
-                "env": {
-                    "W2T_RUNTIME_CONFIG_JSON": config_json,
-                }
-            },
-            tags=["w2t-bkin", "batch", pool_type],
-            description="Process multiple experimental sessions in parallel.",
-            version="1.0.0",
-            ignore_warnings=True,
-        )
-        console.print("[dim]  ✓ batch-process deployment created[/dim]")
-    finally:
-        # Restore original working directory
-        os.chdir(original_cwd)
-
-
-def _start_docker_worker(worker_name: str, work_pool: str, port: int) -> Optional[WorkerInfo]:
-    """Start a Docker worker container.
-
-    Args:
-        worker_name: Name for the worker container
-        work_pool: Work pool type (should be "docker")
-        port: Prefect server port
-
-    Returns:
-        WorkerInfo if successful, None if failed
-    """
-    # Clean up any existing container with the same name
-    try:
-        subprocess.run(
-            ["docker", "rm", "-f", worker_name],
-            capture_output=True,
-            timeout=10,
-        )
+        return "microsoft" in Path("/proc/version").read_text().lower()
     except Exception:
-        pass  # Container might not exist
-
-    api_url = _get_docker_api_url(port)
-
-    # Get package root to mount code into container
-    package_root = Path(__file__).parent.parent.parent.parent.absolute()
-
-    # Build Docker command based on platform
-    docker_cmd = [
-        "docker",
-        "run",
-        "-d",
-        "--name",
-        worker_name,
-        "-e",
-        f"PREFECT_API_URL={api_url}",
-        "-v",
-        "/var/run/docker.sock:/var/run/docker.sock",
-    ]
-
-    # Load environment variables from .workers/.env if it exists
-    # This allows the worker to pick up path overrides (W2T_RAW_ROOT, etc.)
-    env_file = Path.cwd() / ".workers" / ".env"
-    if env_file.exists():
-        console.print(f"[dim]  Loading env vars from {env_file}[/dim]")
-        try:
-            with open(env_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        key, val = line.split("=", 1)
-                        # Only pass W2T_ variables to avoid conflicts and ensure we only
-                        # override pipeline configuration, not internal docker vars
-                        if key.startswith("W2T_"):
-                            docker_cmd.extend(["-e", f"{key}={val}"])
-        except Exception as e:
-            console.print(f"[yellow]⚠ Failed to read .workers/.env: {e}[/yellow]")
-
-    # Mount code based on platform
-    if _is_windows():
-        # Windows: Mount to /workspace (absolute paths won't work cross-platform anyway)
-        docker_cmd.extend(["-v", f"{package_root}:/workspace:ro"])
-    else:
-        # Linux: Mount to same path as host to support absolute paths
-        docker_cmd.extend(["-v", f"{package_root}:{package_root}:ro"])
-
-    if not _is_windows():
-        # Linux: Use host network mode for simplicity
-        docker_cmd.extend(["--network", "host"])
-    else:
-        # Windows: Publish port (host network mode not supported)
-        docker_cmd.extend(["-p", f"{port}:{port}"])
-
-    # Add image and worker command
-    # Override entrypoint to run prefect worker directly with bash
-    docker_cmd.extend(
-        [
-            "ghcr.io/borjaest/w2t-bkin:latest",
-            "/bin/bash",
-            "-c",
-            f"prefect worker start --pool {work_pool}-pool --name {worker_name}",
-        ]
-    )
-
-    try:
-        result = subprocess.run(docker_cmd, capture_output=True, text=True, check=True)
-        container_id = result.stdout.strip()
-        console.print(f"[green]✓[/green] Started Docker worker: {worker_name}")
-        return WorkerInfo("docker", worker_name, container_id)
-    except subprocess.CalledProcessError as e:
-        console.print(f"[yellow]![/yellow] Failed to start Docker worker {worker_name}")
-        console.print(f"[dim]  Error: {e.stderr.strip()[:200]}[/dim]")
-        console.print(f"[dim]  Make sure Docker is running and the image is available[/dim]")
-        return None
+        return False
 
 
-def _start_local_worker(worker_name: str, work_pool: str, port: int) -> Optional[WorkerInfo]:
-    """Start a local worker subprocess.
+def _get_docker_api_url(port: int) -> str:
+    """Get the Prefect API URL for Docker workers based on platform.
 
     Args:
-        worker_name: Name for the worker process
-        work_pool: Work pool type (should be "local")
-        port: Prefect server port
+        port: Port number for the Prefect server
 
     Returns:
-        WorkerInfo if successful, None if failed
+        Appropriate API URL for Docker workers
     """
-    # Workers need PREFECT_API_URL to connect to the server
-    worker_env = os.environ.copy()
-    worker_env["PREFECT_API_URL"] = _get_api_url(port)
-
-    try:
-        worker_proc = subprocess.Popen(
-            _get_prefect_cmd() + ["worker", "start", "--pool", f"{work_pool}-pool", "--name", worker_name],
-            env=worker_env,
-            # Don't capture stdout/stderr - let worker print its logs
-        )
-        console.print(f"[green]✓[/green] Started local worker: {worker_name} (PID: {worker_proc.pid})")
-        return WorkerInfo("process", worker_name, worker_proc)
-    except Exception as e:
-        console.print(f"[yellow]![/yellow] Failed to start local worker {worker_name}")
-        console.print(f"[dim]  Error: {str(e)[:200]}[/dim]")
-        return None
-
-
-def _is_worker_running(worker_info: WorkerInfo) -> bool:
-    """Check if a worker is still running.
-
-    Args:
-        worker_info: Worker information
-
-    Returns:
-        True if worker is running, False otherwise
-    """
-    if worker_info.worker_type == "process":
-        # Check if process is still alive
-        return worker_info.reference.poll() is None
-    else:  # docker
-        # Check if Docker container is running
-        result = subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Running}}", worker_info.name],
-            capture_output=True,
-            text=True,
-        )
-        return result.returncode == 0 and "true" in result.stdout
-
-
-def _verify_workers(worker_processes: List[WorkerInfo], expected_count: int, work_pool: str) -> None:
-    """Verify that workers are running and connected.
-
-    Args:
-        worker_processes: List of started workers
-        expected_count: Expected number of workers
-        work_pool: Work pool type
-    """
-    console.print(f"\\n[cyan]Waiting for {expected_count} worker(s) to connect...[/cyan]")
-    time.sleep(5)  # Give workers time to connect
-
-    # Verify workers are still running
-    active_workers = 0
-    for worker_info in worker_processes:
-        if _is_worker_running(worker_info):
-            active_workers += 1
-        else:
-            console.print(f"[yellow]![/yellow] Worker {worker_info.name} exited unexpectedly")
-
-    if active_workers >= expected_count:
-        console.print(f"[green]✓[/green] {active_workers} worker(s) running and connected")
+    if _is_windows() or _is_wsl():
+        return f"http://host.docker.internal:{port}/api"
     else:
-        console.print(f"[yellow]![/yellow] Only {active_workers}/{expected_count} workers are running")
-        console.print(f"[dim]  Check worker status with: {sys.executable} -m prefect work-pool inspect {work_pool}-pool[/dim]")
-        if work_pool == "docker":
-            console.print(f"[dim]  View worker logs with: docker logs {work_pool}-worker-1[/dim]")
+        # Linux with --network host
+        return f"http://127.0.0.1:{port}/api"
 
 
-def _stop_worker(worker_info: WorkerInfo) -> None:
-    """Stop a worker process or container.
+# ============================================================================
+# Commands
+# ============================================================================
+
+
+def _validate_and_print_mode(dev: bool, port: int) -> None:
+    """Validate mode requirements and print mode banner.
 
     Args:
-        worker_info: Worker information
+        dev: Development mode flag
+        port: Server port
+
+    Raises:
+        typer.Exit: If dev mode requirements not met
     """
+    if dev:
+        if not _check_worker_extras():
+            console.print("[red]✗ Development mode requires worker extras[/red]")
+            console.print("[yellow]Install with: pip install -e .[worker] (~630 MB with ML dependencies)[/yellow]")
+            raise typer.Exit(1)
+        console.print("[yellow]⚡ Development Mode[/yellow]")
+        console.print("[dim]  Using local code with live updates[/dim]")
+        console.print("[dim]  Flows run in server process (no workers needed)[/dim]")
+    else:
+        console.print("[green]🚀 Production Mode[/green]")
+        console.print("[dim]  Using Docker workers for reliable execution[/dim]")
+
+    console.print(f"[dim]  Port: {port}[/dim]\n")
+
+
+def _print_ready_summary(ui_url: str, dev: bool, workers: int) -> None:
+    """Print server ready summary.
+
+    Args:
+        ui_url: Prefect UI URL
+        dev: Development mode flag
+        workers: Number of workers (for dev mode warning)
+    """
+    console.print(f"\n[green]✅ W2T-BKIN Server Ready![/green]")
+    console.print(f"\n[bold]Prefect UI:[/bold] {ui_url}")
+
+    if not dev:
+        console.print("[bold]Work Pool:[/bold] docker-pool")
+    elif workers > 0:
+        console.print("\n[yellow]⚠ Workers ignored in dev mode (flows run in server process)[/yellow]")
+
+
+def _run_server_until_interrupted(server_process: subprocess.Popen) -> None:
+    """Keep server running until user interrupts.
+
+    Args:
+        server_process: Server subprocess
+    """
+    console.print("\n[dim]Press Ctrl+C to stop the server[/dim]\n")
+
     try:
-        if worker_info.worker_type == "process":
-            worker_info.reference.terminate()
-            worker_info.reference.wait(timeout=5)
-        else:  # docker
-            subprocess.run(
-                ["docker", "stop", worker_info.name],
-                capture_output=True,
-                timeout=10,
-            )
-            subprocess.run(
-                ["docker", "rm", worker_info.name],
-                capture_output=True,
-            )
-    except Exception:
-        pass  # Best effort cleanup
+        server_process.wait()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopping server...[/yellow]")
+        server_process.terminate()
+        server_process.wait(timeout=5)
+        console.print("[green]✓[/green] Server stopped")

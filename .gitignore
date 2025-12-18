@@ -216,8 +216,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Container / Docker / Podman
-# Note: .env.template and docker-compose.yml at root are working files for development
-# Actual templates are in src/w2t_bkin/templates/ and bundled with the package
+# Worker configuration templates are in src/w2t_bkin/templates/ and bundled with the package
+# .env files may contain secrets and should not be committed
 .env
 .env.local
 *.env.override
@@ -226,3 +226,7 @@ postgres-data/
 prefect-data/
 .docker-build/
 .podman-build/
+
+# Worker Configuration
+# Exclude worker environment file (may contain secrets)
+.workers/.env

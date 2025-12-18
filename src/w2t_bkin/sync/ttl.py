@@ -121,6 +121,7 @@ def align_bpod_trials_to_ttl(
 
     Raises:
         SyncError: If trial_type config missing or data structure invalid
+        TypeError: If trial_type_configs is not a list
 
     Example:
         >>> from w2t_bkin.ttl import get_ttl_pulses
@@ -147,6 +148,10 @@ def align_bpod_trials_to_ttl(
         ... )
     """
     from w2t_bkin.utils import convert_matlab_struct, to_scalar
+
+    # Validate input types
+    if not isinstance(trial_type_configs, list):
+        raise TypeError(f"trial_type_configs must be a list, got {type(trial_type_configs).__name__}. " "Expected list of BpodTrialType configs from metadata.")
 
     # Validate Bpod structure
     if "SessionData" not in bpod_data:

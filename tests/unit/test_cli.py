@@ -123,9 +123,3 @@ class TestCLIUtils:
         assert display_session_result is not None
         assert display_batch_result is not None
         assert format_discoveries is not None
-
-    def test_generate_docker_env_import(self):
-        """Test that generate_docker_env can be imported."""
-        from w2t_bkin.cli.utils import generate_docker_env
-
-        assert generate_docker_env is not None

@@ -26,29 +26,26 @@ w2t-bkin server restart [OPTIONS]  # Restart server
 ### Server Start Options
 
 - `--config, -c PATH` - Default config file for deployments
-- `--work-pool, -w TEXT` - Work pool type (docker or local)
+- `--dev` - Development mode (serves flows locally with Runner, requires worker extras)
 - `--port, -p INT` - Prefect UI port (default: 4200)
 - `--browser/--no-browser` - Open browser automatically (default: true)
-- `--workers INT` - Number of workers to auto-start (default: 1, set to 0 to disable)
+- `--workers INT` - Number of Docker workers to auto-start (default: 1 for production, 0 for dev)
 - `--log-level TEXT` - Logging level (default: INFO)
 
 ### Examples
 
 ```bash
-# Start server with defaults (auto-starts 1 worker)
+# Production mode (default) - uses Docker workers
 w2t-bkin server start
 
-# Start with 4 workers for parallel processing
+# Start with 4 Docker workers for parallel processing
 w2t-bkin server start --workers 4
 
 # Start without auto-starting workers (manual setup)
 w2t-bkin server start --workers 0
 
-# Start with Docker work pool (workers run in containers)
-w2t-bkin server start --work-pool docker
-
-# Start with local work pool (workers run as subprocesses)
-w2t-bkin server start --work-pool local
+# Development mode - runs flows locally (requires worker extras)
+w2t-bkin server start --dev
 
 # Check server status
 w2t-bkin server status
@@ -59,53 +56,68 @@ w2t-bkin server stop
 
 ### What `server start` Does
 
+#### Production Mode (Default)
+
 1. **Starts Prefect Server** - Launches at `http://localhost:4200`
-2. **Creates Work Pool** - Docker or local based on detection/options
-3. **Creates Deployments** - Automatically creates:
+2. **Creates Work Pool** - Creates `docker-pool` (type: docker) for Docker-based execution
+3. **Creates Deployments** - Uses `.deploy()` to create:
    - `process-session` - Single session processing
    - `batch-process` - Batch processing
-4. **Auto-starts Workers** - Starts the specified number of workers (default: 1)
-   - **Docker workers**: Run in Docker containers (requires Docker running)
-   - **Local workers**: Run as subprocesses (requires `pip install -e ".[worker]"`)
+4. **Auto-starts Workers** - Starts the specified number of Docker workers (default: 1)
+   - Workers pull image from `.workers/.env` (default: `ghcr.io/borjaest/w2t-bkin:latest`)
+   - Each worker starts containers for flow runs
 5. **Opens Browser** - Automatically opens Prefect UI (unless `--no-browser`)
 
-The work pools are now **immediately ready** to accept and execute jobs!
+#### Development Mode (--dev)
+
+1. **Starts Prefect Server** - Launches at `http://localhost:4200`
+2. **Validates Worker Extras** - Checks that worker dependencies are installed
+3. **Serves Flows** - Uses Runner to serve flows in server process:
+   - `process-session` - Single session processing
+   - `batch-process` - Batch processing
+4. **Opens Browser** - Automatically opens Prefect UI (unless `--no-browser`)
+
+No work pool or workers needed - flows run directly in the server process!
+Runtime config is injected via `W2T_RUNTIME_CONFIG_JSON` environment variable (same as production).
 
 ### Worker Management
 
-**Auto-start (recommended)**:
+**Production Mode (Docker Workers)**:
+
+Auto-start (recommended):
 
 ```bash
-# Automatically starts 1 worker
+# Automatically starts 1 Docker worker
 w2t-bkin server start
 
 # Start with 4 workers for parallel processing
 w2t-bkin server start --workers 4
 ```
 
-**Manual setup** (if you disabled auto-start with `--workers 0`):
-
-**For Docker work pools**:
+Manual setup (if you disabled auto-start with `--workers 0`):
 
 ```bash
 # In a new terminal
-prefect worker start --pool docker-pool
-
-# Or using Docker container
-docker run -d --name w2t-worker \
-  -e PREFECT_API_URL=http://host.docker.internal:4200/api \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  --network host \
-  ghcr.io/borjaest/w2t-bkin:latest \
-  prefect worker start --pool docker-pool
+w2t-bkin worker start
 ```
 
-**For local work pools** (requires `pip install -e ".[worker]"`):
+Alternatively, use the raw Prefect command:
 
 ```bash
-# Manual start in new terminal
-prefect worker start --pool local-pool
+source .workers/.env
+prefect worker start --pool docker-pool --type docker
 ```
+
+````
+
+**Development Mode (No Workers)**:
+
+```bash
+# Development mode - flows run in server process
+w2t-bkin server start --dev
+
+# No worker needed - flows execute directly!
+````
 
 ---
 
@@ -113,9 +125,9 @@ prefect worker start --pool local-pool
 
 ### Single Session Processing
 
-**Via Prefect UI:**
+**Via Prefect UI (Production Mode):**
 
-1. Start server: `w2t-bkin server start` (workers auto-start by default)
+1. Start server: `w2t-bkin server start` (Docker workers auto-start by default)
 2. Navigate to `http://localhost:4200`
 3. Go to **Deployments** → **process-session**
 4. Click **Run**
@@ -129,6 +141,12 @@ prefect worker start --pool local-pool
 6. Click **Submit**
 7. Monitor in **Flow Runs** tab
 
+**Via Prefect UI (Development Mode):**
+
+Same as above, but start server with: `w2t-bkin server start --dev`
+
+Flows run directly in the server process - faster iteration, no Docker builds needed!
+
 **Via Python API:**
 
 ```python
@@ -141,7 +159,7 @@ config = SessionFlowConfig(
     session_id="session-001"
 )
 
-# Direct execution (no UI)
+# Direct execution (no UI, no Prefect)
 result = process_session_flow(config=config)
 ```
 
@@ -220,25 +238,6 @@ docker run -d \
   --name w2t-worker \
   ghcr.io/borjaest/w2t-bkin:latest
 ```
-
-### Local Workers (Optional)
-
-- **Performance**: Faster startup (no container overhead)
-- **Dependencies**: Requires `pip install w2t-bkin[worker]` (~630 MB)
-- **Setup**: Automatic work pool creation via `server start --work-pool local`
-- **Use case**: Development, debugging, or machines without Docker
-
-**Install and start local worker:**
-
-```bash
-# Install worker extras (DeepLabCut, FFmpeg, scipy, etc.)
-pip install w2t-bkin[worker]
-
-# Start worker (in separate terminal from server)
-prefect worker start --pool local-pool
-```
-
-**Note**: Local workers require all ML/video dependencies on the host machine. This can conflict with other Python environments. Docker workers are recommended for production.
 
 ---
 
