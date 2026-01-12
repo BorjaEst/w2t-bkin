@@ -225,6 +225,8 @@ def generate_figures_task(
     bpod_data: Optional[BpodData] = None,
     ttl_data: Optional[Dict[str, TTLData]] = None,
     pose_data: Optional[Dict[str, List[PoseData]]] = None,
+    nwb_path: Optional[Path] = None,
+    pipeline_profile_path: Optional[Path] = None,
 ) -> List[Path]:
     """Generate diagnostic figures for the session.
 
@@ -235,6 +237,8 @@ def generate_figures_task(
         bpod_data: Bpod behavioral data
         ttl_data: TTL pulse data
         pose_data: Pose estimation data
+        nwb_path: Optional path to NWB file for ecephys plots
+        pipeline_profile_path: Optional path to pipeline_profile.json for execution plot
 
     Returns:
         List of generated figure paths
@@ -267,6 +271,57 @@ def generate_figures_task(
             return False
         logger.info(f"OK {name}: {path.name} ({path.stat().st_size} bytes)")
         return True
+
+    # ========================================================================
+    # 0. Pipeline Execution Profile
+    # ========================================================================
+    figure_name = "pipeline_execution"
+    attempted_count += 1
+    logger.info(f"Attempting {figure_name}")
+
+    if pipeline_profile_path is None or not pipeline_profile_path.exists():
+        reason = f"{figure_name}: pipeline_profile.json not available"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        try:
+            from w2t_bkin.figures import PipelineProfile, plot_pipeline_execution
+            from w2t_bkin.utils import read_json
+
+            profile_data = read_json(pipeline_profile_path)
+            # Reconstruct PipelineProfile from JSON
+            from w2t_bkin.figures.profiling import PhaseProfile
+
+            phases = [
+                PhaseProfile(
+                    phase_id=p["phase_id"],
+                    phase_name=p["phase_name"],
+                    start_time=p["start_time"],
+                    end_time=p["end_time"],
+                    duration=p["duration"],
+                    success=p["success"],
+                    error_message=p.get("error_message"),
+                )
+                for p in profile_data.get("phases", [])
+            ]
+            profile = PipelineProfile(
+                subject_id=profile_data.get("subject_id", "unknown"),
+                session_id=profile_data.get("session_id", "unknown"),
+                total_duration=profile_data.get("total_duration", 0.0),
+                phases=phases,
+            )
+
+            logger.info(f"  profile: {len(phases)} phases, {profile.total_duration:.1f}s total")
+            path = plot_pipeline_execution(profile, figures_dir / "pipeline_execution.png")
+            if _validate_figure(path, figure_name):
+                generated_files.append(path)
+            else:
+                reason = f"{figure_name}: returned None"
+                logger.info(f"SKIP {reason}")
+                skip_reasons.append(reason)
+        except Exception as e:
+            failed_count += 1
+            logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
 
     # ========================================================================
     # 1. Synchronization Stats
@@ -505,6 +560,149 @@ def generate_figures_task(
                 except Exception as e:
                     failed_count += 1
                     logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
+
+    # ========================================================================
+    # 8. Ecephys QC Plots (from NWB)
+    # ========================================================================
+    if nwb_path is None or not nwb_path.exists():
+        figure_name = "ecephys_plots"
+        attempted_count += 1
+        logger.info(f"Attempting {figure_name}")
+        reason = f"{figure_name}: nwb_path not available"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        try:
+            from pynwb import NWBHDF5IO
+
+            from w2t_bkin.figures import plot_electrode_locations, plot_firing_rate_distribution, plot_spike_raster, plot_unit_quality_metrics
+
+            logger.info(f"  nwb_path: {nwb_path}")
+
+            with NWBHDF5IO(str(nwb_path), mode="r", load_namespaces=True) as io:
+                nwbfile_read = io.read()
+
+                # Check for electrodes
+                has_electrodes = hasattr(nwbfile_read, "electrodes") and nwbfile_read.electrodes is not None
+                # Check for units
+                has_units = hasattr(nwbfile_read, "units") and nwbfile_read.units is not None
+
+                logger.info(f"  has_electrodes: {has_electrodes}, has_units: {has_units}")
+
+                # 8a. Electrode locations
+                if has_electrodes and len(nwbfile_read.electrodes) > 0:
+                    figure_name = "electrode_locations"
+                    attempted_count += 1
+                    logger.info(f"Attempting {figure_name}")
+
+                    try:
+                        electrodes_df = nwbfile_read.electrodes.to_dataframe()
+                        logger.info(f"  electrodes: {len(electrodes_df)} channels")
+
+                        # Check required columns
+                        if "x" in electrodes_df.columns and "y" in electrodes_df.columns:
+                            path = plot_electrode_locations(electrodes_df, out_path=figures_dir / "electrode_locations.png")
+                            if _validate_figure(path, figure_name):
+                                generated_files.append(path)
+                            else:
+                                reason = f"{figure_name}: returned None"
+                                logger.info(f"SKIP {reason}")
+                                skip_reasons.append(reason)
+                        else:
+                            reason = f"{figure_name}: missing x/y coordinates in electrodes table"
+                            logger.info(f"SKIP {reason}")
+                            skip_reasons.append(reason)
+                    except Exception as e:
+                        failed_count += 1
+                        logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
+
+                # 8b-d. Unit-based plots
+                if has_units and len(nwbfile_read.units) > 0:
+                    units_df = nwbfile_read.units.to_dataframe()
+                    n_units = len(units_df)
+                    logger.info(f"  units: {n_units}")
+
+                    # Check for spike_times column
+                    if "spike_times" not in units_df.columns:
+                        reason = f"ecephys_units: missing spike_times column"
+                        logger.info(f"SKIP {reason}")
+                        skip_reasons.append(reason)
+                    else:
+                        # Get recording duration from session_start_time and timestamps
+                        recording_duration = nwbfile_read.session_start_time.timestamp() if hasattr(nwbfile_read, "session_start_time") else 3600.0
+                        # Better estimate from actual spike times
+                        all_spike_times = []
+                        for _, row in units_df.iterrows():
+                            if len(row["spike_times"]) > 0:
+                                all_spike_times.extend(row["spike_times"])
+                        if all_spike_times:
+                            recording_duration = max(all_spike_times)
+
+                        logger.info(f"  recording_duration: {recording_duration:.1f}s")
+
+                        # 8b. Spike raster (dynamically limit to first 50 units)
+                        figure_name = "spike_raster"
+                        attempted_count += 1
+                        logger.info(f"Attempting {figure_name}")
+
+                        max_units_raster = min(50, n_units)
+                        logger.info(f"  plotting first {max_units_raster} of {n_units} units")
+
+                        try:
+                            path = plot_spike_raster(units_df, out_path=figures_dir / "spike_raster.png", max_units=max_units_raster)
+                            if _validate_figure(path, figure_name):
+                                generated_files.append(path)
+                            else:
+                                reason = f"{figure_name}: returned None"
+                                logger.info(f"SKIP {reason}")
+                                skip_reasons.append(reason)
+                        except Exception as e:
+                            failed_count += 1
+                            logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
+
+                        # 8c. Firing rate distribution
+                        figure_name = "firing_rate_distribution"
+                        attempted_count += 1
+                        logger.info(f"Attempting {figure_name}")
+
+                        try:
+                            path = plot_firing_rate_distribution(units_df, out_path=figures_dir / "firing_rate_distribution.png", recording_duration=recording_duration)
+                            if _validate_figure(path, figure_name):
+                                generated_files.append(path)
+                            else:
+                                reason = f"{figure_name}: returned None"
+                                logger.info(f"SKIP {reason}")
+                                skip_reasons.append(reason)
+                        except Exception as e:
+                            failed_count += 1
+                            logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
+
+                        # 8d. Unit quality metrics (silently skips if columns missing)
+                        figure_name = "unit_quality_metrics"
+                        attempted_count += 1
+                        logger.info(f"Attempting {figure_name}")
+
+                        required_cols = ["contamination_pct", "amplitude"]
+                        if not all(col in units_df.columns for col in required_cols):
+                            reason = f"{figure_name}: missing required columns {required_cols}"
+                            logger.info(f"SKIP {reason}")
+                            skip_reasons.append(reason)
+                        else:
+                            try:
+                                path = plot_unit_quality_metrics(units_df, out_path=figures_dir / "unit_quality_metrics.png")
+                                if _validate_figure(path, figure_name):
+                                    generated_files.append(path)
+                                else:
+                                    reason = f"{figure_name}: returned None"
+                                    logger.info(f"SKIP {reason}")
+                                    skip_reasons.append(reason)
+                            except Exception as e:
+                                failed_count += 1
+                                logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
+
+        except Exception as e:
+            failed_count += 1
+            logger.warning(f"FAILED ecephys_plots: {e}", exc_info=True)
 
     # ========================================================================
     # Summary

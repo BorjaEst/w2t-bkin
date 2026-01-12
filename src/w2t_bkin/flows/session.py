@@ -304,6 +304,9 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
 
         # Generate diagnostic figures
         try:
+            nwb_path = finalization_result.get("nwb_path")
+            pipeline_profile_path = session_config.output_dir / "pipeline_profile.json"
+
             figure_paths = generate_figures_task(
                 output_dir=session_config.output_dir,
                 alignment_stats=alignment_stats,
@@ -311,6 +314,8 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
                 bpod_data=bpod_data,
                 ttl_data=ttl_data,
                 pose_data=pose_data,
+                nwb_path=nwb_path,
+                pipeline_profile_path=pipeline_profile_path if pipeline_profile_path.exists() else None,
             )
             run_logger.info(f"Generated {len(figure_paths)} diagnostic figures")
         except Exception as e:
