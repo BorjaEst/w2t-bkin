@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from prefect import flow, get_run_logger
+from prefect.runtime import flow_run as flow_run_runtime
 from pynwb import NWBFile
 
 from w2t_bkin import utils
@@ -368,15 +369,27 @@ def process_session_flow(config: SessionFlowConfig) -> SessionResult:
             session_id=session_id,
         )
 
-        # Setup file logging to pipeline.log
+        # Setup file logging to pipeline.log with Prefect flow-run isolation
         log_file = session_config.output_dir / "pipeline.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_file, mode="w")
         file_handler.setLevel(logging.INFO)
         formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         file_handler.setFormatter(formatter)
-        logging.getLogger("w2t_bkin").addHandler(file_handler)
-        run_logger.info(f"File logging enabled: {log_file}")  # Apply configuration overrides from SessionFlowConfig (outside PhaseTimer)
+
+        # Bind handler to current Prefect flow-run context to prevent cross-session contamination
+        try:
+            flow_run_id = flow_run_runtime.id
+            if flow_run_id is None:
+                raise RuntimeError("No Prefect flow run context available")
+            flow_run_filter = utils.PrefectFlowRunFilter(flow_run_id)
+            file_handler.addFilter(flow_run_filter)
+            run_logger.info(f"File logging enabled: {log_file} (bound to flow-run {flow_run_id})")
+        except Exception as e:
+            # Fallback if no Prefect context (e.g., running outside flow for testing)
+            run_logger.warning(f"File logging enabled without Prefect context isolation: {log_file} ({e})")
+
+        logging.getLogger("w2t_bkin").addHandler(file_handler)  # Apply configuration overrides from SessionFlowConfig (outside PhaseTimer)
         if config.force_rerun is not None:
             run_logger.info(f"Overriding force_rerun: {config.force_rerun}")
             session_config.config.preprocessing.force_rerun = config.force_rerun

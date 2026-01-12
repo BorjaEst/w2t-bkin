@@ -369,10 +369,12 @@ For each session, two identical log files are created:
 ### Logging Behavior
 
 - **Automatic Creation:** Log files are created automatically after Phase 0 (initialization)
-- **Content:** Only WARNING and ERROR level messages
+- **Content:** INFO, WARNING, and ERROR level messages from the session's Prefect flow-run context
 - **Format:** Standard log format with timestamp, level, logger name, and message
 - **Lifecycle:** Handlers are cleaned up after pipeline completion
 - **Purpose:** Easy troubleshooting of specific session issues in batch processing
+- **Concurrency Safe:** When multiple sessions run concurrently (batch processing), each session's logs are isolated to its own `pipeline.log` file via Prefect flow-run context filtering
+- **Scope:** Only logs emitted within the session's Prefect flow-run are captured; logs from import-time or background threads outside the flow context remain in Prefect's run logs only
 
 ### Log Format
 

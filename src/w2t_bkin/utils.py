@@ -50,6 +50,7 @@ Video Analysis:
 
 Logging:
 - configure_logger: Set up structured or standard logging
+- PrefectFlowRunFilter: Filter log records by Prefect flow-run context (prevents cross-session contamination)
 
 Requirements:
 -------------
@@ -729,6 +730,63 @@ def read_json(path: Union[str, Path]) -> Dict[str, Any]:
     """
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+class PrefectFlowRunFilter(logging.Filter):
+    """Logging filter that accepts only records from a specific Prefect flow run.
+
+    Prevents cross-session log contamination when multiple sessions run concurrently
+    in the same worker process. Each session's pipeline.log file handler is bound to
+    its flow-run context via this filter.
+
+    Logs emitted outside any Prefect flow-run context are rejected (they remain in
+    Prefect's run logs but don't pollute session-specific files).
+
+    Args:
+        flow_run_id: The Prefect flow run ID to accept records from.
+                     If None, accepts all records (no filtering).
+
+    Example:
+        >>> from prefect.context import get_run_context
+        >>> ctx = get_run_context()
+        >>> flow_run_filter = PrefectFlowRunFilter(ctx.flow_run.id)
+        >>> handler.addFilter(flow_run_filter)
+    """
+
+    def __init__(self, flow_run_id: Optional[str] = None):
+        super().__init__()
+        self.flow_run_id = flow_run_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Accept record only if it originates from our flow-run context.
+
+        Args:
+            record: Log record to evaluate
+
+        Returns:
+            True if record should be logged, False otherwise
+        """
+        # If no flow_run_id set, accept all records (fallback for non-Prefect usage)
+        if self.flow_run_id is None:
+            return True
+
+        try:
+            # Import here to avoid hard dependency on prefect for utils module
+            from prefect.runtime import flow_run
+
+            # Get current flow run ID from runtime (works in tasks/threads)
+            current_id = flow_run.id
+            if current_id is None:
+                # No flow run context available
+                return False
+
+            # Accept record only if it's from our flow run
+            # Convert both to string to handle UUID vs str comparison
+            return str(current_id) == str(self.flow_run_id)
+        except Exception:
+            # No Prefect runtime available (import-time logs, background threads, etc.)
+            # Reject these records; they'll still appear in Prefect run logs
+            return False
 
 
 def configure_logger(name: str, level: str = "INFO", structured: bool = False) -> logging.Logger:
