@@ -621,9 +621,15 @@ def _handle_prod_mode(config_path: Optional[Path], project_root: Path) -> None:
 def _create_work_pool(project_root: Path) -> None:
     """Create Prefect Docker work pool with volume mounts.
 
+    Ensures volume mounts are configured even if the pool already exists.
+    This function is idempotent and safe to call multiple times.
+
     Args:
         project_root: Experiment/project root directory (cwd when server starts)
     """
+    import json
+    import tempfile
+
     pool_name = "docker-pool"
 
     # Check if pool already exists
@@ -633,20 +639,20 @@ def _create_work_pool(project_root: Path) -> None:
         text=True,
     )
 
-    if result.returncode == 0:
-        console.print(f"[dim]  Work pool '{pool_name}' already exists[/dim]")
-        # Note: Existing pools won't auto-update their job template.
-        # Users can update via UI or delete+recreate the pool.
-        return
+    pool_exists = result.returncode == 0
 
-    # Create docker-type work pool
-    subprocess.run(
-        _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", "docker"],
-        check=True,
-        capture_output=True,
-    )
+    if not pool_exists:
+        # Create docker-type work pool
+        console.print(f"[dim]  Creating work pool '{pool_name}'...[/dim]")
+        subprocess.run(
+            _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", "docker"],
+            check=True,
+            capture_output=True,
+        )
+    else:
+        console.print(f"[dim]  Work pool '{pool_name}' already exists, updating volume configuration...[/dim]")
 
-    # Update work pool job template to include volume mounts
+    # Build volume mount list
     # Mount project data directories into container at fixed paths
     volumes = [
         f"{project_root / 'data'}:/data:rw",
@@ -658,24 +664,23 @@ def _create_work_pool(project_root: Path) -> None:
     if (project_root / "configuration.toml").exists():
         volumes.append(f"{project_root / 'configuration.toml'}:/configs/configuration.toml:ro")
 
-    # Build JSON patch to update job template
-    # Prefect 3 work pools use a 'job_configuration' or 'variables' field
-    # For Docker worker, we set 'volumes' in the base job variables
-    import json
+    # Get default base job template to avoid clobbering required fields
+    default_template_result = subprocess.run(
+        _get_prefect_cmd() + ["work-pool", "get-default-base-job-template", "--type", "docker"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    base_template = json.loads(default_template_result.stdout)
 
-    job_template_patch = {
-        "base_job_template": {
-            "job_configuration": {
-                "volumes": volumes,
-            }
-        }
-    }
+    # Inject volumes into job_configuration
+    if "job_configuration" not in base_template:
+        base_template["job_configuration"] = {}
+    base_template["job_configuration"]["volumes"] = volumes
 
     # Write to temp file and apply via prefect work-pool set-base-job-template
-    import tempfile
-
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(job_template_patch["base_job_template"], f)
+        json.dump(base_template, f)
         temp_path = f.name
 
     try:
@@ -685,6 +690,7 @@ def _create_work_pool(project_root: Path) -> None:
             capture_output=True,
         )
         console.print(f"[dim]  ✓ Configured volume mounts for '{pool_name}'[/dim]")
+        console.print(f"[dim]    Volumes: {len(volumes)} mounts[/dim]")
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
@@ -711,6 +717,15 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
     console.print(f"[dim]  Docker image: {docker_image}[/dim]")
     console.print(f"[dim]  Using container-native paths (/data, /models, /output)[/dim]")
 
+    # Build volume mount list (per-deployment fallback)
+    volumes = [
+        f"{project_root / 'data'}:/data:rw",
+        f"{project_root / 'models'}:/models:ro",
+        f"{project_root / 'output'}:/output:rw",
+    ]
+    if (project_root / "configuration.toml").exists():
+        volumes.append(f"{project_root / 'configuration.toml'}:/configs/configuration.toml:ro")
+
     original_cwd = Path.cwd()
     try:
         os.chdir(package_root)
@@ -724,7 +739,8 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
             "job_variables": {
                 "env": {
                     "W2T_RUNTIME_CONFIG_JSON": config_json,
-                }
+                },
+                "volumes": volumes,  # Per-deployment fallback for volume mounts
             },
             "tags": ["w2t-bkin", "production"],
             "version": "1.0.0",

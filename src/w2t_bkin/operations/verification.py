@@ -119,7 +119,16 @@ def verify_camera_ttl_sync(
             logger.debug(f"  {camera_id}: No TTL sync configured (skipping)")
             continue
 
-        # Check if we have frame count for this camera
+        # Check if camera is optional and missing/empty
+        is_optional = camera.get("optional", False)
+        camera_frame_count = frame_counts.get(camera_id, 0)
+
+        # Skip optional cameras with no discovered videos (frame_count=0 or missing)
+        if is_optional and camera_frame_count == 0:
+            logger.warning(f"  {camera_id}: Optional camera has no videos (skipping verification)")
+            continue
+
+        # Check if we have frame count for this camera (non-optional or optional with videos)
         if camera_id not in frame_counts:
             raise VerificationError(
                 f"No frame count available for camera '{camera_id}'",
@@ -130,7 +139,7 @@ def verify_camera_ttl_sync(
         # Check if TTL channel exists
         if ttl_id not in ttl_counts:
             # Check if camera is optional
-            if camera.get("optional", False):
+            if is_optional:
                 logger.warning(f"  {camera_id}: TTL channel '{ttl_id}' not found (camera is optional, skipping)")
                 continue
             else:
@@ -140,7 +149,7 @@ def verify_camera_ttl_sync(
         verify_sync_counts(
             camera_id=camera_id,
             ttl_id=ttl_id,
-            frame_count=frame_counts[camera_id],
+            frame_count=camera_frame_count,
             pulse_count=ttl_counts[ttl_id],
             tolerance=tolerance,
         )

@@ -113,7 +113,7 @@ class SessionFlowConfig(BaseModel):
         description="Skip extracellular electrophysiology (Neuropixels) processing",
     )
     skip_camera_sync: bool = Field(
-        False,
+        True,
         description="Skip camera-TTL frame counting and synchronization verification (speeds up processing)",
     )
     skip_nwb_validation: bool = Field(
