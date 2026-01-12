@@ -250,83 +250,280 @@ def generate_figures_task(
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     generated_files = []
+    skip_reasons = []
+    attempted_count = 0
+    failed_count = 0
 
+    # Helper to validate generated file
+    def _validate_figure(path: Optional[Path], name: str) -> bool:
+        """Validate that figure was generated successfully."""
+        if path is None:
+            return False
+        if not path.exists():
+            logger.warning(f"WARN {name}: returned path but file does not exist: {path}")
+            return False
+        if path.stat().st_size == 0:
+            logger.warning(f"WARN {name}: generated file is empty: {path}")
+            return False
+        logger.info(f"OK {name}: {path.name} ({path.stat().st_size} bytes)")
+        return True
+
+    # ========================================================================
     # 1. Synchronization Stats
-    if alignment_stats:
-        try:
-            path = plot_synchronization_stats(alignment_stats, figures_dir / "synchronization_stats.png")
-            if path:
-                generated_files.append(path)
-        except Exception as e:
-            logger.warning(f"Failed to plot synchronization stats: {e}")
+    # ========================================================================
+    figure_name = "synchronization_stats"
+    attempted_count += 1
+    logger.info(f"Attempting {figure_name}")
 
-    # 3. TTL Timeline
-    if ttl_data:
+    if alignment_stats is None:
+        reason = f"{figure_name}: alignment_stats is None"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    elif not isinstance(alignment_stats, dict):
+        reason = f"{figure_name}: alignment_stats is not a dict (type={type(alignment_stats).__name__})"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        # Log input details
+        stats_keys = list(alignment_stats.keys())
+        trial_offsets_count = len(alignment_stats.get("trial_offsets", {}))
+        ttl_channels_count = len(alignment_stats.get("ttl_channels", {}))
+        logger.info(f"  alignment_stats keys: {stats_keys}")
+        logger.info(f"  trial_offsets: {trial_offsets_count}, ttl_channels: {ttl_channels_count}")
+
+        if not alignment_stats.get("trial_offsets") and not alignment_stats.get("ttl_channels"):
+            reason = f"{figure_name}: alignment_stats has no trial_offsets or ttl_channels"
+            logger.info(f"SKIP {reason}")
+            skip_reasons.append(reason)
+        else:
+            try:
+                path = plot_synchronization_stats(alignment_stats, figures_dir / "synchronization_stats.png")
+                if _validate_figure(path, figure_name):
+                    generated_files.append(path)
+                else:
+                    reason = f"{figure_name}: returned None"
+                    logger.info(f"SKIP {reason}")
+                    skip_reasons.append(reason)
+            except Exception as e:
+                failed_count += 1
+                logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
+
+    # ========================================================================
+    # 2. TTL Timeline
+    # ========================================================================
+    figure_name = "ttl_timeline"
+    attempted_count += 1
+    logger.info(f"Attempting {figure_name}")
+
+    if ttl_data is None or len(ttl_data) == 0:
+        reason = f"{figure_name}: ttl_data is None or empty"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        # Log input details
+        ttl_channels = list(ttl_data.keys())
+        pulse_counts = {k: len(v.timestamps) for k, v in ttl_data.items()}
+        logger.info(f"  ttl_channels: {ttl_channels}")
+        logger.info(f"  pulse_counts: {pulse_counts}")
+
         try:
-            # Convert TTLData objects to dict of timestamps
             ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
             path = plot_ttl_timeline(ttl_pulses=ttl_pulses, out_path=figures_dir / "ttl_timeline.png")
-            if path:
+            if _validate_figure(path, figure_name):
                 generated_files.append(path)
+            else:
+                reason = f"{figure_name}: returned None"
+                logger.info(f"SKIP {reason}")
+                skip_reasons.append(reason)
         except Exception as e:
-            logger.warning(f"Failed to plot TTL timeline: {e}")
+            failed_count += 1
+            logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
 
-        # TTL Inter-pulse intervals
+    # ========================================================================
+    # 3. TTL Inter-pulse Intervals
+    # ========================================================================
+    figure_name = "ttl_inter_pulse_intervals"
+    attempted_count += 1
+    logger.info(f"Attempting {figure_name}")
+
+    if ttl_data is None or len(ttl_data) == 0:
+        reason = f"{figure_name}: ttl_data is None or empty"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        logger.info(f"  ttl_channels: {list(ttl_data.keys())}")
         try:
-            # Convert TTLData objects to dict of timestamps
             ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
             # TODO: Extract expected_fps from camera config for better diagnostics
             path = plot_ttl_inter_pulse_intervals(ttl_pulses, None, figures_dir / "ttl_inter_pulse_intervals.png")
-            if path:
+            if _validate_figure(path, figure_name):
                 generated_files.append(path)
+            else:
+                reason = f"{figure_name}: returned None"
+                logger.info(f"SKIP {reason}")
+                skip_reasons.append(reason)
         except Exception as e:
-            logger.warning(f"Failed to plot TTL inter-pulse intervals: {e}")
+            failed_count += 1
+            logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
 
+    # ========================================================================
     # 4. Trial Offsets
-    if trial_alignment:
+    # ========================================================================
+    figure_name = "trial_offsets"
+    attempted_count += 1
+    logger.info(f"Attempting {figure_name}")
+
+    if trial_alignment is None:
+        reason = f"{figure_name}: trial_alignment is None"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    elif not hasattr(trial_alignment, "trial_offsets") or not trial_alignment.trial_offsets:
+        reason = f"{figure_name}: trial_alignment has no trial_offsets"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        # Log input details
+        n_offsets = len(trial_alignment.trial_offsets)
+        logger.info(f"  trial_offsets: {n_offsets} trials")
+
         try:
             path = plot_trial_offsets(trial_alignment.trial_offsets, out_path=figures_dir / "trial_offsets.png")
-            if path:
+            if _validate_figure(path, figure_name):
                 generated_files.append(path)
+            else:
+                reason = f"{figure_name}: returned None"
+                logger.info(f"SKIP {reason}")
+                skip_reasons.append(reason)
         except Exception as e:
-            logger.warning(f"Failed to plot trial offsets: {e}")
+            failed_count += 1
+            logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
 
-    # 5. Alignment Grid/Example
-    if trial_alignment and bpod_data and ttl_data:
-        try:
-            ttl_pulses = {k: v.timestamps for k, v in ttl_data.items()}
-            # Note: plot_alignment_grid requires trials_info list which is complex to build here.
-            # Skipping for now to avoid complexity, relying on sync_quality_and_completeness
-            pass
-        except Exception as e:
-            logger.warning(f"Failed to plot alignment grid: {e}")
+    # ========================================================================
+    # 5. Alignment Grid (Not Implemented)
+    # ========================================================================
+    figure_name = "alignment_grid"
+    attempted_count += 1
+    logger.info(f"Attempting {figure_name}")
+    reason = f"{figure_name}: not implemented (requires complex trials_info construction)"
+    logger.info(f"SKIP {reason}")
+    skip_reasons.append(reason)
 
+    # ========================================================================
     # 6. Sync Quality and Completeness
-    if trial_alignment and bpod_data:
+    # ========================================================================
+    figure_name = "sync_quality_and_completeness"
+    attempted_count += 1
+    logger.info(f"Attempting {figure_name}")
+
+    if trial_alignment is None:
+        reason = f"{figure_name}: trial_alignment is None"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    elif not hasattr(trial_alignment, "trial_offsets") or not trial_alignment.trial_offsets:
+        reason = f"{figure_name}: trial_alignment has no trial_offsets"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    elif len(trial_alignment.trial_offsets) < 3:
+        reason = f"{figure_name}: insufficient trial_offsets ({len(trial_alignment.trial_offsets)} < 3)"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    elif bpod_data is None:
+        reason = f"{figure_name}: bpod_data is None"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        # Log input details
+        n_offsets = len(trial_alignment.trial_offsets)
+        n_trials_bpod = bpod_data.n_trials
+        logger.info(f"  trial_offsets: {n_offsets}, bpod_trials: {n_trials_bpod}")
+
         try:
-            # Build per-trial data availability tracking
             data_streams = _build_data_streams(bpod_data, ttl_data, pose_data, trial_alignment)
+            if data_streams:
+                logger.info(f"  data_streams: {list(data_streams.keys())}")
             path = plot_sync_quality_and_completeness(
                 trial_alignment.trial_offsets,
                 data_streams,
                 figures_dir / "sync_quality_and_completeness.png",
                 csv_output_dir=figures_dir,
             )
-            if path:
+            if _validate_figure(path, figure_name):
                 generated_files.append(path)
+            else:
+                reason = f"{figure_name}: returned None"
+                logger.info(f"SKIP {reason}")
+                skip_reasons.append(reason)
         except Exception as e:
-            logger.warning(f"Failed to plot sync quality: {e}")
+            failed_count += 1
+            logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
 
+    # ========================================================================
     # 7. Pose Keypoints
-    if pose_data:
+    # ========================================================================
+    if pose_data is None or len(pose_data) == 0:
+        figure_name = "pose_keypoints"
+        attempted_count += 1
+        logger.info(f"Attempting {figure_name}")
+        reason = f"{figure_name}: pose_data is None or empty"
+        logger.info(f"SKIP {reason}")
+        skip_reasons.append(reason)
+    else:
+        pose_cameras = list(pose_data.keys())
+        logger.info(f"  pose_cameras: {pose_cameras}")
+
         for camera_id, poses in pose_data.items():
             for i, pose in enumerate(poses):
+                figure_name = f"pose_keypoints_{camera_id}_{i}"
+                attempted_count += 1
+                logger.info(f"Attempting {figure_name}")
+
+                # Preflight checks
+                if not hasattr(pose, "video_path"):
+                    reason = f"{figure_name}: pose has no video_path attribute"
+                    logger.info(f"SKIP {reason}")
+                    skip_reasons.append(reason)
+                    continue
+
+                video_path = pose.video_path
+                if not Path(video_path).exists():
+                    reason = f"{figure_name}: video does not exist: {video_path}"
+                    logger.info(f"SKIP {reason}")
+                    skip_reasons.append(reason)
+                    continue
+
+                logger.info(f"  video_path: {video_path}")
+                logger.info(f"  frames: {len(pose.frames) if hasattr(pose, 'frames') else 'N/A'}")
+
                 try:
-                    # Assuming pose is PoseData
                     path = plot_pose_keypoints_grid(bundle=pose, video_path=pose.video_path, out_path=figures_dir / f"pose_keypoints_{camera_id}_{i}.png")
-                    if path:
+                    if _validate_figure(path, figure_name):
                         generated_files.append(path)
+                    else:
+                        reason = f"{figure_name}: returned None (video may not be openable)"
+                        logger.info(f"SKIP {reason}")
+                        skip_reasons.append(reason)
                 except Exception as e:
-                    logger.warning(f"Failed to plot pose keypoints for {camera_id}: {e}")
+                    failed_count += 1
+                    logger.warning(f"FAILED {figure_name}: {e}", exc_info=True)
+
+    # ========================================================================
+    # Summary
+    # ========================================================================
+    generated_count = len(generated_files)
+    skipped_count = len(skip_reasons)
+
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Figure Generation Summary:")
+    logger.info(f"  Attempted: {attempted_count}")
+    logger.info(f"  Generated: {generated_count}")
+    logger.info(f"  Skipped:   {skipped_count}")
+    logger.info(f"  Failed:    {failed_count}")
+
+    if skip_reasons:
+        logger.info(f"\nSkip Reasons:")
+        for reason in skip_reasons:
+            logger.info(f"  - {reason}")
+
+    logger.info(f"{'='*60}\n")
 
     return generated_files

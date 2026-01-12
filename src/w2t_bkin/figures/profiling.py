@@ -267,10 +267,16 @@ def plot_synchronization_stats(alignment_stats: Optional[Dict[str, Any]], save_p
     Returns:
         Path to saved plot, or None if matplotlib unavailable or no data
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if plt is None or GridSpec is None:
+        logger.info("plot_synchronization_stats: matplotlib or GridSpec not available")
         return None
 
     if alignment_stats is None:
+        logger.info("plot_synchronization_stats: alignment_stats is None")
         return None
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -281,6 +287,7 @@ def plot_synchronization_stats(alignment_stats: Optional[Dict[str, Any]], save_p
     statistics = alignment_stats.get("statistics", {})
 
     if not trial_offsets and not ttl_channels and not statistics:
+        logger.info(f"plot_synchronization_stats: all data fields empty (trial_offsets={len(trial_offsets)}, ttl_channels={len(ttl_channels)}, statistics={bool(statistics)})")
         return None
 
     # Create figure with 4 panels
@@ -586,10 +593,16 @@ def plot_sync_quality_and_completeness(
         - Session pause: Step change with new stable baseline
         - Good alignment: Low rolling STD, small deltas
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if plt is None or GridSpec is None:
+        logger.info("plot_sync_quality_and_completeness: matplotlib or GridSpec not available")
         return None
 
     if not trial_offsets or len(trial_offsets) < 3:
+        logger.info(f"plot_sync_quality_and_completeness: insufficient trial_offsets (count={len(trial_offsets) if trial_offsets else 0}, minimum=3)")
         return None
 
     save_path.parent.mkdir(parents=True, exist_ok=True)

@@ -132,9 +132,11 @@ RUN mkdir -p src/w2t_bkin && \
 # Step 5: NOW copy the actual source code AND real README.md, then reinstall
 # This step is FAST because all dependencies are already installed
 # Only rebuilds when src/ or README.md changes (30 seconds)
+# CRITICAL: Use --no-deps to prevent reinstalling dependencies (e.g., torch)
+# All deps were installed in Step 4; this only updates the editable package code
 COPY --chown=w2t:w2t src/ ./src/
 COPY --chown=w2t:w2t README.md ./
-RUN pip install --no-cache-dir -e .[worker] && \
+RUN pip install --no-cache-dir --no-deps -e . && \
     pip cache purge
 
 # Remove build dependencies to reduce image size

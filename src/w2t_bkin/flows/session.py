@@ -298,9 +298,6 @@ def _assemble_pose_data(nwbfile, pose_data, session_config, ttl_data, run_logger
     run_logger.info(f"Assembled pose data for {len(pose_data)} cameras")
 
 
-import os
-
-
 @flow(
     name="process-session",
     description="Process single session with atomic task orchestration",

@@ -463,11 +463,13 @@ def _open_ui(port: int, open_browser: bool) -> str:
 # ============================================================================
 
 
-def _load_and_normalize_config(config_path: Optional[Path]) -> Tuple[dict, str]:
-    """Load and merge base + project config, normalize paths to absolute.
+def _load_and_normalize_config(config_path: Optional[Path], for_container: bool = False) -> Tuple[dict, str]:
+    """Load and merge base + project config, normalize paths.
 
     Args:
         config_path: Optional project config path (merged on top of base)
+        for_container: If True, use container-native paths (/data, /models, etc.)
+                      instead of host absolute paths. Required for Docker deployments.
 
     Returns:
         Tuple of (merged_config_dict, config_json_string)
@@ -493,13 +495,32 @@ def _load_and_normalize_config(config_path: Optional[Path]) -> Tuple[dict, str]:
         project_dict = read_toml(project_config_path)
         recursive_dict_update(merged_config, project_dict)
 
-    # Resolve paths to absolute paths
+    # Resolve paths: container-native or host-absolute
     if "paths" in merged_config:
         paths = merged_config["paths"]
-        for key in ["raw_root", "intermediate_root", "output_root", "models_root", "root_metadata"]:
-            if key in paths and paths[key]:
-                resolved = (original_cwd / paths[key]).resolve()
-                paths[key] = str(resolved)
+
+        if for_container:
+            # Use container-native paths (Docker volumes will mount host paths here)
+            # These are fixed paths inside the container that match Dockerfile VOLUME declarations
+            container_path_map = {
+                "raw_root": "/data/raw",
+                "intermediate_root": "/data/interim",
+                "output_root": "/output",
+                "models_root": "/models",
+            }
+            for key, container_path in container_path_map.items():
+                if key in paths:
+                    paths[key] = container_path
+            # root_metadata: only set if user explicitly provided it
+            if "root_metadata" in paths and paths["root_metadata"]:
+                # Assume it's under /configs if specified
+                paths["root_metadata"] = "/configs/metadata.toml"
+        else:
+            # Resolve to host absolute paths (dev mode, local execution)
+            for key in ["raw_root", "intermediate_root", "output_root", "models_root", "root_metadata"]:
+                if key in paths and paths[key]:
+                    resolved = (original_cwd / paths[key]).resolve()
+                    paths[key] = str(resolved)
 
     config_json = json.dumps(merged_config)
     return merged_config, config_json
@@ -587,7 +608,7 @@ def _handle_prod_mode(config_path: Optional[Path], project_root: Path) -> None:
         project_root: Experiment/project root directory (cwd)
     """
     console.print("[cyan]Creating work pool 'docker-pool'...[/cyan]")
-    _create_work_pool()
+    _create_work_pool(project_root)
     console.print("[green]✓[/green] Work pool created\n")
 
     console.print("[cyan]Deploying flows with Docker image...[/cyan]")
@@ -597,8 +618,12 @@ def _handle_prod_mode(config_path: Optional[Path], project_root: Path) -> None:
     _print_manual_worker_instructions()
 
 
-def _create_work_pool() -> None:
-    """Create Prefect Docker work pool idempotently."""
+def _create_work_pool(project_root: Path) -> None:
+    """Create Prefect Docker work pool with volume mounts.
+
+    Args:
+        project_root: Experiment/project root directory (cwd when server starts)
+    """
     pool_name = "docker-pool"
 
     # Check if pool already exists
@@ -610,6 +635,8 @@ def _create_work_pool() -> None:
 
     if result.returncode == 0:
         console.print(f"[dim]  Work pool '{pool_name}' already exists[/dim]")
+        # Note: Existing pools won't auto-update their job template.
+        # Users can update via UI or delete+recreate the pool.
         return
 
     # Create docker-type work pool
@@ -618,6 +645,48 @@ def _create_work_pool() -> None:
         check=True,
         capture_output=True,
     )
+
+    # Update work pool job template to include volume mounts
+    # Mount project data directories into container at fixed paths
+    volumes = [
+        f"{project_root / 'data'}:/data:rw",
+        f"{project_root / 'models'}:/models:ro",
+        f"{project_root / 'output'}:/output:rw",
+    ]
+
+    # Add config mount if configuration.toml exists
+    if (project_root / "configuration.toml").exists():
+        volumes.append(f"{project_root / 'configuration.toml'}:/configs/configuration.toml:ro")
+
+    # Build JSON patch to update job template
+    # Prefect 3 work pools use a 'job_configuration' or 'variables' field
+    # For Docker worker, we set 'volumes' in the base job variables
+    import json
+
+    job_template_patch = {
+        "base_job_template": {
+            "job_configuration": {
+                "volumes": volumes,
+            }
+        }
+    }
+
+    # Write to temp file and apply via prefect work-pool set-base-job-template
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(job_template_patch["base_job_template"], f)
+        temp_path = f.name
+
+    try:
+        subprocess.run(
+            _get_prefect_cmd() + ["work-pool", "set-base-job-template", pool_name, "--base-job-template", temp_path],
+            check=True,
+            capture_output=True,
+        )
+        console.print(f"[dim]  ✓ Configured volume mounts for '{pool_name}'[/dim]")
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
 
 
 def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
@@ -628,7 +697,10 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
         project_root: Experiment/project root directory (cwd)
     """
     package_root = Path(__file__).parent.parent.parent.parent.absolute()
-    _, config_json = _load_and_normalize_config(config_path)
+
+    # Generate container-native config (uses /data, /models, etc.)
+    # This config will be injected into containers via W2T_RUNTIME_CONFIG_JSON
+    _, config_json = _load_and_normalize_config(config_path, for_container=True)
 
     # Import flows lazily so Prefect settings are picked up from the environment
     # configured in `_setup_prefect_env`.
@@ -637,6 +709,7 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
     # Get Docker image
     docker_image = _get_docker_image(project_root)
     console.print(f"[dim]  Docker image: {docker_image}[/dim]")
+    console.print(f"[dim]  Using container-native paths (/data, /models, /output)[/dim]")
 
     original_cwd = Path.cwd()
     try:

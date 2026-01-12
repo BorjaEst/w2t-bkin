@@ -135,14 +135,36 @@ Configure worker behavior via environment variables (in `.env` file or `docker r
 - `WORKER_NAME`: Worker identifier (default: `docker-worker`)
 - `PREFECT_LOGGING_LEVEL`: Log verbosity (default: `INFO`)
 
-### Data Paths
+### Data Volume Mounts
 
-- `DATA_ROOT`: Mount point for data directory (default: `/data`)
-- `MODELS_ROOT`: Mount point for models (default: `/models`)
-- `CONFIG_ROOT`: Mount point for configs (default: `/configs`)
-- `OUTPUT_ROOT`: Mount point for outputs (default: `/output`)
+**Automatic Volume Configuration**: When you run `w2t-bkin server start` in production mode, the `docker-pool` work pool is automatically configured with volume mounts based on your project directory structure:
 
-### Resource Limits
+```
+Host Path (project_root)              → Container Path
+--------------------------------------   ---------------
+{project_root}/data                   → /data
+{project_root}/models                 → /models
+{project_root}/output                 → /output
+{project_root}/configuration.toml     → /configs/configuration.toml
+```
+
+These mounts are set in the work pool's **base job template** when the pool is created. The runtime configuration (`W2T_RUNTIME_CONFIG_JSON`) uses container-native paths (`/data/raw`, `/models`, etc.), which are then accessible via the automatically mounted volumes.
+
+**No manual volume configuration required** - the Docker worker inherits these mounts from the work pool job template and applies them to every flow-run container it creates.
+
+### Path Override Environment Variables (Advanced)
+
+These variables can override container paths if you have custom requirements, but normally you should configure paths in `configuration.toml` instead:
+
+- `W2T_RAW_ROOT`: Override raw data location (default: `/data/raw`)
+- `W2T_INTERMEDIATE_ROOT`: Override intermediate data location (default: `/data/interim`)
+- `W2T_OUTPUT_ROOT`: Override output location (default: `/output`)
+- `W2T_MODELS_ROOT`: Override models location (default: `/models`)
+- `W2T_ROOT_METADATA`: Override global metadata file (default: `/configs/metadata.toml`)
+
+**Note**: These overrides currently only work when NOT using `W2T_RUNTIME_CONFIG_JSON` (i.e., in legacy/local dev mode). In production deployments, paths are baked into the config JSON.
+
+### Resource Limits (For Container-based Workers)
 
 - `WORKER_REPLICAS`: Number of worker containers (default: `1`)
 - `WORKER_CPU_LIMIT`: Max CPU cores per worker (default: `4`)

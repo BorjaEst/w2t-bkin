@@ -88,18 +88,23 @@ def init(
         try:
             from w2t_bkin.cli.utils import _load_template
 
-            # Worker env file
+            # Worker env file (required)
             env_path = workers_dir / ".env"
             env_template = _load_template(".env.template")
             env_path.write_text(env_template)
             console.print(f"[green]✓[/green] Created .workers/.env (Worker configuration)")
 
-            # Worker README
-            readme_path = workers_dir / "README.md"
-            readme_template = _load_template(".workers-README.md")
-            readme_path.write_text(readme_template)
-            console.print(f"[green]✓[/green] Created .workers/README.md (Worker documentation)")
+            # Worker README (optional)
+            try:
+                readme_path = workers_dir / "README.md"
+                readme_template = _load_template(".workers-README.md")
+                readme_path.write_text(readme_template)
+                console.print(f"[green]✓[/green] Created .workers/README.md (Worker documentation)")
+            except FileNotFoundError:
+                console.print(f"[dim]  (No .workers/README.md template; skipping)[/dim]")
 
+        except FileNotFoundError as e:
+            console.print(f"[yellow]⚠ Worker config template not found: {e}[/yellow]")
         except Exception as e:
             console.print(f"[yellow]⚠ Could not generate worker config: {e}[/yellow]")
 
