@@ -30,6 +30,7 @@ dependencies = [
     "hdmf~=4.1.0",
     # Prefect orchestration (server + client)
     "prefect~=3.6.0",
+    "prefect-docker~=0.7.0",
     "asyncpg~=0.29.0",
 ]
 

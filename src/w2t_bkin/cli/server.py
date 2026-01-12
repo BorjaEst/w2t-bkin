@@ -253,19 +253,18 @@ def _validate_and_print_mode(dev: bool, port: int) -> None:
 
 def _print_manual_worker_instructions() -> None:
     """Print OS-specific instructions for manually starting workers."""
-    console.print("\n[bold cyan]Start Docker workers (in a new terminal):[/bold cyan]")
+    console.print("\n[bold cyan]Start Workers (in a new terminal):[/bold cyan]")
 
-    if _is_windows() or _is_wsl():
-        console.print("  [yellow]# Windows/WSL - Docker Desktop[/yellow]")
-        console.print("  [dim]w2t-bkin worker start                    # 1 worker[/dim]")
-        console.print("  [dim]w2t-bkin worker start --workers 2        # 2 workers[/dim]")
-    else:
-        console.print("  [yellow]# Linux - use --network host[/yellow]")
-        console.print("  [dim]w2t-bkin worker start                    # 1 worker[/dim]")
-        console.print("  [dim]w2t-bkin worker start --workers 2        # 2 workers[/dim]")
+    console.print("  [yellow]# Production - Docker workers (default)[/yellow]")
+    console.print("  [dim]w2t-bkin worker start                    # 1 worker, concurrency limit 1[/dim]")
+    console.print("  [dim]w2t-bkin worker start --limit 2          # 1 worker, concurrency limit 2[/dim]")
 
-    console.print("\n  [yellow]# Development (process worker, requires worker extras)[/yellow]")
-    console.print("  [dim]w2t-bkin worker start --dev[/dim]")
+    console.print("\n  [yellow]# Multiple workers - run command multiple times[/yellow]")
+    console.print("  [dim]w2t-bkin worker start --name worker-1    # Terminal 1[/dim]")
+    console.print("  [dim]w2t-bkin worker start --name worker-2    # Terminal 2[/dim]")
+
+    console.print("\n  [yellow]# Development - process workers (requires [worker] extras)[/yellow]")
+    console.print("  [dim]w2t-bkin worker start --type process --limit 1[/dim]")
 
 
 def _print_ready_summary(ui_url: str, dev: bool) -> None:

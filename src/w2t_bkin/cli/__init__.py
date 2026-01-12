@@ -41,6 +41,7 @@ from w2t_bkin.cli.data import data_app
 from w2t_bkin.cli.pipeline import discover, version
 from w2t_bkin.cli.server import server_app
 from w2t_bkin.cli.validation import inspect, validate
+from w2t_bkin.cli.worker import worker_app
 
 # Register root-level commands
 app.command()(discover)
@@ -51,5 +52,6 @@ app.command()(version)
 # Register subcommand groups
 app.add_typer(data_app, name="data")
 app.add_typer(server_app, name="server")
+app.add_typer(worker_app, name="worker")
 
 __all__ = ["app"]
