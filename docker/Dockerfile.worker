@@ -1,0 +1,31 @@
+# Dockerfile.worker - Long-lived Prefect Docker worker
+#
+# This image wraps the base w2t-bkin runner image and sets it up to run
+# as a Prefect worker that creates Docker containers for flow runs.
+#
+# Build this AFTER building the main Dockerfile:
+#   docker build -f docker/Dockerfile -t w2t-bkin:local .
+#   docker build -f docker/Dockerfile.worker -t w2t-bkin-worker:local .
+#
+# The worker will:
+# - Poll the configured work pool (default: docker-pool)
+# - Create Docker containers using the runner image for each flow run
+# - Manage container lifecycle (start, monitor, cleanup)
+
+ARG BASE_IMAGE=w2t-bkin:local
+FROM ${BASE_IMAGE}
+
+LABEL org.opencontainers.image.description="W2T Body Kinematics Pipeline - Prefect Worker"
+
+# Override user to root temporarily for final setup
+USER root
+
+# Ensure the entrypoint script is executable (should already be from base image)
+RUN chmod +x /usr/local/bin/start-worker.sh
+
+# Switch back to non-root user
+USER w2t
+
+# Set the entrypoint to start the Prefect worker
+# This makes the container always start as a worker when run
+ENTRYPOINT ["/usr/local/bin/start-worker.sh"]

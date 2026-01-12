@@ -1,8 +1,25 @@
 # W2T-BKIN Docker Configuration
 
-This directory contains the Docker configuration for running w2t-bkin workers in containerized environments.
+This directory contains the Docker configuration for running w2t-bkin in containerized environments.
 
 **Note**: For users on Windows, we recommend [Rancher Desktop](https://rancherdesktop.io/) as it provides Docker runtime automatically without requiring Docker knowledge.
+
+## Image Architecture
+
+W2T-BKIN uses a **two-image architecture** for clean separation of concerns:
+
+1. **Runner Image** (`Dockerfile`) - Flow execution environment
+
+   - Contains w2t-bkin + all dependencies
+   - Used by Prefect deployments (`image=...` parameter)
+   - Containers are short-lived (one per flow run)
+   - **This is what `W2T_DOCKER_IMAGE` should point to**
+
+2. **Worker Image** (`Dockerfile.worker`) - Long-lived worker process
+   - Wraps the runner image
+   - Runs `prefect worker start` to poll for work
+   - Creates runner containers for each flow run
+   - Optional convenience image (you can also run workers via CLI)
 
 ## Prerequisites
 
@@ -19,7 +36,7 @@ This directory contains the Docker configuration for running w2t-bkin workers in
 This is the **primary deployment method** for w2t-bkin. Production mode uses Docker workers exclusively:
 
 ```bash
-# Pull latest worker image
+# Pull latest runner image (for flow execution)
 docker pull ghcr.io/borjaest/w2t-bkin:latest
 
 # Start Prefect server in production mode (from experiment directory)
@@ -27,28 +44,27 @@ cd /path/to/experiment
 w2t-bkin server start --config configs/standard.toml
 
 # Start Docker worker (in a separate terminal)
-# Option 1: Using worker environment created by server
-source .workers/.env
-prefect worker start --pool docker-pool --type docker
+# Option 1: Using CLI (recommended - runs on host)
+w2t-bkin worker start --pool docker-pool --type docker
 
-# Option 2: Direct Docker command (Linux)
-docker run -d --name w2t-worker --network host \
-  -v $(pwd)/data:/data -v $(pwd)/models:/models \
+# Option 2: Using worker image (runs worker in container)
+docker run --rm --name w2t-worker --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -e PREFECT_API_URL=http://127.0.0.1:4200/api \
-  ghcr.io/borjaest/w2t-bkin:latest \
-  prefect worker start --pool docker-pool --type docker
+  ghcr.io/borjaest/w2t-bkin:latest-worker
 ```
 
 The worker will automatically:
 
 - Connect to the Prefect server via the API URL
 - Poll the `docker-pool` for flow runs
-- Start containers for each flow run with the specified image
+- Start **runner containers** for each flow run with the image specified in `W2T_DOCKER_IMAGE`
 - Mount data directories from `.workers/.env`
 
 **Configuration** (`.workers/.env`):
 
 ```bash
+# CRITICAL: This must be the RUNNER image, not the worker image
 W2T_DOCKER_IMAGE=ghcr.io/borjaest/w2t-bkin:latest
 # Add data paths as needed
 ```
@@ -66,39 +82,46 @@ This uses Prefect Runner to serve flows in the server process - no Docker worker
 
 ### Manual Build (For Customization)
 
-Build custom worker images from repository root:
+Build custom images from repository root:
 
 ```bash
-# Build from repository root with explicit Dockerfile path
-docker build -f docker/Dockerfile -t w2t-bkin:local-dev .
+# Step 1: Build runner image (slow - contains all dependencies)
+docker build -f docker/Dockerfile -t w2t-bkin:local .
 
-# Tag for testing
-docker tag w2t-bkin:local-dev ghcr.io/borjaest/w2t-bkin:custom
+# Step 2: Build worker image (fast - wraps runner image)
+docker build -f docker/Dockerfile.worker -t w2t-bkin-worker:local .
 
-# Update .workers/.env to use your custom image
-W2T_DOCKER_IMAGE=ghcr.io/borjaest/w2t-bkin:custom
+# Update .workers/.env to use your custom runner image
+W2T_DOCKER_IMAGE=w2t-bkin:local
 ```
+
+**Important**: The worker image is optional. You can run workers via CLI (`w2t-bkin worker start`) instead of using a worker container.
 
 ## Files
 
-- **Dockerfile**: Multi-stage worker image with optimized layer caching
+- **Dockerfile**: Builds the runner image (for flow execution)
+- **Dockerfile.worker**: Builds the worker image (wraps runner, starts prefect worker)
 - **start-worker.sh**: Entrypoint script for Prefect worker containers
 - **README.md**: This file
 
 ## Build Context
 
-**Critical**: The Dockerfile must be built from the **repository root** (`.`) as the build context because it needs access to:
+**Critical**: Both Dockerfiles must be built from the **repository root** (`.`) as the build context because they need access to:
 
 - `src/` - Python package source code
 - `nwb-extensions/` - Git submodules with NWB extensions
 - `pyproject.toml` - Package dependencies
 - `README.md` - Package metadata
 
-**Correct build command:**
+**Correct build commands:**
 
 ```bash
-docker build -f docker/Dockerfile -t w2t-bkin:worker .
-#            ^^^ Specify Dockerfile      Tag       ^^^ Context = repo root
+# Runner image (base)
+docker build -f docker/Dockerfile -t w2t-bkin:local .
+#            ^^^ Dockerfile path        Tag      ^^^ Context = repo root
+
+# Worker image (wraps runner)
+docker build -f docker/Dockerfile.worker -t w2t-bkin-worker:local .
 ```
 
 ## Environment Variables

@@ -174,9 +174,14 @@ ENV LIMIT=1
 ENV PREFECT_LOGGING_LEVEL=INFO
 
 # Copy worker entrypoint script (from docker/ subdirectory since build context is repo root)
+# This script is included in the image but not set as ENTRYPOINT
+# Use Dockerfile.worker to build a worker-specific image
 COPY --chown=w2t:w2t --chmod=755 docker/start-worker.sh /usr/local/bin/start-worker.sh
 
 # Volume mount points (documentation)
 VOLUME ["/data", "/models", "/configs", "/output"]
 
-ENTRYPOINT ["/usr/local/bin/start-worker.sh"]
+# Default CMD for flow-run containers (Prefect will override this)
+# This image is designed to be used as the deployment image (image=...) for Prefect flows
+# For a long-lived worker container, use Dockerfile.worker instead
+CMD ["python", "-m", "w2t_bkin.cli", "version"]
