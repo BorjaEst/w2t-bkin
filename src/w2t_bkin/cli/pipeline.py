@@ -33,16 +33,20 @@ from w2t_bkin.cli.utils import console
 
 
 def discover(
-    config_path: Path = typer.Argument(..., exists=True, file_okay=True, dir_okay=False, readable=True, help="Path to configuration TOML file"),
+    experiment_root: Path = typer.Argument(..., exists=True, help="Path to experiment root directory (contains data/raw/)"),
     subject_filter: Optional[str] = typer.Option(None, "--subject", "-s", help="Filter by specific subject ID"),
     session_filter: Optional[str] = typer.Option(None, "--session", "-x", help="Filter by specific session ID"),
+    raw_root: Optional[Path] = typer.Option(None, "--raw-root", help="Override raw data location (advanced)"),
     output_format: str = typer.Option("json", "--format", "-f", help="Output format: json, tsv, or plain"),
 ):
-    """Discover available sessions from raw data directory.
+    """Discover available sessions from experiment directory.
 
-    This command scans the raw_root directory and lists all valid subject/session
+    This command scans the raw data directory and lists all valid subject/session
     combinations that can be processed by the pipeline. A valid session must
     have either a session.toml or metadata.toml file.
+
+    The command expects an experiment root directory (created by 'w2t-bkin data init').
+    By default, it discovers sessions in <experiment_root>/data/raw/.
 
     Output formats:
     - json: Detailed JSON with metadata information
@@ -50,16 +54,53 @@ def discover(
     - plain: Human-readable table
 
     Example:
-        $ w2t-bkin discover config.toml
-        $ w2t-bkin discover config.toml --format plain
-        $ w2t-bkin discover config.toml --subject subject-001
-        $ w2t-bkin discover config.toml --format tsv | parallel --col-sep '\\t' w2t-bkin run config.toml {1} {2}
+        $ w2t-bkin discover /path/to/experiment
+        $ w2t-bkin discover . --format plain
+        $ w2t-bkin discover /path/to/experiment --subject subject-001
+        $ w2t-bkin discover . --raw-root /custom/raw/location
+        $ w2t-bkin discover . --format tsv | parallel --col-sep '\\t' process-session {1} {2}
     """
     try:
-        from w2t_bkin.utils import discover_sessions
+        from w2t_bkin.utils import discover_sessions_in_raw_root
 
-        sessions = discover_sessions(
-            config_path=config_path,
+        # Determine raw root directory
+        if raw_root:
+            # Explicit override
+            raw_data_root = raw_root
+        elif (experiment_root / "data" / "raw").exists():
+            # Standard layout: <root>/data/raw/
+            raw_data_root = experiment_root / "data" / "raw"
+        elif experiment_root.is_file() and experiment_root.suffix == ".toml":
+            # Legacy: config file passed instead of experiment root
+            console.print("[yellow]Warning: Passing configuration file is deprecated.[/yellow]")
+            console.print("[yellow]Please use experiment root directory instead:[/yellow]")
+            console.print(f"[yellow]  w2t-bkin discover {experiment_root.parent}[/yellow]\n")
+
+            # Try to load config for backwards compat
+            try:
+                from w2t_bkin.config import load_config
+
+                config = load_config(experiment_root)
+                if "paths" in config and "raw_root" in config["paths"]:
+                    raw_data_root = Path(config["paths"]["raw_root"])
+                else:
+                    console.print("[red]Error: Config file has no paths.raw_root (deprecated config format)[/red]")
+                    console.print("[red]Use: w2t-bkin discover <experiment_root>[/red]")
+                    raise typer.Exit(1)
+            except Exception as e:
+                console.print(f"[red]Error: Could not load config: {e}[/red]")
+                raise typer.Exit(1)
+        else:
+            # Assume experiment_root IS the raw root (direct path)
+            raw_data_root = experiment_root
+
+        if not raw_data_root.exists():
+            console.print(f"[red]Error: Raw data directory not found: {raw_data_root}[/red]")
+            raise typer.Exit(1)
+
+        # Discover sessions
+        sessions = discover_sessions_in_raw_root(
+            raw_root=raw_data_root,
             subject_filter=subject_filter,
             session_filter=session_filter,
         )

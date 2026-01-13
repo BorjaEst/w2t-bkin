@@ -92,7 +92,7 @@ def write_toml(path: Path | str, data: dict, *, ensure_parents: bool = True) -> 
         Absolute Path to written file
 
     Example:
-        >>> data = {"project": {"name": "experiment-001"}}
+        >>> data = {\"synchronization\": {\"strategy\": \"hardware_pulse\"}}
         >>> write_toml("config.toml", data)
     """
     p = Path(path)
@@ -278,20 +278,10 @@ def init_experiment(
 
     console.print(f"\n[green]✓[/green] Created metadata: {metadata_path.relative_to(root_path)}")
 
-    # Copy configuration template and customize
+    # Copy configuration template (no substitutions needed - template is now parameter-only)
     # Read template from package
     template_ref = importlib.resources.files("w2t_bkin.templates").joinpath("configuration.toml.template")
-    template_content = template_ref.read_text()
-
-    # Replace placeholders
-    config_content = (
-        template_content.replace('name = "w2t-bkin-pipeline"', f'name = "{root_path.name}"')
-        .replace('lab = "Your Lab Name"', f'lab = "{lab}"')
-        .replace('institution = "Your Institution"', f'institution = "{institution}"')
-    )
-
-    # Remove the header note about running data init (since we just did it)
-    config_content = config_content.replace("# For a minimal working configuration, run: w2t-bkin data init <path>\n", "")
+    config_content = template_ref.read_text()
 
     config_path = root_path / "configuration.toml"
     with open(config_path, "w") as f:

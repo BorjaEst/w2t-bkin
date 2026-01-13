@@ -1,15 +1,8 @@
 # =============================================================================
-# Project Configuration
+# Base Configuration
 # =============================================================================
-
-[project]
-name = "w2t-bkin-pipeline"
-
-[paths]
-raw_root = "data/raw"
-intermediate_root = "data/interim"
-output_root = "data/processed"
-models_root = "models"
+# This is the base configuration merged with project-specific configuration.toml.
+# Paths are NOT configured here - they come from environment variables.
 
 # =============================================================================
 # Synchronization Strategy

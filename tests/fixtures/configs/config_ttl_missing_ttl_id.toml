@@ -1,5 +1,4 @@
-[project]
-name = "test-project"
+# Test fixture: TTL config missing required ttl_id field
 
 [paths]
 raw_root = "data/raw"

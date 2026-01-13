@@ -16,7 +16,6 @@ import webbrowser
 import typer
 
 from w2t_bkin.cli.utils import console, setup_logging
-from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
 from w2t_bkin.utils import read_toml, recursive_dict_update
 
 server_app = typer.Typer(name="server", help="Prefect server management")
@@ -35,6 +34,7 @@ def start(
     open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging and show server output"),
+    env_file: Optional[Path] = typer.Option(None, "--env-file", help="Environment file to load (default: .workers/.env)"),
 ):
     """Start Prefect server and deploy/serve flows.
 
@@ -63,6 +63,11 @@ def start(
     # This follows standard conventions (make, docker-compose, npm, etc.)
     # and matches the documented workflow: cd {experiment_root} && w2t-bkin server start
     project_root = Path.cwd()
+
+    # Load environment file (before any other env setup)
+    from w2t_bkin.cli.env import load_project_env
+
+    load_project_env(project_root, env_file)
 
     # Validate mode and print banner
     _validate_and_print_mode(dev, port)
@@ -401,7 +406,7 @@ def _start_prefect_server(port: int, debug: bool) -> subprocess.Popen:
     return server_process
 
 
-def _wait_for_server(process: subprocess.Popen, port: int, timeout: int = 30) -> bool:
+def _wait_for_server(process: subprocess.Popen, port: int, timeout: int = 45) -> bool:
     """Wait for Prefect server to be ready.
 
     Args:
@@ -501,11 +506,11 @@ def _load_and_normalize_config(config_path: Optional[Path], for_container: bool 
 
         if for_container:
             # Use container-native paths (Docker volumes will mount host paths here)
-            # These are fixed paths inside the container that match Dockerfile VOLUME declarations
+            # These are fixed paths inside the container that match volume mounts
             container_path_map = {
                 "raw_root": "/data/raw",
                 "intermediate_root": "/data/interim",
-                "output_root": "/output",
+                "output_root": "/data/processed",
                 "models_root": "/models",
             }
             for key, container_path in container_path_map.items():
@@ -563,12 +568,13 @@ def _serve_flows(config_path: Optional[Path]) -> None:
     session_config_data = {k: v for k, v in merged_config_dict.items() if k not in ("project", "paths")}
     session_config_defaults = SessionFlowConfig(**session_config_data)
 
-    # Set path environment variables for dev mode
+    # Set path environment variables for dev mode (only if not already set)
+    # This respects .workers/.env and explicit exports
     project_root = Path.cwd()
-    os.environ["W2T_RAW_ROOT"] = str(project_root / "data" / "raw")
-    os.environ["W2T_INTERMEDIATE_ROOT"] = str(project_root / "data" / "interim")
-    os.environ["W2T_OUTPUT_ROOT"] = str(project_root / "data" / "processed")
-    os.environ["W2T_MODELS_ROOT"] = str(project_root / "models")
+    os.environ.setdefault("W2T_RAW_ROOT", str(project_root / "data" / "raw"))
+    os.environ.setdefault("W2T_INTERMEDIATE_ROOT", str(project_root / "data" / "interim"))
+    os.environ.setdefault("W2T_OUTPUT_ROOT", str(project_root / "data" / "processed"))
+    os.environ.setdefault("W2T_MODELS_ROOT", str(project_root / "models"))
 
     original_cwd = Path.cwd()
     try:
@@ -671,7 +677,6 @@ def _create_work_pool(project_root: Path) -> None:
     volumes = [
         f"{project_root / 'data'}:/data:rw",
         f"{project_root / 'models'}:/models:ro",
-        f"{project_root / 'output'}:/output:rw",
     ]
 
     # Add config mount if configuration.toml exists
@@ -731,13 +736,12 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
     # Get Docker image
     docker_image = _get_docker_image(project_root)
     console.print(f"[dim]  Docker image: {docker_image}[/dim]")
-    console.print(f"[dim]  Using container-native paths (/data, /models, /output)[/dim]")
+    console.print(f"[dim]  Using container-native paths (/data, /models)[/dim]")
 
     # Build volume mount list (per-deployment fallback)
     volumes = [
         f"{project_root / 'data'}:/data:rw",
         f"{project_root / 'models'}:/models:ro",
-        f"{project_root / 'output'}:/output:rw",
     ]
     if (project_root / "configuration.toml").exists():
         volumes.append(f"{project_root / 'configuration.toml'}:/configs/configuration.toml:ro")

@@ -1,6 +1,4 @@
-[project]
-name = "test-project"
-extra_key = "not allowed"
+# Test fixture: config with extra forbidden keys
 
 [paths]
 raw_root = "data/raw"
@@ -8,6 +6,7 @@ intermediate_root = "data/interim"
 output_root = "data/processed"
 metadata_file = "metadata.toml"
 models_root = "models"
+extra_key = "not allowed"
 
 [timebase]
 source = "nominal_rate"

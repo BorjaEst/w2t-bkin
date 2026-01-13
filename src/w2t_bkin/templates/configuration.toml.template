@@ -1,36 +1,18 @@
 # =============================================================================
-# w2t-bkin Pipeline Configuration Template
+# w2t-bkin Pipeline Configuration
 # =============================================================================
-# This template shows ALL available configuration options.
-# Sections marked with ⚠️ are planned but not yet implemented.
+# This file defines DEFAULT PARAMETERS for pipeline processing.
+# Paths are configured via environment variables (see .workers/.env).
 #
-# For a minimal working configuration, run: w2t-bkin data init <path>
-# =============================================================================
-
-# =============================================================================
-# Project Configuration
-# =============================================================================
-
-[project]
-name = "w2t-bkin-pipeline"
-
-# =============================================================================
-# Paths Configuration
-# =============================================================================
-# Paths can be configured here OR via environment variables (recommended for workers).
-# Environment variables override these settings:
-# - W2T_RAW_ROOT
-# - W2T_INTERMEDIATE_ROOT
-# - W2T_OUTPUT_ROOT
-# - W2T_MODELS_ROOT
-# - W2T_ROOT_METADATA
+# Required environment variables:
+# - W2T_RAW_ROOT: Raw data directory
+# - W2T_INTERMEDIATE_ROOT: Intermediate processing outputs
+# - W2T_OUTPUT_ROOT: Final NWB output directory
+# - W2T_MODELS_ROOT: Pose estimation models
 #
-[paths]
-raw_root = "data/raw"
-intermediate_root = "data/interim"
-output_root = "data/processed"
-models_root = "models"
-root_metadata = "/home/user/configs/metadata.toml" # Optional: global metadata override
+# For production deployments, these are set automatically by the Docker worker.
+# For development mode, they default to <project_root>/data/raw, etc.
+# =============================================================================
 
 # =============================================================================
 # Synchronization Strategy

@@ -7,8 +7,6 @@ The configuration system enforces strict schema validation to catch errors early
 supports deterministic hashing for reproducibility, and provides clear error messages.
 
 Key Configuration Sections:
-    - Project: Project identification and metadata
-    - Paths: File system paths for data, models, and outputs
     - Synchronization: Hardware sync strategy and alignment settings
     - Preprocessing: Pose estimation (DLC, SLEAP) and other preprocessing tasks
     - Verification: Runtime checks for frame counts and sync validation
@@ -24,10 +22,10 @@ Model Path Resolution:
     or SLEAPConfig to get absolute paths.
 
 Typical usage example:
-    >>> from w2t_bkin.config import load_config
+    >>> from w2t_bkin.config import SessionFlowConfig
     >>>
-    >>> config = load_config("config.toml")
-    >>> print(config.project.name)
+    >>> # SessionFlowConfig is used for runtime flow parameters
+    >>> # Paths come from environment variables (W2T_RAW_ROOT, etc.)
     >>> print(config.synchronization.strategy)
     >>>
     >>> # Resolve DLC model path

@@ -26,6 +26,7 @@ def start(
     name: Optional[str] = typer.Option(None, "--name", "-n", help="Worker name (auto-generated if not provided)"),
     port: int = typer.Option(4200, "--port", help="Prefect server port (for API URL)"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
+    env_file: Optional[Path] = typer.Option(None, "--env-file", help="Environment file to load (default: .workers/.env)"),
 ):
     """Start a Prefect worker to execute flow runs.
 
@@ -68,6 +69,11 @@ def start(
     # Project root is the current working directory.
     # This matches server behavior for consistent project isolation.
     project_root = Path.cwd()
+
+    # Load environment file (before any other env setup)
+    from w2t_bkin.cli.env import load_project_env
+
+    load_project_env(project_root, env_file)
 
     # Setup Prefect environment (same as server for project isolation)
     _setup_prefect_env(port, project_root)

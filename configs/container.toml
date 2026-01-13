@@ -1,11 +1,8 @@
 # =============================================================================
-# Project Configuration - Container Version
+# Container Configuration
 # =============================================================================
 # This config uses absolute paths for containerized deployment
 # All paths reference mounted volumes in the container
-
-[project]
-name = "w2t-bkin-pipeline"
 
 [paths]
 raw_root = "/data/raw"

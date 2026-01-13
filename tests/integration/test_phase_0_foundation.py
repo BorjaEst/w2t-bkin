@@ -19,10 +19,13 @@ import pytest
 class TestConfigDomainIntegration:
     """Test integration between config loading and domain validation."""
 
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionFlowConfig + env vars")
     def test_Should_LoadValidConfig_When_AllRequiredFieldsProvided_Issue2(self):
         """Should successfully load and validate a complete config file.
 
         Tests the full pipeline: TOML parsing → domain validation → deterministic hashing.
+
+        DEPRECATED: load_config() and Config class removed. Use SessionFlowConfig.
         """
         from w2t_bkin.config import Config, compute_config_hash, load_config
 
@@ -34,7 +37,6 @@ class TestConfigDomainIntegration:
 
         # Verify it's a proper Config domain object
         assert isinstance(config, Config)
-        assert config.project.name == "w2t-bkin-pipeline"
         assert config.synchronization.strategy == "hardware_pulse"
         assert config.verification.mismatch_tolerance_frames == 0
 
@@ -72,8 +74,12 @@ class TestConfigDomainIntegration:
         assert "cam0_top" in nwbfile.devices
         assert "cam1_side" in nwbfile.devices
 
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionFlowConfig")
     def test_Should_FailValidation_When_ConfigMissingRequiredSection_Issue2(self):
-        """Should fail when config file is missing required sections (A13)."""
+        """Should fail when config file is missing required sections (A13).
+
+        DEPRECATED: load_config() removed. SessionFlowConfig validates required fields.
+        """
         from w2t_bkin.config import load_config
 
         # Use existing fixture with missing 'paths' section
@@ -84,11 +90,15 @@ class TestConfigDomainIntegration:
 
         assert "paths" in str(exc_info.value).lower()
 
+    @pytest.mark.skip(reason="Config class removed - SessionFlowConfig validates via extra='forbid'")
     def test_Should_FailValidation_When_ConfigHasExtraKeys_Issue2(self):
-        """Should fail when config file has extra keys not in schema (A13)."""
+        """Should fail when config file has extra keys not in schema (A13).
+
+        DEPRECATED: Config class removed. SessionFlowConfig uses extra='forbid'.
+        """
         from w2t_bkin.config import load_config
 
-        # Use fixture with extra key in project section
+        # Use fixture with extra key in paths section
         config_path = Path(__file__).parent.parent / "fixtures" / "configs" / "config_with_extra_key.toml"
 
         with pytest.raises(ValidationError) as exc_info:
@@ -126,8 +136,12 @@ class TestConfigDomainIntegration:
 class TestUtilsConfigIntegration:
     """Test integration between utils and config modules."""
 
+    @pytest.mark.skip(reason="Config class and compute_config_hash() removed")
     def test_Should_ProduceConsistentHashes_When_ConfigContentIdentical_Issue2(self):
-        """Should produce identical hashes for identical config content (NFR-1, A18)."""
+        """Should produce identical hashes for identical config content (NFR-1, A18).
+
+        DEPRECATED: compute_config_hash() removed. Use generic compute_hash() from utils.
+        """
         from w2t_bkin.config import compute_config_hash, load_config
         from w2t_bkin.utils import compute_hash
 
@@ -148,8 +162,12 @@ class TestUtilsConfigIntegration:
         util_hash2 = compute_hash(config_dict)
         assert util_hash1 == util_hash2
 
+    @pytest.mark.skip(reason="Config class removed - paths now from environment only")
     def test_Should_HandlePathSanitization_When_ConfigContainsPaths_Issue2(self):
-        """Should safely handle path sanitization for config paths."""
+        """Should safely handle path sanitization for config paths.
+
+        DEPRECATED: config.paths removed. Paths come from env vars (W2T_RAW_ROOT, etc.).
+        """
         from w2t_bkin.config import load_config
         from w2t_bkin.utils import sanitize_path
 
@@ -164,8 +182,12 @@ class TestUtilsConfigIntegration:
         with pytest.raises(ValueError, match="Directory traversal not allowed"):
             sanitize_path("../../../etc/passwd")
 
+    @pytest.mark.skip(reason="Config class removed - SessionFlowConfig is the runtime model")
     def test_Should_WriteAndReadJSON_When_ConfigSerialized_Issue2(self):
-        """Should correctly serialize and deserialize config data via JSON utils."""
+        """Should correctly serialize and deserialize config data via JSON utils.
+
+        DEPRECATED: Config class removed. Use SessionFlowConfig.model_dump(mode='json').
+        """
         from w2t_bkin.config import load_config
         from w2t_bkin.utils import read_json, write_json
 
@@ -185,7 +207,6 @@ class TestUtilsConfigIntegration:
 
             # Should be identical
             assert read_data == config_dict
-            assert read_data["project"]["name"] == config.project.name
         finally:
             json_path.unlink()
 

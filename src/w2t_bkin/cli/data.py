@@ -108,7 +108,7 @@ def init(
         except Exception as e:
             console.print(f"[yellow]⚠ Could not generate worker config: {e}[/yellow]")
 
-        console.print("[dim]  Edit .workers/.env to customize Docker image and paths[/dim]")
+        console.print("[dim]  Edit .workers/.env to customize Docker image and worker settings[/dim]")
 
     # Show usage instructions
     console.print("\n[bold green]✓ Experiment initialized successfully![/bold green]")
