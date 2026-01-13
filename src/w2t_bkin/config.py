@@ -23,16 +23,15 @@ Model Path Resolution:
 
 Typical usage example:
     >>> from w2t_bkin.config import SessionFlowConfig
+    >>> from pathlib import Path
     >>>
-    >>> # SessionFlowConfig is used for runtime flow parameters
-    >>> # Paths come from environment variables (W2T_RAW_ROOT, etc.)
+    >>> # SessionFlowConfig is used for Prefect flow parameters
     >>> print(config.synchronization.strategy)
     >>>
     >>> # Resolve DLC model path
     >>> if config.preprocessing.dlc.enabled:
-    ...     model_path = config.preprocessing.dlc.resolve_model_path(
-    ...         config.paths.models_root
-    ...     )
+    ...     # models_root is supplied separately (e.g., via env vars / deployment)
+    ...     model_path = config.preprocessing.dlc.resolve_model_path(Path("models"))
     ...     print(f"DLC model: {model_path}")
 """
 
@@ -61,23 +60,36 @@ VALID_LOGGING_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL
 
 
 class PathsConfig(BaseModel, extra="forbid"):
-    """File system paths configuration.
+    """Filesystem roots used by the pipeline.
 
-    Attributes:
-        raw_root: Path to raw data directory.
-        intermediate_root: Path for intermediate processing outputs.
-        output_root: Path for final outputs.
-        models_root: Directory containing pose estimation models (default: models).
-        root_metadata: Optional path to global metadata file outside raw_root.
-                      This metadata is loaded first (base layer) and is overridden
-                      by any metadata files within raw_root hierarchy.
+    Prefect shows these values under **Quick run**/**Custom run**; each path is
+    normalized to an absolute path during validation to avoid worker/host
+    differences.
     """
 
-    raw_root: Path = Field(..., description="Raw data root directory")
-    intermediate_root: Path = Field(..., description="Intermediate processing outputs")
-    output_root: Path = Field(..., description="Output data root directory")
-    models_root: Path = Field(default="models", description="Pose estimation models directory")
-    root_metadata: Optional[Path] = Field(None, description="Optional global metadata file (base layer)")
+    raw_root: Path = Field(
+        ...,
+        description=("Root directory containing raw session folders (inputs)."),
+    )
+    intermediate_root: Path = Field(
+        ...,
+        description=("Root directory for intermediate artifacts (recomputable outputs)."),
+    )
+    output_root: Path = Field(
+        ...,
+        description=("Root directory for final outputs (e.g., NWB files, QC reports, figures)."),
+    )
+    models_root: Path = Field(
+        default="models",
+        description=(
+            "Directory containing pose estimation models. Relative paths are resolved "
+            "from the working directory."  # noqa: E501
+        ),
+    )
+    root_metadata: Optional[Path] = Field(
+        None,
+        description=("Optional global metadata file applied as a base layer before per-session metadata."),
+    )
 
     @model_validator(mode="after")
     def resolve_paths(self) -> "PathsConfig":
@@ -104,61 +116,86 @@ class PathsConfig(BaseModel, extra="forbid"):
 
 
 class AlignmentConfig(BaseModel, extra="forbid"):
-    """Alignment configuration.
+    """How timestamps are mapped between devices.
 
-    Attributes:
-        method: Alignment strategy ("nearest" or "linear").
-        tolerance_s: Maximum acceptable jitter in seconds.
-        global_offset_s: Global time offset before mapping (default: 0.0).
+    Used by synchronization to convert event times from one timebase to another
+    and to validate the quality of that mapping.
     """
 
-    method: Literal["nearest", "linear"] = Field(..., description="Alignment strategy")
-    tolerance_s: float = Field(..., ge=0.0, description="Max allowed jitter in seconds")
-    global_offset_s: float = Field(default=0.0, description="Global offset before mapping")
+    method: Literal["nearest", "linear"] = Field(
+        ...,
+        description=(
+            "Timestamp mapping method: 'nearest' snaps to the closest sample; "
+            "'linear' interpolates between samples."  # noqa: E501
+        ),
+    )
+    tolerance_s: float = Field(
+        ...,
+        ge=0.0,
+        description=("Maximum allowed absolute alignment error (seconds) used for validation/QC."),
+    )
+    global_offset_s: float = Field(
+        default=0.0,
+        description=("Constant offset (seconds) added before alignment. Useful for known fixed delays."),
+    )
 
 
 class SynchronizationConfig(BaseModel, extra="forbid"):
-    """Synchronization configuration.
+    """How different data streams are aligned onto a common timebase."""
 
-    Attributes:
-        strategy: Synchronization strategy ("rate_based", "hardware_pulse", "network_stream").
-        reference_channel: Reference channel ID (required for hardware_pulse/network_stream).
-        alignment: Alignment configuration.
-    """
-
-    strategy: Literal["rate_based", "hardware_pulse", "network_stream"] = Field(..., description="Synchronization strategy")
-    reference_channel: Optional[str] = Field(None, description="Reference channel ID (required for hardware_pulse)")
-    alignment: AlignmentConfig
+    strategy: Literal["rate_based", "hardware_pulse", "network_stream"] = Field(
+        ...,
+        description=(
+            "Synchronization strategy: 'rate_based' uses sampling rates; "
+            "'hardware_pulse' aligns using TTL pulses; 'network_stream' aligns using a streamed reference."  # noqa: E501
+        ),
+    )
+    reference_channel: Optional[str] = Field(
+        None,
+        description=("Reference channel name/ID used as the timebase for 'hardware_pulse' and 'network_stream'."),
+    )
+    alignment: AlignmentConfig = Field(
+        ...,
+        description=("Parameters controlling timestamp mapping and tolerance used during alignment."),
+    )
 
 
 class AcquisitionConfig(BaseModel, extra="forbid"):
-    """Data acquisition policies.
+    """Policies for handling raw acquisitions (e.g., multi-file videos)."""
 
-    Attributes:
-        concat_strategy: Video concatenation method (ffconcat or streamlist).
-    """
-
-    concat_strategy: Literal["ffconcat", "streamlist"] = Field(default="ffconcat", description="Video concatenation strategy")
+    concat_strategy: Literal["ffconcat", "streamlist"] = Field(
+        default="ffconcat",
+        description=(
+            "How to concatenate multi-file videos: 'ffconcat' uses the FFmpeg concat demuxer; "
+            "'streamlist' uses a list of stream paths."  # noqa: E501
+        ),
+    )
 
 
 class VerificationConfig(BaseModel, extra="forbid"):
-    """Hardware synchronization verification.
+    """Runtime consistency checks for synchronization and video integrity."""
 
-    Attributes:
-        enabled: Master switch to enable/disable all verification checks.
-        check_frame_counts: Count and verify video frame counts (slow for large videos).
-        check_sync_mismatch: Verify frame/TTL count synchronization.
-        skip_nwb_requirements: Skip NWB-required frame counting for multi-file videos (use estimates).
-        mismatch_tolerance_frames: Max allowed frame/TTL count mismatch before abort.
-        warn_on_mismatch: If True, warn instead of abort when within tolerance.
-    """
-
-    enabled: bool = Field(default=True, description="Master switch for all verification checks")
-    check_frame_counts: bool = Field(default=True, description="Count video frames (can be slow)")
-    check_sync_mismatch: bool = Field(default=True, description="Verify frame/TTL synchronization")
-    skip_nwb_requirements: bool = Field(default=False, description="Skip NWB frame count requirements (use FPS estimates)")
-    mismatch_tolerance_frames: int = Field(default=0, ge=0, description="Abort if frame_count - ttl_pulse_count > tolerance")
-    warn_on_mismatch: bool = Field(default=False, description="Warn instead of abort if within tolerance")
+    enabled: bool = Field(
+        default=True,
+        description="If True, run verification checks during session processing.",
+    )
+    check_frame_counts: bool = Field(
+        default=True,
+        description=("If True, count video frames (accurate but can be slow for large/remote files)."),
+    )
+    check_sync_mismatch: bool = Field(
+        default=True,
+        description=("If True, compare video frame counts against TTL pulse counts for the reference channel."),
+    )
+    mismatch_tolerance_frames: int = Field(
+        default=0,
+        ge=0,
+        description=("Allowed absolute mismatch (frames) between frame_count and ttl_pulse_count before failing."),
+    )
+    warn_on_mismatch: bool = Field(
+        default=False,
+        description=("If True, warn (and continue) when mismatch is within tolerance; otherwise raise an error."),
+    )
 
 
 # =============================================================================
@@ -167,42 +204,43 @@ class VerificationConfig(BaseModel, extra="forbid"):
 
 
 class BpodSyncTrialType(BaseModel, extra="forbid"):
-    """Bpod trial type synchronization mapping.
+    """Per-trial mapping used to align Bpod timestamps to a TTL timebase."""
 
-    Maps a Bpod trial type to its synchronization signal and TTL channel,
-    enabling conversion from Bpod relative timestamps to absolute time.
-
-    Attributes:
-        trial_type: Trial type identifier matching Bpod classification.
-        sync_signal: Bpod state/event name for alignment (e.g., 'W2T_Audio').
-        sync_ttl: TTL channel whose pulses correspond to sync_signal.
-    """
-
-    trial_type: int = Field(..., ge=0, description="Trial type identifier")
-    sync_signal: str = Field(..., description="Bpod state/event for alignment")
-    sync_ttl: str = Field(..., description="TTL channel for sync pulses")
+    trial_type: int = Field(
+        ...,
+        ge=0,
+        description="Numeric trial type label produced by Bpod trial classification.",
+    )
+    sync_signal: str = Field(
+        ...,
+        description=("Bpod state/event name whose onset should align to TTL pulses (e.g., 'W2T_Audio')."),
+    )
+    sync_ttl: str = Field(
+        ...,
+        description="TTL channel name/ID that carries the pulses for sync_signal.",
+    )
 
 
 class BpodSyncConfig(BaseModel, extra="forbid"):
-    """Bpod-to-TTL synchronization configuration.
+    """Bpod-to-TTL synchronization mappings."""
 
-    Attributes:
-        trial_types: List of trial type sync configurations.
-    """
-
-    trial_types: List[BpodSyncTrialType] = Field(default_factory=list, description="Trial type sync configs")
+    trial_types: List[BpodSyncTrialType] = Field(
+        default_factory=list,
+        description=("List of per-trial-type synchronization rules used to convert Bpod times to absolute time."),
+    )
 
 
 class BpodConfig(BaseModel, extra="forbid"):
-    """Bpod behavioral control system configuration.
+    """Settings for parsing and synchronizing Bpod behavioral data."""
 
-    Attributes:
-        parse: Whether to parse Bpod .mat files.
-        sync: Trial synchronization configuration.
-    """
-
-    parse: bool = Field(default=True, description="Parse Bpod .mat files if present")
-    sync: BpodSyncConfig = Field(default_factory=BpodSyncConfig, description="Trial sync configuration")
+    parse: bool = Field(
+        default=True,
+        description="Parse Bpod .mat files when present in the session raw data.",
+    )
+    sync: BpodSyncConfig = Field(
+        default_factory=BpodSyncConfig,
+        description="Mappings that define how Bpod trial events align to TTL/video time.",
+    )
 
 
 # =============================================================================
@@ -211,44 +249,54 @@ class BpodConfig(BaseModel, extra="forbid"):
 
 
 class TranscodeConfig(BaseModel, extra="forbid"):
-    """Video transcoding settings.
+    """FFmpeg transcoding parameters for derived videos."""
 
-    Attributes:
-        enabled: Enable video transcoding.
-        codec: FFmpeg codec (e.g., 'h264', 'libx264').
-        crf: Constant rate factor quality (0-51, lower is better).
-        preset: FFmpeg encoding preset (e.g., 'fast', 'medium').
-        keyint: GOP (group of pictures) length.
-    """
-
-    enabled: bool = Field(default=True, description="Enable transcoding")
-    codec: str = Field(default="h264", description="FFmpeg codec name")
-    crf: int = Field(default=20, ge=0, le=51, description="Quality factor (0-51)")
-    preset: str = Field(default="fast", description="FFmpeg preset")
-    keyint: int = Field(default=15, ge=1, description="GOP length")
+    enabled: bool = Field(
+        default=True,
+        description="If True, transcode raw videos into a standardized codec/format for downstream tools.",
+    )
+    codec: str = Field(
+        default="h264",
+        description="FFmpeg video codec name used for transcoding (e.g., 'libx264').",
+    )
+    crf: int = Field(
+        default=20,
+        ge=0,
+        le=51,
+        description="FFmpeg CRF quality value (0–51); lower means higher quality/larger files.",
+    )
+    preset: str = Field(
+        default="fast",
+        description="FFmpeg encoder preset controlling speed vs compression ratio.",
+    )
+    keyint: int = Field(
+        default=15,
+        ge=1,
+        description="Keyframe interval (GOP size) in frames; impacts seeking and compression.",
+    )
 
 
 class VideoAnalysisConfig(BaseModel, extra="forbid"):
-    """Video analysis configuration.
+    """Performance controls for video probing tasks."""
 
-    Attributes:
-        frame_count_timeout: Maximum time in seconds for frame counting operations (default: 30).
-                             Increase for very long videos that take longer to analyze.
-    """
-
-    frame_count_timeout: int = Field(default=30, ge=1, description="Frame counting timeout in seconds")
+    frame_count_timeout: int = Field(
+        default=30,
+        ge=1,
+        description=("Timeout (seconds) for frame counting/probing per file; increase for long/slow-to-open videos."),
+    )
 
 
 class VideoConfig(BaseModel, extra="forbid"):
-    """Video processing configuration.
+    """Video analysis and transcoding settings."""
 
-    Attributes:
-        analysis: Video analysis settings.
-        transcode: Transcoding settings.
-    """
-
-    analysis: VideoAnalysisConfig = Field(default_factory=VideoAnalysisConfig, description="Analysis config")
-    transcode: TranscodeConfig = Field(default_factory=TranscodeConfig, description="Transcoding config")
+    analysis: VideoAnalysisConfig = Field(
+        default_factory=VideoAnalysisConfig,
+        description="Settings for probing/counting frames and other lightweight video analysis.",
+    )
+    transcode: TranscodeConfig = Field(
+        default_factory=TranscodeConfig,
+        description="Settings for producing derived/transcoded videos.",
+    )
 
 
 # =============================================================================
@@ -257,47 +305,58 @@ class VideoConfig(BaseModel, extra="forbid"):
 
 
 class NWBConfig(BaseModel, extra="forbid"):
-    """NWB (Neurodata Without Borders) export settings.
+    """Parameters used when exporting NWB files."""
 
-    Attributes:
-        link_external_video: Use external links for videos instead of embedding.
-        lab: Laboratory name.
-        institution: Institution name.
-        file_name_template: Template for NWB filename.
-        session_description_template: Template for session description.
-    """
-
-    link_external_video: bool = Field(default=True, description="Link videos externally")
-    lab: str = Field(default="Lab Name", description="Lab name")
-    institution: str = Field(default="Institution Name", description="Institution name")
-    file_name_template: str = Field(default="{session.id}.nwb", description="NWB filename template")
-    session_description_template: str = Field(default="Session {session.id} on {session.date}", description="Session description template")
+    link_external_video: bool = Field(
+        default=True,
+        description=("If True, store videos as external file references in NWB (recommended) instead of embedding video bytes."),
+    )
+    lab: str = Field(
+        default="Lab Name",
+        description="Lab name written into NWB metadata.",
+    )
+    institution: str = Field(
+        default="Institution Name",
+        description="Institution name written into NWB metadata.",
+    )
+    file_name_template: str = Field(
+        default="{session.id}.nwb",
+        description="Output NWB filename template (supports '{session.*}' placeholders).",
+    )
+    session_description_template: str = Field(
+        default="Session {session.id} on {session.date}",
+        description="Human-readable NWB session description template (supports '{session.*}' placeholders).",
+    )
 
 
 class QCConfig(BaseModel, extra="forbid"):
-    """Quality control report configuration.
+    """Options for QC summary generation."""
 
-    Attributes:
-        generate_report: Enable QC report generation.
-        out_template: Output path template for reports.
-        include_verification: Include frame/TTL verification in reports.
-    """
-
-    generate_report: bool = Field(default=True, description="Generate QC report")
-    out_template: str = Field(default="qc/{session.id}", description="Output path template")
-    include_verification: bool = Field(default=True, description="Include verification in report")
+    generate_report: bool = Field(
+        default=True,
+        description="If True, generate QC outputs (plots/metrics) for each processed session.",
+    )
+    out_template: str = Field(
+        default="qc/{session.id}",
+        description="Output path template (relative to output_root) for QC artifacts.",
+    )
+    include_verification: bool = Field(
+        default=True,
+        description="If True, include verification results (frame counts, TTL mismatch checks) in QC outputs.",
+    )
 
 
 class LoggingConfig(BaseModel, extra="forbid"):
-    """Logging configuration.
+    """Runtime logging behavior."""
 
-    Attributes:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-        structured: Use structured (JSON) logging format.
-    """
-
-    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO", description="Logging level")
-    structured: bool = Field(default=False, description="Use structured logging")
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        default="INFO",
+        description="Minimum log severity to emit.",
+    )
+    structured: bool = Field(
+        default=False,
+        description="If True, emit logs as structured JSON (better for log aggregation).",
+    )
 
 
 # =============================================================================
@@ -306,23 +365,24 @@ class LoggingConfig(BaseModel, extra="forbid"):
 
 
 class DLCConfig(BaseModel, extra="forbid"):
-    """DeepLabCut pose estimation configuration.
+    """DeepLabCut (DLC) pose estimation settings."""
 
-    Controls DLC pose estimation execution and model configuration.
-    Model paths are resolved relative to paths.models_root if relative,
-    or used as-is if absolute.
-
-    Attributes:
-        enabled: Enable DLC pose estimation (default: False).
-        model_path: Path to DLC project config.yaml (relative to models_root or absolute).
-        gpu: GPU index to use (None = auto-detect, -1 = CPU).
-        save_csv: Generate CSV output in addition to H5 (default: False).
-    """
-
-    enabled: bool = Field(default=False, description="Enable DLC pose estimation")
-    model_path: Optional[Path] = Field(None, description="Path to DLC config.yaml")
-    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect, -1 = CPU)")
-    save_csv: bool = Field(default=False, description="Generate CSV outputs")
+    enabled: bool = Field(
+        default=False,
+        description="If True, run the DeepLabCut pose estimation step.",
+    )
+    model_path: Optional[Path] = Field(
+        None,
+        description=("Path to the DLC project 'config.yaml'. Relative paths are resolved against paths.models_root."),
+    )
+    gpu: Optional[int] = Field(
+        None,
+        description="GPU index to use (None = default/auto, -1 = force CPU).",
+    )
+    save_csv: bool = Field(
+        default=False,
+        description="If True, export pose results as CSV in addition to HDF5.",
+    )
 
     def resolve_model_path(self, models_root: Path) -> Optional[Path]:
         """Resolve model_path relative to models_root.
@@ -341,21 +401,20 @@ class DLCConfig(BaseModel, extra="forbid"):
 
 
 class SLEAPConfig(BaseModel, extra="forbid"):
-    """SLEAP pose estimation configuration.
+    """SLEAP pose estimation settings."""
 
-    Controls SLEAP pose estimation execution and model configuration.
-    Model paths are resolved relative to paths.models_root if relative,
-    or used as-is if absolute.
-
-    Attributes:
-        enabled: Enable SLEAP pose estimation (default: False).
-        model_path: Path to SLEAP model file (relative to models_root or absolute).
-        gpu: GPU index to use (None = auto-detect, -1 = CPU).
-    """
-
-    enabled: bool = Field(default=False, description="Enable SLEAP pose estimation")
-    model_path: Optional[Path] = Field(None, description="Path to SLEAP model file")
-    gpu: Optional[int] = Field(None, description="GPU index (None = auto-detect, -1 = CPU)")
+    enabled: bool = Field(
+        default=False,
+        description="If True, run the SLEAP pose estimation step.",
+    )
+    model_path: Optional[Path] = Field(
+        None,
+        description=("Path to the SLEAP trained model. Relative paths are resolved against paths.models_root."),
+    )
+    gpu: Optional[int] = Field(
+        None,
+        description="GPU index to use (None = default/auto, -1 = force CPU).",
+    )
 
     def resolve_model_path(self, models_root: Path) -> Optional[Path]:
         """Resolve model_path relative to models_root.
@@ -374,21 +433,20 @@ class SLEAPConfig(BaseModel, extra="forbid"):
 
 
 class PreprocessingConfig(BaseModel, extra="forbid"):
-    """Preprocessing phase configuration.
+    """Optional preprocessing steps that create intermediate artifacts."""
 
-    Controls preprocessing tasks that generate intermediate artifacts
-    stored in the interim folder. Model paths in DLC and SLEAP configs
-    are resolved relative to paths.models_root.
-
-    Attributes:
-        force_rerun: Force regeneration of all intermediate files (default: False).
-        dlc: DLC pose estimation task configuration.
-        sleap: SLEAP pose estimation task configuration.
-    """
-
-    force_rerun: bool = Field(default=False, description="Force rerun of all preprocessing tasks")
-    dlc: DLCConfig = Field(default_factory=DLCConfig, description="DLC pose estimation config")
-    sleap: SLEAPConfig = Field(default_factory=SLEAPConfig, description="SLEAP pose estimation config")
+    force_rerun: bool = Field(
+        default=False,
+        description="If True, recompute preprocessing outputs even if cached intermediates exist.",
+    )
+    dlc: DLCConfig = Field(
+        default_factory=DLCConfig,
+        description="DeepLabCut pose estimation configuration.",
+    )
+    sleap: SLEAPConfig = Field(
+        default_factory=SLEAPConfig,
+        description="SLEAP pose estimation configuration.",
+    )
 
 
 # =============================================================================
@@ -397,51 +455,72 @@ class PreprocessingConfig(BaseModel, extra="forbid"):
 
 
 class SessionFlowConfig(BaseModel, extra="forbid"):
-    """Session processing configuration for Prefect UI.
+    """Per-session pipeline configuration (shown in Prefect UI).
 
-    This model defines pipeline configuration without paths/project (handled via env vars).
-    Defaults are baked from configuration.toml at deployment time.
-
-    Note: Do NOT use default_factory to load files - it executes on worker,
-    causing 'works on my machine' issues. Defaults come from deployment parameters.
-
-    Attributes:
-        synchronization: Synchronization configuration.
-        acquisition: Data acquisition policies.
-        verification: Hardware sync verification.
-        bpod: Bpod behavioral control settings.
-        preprocessing: Preprocessing phase configuration.
-        video: Video processing configuration.
-        nwb: NWB export settings.
-        qc: Quality control configuration.
-        logging: Logging configuration.
+    This model intentionally excludes filesystem paths (handled via environment
+    variables / deployment config). Keep defaults deterministic: avoid loading
+    files in default factories.
     """
 
-    synchronization: SynchronizationConfig
-    acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
-    verification: VerificationConfig = Field(default_factory=VerificationConfig)
-    bpod: BpodConfig = Field(default_factory=BpodConfig)
-    preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
-    video: VideoConfig = Field(default_factory=VideoConfig)
-    nwb: NWBConfig = Field(default_factory=NWBConfig)
-    qc: QCConfig = Field(default_factory=QCConfig)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    synchronization: SynchronizationConfig = Field(
+        ...,
+        description="How modalities (video/TTL/Bpod) are aligned to a common timebase.",
+    )
+    acquisition: AcquisitionConfig = Field(
+        default_factory=AcquisitionConfig,
+        description="Policies for handling raw acquisitions (e.g., multi-file videos).",
+    )
+    verification: VerificationConfig = Field(
+        default_factory=VerificationConfig,
+        description="Runtime checks that validate sync quality and data integrity.",
+    )
+    bpod: BpodConfig = Field(
+        default_factory=BpodConfig,
+        description="Settings for parsing and synchronizing Bpod behavioral data.",
+    )
+    preprocessing: PreprocessingConfig = Field(
+        default_factory=PreprocessingConfig,
+        description="Optional preprocessing steps (pose estimation, intermediate generation).",
+    )
+    video: VideoConfig = Field(
+        default_factory=VideoConfig,
+        description="Video analysis and transcoding settings.",
+    )
+    nwb: NWBConfig = Field(
+        default_factory=NWBConfig,
+        description="NWB export settings and metadata templates.",
+    )
+    qc: QCConfig = Field(
+        default_factory=QCConfig,
+        description="QC summary generation settings.",
+    )
+    logging: LoggingConfig = Field(
+        default_factory=LoggingConfig,
+        description="Logging verbosity and output format.",
+    )
 
 
 class BatchFlowConfig(BaseModel, extra="forbid"):
-    """Batch processing configuration for Prefect UI.
+    """Batch-run parameters: select sessions and control concurrency."""
 
-    Attributes:
-        subject_filter: Optional glob pattern to filter subjects.
-        session_filter: Optional glob pattern to filter sessions.
-        max_parallel: Maximum parallel sessions (default: 4).
-        config: Session configuration applied to all sessions.
-    """
-
-    subject_filter: Optional[str] = Field(None, description="Subject filter pattern (e.g., 'subject-*')")
-    session_filter: Optional[str] = Field(None, description="Session filter pattern (e.g., 'session-001')")
-    max_parallel: int = Field(4, ge=1, le=32, description="Maximum parallel sessions")
-    configuration: SessionFlowConfig
+    subject_filter: Optional[str] = Field(
+        None,
+        description="Optional glob used to select subject IDs (e.g., 'subject-*').",
+    )
+    session_filter: Optional[str] = Field(
+        None,
+        description="Optional glob used to select session IDs (e.g., 'session-001*').",
+    )
+    max_parallel: int = Field(
+        4,
+        ge=1,
+        le=32,
+        description="Maximum number of sessions processed concurrently.",
+    )
+    configuration: SessionFlowConfig = Field(
+        ...,
+        description="Session-level configuration applied to every selected session.",
+    )
 
 
 # =============================================================================
