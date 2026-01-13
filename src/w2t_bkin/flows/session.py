@@ -84,6 +84,8 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
     run_logger = get_run_logger()
     start_time = datetime.now()
     file_handler = None
+    file_handler_attached = False
+    session_info = None
 
     try:
         run_logger.info(f"Starting session processing: {subject_id}/{session_id}")
@@ -104,7 +106,6 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         file_handler.setFormatter(formatter)
 
         # Bind handler to current Prefect flow-run context to prevent cross-session contamination
-        file_handler_attached = False
         try:
             flow_run_id = flow_run_runtime.id
             if flow_run_id is None:

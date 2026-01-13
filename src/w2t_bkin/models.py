@@ -30,7 +30,7 @@ class SessionInfo:
 
     subject_id: str
     session_id: str
-    session_config: SessionFlowConfig
+    config: SessionFlowConfig
     metadata: Dict[str, Any]
     session_dir: Path
     interim_dir: Path

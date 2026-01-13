@@ -7,8 +7,10 @@ from typing import Any, Dict, Optional
 
 from pynwb import NWBFile
 
-from w2t_bkin import utils
 from w2t_bkin.config import SessionFlowConfig
+from w2t_bkin.core.session import build_metadata_paths
+from w2t_bkin.core.session import create_nwb_file as core_create_nwb_file
+from w2t_bkin.core.session import load_metadata
 from w2t_bkin.models import SessionInfo
 
 logger = logging.getLogger(__name__)
@@ -76,34 +78,35 @@ def build_session_info(
     if not session_dir.exists():
         raise FileNotFoundError(f"Session directory not found: {session_dir}")
 
-    # Load metadata from session directory
-    # Use a minimal config object just for metadata loading
-    # TODO: Refactor utils.load_session_metadata to not require Config
-    from w2t_bkin.config import Config, PathsConfig, ProjectConfig
+    # Load metadata from session directory using core.session primitives
+    # Support optional global metadata via W2T_ROOT_METADATA env var
+    root_metadata_str = os.getenv("W2T_ROOT_METADATA")
+    root_metadata = Path(root_metadata_str).resolve() if root_metadata_str else None
 
-    temp_config = Config(
-        project=ProjectConfig(name="temp"),
-        paths=PathsConfig(
-            raw_root=raw_root,
-            intermediate_root=interim_root,
-            output_root=output_root,
-            models_root=models_root,
-        ),
-        synchronization=session_config.synchronization,
-    )
-
-    metadata, _ = utils.load_session_metadata_and_nwb(
-        config=temp_config,
+    # Build hierarchical metadata paths
+    metadata_paths = build_metadata_paths(
+        raw_root=raw_root,
         subject_id=subject_id,
         session_id=session_id,
+        root_metadata=root_metadata,
     )
+
+    if not metadata_paths:
+        raise ValueError(
+            f"No metadata files found for {subject_id}/{session_id}. "
+            f"Expected at least one of: root_metadata, raw_root/metadata.toml, "
+            f"raw_root/{subject_id}/subject.toml, raw_root/{subject_id}/{session_id}/session.toml"
+        )
+
+    # Load and merge metadata hierarchically
+    metadata = load_metadata(metadata_paths)
 
     logger.info(f"SessionInfo built for {subject_id}/{session_id}")
 
     return SessionInfo(
         subject_id=subject_id,
         session_id=session_id,
-        session_config=session_config,
+        config=session_config,
         metadata=metadata,
         session_dir=session_dir,
         interim_dir=interim_dir,
@@ -125,26 +128,8 @@ def create_nwb_file(session_info: SessionInfo) -> NWBFile:
     """
     logger.debug(f"Creating NWBFile for {session_info.subject_id}/{session_info.session_id}")
 
-    # Use existing utility to create NWBFile
-    # TODO: Refactor utils.load_session_metadata_and_nwb to accept metadata directly
-    from w2t_bkin.config import Config, PathsConfig, ProjectConfig
-
-    temp_config = Config(
-        project=ProjectConfig(name="temp"),
-        paths=PathsConfig(
-            raw_root=session_info.session_dir.parent.parent,
-            intermediate_root=session_info.interim_dir.parent.parent,
-            output_root=session_info.output_dir.parent.parent,
-            models_root=session_info.models_root,
-        ),
-        synchronization=session_info.session_config.synchronization,
-    )
-
-    _, nwbfile = utils.load_session_metadata_and_nwb(
-        config=temp_config,
-        subject_id=session_info.subject_id,
-        session_id=session_info.session_id,
-    )
+    # Create NWBFile directly from metadata using core.session primitive
+    nwbfile = core_create_nwb_file(session_info.metadata)
 
     logger.info(f"NWBFile created: identifier='{nwbfile.identifier}'")
 

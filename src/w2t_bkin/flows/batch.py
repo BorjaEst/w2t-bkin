@@ -27,6 +27,7 @@ Example:
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+from pathlib import Path
 from typing import Dict, List
 
 from prefect import flow, get_run_logger, task
@@ -87,18 +88,18 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
         # =====================================================================
         run_logger.info("Discovering sessions from raw data directory")
 
-        # Get paths from environment
-        from w2t_bkin.config import PathsConfig, _load_paths_from_env
+        # Get raw_root from environment
+        import os
 
-        paths_dict = _load_paths_from_env().get("paths", {})
-        if not paths_dict:
-            raise ValueError("Paths not configured. Set W2T_RAW_ROOT and other path env vars.")
+        raw_root_str = os.getenv("W2T_RAW_ROOT")
+        if not raw_root_str:
+            raise EnvironmentError("W2T_RAW_ROOT environment variable not set. " "Set it to your raw data directory (e.g., export W2T_RAW_ROOT=/data/raw)")
 
-        paths = PathsConfig(**paths_dict)
+        raw_root = Path(raw_root_str).resolve()
 
         # Discover sessions using glob pattern matching
         sessions = discover_sessions_in_raw_root(
-            raw_root=paths.raw_root,
+            raw_root=raw_root,
             subject_filter=config.subject_filter,
             session_filter=config.session_filter,
         )
