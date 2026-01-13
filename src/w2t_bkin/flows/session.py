@@ -127,7 +127,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # =====================================================================
         run_logger.info("Phase 1: Discovering files")
 
-        discovery = discover_all_files_task(session_info=config)
+        discovery = discover_all_files_task(session_info)
 
         n_cameras = len(discovery.camera_files)
         n_bpod = len(discovery.bpod_files)
@@ -139,10 +139,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # =====================================================================
         run_logger.info("Phase 1.5: Verifying session inputs")
 
-        verification_result = verify_session_inputs_task(
-            discovery=discovery,
-            session_info=session_info,
-        )
+        verification_result = verify_session_inputs_task(discovery, session_info)
 
         if session_info.config.verification.enabled:
             if session_info.config.verification.check_frame_counts:
