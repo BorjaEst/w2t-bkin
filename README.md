@@ -4,25 +4,25 @@ A modular, reproducible Python pipeline for processing multi-camera rodent behav
 
 ## Features
 
-- 🧠 **NWB-Native**: Direct NWB file creation, no intermediate formats
-- 🔄 **Prefect Orchestration**: Workflow management with monitoring UI
-- 📹 **Multi-Camera Support**: Synchronized video processing with pose estimation
-- 🐭 **Behavior Analysis**: Bpod task recording and TTL synchronization
-- 🎯 **Pose Estimation**: DeepLabCut and SLEAP integration
-- 📊 **Facial Metrics**: Facemap-based facial movement analysis
-- ✅ **Validation**: Automated NWB file validation and inspection
-- 🐳 **Flexible Execution**: Local Python or Docker workers
+- [x] 🧠 **NWB-Native**: Direct NWB file creation, no intermediate formats
+- [x] 🔄 **Prefect Orchestration**: Workflow management with monitoring UI
+- [x] 📹 **Multi-Camera Support**: Synchronized video processing with pose estimation
+- [x] 🐭 **Behavior Analysis**: Bpod task recording and TTL synchronization
+- [ ] 🎯 **Pose Estimation**: DeepLabCut and SLEAP integration
+- [ ] 📊 **Facial Metrics**: Facemap-based facial movement analysis
+- [x] ✅ **Validation**: Automated NWB file validation and inspection
+- [x] 🐳 **Flexible Execution**: Local Python or Docker workers
 
 ## Prerequisites
 
-- **Python**: 3.10
-- **Prefect**: 3.6+ (included in base installation)
-- **Rancher Desktop**: Recommended for Windows users (provides Docker runtime)
+- **Python**: 3.10 (Some package requirements do not support 3.11+ yet)
+  - Install from [python.org](https://www.python.org/downloads/)
+- **Docker runtime**: e.g. Rancher Desktop (Recommended for Windows users)
   - Download from [rancherdesktop.io](https://rancherdesktop.io/)
   - Installs Docker automatically
   - No Docker knowledge required
 
-## Installation
+## Installation [Production]
 
 ```bash
 # Base installation (CLI + Prefect server/UI + data management)
