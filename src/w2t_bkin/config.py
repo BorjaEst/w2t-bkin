@@ -434,16 +434,16 @@ class BatchFlowConfig(BaseModel, extra="forbid"):
     """Batch processing configuration for Prefect UI.
 
     Attributes:
-        config: Session configuration applied to all sessions.
         subject_filter: Optional glob pattern to filter subjects.
         session_filter: Optional glob pattern to filter sessions.
         max_parallel: Maximum parallel sessions (default: 4).
+        config: Session configuration applied to all sessions.
     """
 
-    config: SessionFlowConfig
     subject_filter: Optional[str] = Field(None, description="Subject filter pattern (e.g., 'subject-*')")
     session_filter: Optional[str] = Field(None, description="Session filter pattern (e.g., 'session-001')")
     max_parallel: int = Field(4, ge=1, le=32, description="Maximum parallel sessions")
+    configuration: SessionFlowConfig
 
 
 # =============================================================================

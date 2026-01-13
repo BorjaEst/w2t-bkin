@@ -26,18 +26,15 @@ Example:
 
 from dataclasses import dataclass
 from datetime import datetime
-import json
 import logging
-import os
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from prefect import flow, get_run_logger, task
 
 from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
 from w2t_bkin.flows.session import process_session_flow
 from w2t_bkin.models import SessionResult
-from w2t_bkin.utils import discover_sessions
+from w2t_bkin.utils import discover_sessions_in_raw_root
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +96,8 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
 
         paths = PathsConfig(**paths_dict)
 
-        # Discover sessions
-        sessions = discover_sessions(
+        # Discover sessions using glob pattern matching
+        sessions = discover_sessions_in_raw_root(
             raw_root=paths.raw_root,
             subject_filter=config.subject_filter,
             session_filter=config.session_filter,
@@ -113,17 +110,17 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
         # =====================================================================
         run_logger.info(f"Processing {len(sessions)} sessions with max_parallel={config.max_parallel}")
 
-        # Submit all sessions as subflows for parallel execution
+        # Submit all sessions as tasks for parallel execution
         futures = []
         for session_info in sessions:
             subject_id = session_info["subject"]
             session_id = session_info["session"]
 
-            # Submit subflow for concurrent execution
-            future = process_session_flow.submit(
+            # Submit task for concurrent execution
+            future = process_single_session_task.submit(
                 subject_id=subject_id,
                 session_id=session_id,
-                config=config.config,
+                config=config.configuration,
             )
             futures.append((subject_id, session_id, future))
 
@@ -211,4 +208,42 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
             session_results=[],
             errors={"batch": str(e)},
             duration_seconds=duration,
+        )
+
+
+@task(
+    name="process-single-session",
+    description="Process a single session (task wrapper for parallel execution)",
+    retries=2,
+    retry_delay_seconds=60,
+    tags=["session-processing"],
+)
+def process_single_session_task(
+    subject_id: str,
+    session_id: str,
+    config: SessionFlowConfig,
+) -> SessionResult:
+    """Task wrapper for process_session_flow to enable parallel execution.
+
+    Args:
+        subject_id: Subject identifier
+        session_id: Session identifier
+        config: Session configuration
+
+    Returns:
+        SessionResult with processing outcome
+    """
+    try:
+        return process_session_flow(
+            subject_id=subject_id,
+            session_id=session_id,
+            config=config,
+        )
+    except Exception as e:
+        # Return failed result instead of raising
+        return SessionResult(
+            success=False,
+            subject_id=subject_id,
+            session_id=session_id,
+            error=str(e),
         )

@@ -589,7 +589,7 @@ def _serve_flows(config_path: Optional[Path]) -> None:
 
         # Create batch deployment
         batch_config_defaults = BatchFlowConfig(
-            config=session_config_defaults,
+            configuration=session_config_defaults,
             subject_filter=None,
             session_filter=None,
             max_parallel=4,
@@ -782,7 +782,7 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
 
         # Deploy batch flow
         batch_config_defaults = BatchFlowConfig(
-            config=session_config_defaults,
+            configuration=session_config_defaults,
             subject_filter=None,
             session_filter=None,
             max_parallel=4,

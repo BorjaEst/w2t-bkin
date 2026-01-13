@@ -1274,25 +1274,24 @@ def load_session_metadata_and_nwb(
     return metadata, nwbfile
 
 
-def discover_sessions(
-    config_path: Union[str, Path],
+def discover_sessions_in_raw_root(
+    raw_root: Path,
     subject_filter: Optional[str] = None,
     session_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Discover all available subject/session combinations in the raw data directory.
+    """Discover sessions in raw data directory with glob pattern support.
 
-    Scans the raw_root directory and returns a list of valid subject/session
-    combinations that can be processed by the pipeline. A valid session must
-    have either a session.toml or metadata.toml file.
+    Scans the raw_root directory and returns valid subject/session combinations.
+    A valid session must have either a session.toml or metadata.toml file.
 
     Parameters
     ----------
-    config_path : Union[str, Path]
-        Path to configuration TOML file
+    raw_root : Path
+        Raw data root directory
     subject_filter : Optional[str], optional
-        Filter results to specific subject ID only (default: None)
+        Glob pattern to filter subjects (e.g., 'subject-*', 'SNA-*')
     session_filter : Optional[str], optional
-        Filter results to specific session ID only (default: None)
+        Glob pattern to filter sessions (e.g., 'session-001', '2024-*')
 
     Returns
     -------
@@ -1305,38 +1304,29 @@ def discover_sessions(
 
     Raises
     ------
-    FileNotFoundError
-        If config file does not exist
     ValueError
         If raw_root does not exist
 
     Example
     -------
     >>> from pathlib import Path
-    >>> from w2t_bkin.utils import discover_sessions
+    >>> from w2t_bkin.utils import discover_sessions_in_raw_root
     >>>
     >>> # Discover all sessions
-    >>> sessions = discover_sessions("config.toml")
-    >>> print(f"Found {len(sessions)} sessions")
+    >>> sessions = discover_sessions_in_raw_root(Path("data/raw"))
     >>>
-    >>> # Filter by subject
-    >>> sessions = discover_sessions("config.toml", subject_filter="subject-001")
-    >>>
-    >>> # Process all sessions
-    >>> for item in sessions:
-    ...     print(f"Processing {item['subject']}/{item['session']}")
-    ...     # run_pipeline(config, item['subject'], item['session'])
+    >>> # Filter by glob pattern
+    >>> sessions = discover_sessions_in_raw_root(
+    ...     Path("data/raw"),
+    ...     subject_filter="subject-*",
+    ...     session_filter="2024-*"
+    ... )
     """
-    from w2t_bkin.config import load_config
-
-    # Load configuration
-    config = load_config(Path(config_path))
-    raw_root = config.paths.raw_root
+    from fnmatch import fnmatch
 
     if not raw_root.exists():
         raise ValueError(f"raw_root does not exist: {raw_root}")
 
-    # Discover subjects and sessions
     discoveries = []
 
     # Iterate through subjects
@@ -1348,8 +1338,8 @@ def discover_sessions(
 
         subject_id = subject_dir.name
 
-        # Apply subject filter
-        if subject_filter and subject_id != subject_filter:
+        # Apply subject filter (glob pattern)
+        if subject_filter and not fnmatch(subject_id, subject_filter):
             continue
 
         # Check for subject.toml
@@ -1365,8 +1355,8 @@ def discover_sessions(
 
             session_id = session_dir.name
 
-            # Apply session filter
-            if session_filter and session_id != session_filter:
+            # Apply session filter (glob pattern)
+            if session_filter and not fnmatch(session_id, session_filter):
                 continue
 
             # Check for session metadata (session.toml or metadata.toml)
@@ -1386,3 +1376,53 @@ def discover_sessions(
                 )
 
     return discoveries
+
+
+def discover_sessions(
+    config_path: Union[str, Path],
+    subject_filter: Optional[str] = None,
+    session_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Discover sessions from config file (CLI convenience wrapper).
+
+    Loads configuration from TOML file and delegates to discover_sessions_in_raw_root.
+
+    Parameters
+    ----------
+    config_path : Union[str, Path]
+        Path to configuration TOML file
+    subject_filter : Optional[str], optional
+        Glob pattern to filter subjects (e.g., 'subject-*')
+    session_filter : Optional[str], optional
+        Glob pattern to filter sessions (e.g., 'session-001')
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        List of session dictionaries (see discover_sessions_in_raw_root)
+
+    Raises
+    ------
+    FileNotFoundError
+        If config file does not exist
+    ValueError
+        If raw_root does not exist
+
+    Example
+    -------
+    >>> from w2t_bkin.utils import discover_sessions
+    >>>
+    >>> # Discover all sessions
+    >>> sessions = discover_sessions("config.toml")
+    >>>
+    >>> # Filter by glob pattern
+    >>> sessions = discover_sessions("config.toml", subject_filter="subject-*")
+    """
+    from w2t_bkin.config import load_config
+
+    config = load_config(Path(config_path))
+    return discover_sessions_in_raw_root(
+        raw_root=config.paths.raw_root,
+        subject_filter=subject_filter,
+        session_filter=session_filter,
+    )
