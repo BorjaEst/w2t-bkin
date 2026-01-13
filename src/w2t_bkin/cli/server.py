@@ -64,10 +64,26 @@ def start(
     # and matches the documented workflow: cd {experiment_root} && w2t-bkin server start
     project_root = Path.cwd()
 
-    # Load environment file (before any other env setup)
+    # Development mode: regenerate .env.dev with correct absolute paths
+    if dev:
+        from w2t_bkin.cli.utils import generate_env_dev_content
+
+        env_dev_path = project_root / ".workers" / ".env.dev"
+        env_dev_path.parent.mkdir(parents=True, exist_ok=True)
+        env_dev_content = generate_env_dev_content(project_root)
+        env_dev_path.write_text(env_dev_content)
+        console.print(f"[dim]  Regenerated {env_dev_path.relative_to(project_root.parent)} with absolute paths[/dim]")
+
+    # Load environment files (before any other env setup)
     from w2t_bkin.cli.env import load_project_env
 
+    # In dev mode, load both .env and .env.dev (dev paths win)
     load_project_env(project_root, env_file)
+    if dev:
+        from w2t_bkin.cli.env import load_env_file
+
+        env_dev_path = project_root / ".workers" / ".env.dev"
+        load_env_file(env_dev_path, override=True, silent=False)
 
     # Validate mode and print banner
     _validate_and_print_mode(dev, port)

@@ -40,21 +40,23 @@ class TestDataInitTemplates:
         assert "verification" in config
 
     def test_workers_env_created(self, tmp_path):
-        """Verify .workers/.env template is valid (CLI layer creates it).
+        """Verify .workers/.env and .env.dev generation works correctly."""
+        # Verify templates exist
+        from w2t_bkin.cli.utils import _load_template, generate_env_dev_content
 
-        Note: The actual .workers/.env creation happens in cli/data.py,
-        not in the pure init_experiment() function. This test verifies
-        the template exists and is valid.
-        """
-        # Just verify the template exists and is readable
-        from w2t_bkin.cli.utils import _load_template
+        # Test .env template
+        env_template = _load_template(".env.template")
+        assert "W2T_DOCKER_IMAGE" in env_template
+        assert "ghcr.io/borjaest/w2t-bkin" in env_template
 
-        try:
-            env_template = _load_template(".env.template")
-            assert "W2T_DOCKER_IMAGE" in env_template
-            assert "ghcr.io/borjaest/w2t-bkin" in env_template
-        except FileNotFoundError:
-            pytest.fail(".env.template not found in package")
+        # Test .env.dev generation
+        env_dev_content = generate_env_dev_content(tmp_path)
+        assert "AUTO-GENERATED" in env_dev_content
+        assert "DO NOT EDIT" in env_dev_content
+        assert f"W2T_RAW_ROOT={tmp_path / 'data' / 'raw'}" in env_dev_content
+        assert f"W2T_INTERMEDIATE_ROOT={tmp_path / 'data' / 'interim'}" in env_dev_content
+        assert f"W2T_OUTPUT_ROOT={tmp_path / 'data' / 'processed'}" in env_dev_content
+        assert f"W2T_MODELS_ROOT={tmp_path / 'models'}" in env_dev_content
 
     def test_workers_env_skip(self, tmp_path):
         """Verify --skip-docker-env prevents .workers/.env creation.

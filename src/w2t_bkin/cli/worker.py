@@ -70,10 +70,26 @@ def start(
     # This matches server behavior for consistent project isolation.
     project_root = Path.cwd()
 
-    # Load environment file (before any other env setup)
+    # Process workers (dev mode): regenerate .env.dev with correct absolute paths
+    if worker_type == "process":
+        from w2t_bkin.cli.utils import generate_env_dev_content
+
+        env_dev_path = project_root / ".workers" / ".env.dev"
+        env_dev_path.parent.mkdir(parents=True, exist_ok=True)
+        env_dev_content = generate_env_dev_content(project_root)
+        env_dev_path.write_text(env_dev_content)
+        console.print(f"[dim]  Regenerated {env_dev_path.relative_to(project_root.parent)} with absolute paths[/dim]")
+
+    # Load environment files (before any other env setup)
     from w2t_bkin.cli.env import load_project_env
 
+    # In process mode, load both .env and .env.dev (dev paths win)
     load_project_env(project_root, env_file)
+    if worker_type == "process":
+        from w2t_bkin.cli.env import load_env_file
+
+        env_dev_path = project_root / ".workers" / ".env.dev"
+        load_env_file(env_dev_path, override=True, silent=False)
 
     # Setup Prefect environment (same as server for project isolation)
     _setup_prefect_env(port, project_root)
