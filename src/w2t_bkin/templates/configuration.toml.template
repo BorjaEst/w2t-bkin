@@ -37,7 +37,6 @@ global_offset_s = 0.0       # Global time offset correction
 enabled = true                # Master switch (disables all checks when false)
 check_frame_counts = true     # Count frames via ffprobe (slow but accurate)
 check_sync_mismatch = true    # Verify frame/TTL counts match (false = skip TTL checks)
-skip_nwb_requirements = false # Use FPS estimates instead of exact counts (not recommended)
 mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
 warn_on_mismatch = false      # Warn instead of fail when within tolerance
 

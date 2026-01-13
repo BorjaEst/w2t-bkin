@@ -32,7 +32,6 @@ global_offset_s = 0.0
 enabled = true                # Master switch
 check_frame_counts = true     # Count frames via ffprobe (slow)
 check_sync_mismatch = true    # Verify frame/TTL sync (false = skip TTL checks)
-skip_nwb_requirements = false # Use FPS estimates (not recommended)
 mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
 warn_on_mismatch = false      # Warn instead of fail
 
