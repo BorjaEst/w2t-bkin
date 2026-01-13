@@ -401,20 +401,20 @@ def _start_prefect_server(port: int, debug: bool) -> subprocess.Popen:
     return server_process
 
 
-def _wait_for_server(process: subprocess.Popen, port: int, max_retries: int = 30) -> bool:
+def _wait_for_server(process: subprocess.Popen, port: int, timeout: int = 30) -> bool:
     """Wait for Prefect server to be ready.
 
     Args:
         process: The server subprocess to monitor
         port: Port number for the Prefect server
-        max_retries: Maximum number of retries (seconds)
+        timeout: Maximum number of retries (seconds)
 
     Returns:
         True if server is ready, False if it failed or timed out
     """
     health_url = f"http://localhost:{port}/api/health"
 
-    for i in range(max_retries):
+    for i in range(timeout):
         if process.poll() is not None:
             console.print(f"[red]Server process exited with code {process.returncode}[/red]")
             return False
