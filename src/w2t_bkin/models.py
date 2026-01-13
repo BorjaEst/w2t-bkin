@@ -7,35 +7,35 @@ from typing import Any, Dict, List, Optional
 
 from pynwb import NWBFile
 
-from w2t_bkin import config as config_pkg
+from w2t_bkin.config import SessionFlowConfig
 
 
 @dataclass(frozen=True)
-class SessionConfig:
+class SessionInfo:
     """Immutable configuration for a session processing run.
 
     This replaces the mutable PipelineContext. All configuration is loaded
     once and never modified during pipeline execution.
 
     Attributes:
-        config_path: Path to configuration TOML file
         subject_id: Subject identifier
         session_id: Session identifier
-        config: Loaded pipeline configuration
+        session_config: Pipeline configuration from configuration.toml
         metadata: Session metadata from TOML files
-        session_dir: Path to raw session directory
-        interim_dir: Path to intermediate artifacts directory
-        output_dir: Path to output NWB directory
+        session_dir: Path to raw data in session directory
+        interim_dir: Path to intermediate session artifacts directory
+        output_dir: Path to output session NWB directory
+        models_root: Path to pose estimation models directory (from env)
     """
 
-    config_path: Path
     subject_id: str
     session_id: str
-    config: config_pkg.Config
+    session_config: SessionFlowConfig
     metadata: Dict[str, Any]
     session_dir: Path
     interim_dir: Path
     output_dir: Path
+    models_root: Path
 
 
 @dataclass(frozen=True)

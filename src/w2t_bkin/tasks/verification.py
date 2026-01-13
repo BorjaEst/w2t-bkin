@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from prefect import task
 
-from w2t_bkin.models import DiscoveryResult, SessionConfig
+from w2t_bkin.models import DiscoveryResult, SessionInfo
 from w2t_bkin.operations import verify_session_inputs
 
 logger = logging.getLogger(__name__)
@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 )
 def verify_session_inputs_task(
     discovery: DiscoveryResult,
-    session_config: SessionConfig,
-    skip_camera_sync: bool = False,
+    session_info: SessionInfo,
 ) -> Dict[str, Any]:
     """Verify session inputs before processing (fail-fast).
 
@@ -31,8 +30,7 @@ def verify_session_inputs_task(
 
     Args:
         discovery: File discovery results
-        session_config: Session configuration
-        skip_camera_sync: Skip camera-TTL frame counting (runtime override)
+        session_info: Session configuration
 
     Returns:
         Dictionary containing verification results:
@@ -50,6 +48,5 @@ def verify_session_inputs_task(
 
     return verify_session_inputs(
         discovery=discovery,
-        session_config=session_config,
-        skip_camera_sync=skip_camera_sync,
+        session_info=session_info,
     )

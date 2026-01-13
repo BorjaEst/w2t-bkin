@@ -8,7 +8,7 @@ from w2t_bkin import sync, utils
 from w2t_bkin.ingest import bpod as bpod_ingest
 from w2t_bkin.ingest import pose as pose_ingest
 from w2t_bkin.ingest import ttl as ttl_ingest
-from w2t_bkin.models import BpodData, PoseData, SessionConfig, TrialAlignment, TTLData
+from w2t_bkin.models import BpodData, PoseData, SessionInfo, TrialAlignment, TTLData
 
 logger = logging.getLogger(__name__)
 
@@ -188,13 +188,13 @@ def align_trials_to_ttl(trial_type_configs: Dict, bpod_data: Dict, ttl_pulses: D
     return TrialAlignment(trial_offsets=trial_offsets, warnings=warnings)
 
 
-def ingest_session_data(session_config: SessionConfig, camera_files: Dict[str, List[Path]], skip_bpod: bool = False, skip_pose: bool = False) -> Dict[str, Any]:
+def ingest_session_data(session_info: SessionInfo, camera_files: Dict[str, List[Path]], skip_bpod: bool = False, skip_pose: bool = False) -> Dict[str, Any]:
     """Ingest all data types for a session.
 
     Convenience function that orchestrates Bpod, pose, and TTL ingestion.
 
     Args:
-        session_config: Session configuration
+        session_info: Session configuration
         camera_files: Discovered camera video files
         skip_bpod: Skip Bpod ingestion
         skip_pose: Skip pose ingestion
@@ -206,16 +206,16 @@ def ingest_session_data(session_config: SessionConfig, camera_files: Dict[str, L
         - ttl_data: Dict[ttl_id, TTLData]
         - trial_alignment: TrialAlignment or None
     """
-    logger.info(f"Ingesting session data for {session_config.session_id}")
+    logger.info(f"Ingesting session data for {session_info.session_id}")
 
     result = {"bpod_data": None, "pose_data": {}, "ttl_data": {}, "trial_alignment": None}
 
     # Ingest Bpod
     if not skip_bpod:
-        bpod_config = session_config.metadata.get("bpod", {})
+        bpod_config = session_info.metadata.get("bpod", {})
         if bpod_config:
             result["bpod_data"] = ingest_bpod_data(
-                session_dir=session_config.session_dir,
+                session_dir=session_info.session_dir,
                 pattern=bpod_config["path"],
                 order=bpod_config.get("order", "time_asc"),
                 continuous_time=bpod_config.get("continuous_time", False),
@@ -224,8 +224,8 @@ def ingest_session_data(session_config: SessionConfig, camera_files: Dict[str, L
     # Ingest pose data
     if not skip_pose:
         # DLC
-        if session_config.config.preprocessing.dlc.enabled:
-            interim_dlc_dir = session_config.interim_dir / "dlc"
+        if session_info.config.preprocessing.dlc.enabled:
+            interim_dlc_dir = session_info.interim_dir / "dlc"
 
             for camera_id, video_paths in camera_files.items():
                 if video_paths:
@@ -234,8 +234,8 @@ def ingest_session_data(session_config: SessionConfig, camera_files: Dict[str, L
                         result["pose_data"][camera_id] = pose_data
 
         # SLEAP
-        if session_config.config.preprocessing.sleap.enabled:
-            interim_sleap_dir = session_config.interim_dir / "sleap"
+        if session_info.config.preprocessing.sleap.enabled:
+            interim_sleap_dir = session_info.interim_dir / "sleap"
 
             for camera_id, video_paths in camera_files.items():
                 if video_paths:
@@ -247,16 +247,16 @@ def ingest_session_data(session_config: SessionConfig, camera_files: Dict[str, L
                         result["pose_data"][camera_id] = pose_data
 
     # Ingest TTL pulses
-    ttl_config = session_config.metadata.get("TTLs", [])
+    ttl_config = session_info.metadata.get("TTLs", [])
     if ttl_config:
         ttl_patterns = {ttl["id"]: ttl["paths"] for ttl in ttl_config}
-        result["ttl_data"] = ingest_ttl_pulses(session_dir=session_config.session_dir, ttl_patterns=ttl_patterns)
+        result["ttl_data"] = ingest_ttl_pulses(session_dir=session_info.session_dir, ttl_patterns=ttl_patterns)
 
     # Align trials to TTL
-    if result["bpod_data"] and session_config.config.bpod.sync.trial_types:
+    if result["bpod_data"] and session_info.config.bpod.sync.trial_types:
         # Convert TTLData to simple dict of timestamps
         ttl_pulses = {ttl_id: data.timestamps for ttl_id, data in result["ttl_data"].items()}
 
-        result["trial_alignment"] = align_trials_to_ttl(trial_type_configs=session_config.config.bpod.sync.trial_types, bpod_data=result["bpod_data"].data, ttl_pulses=ttl_pulses)
+        result["trial_alignment"] = align_trials_to_ttl(trial_type_configs=session_info.config.bpod.sync.trial_types, bpod_data=result["bpod_data"].data, ttl_pulses=ttl_pulses)
 
     return result

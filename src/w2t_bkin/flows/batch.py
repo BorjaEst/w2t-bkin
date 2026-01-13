@@ -26,48 +26,20 @@ Example:
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from prefect import flow, get_run_logger, task
 
-from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
 from w2t_bkin.flows.session import process_session_flow
 from w2t_bkin.models import SessionResult
 from w2t_bkin.utils import discover_sessions
 
 logger = logging.getLogger(__name__)
-
-
-@task(
-    name="process-single-session-task",
-    description="Process a single session (used in batch processing)",
-    retries=2,
-    retry_delay_seconds=60,
-    tags=["session-processing"],
-)
-def process_single_session_task(session_config: SessionFlowConfig) -> SessionResult:
-    """Process a single session as a Prefect task.
-
-    This wrapper allows parallel execution of multiple sessions in batch processing.
-
-    Args:
-        session_config: Session configuration
-
-    Returns:
-        SessionResult with processing outcome
-    """
-    try:
-        return process_session_flow(session_config)
-    except Exception as e:
-        # Return failed result instead of raising
-        return SessionResult(
-            success=False,
-            subject_id=session_config.subject_id,
-            session_id=session_config.session_id,
-            error=str(e),
-        )
 
 
 @dataclass
@@ -93,9 +65,6 @@ class BatchResult:
     duration_seconds: float
 
 
-import os
-
-
 @flow(
     name="batch-process-sessions",
     description="Process multiple sessions in parallel",
@@ -106,50 +75,14 @@ import os
 def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
     """Process multiple sessions in parallel using Prefect.
 
-    This flow discovers sessions from the raw data directory, filters them
-    according to the provided patterns, and processes them in parallel using
-    the process_session_flow. Failed sessions do not stop the batch - all
-    sessions are attempted and results are aggregated.
-
-    Parallelism: Sessions are submitted as concurrent Prefect tasks. The actual
-    degree of parallelism depends on available workers. Use max_parallel to
-    limit concurrency (requires configuring a work pool concurrency limit in
-    Prefect server settings).
-
     Args:
-        config: Validated configuration model with all batch parameters.
-                Auto-generates UI forms in Prefect with validation and docs.
+        config: Batch configuration with session config and filters
 
     Returns:
-        BatchResult with aggregated statistics and individual results
-
-    Example:
-        >>> from w2t_bkin.flows.config_models import BatchFlowConfig
-        >>> config = BatchFlowConfig(
-        ...     subject_filter="subject-001",
-        ...     max_parallel=2
-        ... )
-        >>> result = batch_process_flow(config)
-        >>>
-        >>> # Process specific session pattern across subjects
-        >>> config = BatchFlowConfig(
-        ...     session_filter="session-001",
-        ...     max_parallel=4
-        ... )
-        >>> result = batch_process_flow(config)
+        BatchResult with aggregated statistics
     """
     run_logger = get_run_logger()
     start_time = datetime.now()
-
-    # Extract values from Pydantic model
-    subject_filter = config.subject_filter
-    session_filter = config.session_filter
-    max_parallel = config.max_parallel
-    skip_bpod = config.skip_bpod
-    skip_pose = config.skip_pose
-    skip_ecephys = config.skip_ecephys
-    skip_camera_sync = config.skip_camera_sync
-    skip_nwb_validation = config.skip_nwb_validation
 
     try:
         # =====================================================================
@@ -157,81 +90,41 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
         # =====================================================================
         run_logger.info("Discovering sessions from raw data directory")
 
-        # Load configuration from environment variable (baked at deployment time)
-        import json
+        # Get paths from environment
+        from w2t_bkin.config import PathsConfig, _load_paths_from_env
 
-        from w2t_bkin.config import load_config_from_dict
+        paths_dict = _load_paths_from_env().get("paths", {})
+        if not paths_dict:
+            raise ValueError("Paths not configured. Set W2T_RAW_ROOT and other path env vars.")
 
-        config_json = os.getenv("W2T_RUNTIME_CONFIG_JSON")
-        if not config_json:
-            raise ValueError("W2T_RUNTIME_CONFIG_JSON environment variable not set. Deployment configuration missing.")
+        paths = PathsConfig(**paths_dict)
 
-        config_dict = json.loads(config_json)
-        temp_config = load_config_from_dict(config_dict)
+        # Discover sessions
+        sessions = discover_sessions(
+            raw_root=paths.raw_root,
+            subject_filter=config.subject_filter,
+            session_filter=config.session_filter,
+        )
 
-        # Discover sessions from raw_root
-        from w2t_bkin.utils import discover_sessions as discover_sessions_util
-
-        sessions = []
-        for subject_dir in sorted(temp_config.paths.raw_root.iterdir()):
-            if not subject_dir.is_dir() or subject_dir.name.startswith("."):
-                continue
-
-            subject_id = subject_dir.name
-            if subject_filter and subject_id != subject_filter:
-                continue
-
-            for session_dir in sorted(subject_dir.iterdir()):
-                if not session_dir.is_dir() or session_dir.name.startswith("."):
-                    continue
-
-                session_id = session_dir.name
-                if session_filter and session_id != session_filter:
-                    continue
-
-                sessions.append({"subject": subject_id, "session": session_id})
-
-        if not sessions:
-            run_logger.warning(f"No sessions found matching filters " f"(subject: {subject_filter}, session: {session_filter})")
-            return BatchResult(
-                total=0,
-                successful=0,
-                failed=0,
-                skipped=0,
-                session_results=[],
-                errors={},
-                duration_seconds=(datetime.now() - start_time).total_seconds(),
-            )
-
-        run_logger.info(f"Found {len(sessions)} sessions " f"(subject_filter: {subject_filter}, session_filter: {session_filter})")
+        run_logger.info(f"Found {len(sessions)} sessions " f"(subject_filter: {config.subject_filter}, session_filter: {config.session_filter})")
 
         # =====================================================================
         # Phase 2: Process Sessions in Parallel
         # =====================================================================
-        # Submit all sessions as tasks for parallel execution
-        # Prefect will respect max_parallel limit via task concurrency
-        run_logger.info(f"Processing {len(sessions)} sessions with max_parallel={max_parallel}")
+        run_logger.info(f"Processing {len(sessions)} sessions with max_parallel={config.max_parallel}")
 
-        # Create session configs and submit as tasks
+        # Submit all sessions as subflows for parallel execution
         futures = []
         for session_info in sessions:
             subject_id = session_info["subject"]
             session_id = session_info["session"]
 
-            session_config = SessionFlowConfig(
+            # Submit subflow for concurrent execution
+            future = process_session_flow.submit(
                 subject_id=subject_id,
                 session_id=session_id,
-                skip_bpod=skip_bpod,
-                skip_pose=skip_pose,
-                skip_dlc=False,  # Only skip_pose controls DLC in batch
-                skip_sleap=False,  # Only skip_pose controls SLEAP in batch
-                skip_ecephys=skip_ecephys,
-                skip_camera_sync=skip_camera_sync,
-                skip_nwb_validation=skip_nwb_validation,
+                config=config.config,
             )
-
-            # Submit task for concurrent execution
-            future = process_single_session_task.submit(session_config)
             futures.append((subject_id, session_id, future))
 
         # Wait for all tasks to complete and collect results

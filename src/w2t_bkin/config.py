@@ -44,11 +44,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib  # Python < 3.11 fallback
-
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from w2t_bkin.utils import compute_hash, read_toml, recursive_dict_update
@@ -65,16 +60,6 @@ VALID_LOGGING_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL
 # =============================================================================
 # Configuration Models - Core
 # =============================================================================
-
-
-class ProjectConfig(BaseModel, extra="forbid"):
-    """Project identification.
-
-    Attributes:
-        name: Project name identifier.
-    """
-
-    name: str = Field(..., description="Project name")
 
 
 class PathsConfig(BaseModel, extra="forbid"):
@@ -409,19 +394,20 @@ class PreprocessingConfig(BaseModel, extra="forbid"):
 
 
 # =============================================================================
-# Main Configuration Model
+# Prefect Flow Configuration Models (UI Parameters)
 # =============================================================================
 
 
-class Config(BaseModel, extra="forbid"):
-    """Main pipeline configuration.
+class SessionFlowConfig(BaseModel, extra="forbid"):
+    """Session processing configuration for Prefect UI.
 
-    Root configuration model loaded from config.toml. Uses strict validation
-    with extra="forbid" to prevent typos and configuration errors.
+    This model defines pipeline configuration without paths/project (handled via env vars).
+    Defaults are baked from configuration.toml at deployment time.
+
+    Note: Do NOT use default_factory to load files - it executes on worker,
+    causing 'works on my machine' issues. Defaults come from deployment parameters.
 
     Attributes:
-        project: Project identification.
-        paths: File system paths.
         synchronization: Synchronization configuration.
         acquisition: Data acquisition policies.
         verification: Hardware sync verification.
@@ -433,8 +419,6 @@ class Config(BaseModel, extra="forbid"):
         logging: Logging configuration.
     """
 
-    project: ProjectConfig
-    paths: PathsConfig
     synchronization: SynchronizationConfig
     acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
     verification: VerificationConfig = Field(default_factory=VerificationConfig)
@@ -446,8 +430,22 @@ class Config(BaseModel, extra="forbid"):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
-# =============================================================================
-# Public API Functions
+class BatchFlowConfig(BaseModel, extra="forbid"):
+    """Batch processing configuration for Prefect UI.
+
+    Attributes:
+        config: Session configuration applied to all sessions.
+        subject_filter: Optional glob pattern to filter subjects.
+        session_filter: Optional glob pattern to filter sessions.
+        max_parallel: Maximum parallel sessions (default: 4).
+    """
+
+    config: SessionFlowConfig
+    subject_filter: Optional[str] = Field(None, description="Subject filter pattern (e.g., 'subject-*')")
+    session_filter: Optional[str] = Field(None, description="Session filter pattern (e.g., 'session-001')")
+    max_parallel: int = Field(4, ge=1, le=32, description="Maximum parallel sessions")
+
+
 # =============================================================================
 # Configuration Loading
 # =============================================================================
@@ -714,109 +712,3 @@ def _validate_config_conditionals(data: Dict[str, Any]) -> None:
 
     if strategy == "network_stream" and not sync.get("reference_channel"):
         raise ValueError("synchronization.reference_channel is required when " "synchronization.strategy='network_stream'")
-
-
-# =============================================================================
-# CLI/Testing Entry Point
-# =============================================================================
-
-if __name__ == "__main__":
-    """Demonstrate configuration loading and validation."""
-
-    print("=" * 70)
-    print("Configuration Loading Examples")
-    print("=" * 70)
-    print()
-
-    # Example 1: Load valid configuration
-    print("Example 1: Load and validate config.toml")
-    print("-" * 70)
-
-    try:
-        config_path = Path("tests/fixtures/configs/valid_config.toml")
-        config = load_config(config_path)
-
-        print(f"✓ Loaded: {config_path}")
-        print(f"  Project: {config.project.name}")
-        print(f"  Strategy: {config.synchronization.strategy}")
-        print(f"  Method: {config.synchronization.alignment.method}")
-        print(f"  Tolerance: {config.synchronization.alignment.tolerance_s}s")
-        print(f"  Logging: {config.logging.level}")
-
-        config_hash = compute_config_hash(config)
-        print(f"  Hash: {config_hash[:16]}...")
-
-    except FileNotFoundError as e:
-        print(f"✗ File not found: {e}")
-        print("  Hint: Run from project root")
-    except ValidationError as e:
-        print(f"✗ Validation failed:")
-        for error in e.errors():
-            print(f"  - {error['loc']}: {error['msg']}")
-    except ValueError as e:
-        print(f"✗ Configuration error: {e}")
-
-    print()
-
-    # Example 2: Demonstrate validation errors
-    print("Example 2: Validation error handling")
-    print("-" * 70)
-
-    # Invalid enum
-    print("\n2a. Invalid synchronization.strategy:")
-    try:
-        test_data = {
-            "project": {"name": "test"},
-            "paths": {
-                "raw_root": "data/raw",
-                "intermediate_root": "data/interim",
-                "output_root": "data/processed",
-            },
-            "synchronization": {
-                "strategy": "invalid",
-                "alignment": {
-                    "method": "nearest",
-                    "tolerance_s": 0.01,
-                },
-            },
-        }
-        _validate_config_enums(test_data)
-    except ValueError as e:
-        print(f"  ✓ Caught: {e}")
-
-    # Missing conditional field
-    print("\n2b. Missing conditional field (reference_channel):")
-    try:
-        test_data = {
-            "synchronization": {
-                "strategy": "hardware_pulse",
-                "alignment": {
-                    "method": "nearest",
-                    "tolerance_s": 0.01,
-                },
-            }
-        }
-        _validate_config_conditionals(test_data)
-    except ValueError as e:
-        print(f"  ✓ Caught: {e}")
-
-    # Invalid numeric constraint
-    print("\n2c. Invalid numeric constraint:")
-    try:
-        test_data = {
-            "synchronization": {
-                "strategy": "rate_based",
-                "alignment": {
-                    "method": "nearest",
-                    "tolerance_s": -0.01,
-                },
-            }
-        }
-        _validate_config_enums(test_data)
-    except ValueError as e:
-        print(f"  ✓ Caught: {e}")
-
-    print()
-    print("=" * 70)
-    print("See module docstring for more information")
-    print("=" * 70)

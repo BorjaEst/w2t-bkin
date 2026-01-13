@@ -15,8 +15,8 @@ import webbrowser
 
 import typer
 
-from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
 from w2t_bkin.cli.utils import console, setup_logging
+from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
 from w2t_bkin.utils import read_toml, recursive_dict_update
 
 server_app = typer.Typer(name="server", help="Prefect server management")
@@ -546,42 +546,57 @@ def _serve_flows(config_path: Optional[Path]) -> None:
     """Serve flows for development using local code.
 
     Args:
-        config_path: Config file path
+        config_path: Config file path (configuration.toml)
     """
     from prefect import serve
 
-    # Import flows lazily so Prefect settings are picked up from the environment
-    # configured in `_setup_prefect_env`.
+    from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
     from w2t_bkin.flows import batch_process_flow, process_session_flow
 
     package_root = Path(__file__).parent.parent.parent.parent.absolute()
-    _, config_json = _load_and_normalize_config(config_path)
 
-    # Inject runtime config into environment for dev mode
-    os.environ["W2T_RUNTIME_CONFIG_JSON"] = config_json
+    # Load and normalize config to get both dict and SessionFlowConfig
+    merged_config_dict, config_json = _load_and_normalize_config(config_path)
+
+    # Build SessionFlowConfig from the merged dict (excluding paths/project)
+    # Paths will come from environment variables at runtime
+    session_config_data = {k: v for k, v in merged_config_dict.items() if k not in ("project", "paths")}
+    session_config_defaults = SessionFlowConfig(**session_config_data)
+
+    # Set path environment variables for dev mode
+    project_root = Path.cwd()
+    os.environ["W2T_RAW_ROOT"] = str(project_root / "data" / "raw")
+    os.environ["W2T_INTERMEDIATE_ROOT"] = str(project_root / "data" / "interim")
+    os.environ["W2T_OUTPUT_ROOT"] = str(project_root / "data" / "processed")
+    os.environ["W2T_MODELS_ROOT"] = str(project_root / "models")
 
     original_cwd = Path.cwd()
     try:
         os.chdir(package_root)
 
-        # Create deployments and serve them (blocking). This keeps a long-lived
-        # process running that will pick up scheduled / UI-triggered runs.
-        session_config = SessionFlowConfig(
-            subject_id="subject-001",
-            session_id="session-001",
-        )
+        # Create session deployment with config defaults from TOML
         process_session_deployment = process_session_flow.to_deployment(
             name="process-session",
-            parameters={"config": session_config.model_dump()},
+            parameters={
+                "subject_id": "subject-001",  # Example default
+                "session_id": "session-001",  # Example default
+                "config": session_config_defaults.model_dump(mode="json"),  # JSON-safe
+            },
             tags=["w2t-bkin", "development"],
             version="dev",
         )
         console.print("[dim]  ✓ process-session deployment created[/dim]")
 
-        batch_config = BatchFlowConfig(max_parallel=4)
+        # Create batch deployment
+        batch_config_defaults = BatchFlowConfig(
+            config=session_config_defaults,
+            subject_filter=None,
+            session_filter=None,
+            max_parallel=4,
+        )
         batch_process_deployment = batch_process_flow.to_deployment(
             name="batch-process",
-            parameters={"config": batch_config.model_dump()},
+            parameters={"config": batch_config_defaults.model_dump(mode="json")},
             tags=["w2t-bkin", "development"],
             version="dev",
         )
@@ -593,7 +608,6 @@ def _serve_flows(config_path: Optional[Path]) -> None:
         try:
             serve(process_session_deployment, batch_process_deployment)
         except KeyboardInterrupt:
-            # Let outer command handle shutdown messaging.
             pass
 
     finally:
@@ -699,18 +713,20 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
     """Deploy flows for production using Docker image.
 
     Args:
-        config_path: Config file path
+        config_path: Config file path (configuration.toml)
         project_root: Experiment/project root directory (cwd)
     """
+    from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
+    from w2t_bkin.flows import batch_process_flow, process_session_flow
+
     package_root = Path(__file__).parent.parent.parent.parent.absolute()
 
     # Generate container-native config (uses /data, /models, etc.)
-    # This config will be injected into containers via W2T_RUNTIME_CONFIG_JSON
-    _, config_json = _load_and_normalize_config(config_path, for_container=True)
+    container_config_dict, config_json = _load_and_normalize_config(config_path, for_container=True)
 
-    # Import flows lazily so Prefect settings are picked up from the environment
-    # configured in `_setup_prefect_env`.
-    from w2t_bkin.flows import batch_process_flow, process_session_flow
+    # Build SessionFlowConfig from container-normalized dict (excluding paths/project)
+    session_config_data = {k: v for k, v in container_config_dict.items() if k not in ("project", "paths")}
+    session_config_defaults = SessionFlowConfig(**session_config_data)
 
     # Get Docker image
     docker_image = _get_docker_image(project_root)
@@ -739,31 +755,41 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
             "job_variables": {
                 "env": {
                     "W2T_RUNTIME_CONFIG_JSON": config_json,
+                    # Path env vars for container
+                    "W2T_RAW_ROOT": "/data/raw",
+                    "W2T_INTERMEDIATE_ROOT": "/data/interim",
+                    "W2T_OUTPUT_ROOT": "/data/processed",
+                    "W2T_MODELS_ROOT": "/models",
                 },
-                "volumes": volumes,  # Per-deployment fallback for volume mounts
+                "volumes": volumes,
             },
             "tags": ["w2t-bkin", "production"],
             "version": "1.0.0",
         }
 
-        # Deploy session flow
-        session_config = SessionFlowConfig(
-            subject_id="subject-001",
-            session_id="session-001",
-        )
+        # Deploy session flow with config defaults from TOML
         process_session_flow.deploy(
             name="process-session",
-            parameters={"config": session_config.model_dump()},
+            parameters={
+                "subject_id": "subject-001",  # Example default
+                "session_id": "session-001",  # Example default
+                "config": session_config_defaults.model_dump(mode="json"),  # JSON-safe
+            },
             description="Process a single experimental session through the w2t-bkin pipeline.",
             **common_params,
         )
         console.print("[dim]  ✓ process-session deployed[/dim]")
 
         # Deploy batch flow
-        batch_config = BatchFlowConfig(max_parallel=4)
+        batch_config_defaults = BatchFlowConfig(
+            config=session_config_defaults,
+            subject_filter=None,
+            session_filter=None,
+            max_parallel=4,
+        )
         batch_process_flow.deploy(
             name="batch-process",
-            parameters={"config": batch_config.model_dump()},
+            parameters={"config": batch_config_defaults.model_dump(mode="json")},
             description="Process multiple experimental sessions in parallel.",
             **common_params,
         )

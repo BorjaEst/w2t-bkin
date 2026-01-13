@@ -80,9 +80,6 @@ __all__ = [
     "transcode",
     "ttl",
     "utils",
-    # API models
-    "SessionFlowConfig",
-    "BatchFlowConfig",
 ]
 
 
@@ -137,14 +134,5 @@ def __getattr__(name: str):
         from w2t_bkin.processors import transcode
 
         return transcode
-    # API models
-    elif name == "SessionFlowConfig":
-        from w2t_bkin.api import SessionFlowConfig
-
-        return SessionFlowConfig
-    elif name == "BatchFlowConfig":
-        from w2t_bkin.api import BatchFlowConfig
-
-        return BatchFlowConfig
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

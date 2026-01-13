@@ -8,7 +8,9 @@ Flows:
 - session_flow.py: Single session processing orchestration
 - batch_flow.py: Multi-session parallel batch processing
 
-Note: Flow configuration models are in w2t_bkin.api for clear API/domain separation.
+Flow Parameters:
+- SessionFlowConfig: Pipeline configuration (from configuration.toml, no paths/project)
+- BatchFlowConfig: Batch configuration with SessionFlowConfig + filters
 
 Implementation Note:
     Flow imports are deferred using __getattr__ to prevent importing worker
@@ -17,7 +19,7 @@ Implementation Note:
     extras remain optional for execution environments.
 """
 
-from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
 
 __all__ = [
     "process_session_flow",

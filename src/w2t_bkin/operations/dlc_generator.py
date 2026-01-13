@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from w2t_bkin import utils
-from w2t_bkin.models import DLCArtifact, SessionConfig
+from w2t_bkin.models import DLCArtifact, SessionInfo
 from w2t_bkin.processors.dlc import DLCInferenceOptions, predict_output_paths, run_dlc_inference_batch, validate_dlc_model
 
 logger = logging.getLogger(__name__)
@@ -144,13 +144,13 @@ def generate_dlc_poses(
     return artifacts
 
 
-def generate_dlc_poses_for_session(session_config: SessionConfig, force_rerun: bool = False) -> Dict[str, List[DLCArtifact]]:
+def generate_dlc_poses_for_session(session_info: SessionInfo, force_rerun: bool = False) -> Dict[str, List[DLCArtifact]]:
     """Generate DLC pose estimation for all cameras in a session.
 
     Convenience function that processes all cameras configured for DLC.
 
     Args:
-        session_config: Session configuration
+        session_info: Session configuration
         force_rerun: If True, regenerate even if outputs exist
 
     Returns:
@@ -159,7 +159,7 @@ def generate_dlc_poses_for_session(session_config: SessionConfig, force_rerun: b
     Raises:
         ValueError: If DLC not enabled or not properly configured
     """
-    dlc_config = session_config.config.preprocessing.dlc
+    dlc_config = session_info.config.preprocessing.dlc
 
     if not dlc_config.enabled:
         logger.info("DLC processing disabled")
@@ -168,11 +168,11 @@ def generate_dlc_poses_for_session(session_config: SessionConfig, force_rerun: b
     if not dlc_config.model_path:
         raise ValueError("DLC enabled but model_path not configured")
 
-    logger.info(f"Starting DLC processing for session {session_config.session_id}")
+    logger.info(f"Starting DLC processing for session {session_info.session_id}")
     logger.debug(f"DLC model: {dlc_config.model_path}")
 
     # Get camera configurations
-    cameras = session_config.metadata.get("cameras", [])
+    cameras = session_info.metadata.get("cameras", [])
 
     if not cameras:
         logger.warning("No cameras configured in metadata")
@@ -186,7 +186,7 @@ def generate_dlc_poses_for_session(session_config: SessionConfig, force_rerun: b
         pattern = camera["paths"]
 
         # Discover video files
-        video_paths = utils.discover_files(session_config.session_dir, pattern, sort=True)
+        video_paths = utils.discover_files(session_info.session_dir, pattern, sort=True)
 
         if not video_paths:
             logger.warning(f"No videos found for camera '{camera_id}'")
@@ -194,7 +194,7 @@ def generate_dlc_poses_for_session(session_config: SessionConfig, force_rerun: b
             continue
 
         # Create camera-specific output directory
-        camera_output_dir = session_config.interim_dir / "dlc-pose" / camera_id
+        camera_output_dir = session_info.interim_dir / "dlc-pose" / camera_id
 
         # Generate DLC poses
         artifacts = generate_dlc_poses(

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from w2t_bkin import utils
-from w2t_bkin.models import SessionConfig, SLEAPArtifact
+from w2t_bkin.models import SessionInfo, SLEAPArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -85,27 +85,27 @@ def generate_sleap_poses(video_paths: List[Path], model_path: Path, output_dir: 
     raise NotImplementedError("SLEAP inference execution is not yet implemented. " f"Please manually generate SLEAP outputs and place them in: {output_dir}")
 
 
-def discover_sleap_poses_for_session(session_config: SessionConfig) -> Dict[str, List[SLEAPArtifact]]:
+def discover_sleap_poses_for_session(session_info: SessionInfo) -> Dict[str, List[SLEAPArtifact]]:
     """Discover SLEAP pose estimation outputs for all cameras in a session.
 
     Convenience function that processes all cameras configured for SLEAP.
 
     Args:
-        session_config: Session configuration
+        session_info: Session configuration
 
     Returns:
         Dictionary mapping camera_id to list of SLEAPArtifact objects
     """
-    sleap_config = session_config.config.preprocessing.sleap
+    sleap_config = session_info.config.preprocessing.sleap
 
     if not sleap_config.enabled:
         logger.info("SLEAP processing disabled")
         return {}
 
-    logger.info(f"Discovering SLEAP outputs for session {session_config.session_id}")
+    logger.info(f"Discovering SLEAP outputs for session {session_info.session_id}")
 
     # Get camera configurations
-    cameras = session_config.metadata.get("cameras", [])
+    cameras = session_info.metadata.get("cameras", [])
 
     if not cameras:
         logger.warning("No cameras configured in metadata")
@@ -119,7 +119,7 @@ def discover_sleap_poses_for_session(session_config: SessionConfig) -> Dict[str,
         pattern = camera["paths"]
 
         # Discover video files
-        video_paths = utils.discover_files(session_config.session_dir, pattern, sort=True)
+        video_paths = utils.discover_files(session_info.session_dir, pattern, sort=True)
 
         if not video_paths:
             logger.warning(f"No videos found for camera '{camera_id}'")
@@ -127,7 +127,7 @@ def discover_sleap_poses_for_session(session_config: SessionConfig) -> Dict[str,
             continue
 
         # Camera-specific SLEAP output directory
-        camera_sleap_dir = session_config.interim_dir / "sleap-pose" / camera_id
+        camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
 
         # Discover SLEAP poses
         artifacts = discover_sleap_poses(video_paths=video_paths, sleap_dir=camera_sleap_dir, camera_id=camera_id)

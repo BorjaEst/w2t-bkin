@@ -6,7 +6,7 @@ from typing import Dict, List
 
 from w2t_bkin import utils
 from w2t_bkin.exceptions import IngestError
-from w2t_bkin.models import DiscoveryResult, SessionConfig
+from w2t_bkin.models import DiscoveryResult, SessionInfo
 
 logger = logging.getLogger(__name__)
 
@@ -133,27 +133,27 @@ def discover_ttl_files(session_dir: Path, ttl_configs: List[Dict]) -> Dict[str, 
     return ttl_files
 
 
-def discover_all_files(session_config: SessionConfig) -> DiscoveryResult:
+def discover_all_files(session_info: SessionInfo) -> DiscoveryResult:
     """Discover all files for a session.
 
     Convenience function that discovers cameras, Bpod, and TTL files.
 
     Args:
-        session_config: Session configuration
+        session_info: Session configuration
 
     Returns:
         DiscoveryResult with all discovered file paths
     """
-    cameras = session_config.metadata.get("cameras", [])
-    ttls = session_config.metadata.get("TTLs", [])
-    bpod_config = session_config.metadata.get("bpod")
+    cameras = session_info.metadata.get("cameras", [])
+    ttls = session_info.metadata.get("TTLs", [])
+    bpod_config = session_info.metadata.get("bpod")
 
-    logger.info(f"Discovering files in {session_config.session_dir}")
+    logger.info(f"Discovering files in {session_info.session_dir}")
     logger.debug(f"  Cameras: {len(cameras)}, TTLs: {len(ttls)}, Bpod: {bpod_config is not None}")
 
     # Discover files
-    camera_files = discover_camera_files(session_config.session_dir, cameras)
-    ttl_files = discover_ttl_files(session_config.session_dir, ttls)
-    bpod_files = discover_bpod_files(session_config.session_dir, bpod_config)
+    camera_files = discover_camera_files(session_info.session_dir, cameras)
+    ttl_files = discover_ttl_files(session_info.session_dir, ttls)
+    bpod_files = discover_bpod_files(session_info.session_dir, bpod_config)
 
     return DiscoveryResult(camera_files=camera_files, bpod_files=bpod_files, ttl_files=ttl_files)

@@ -6,7 +6,7 @@ from typing import Dict, List
 
 from prefect import task
 
-from w2t_bkin.models import DLCArtifact, SessionConfig, SLEAPArtifact
+from w2t_bkin.models import DLCArtifact, SessionInfo, SLEAPArtifact
 from w2t_bkin.operations import discover_dlc_poses, discover_sleap_poses, generate_dlc_poses, generate_dlc_poses_for_session
 
 logger = logging.getLogger(__name__)
@@ -59,14 +59,14 @@ def generate_dlc_poses_task(
     retry_delay_seconds=30,
     timeout_seconds=7200,  # 2 hour timeout for full session
 )
-def generate_dlc_session_task(session_config: SessionConfig, force_rerun: bool = False) -> Dict[str, List[DLCArtifact]]:
+def generate_dlc_session_task(session_info: SessionInfo, force_rerun: bool = False) -> Dict[str, List[DLCArtifact]]:
     """Generate DLC pose estimation for all cameras in a session.
 
     Prefect task wrapper for generate_dlc_poses_for_session operation.
     Convenience task that processes all cameras configured for DLC.
 
     Args:
-        session_config: Session configuration
+        session_info: Session configuration
         force_rerun: If True, regenerate even if outputs exist
 
     Returns:
@@ -75,9 +75,9 @@ def generate_dlc_session_task(session_config: SessionConfig, force_rerun: bool =
     Raises:
         ValueError: If DLC not enabled or not properly configured
     """
-    logger.info(f"Generating DLC poses for session {session_config.session_id}")
+    logger.info(f"Generating DLC poses for session {session_info.session_id}")
 
-    return generate_dlc_poses_for_session(session_config=session_config, force_rerun=force_rerun)
+    return generate_dlc_poses_for_session(session_info=session_info, force_rerun=force_rerun)
 
 
 @task(

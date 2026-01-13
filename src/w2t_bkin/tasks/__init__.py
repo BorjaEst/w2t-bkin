@@ -19,13 +19,13 @@ from w2t_bkin.tasks.assembly import add_skeletons_task, assemble_behavior_task, 
 from w2t_bkin.tasks.discovery import discover_all_files_task, discover_bpod_files_task, discover_camera_files_task, discover_ttl_files_task
 from w2t_bkin.tasks.finalization import create_provenance_task, finalize_session_task, generate_figures_task, validate_nwb_task, write_nwb_task, write_sidecars_task
 from w2t_bkin.tasks.ingestion import align_trials_task, ingest_bpod_task, ingest_dlc_poses_task, ingest_sleap_poses_task, ingest_ttl_task
-from w2t_bkin.tasks.initialization import create_nwb_file_task, load_session_config_task
+from w2t_bkin.tasks.initialization import create_nwb_file_task, setup_flow_session_task
 from w2t_bkin.tasks.synchronization import compute_alignment_stats_task
 from w2t_bkin.tasks.verification import verify_session_inputs_task
 
 __all__ = [
     # Config tasks
-    "load_session_config_task",
+    "setup_flow_session_task",
     "create_nwb_file_task",
     # Discovery tasks
     "discover_camera_files_task",
