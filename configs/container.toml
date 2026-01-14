@@ -1,14 +1,6 @@
 # =============================================================================
 # Container Configuration
 # =============================================================================
-# This config uses absolute paths for containerized deployment
-# All paths reference mounted volumes in the container
-
-[paths]
-raw_root = "/data/raw"
-intermediate_root = "/data/interim"
-output_root = "/data/processed"
-models_root = "/models"
 
 # =============================================================================
 # Synchronization Strategy
@@ -49,7 +41,7 @@ mode = "auto"  # off | discover | generate | auto
 
 [preprocessing.sleap]
 enabled = false
-mode = "auto"  # off | discover | auto
+mode = "auto"   # off | discover | auto
 # gpu = 0      # GPU index (omit for auto-detect)
 
 # =============================================================================

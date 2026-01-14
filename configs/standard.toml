@@ -1,8 +1,6 @@
 # =============================================================================
 # Base Configuration
 # =============================================================================
-# This is the base configuration merged with project-specific configuration.toml.
-# Paths are NOT configured here - they come from environment variables.
 
 # =============================================================================
 # Synchronization Strategy
