@@ -689,10 +689,23 @@ def _assemble_pose_data(nwbfile, pose_data, session_info, ttl_data, run_logger):
 
     cameras_meta = session_info.metadata.get("cameras", [])
     camera_configs_dict = {cam["id"]: cam for cam in cameras_meta} if cameras_meta else {}
-    skeletons_config = session_info.metadata.get("skeletons", None)
+
+    pose_meta = session_info.metadata.get("pose", {})
+    pose_cameras_config = pose_meta.get("cameras", {})
+
+    # Skeleton definitions: prefer pose.skeletons (current templates) and fall back
+    # to a legacy top-level 'skeletons' if present.
+    skeletons_config = pose_meta.get("skeletons") or session_info.metadata.get("skeletons")
 
     for camera_id, pose_list in pose_data.items():
-        camera_config = camera_configs_dict.get(camera_id, {})
+        camera_config = camera_configs_dict.get(camera_id, {}).copy()
+
+        # Allow pose metadata to supply skeleton selection per camera.
+        # Camera metadata remains the source of fps/ttl_id and file discovery.
+        pose_cam_cfg = pose_cameras_config.get(camera_id, {}) if isinstance(pose_cameras_config, dict) else {}
+        if isinstance(pose_cam_cfg, dict) and pose_cam_cfg.get("skeleton_id"):
+            camera_config["skeleton_id"] = pose_cam_cfg["skeleton_id"]
+
         assemble_pose_task(
             nwbfile=nwbfile,
             camera_id=camera_id,
