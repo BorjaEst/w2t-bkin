@@ -139,7 +139,7 @@ Configure worker behavior via environment variables (in `.env` file or `docker r
 
 **Automatic Volume Configuration**: When you run `w2t-bkin server start` in production mode, the `docker-pool` work pool is automatically configured with volume mounts based on your project directory structure:
 
-```
+```text
 Host Path (project_root)              → Container Path
 --------------------------------------   ---------------
 {project_root}/data                   → /data
@@ -229,27 +229,26 @@ docker build -t w2t-bkin:worker docker
 
 ### Production (Docker Workers)
 
-> **⚠️ Important:** The `w2t-bkin worker` command does not exist. Use one of these methods:
+You can start workers either via the w2t-bkin CLI wrapper (recommended for consistency) or by calling Prefect directly.
 
-**Method 1: Using worker environment**
+#### Method 1: Docker workers via `w2t-bkin`
 
 ```bash
 # Start Prefect server
 w2t-bkin server start
 
 # In another terminal, use the worker environment
-source .workers/.env
-prefect worker start --pool docker-pool --type docker
+w2t-bkin worker start --pool docker-pool --type docker
 ```
 
-**Method 2: Process workers (requires `pip install w2t-bkin[worker]`)**
+#### Method 2: Local process workers (requires `pip install w2t-bkin[worker]`)
 
 ```bash
 # Start Prefect server
 w2t-bkin server start
 
 # In another terminal, start process workers
-prefect worker start --pool default-pool --type process --limit 4
+w2t-bkin worker start --pool default-pool --type process --limit 4
 ```
 
 ### Development (No Workers Needed)

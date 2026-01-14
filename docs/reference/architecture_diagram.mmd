@@ -1,0 +1,14 @@
+flowchart TB
+  user[User]
+  ui[Prefect Server + UI localhost:4200]
+  dev[Dev mode: Runner\nexecutes flows locally]
+  pool[Work Pool: docker-pool type: docker]
+  worker[Prefect Worker creates runner containers]
+  image[Runner Image w2t-bkin + deps]
+  data[Experiment workspace data/raw, data/interim, data/processed]
+
+  user --> ui
+  ui -->|--dev| dev
+  ui -->|prod| pool --> worker --> image
+  dev --> data
+  image --> data

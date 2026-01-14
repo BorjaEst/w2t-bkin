@@ -203,7 +203,7 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
 - **[Migration Guide](docs/MIGRATION_GUIDE.md)** - Migrate from old workflow
 - **[FAQ](docs/FAQ.md)** - Frequently asked questions
 - **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
-- **[CLI Reference](docs/cli/README.md)** - Complete command-line documentation
+- **[CLI Reference](docs/cli/README.md)** - Command-line documentation
 
 ### Technical References
 
@@ -211,12 +211,6 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
 - **[Metadata Parameters](docs/reference/metadata-parameters.md)** - Data description (WHAT data exists)
 - **[Architecture Diagram](docs/reference/architecture_diagram.mmd)** - System design
 - **[Prefect UI Guide](docs/reference/prefect-ui-configuration.md)** - Orchestration setup
-
-### Developer Documentation
-
-- **[Requirements](docs/development/requirements.md)** - Project requirements
-- **[Design](docs/development/design.md)** - Technical design document
-- **[Tasks](docs/development/tasks.md)** - Development task tracking
 
 ---
 
