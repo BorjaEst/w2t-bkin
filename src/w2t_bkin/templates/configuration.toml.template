@@ -52,18 +52,24 @@ concat_strategy = "ffconcat" # Video concatenation: ffconcat | mkvmerge
 # =============================================================================
 
 [preprocessing]
-force_rerun = false # Force re-run even if outputs exist
+force_rerun = false # Force re-run even if outputs exist (applies to 'generate' mode only)
+
+# -----------------------------------------------------------------------------
+# Pose Estimation: DLC & SLEAP
+# -----------------------------------------------------------------------------
+# Model selection is per-camera via metadata.pose.cameras.<camera_id>.model_id
+# See metadata.toml template for pose section structure
 
 [preprocessing.dlc]
 enabled = false
-# model_path = "models/my-dlc-model/config.yaml"  # Path to DLC config
-# gpu = 0                                         # GPU device ID
-# save_csv = false                                # Save CSV outputs
+mode = "auto"       # off | discover | generate | auto
+# gpu = 0      # GPU device ID (omit for auto-detect, -1 for CPU)
+# save_csv = false  # Export CSV in addition to H5
 
 [preprocessing.sleap]
 enabled = false
-# model_path = "models/my-sleap-model"            # Path to SLEAP model
-# gpu = 0                                         # GPU device ID
+mode = "auto"         # off | discover | auto (generate NOT IMPLEMENTED)
+# gpu = 0      # GPU device ID (omit for auto-detect, -1 for CPU)
 
 # =============================================================================
 # Video Processing

@@ -38,7 +38,8 @@ force_rerun = false # Regenerate all intermediate files
 
 [preprocessing.dlc]
 enabled = true
-# gpu = 0                               # GPU index (omit for auto-detect)
+mode = "auto"  # off | discover | generate | auto
+# gpu = 0      # GPU index (omit for auto-detect)
 
 # =============================================================================
 # Logging Configuration

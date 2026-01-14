@@ -147,17 +147,19 @@ def generate_dlc_poses(
 def generate_dlc_poses_for_session(session_info: SessionInfo, force_rerun: bool = False) -> Dict[str, List[DLCArtifact]]:
     """Generate DLC pose estimation for all cameras in a session.
 
-    Convenience function that processes all cameras configured for DLC.
+    Iterates over cameras defined in metadata["pose"]["cameras"] and generates
+    DLC poses using per-camera model configurations from metadata["pose"]["models"].
 
     Args:
-        session_info: Session configuration
+        session_info: Session configuration with metadata containing pose.cameras
+                     and pose.models sections
         force_rerun: If True, regenerate even if outputs exist
 
     Returns:
         Dictionary mapping camera_id to list of DLCArtifact objects
 
     Raises:
-        ValueError: If DLC not enabled or not properly configured
+        ValueError: If DLC not enabled, pose configuration missing, or model references invalid
     """
     dlc_config = session_info.config.preprocessing.dlc
 
@@ -165,41 +167,76 @@ def generate_dlc_poses_for_session(session_info: SessionInfo, force_rerun: bool 
         logger.info("DLC processing disabled")
         return {}
 
-    if not dlc_config.model_path:
-        raise ValueError("DLC enabled but model_path not configured")
+    # Validate metadata structure
+    pose_meta = session_info.metadata.get("pose")
+    if not pose_meta:
+        raise ValueError("DLC enabled but metadata['pose'] section is missing")
 
-    logger.info(f"Starting DLC processing for session {session_info.session_id}")
-    logger.debug(f"DLC model: {dlc_config.model_path}")
+    cameras_meta = pose_meta.get("cameras", {})
+    models_meta = pose_meta.get("models", {})
 
-    # Get camera configurations
-    cameras = session_info.metadata.get("cameras", [])
-
-    if not cameras:
-        logger.warning("No cameras configured in metadata")
+    if not cameras_meta:
+        logger.warning("No cameras configured in metadata['pose']['cameras']")
         return {}
 
-    # Process each camera
+    if not models_meta:
+        raise ValueError("DLC enabled but metadata['pose']['models'] is empty. Define at least one DLC model.")
+
+    logger.info(f"Starting DLC processing for session {session_info.session_id}")
+    logger.debug(f"Processing {len(cameras_meta)} camera(s) with {len(models_meta)} model(s) available")
+
+    # Get video path patterns from base cameras metadata
+    base_cameras = session_info.metadata.get("cameras", [])
+    camera_patterns = {cam["id"]: cam["paths"] for cam in base_cameras}
+
+    # Process each camera configured for DLC
     all_artifacts = {}
 
-    for camera in cameras:
-        camera_id = camera["id"]
-        pattern = camera["paths"]
+    for camera_id, camera_config in cameras_meta.items():
+        # Skip cameras not using DLC
+        if camera_config.get("source") != "dlc":
+            logger.debug(f"Skipping camera '{camera_id}': source is '{camera_config.get('source')}', not 'dlc'")
+            continue
+
+        # Resolve model path from model_id reference
+        model_id = camera_config.get("model_id")
+        if not model_id:
+            raise ValueError(f"Camera '{camera_id}' has source='dlc' but no 'model_id' specified")
+
+        if model_id not in models_meta:
+            raise ValueError(f"Camera '{camera_id}' references model_id='{model_id}' but metadata['pose']['models']['{model_id}'] does not exist")
+
+        model_config = models_meta[model_id]
+        model_path = Path(model_config.get("path", ""))
+
+        if not model_path or not model_path.exists():
+            raise ValueError(f"Model '{model_id}' has invalid or missing path: {model_path}")
+
+        logger.debug(f"Camera '{camera_id}' → model '{model_id}': {model_path}")
+
+        # Get video path pattern for this camera
+        if camera_id not in camera_patterns:
+            logger.warning(f"Camera '{camera_id}' not found in metadata['cameras'], skipping")
+            all_artifacts[camera_id] = []
+            continue
+
+        pattern = camera_patterns[camera_id]
 
         # Discover video files
         video_paths = utils.discover_files(session_info.session_dir, pattern, sort=True)
 
         if not video_paths:
-            logger.warning(f"No videos found for camera '{camera_id}'")
+            logger.warning(f"No videos found for camera '{camera_id}' with pattern '{pattern}'")
             all_artifacts[camera_id] = []
             continue
 
         # Create camera-specific output directory
         camera_output_dir = session_info.interim_dir / "dlc-pose" / camera_id
 
-        # Generate DLC poses
+        # Generate DLC poses with per-camera model
         artifacts = generate_dlc_poses(
             video_paths=video_paths,
-            model_path=dlc_config.model_path,
+            model_path=model_path,
             output_dir=camera_output_dir,
             camera_id=camera_id,
             force_rerun=force_rerun,

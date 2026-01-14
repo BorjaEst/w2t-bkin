@@ -365,15 +365,29 @@ class LoggingConfig(BaseModel, extra="forbid"):
 
 
 class DLCConfig(BaseModel, extra="forbid"):
-    """DeepLabCut (DLC) pose estimation settings."""
+    """DeepLabCut (DLC) pose estimation settings.
+
+    Mode Controls:
+        - off: Skip DLC processing entirely (enabled=False)
+        - discover: Use pre-existing H5 files from interim/dlc-pose (camera-model mapping in metadata.pose)
+        - generate: Run DLC inference to create H5 files (requires metadata.pose.cameras + metadata.pose.models)
+        - auto: Attempt generate if metadata has model definitions, otherwise discover
+
+    Note:
+        Model selection is now per-camera via metadata.pose.cameras.<camera_id>.model_id,
+        which references metadata.pose.models.<model_id>.path (relative to paths.models_root).
+    """
 
     enabled: bool = Field(
         default=False,
-        description="If True, run the DeepLabCut pose estimation step.",
+        description="If True, enable DLC pose processing (behavior depends on mode).",
     )
-    model_path: Optional[Path] = Field(
-        None,
-        description=("Path to the DLC project 'config.yaml'. Relative paths are resolved against paths.models_root."),
+    mode: Literal["off", "discover", "generate", "auto"] = Field(
+        default="auto",
+        description=(
+            "Pose source policy: 'off' disables DLC, 'discover' uses pre-existing H5 files, "
+            "'generate' runs DLC inference (requires metadata.pose with model definitions), 'auto' decides based on metadata."
+        ),
     )
     gpu: Optional[int] = Field(
         None,
@@ -384,52 +398,76 @@ class DLCConfig(BaseModel, extra="forbid"):
         description="If True, export pose results as CSV in addition to HDF5.",
     )
 
-    def resolve_model_path(self, models_root: Path) -> Optional[Path]:
-        """Resolve model_path relative to models_root.
+    @model_validator(mode="after")
+    def validate_mode_consistency(self) -> "DLCConfig":
+        """Ensure mode and enabled are consistent.
 
-        Args:
-            models_root: Base directory for pose estimation models.
-
-        Returns:
-            Absolute path to model file, or None if model_path not set.
+        Note:
+            Model validation is deferred to runtime (session flow) since models
+            are now defined per-camera in metadata, not in pipeline config.
         """
-        if self.model_path is None:
-            return None
-        if self.model_path.is_absolute():
-            return self.model_path
-        return (models_root / self.model_path).resolve()
+        # If enabled is False, mode should be 'off' (auto-correct)
+        if not self.enabled and self.mode != "off":
+            self.mode = "off"
+
+        # If mode is 'off', set enabled to False for consistency
+        if self.mode == "off":
+            self.enabled = False
+
+        return self
 
 
 class SLEAPConfig(BaseModel, extra="forbid"):
-    """SLEAP pose estimation settings."""
+    """SLEAP pose estimation settings.
+
+    Mode Controls:
+        - off: Skip SLEAP processing entirely (enabled=False)
+        - discover: Use pre-existing H5 files from interim/sleap-pose (camera-model mapping in metadata.pose)
+        - generate: Run SLEAP inference (NOT IMPLEMENTED - will raise error)
+        - auto: Discover if enabled (generate mode not yet supported)
+
+    Note:
+        Model selection is now per-camera via metadata.pose.cameras.<camera_id>.model_id,
+        which references metadata.pose.models.<model_id>.path (relative to paths.models_root).
+    """
 
     enabled: bool = Field(
         default=False,
-        description="If True, run the SLEAP pose estimation step.",
+        description="If True, enable SLEAP pose processing (behavior depends on mode).",
     )
-    model_path: Optional[Path] = Field(
-        None,
-        description=("Path to the SLEAP trained model. Relative paths are resolved against paths.models_root."),
+    mode: Literal["off", "discover", "generate", "auto"] = Field(
+        default="auto",
+        description=("Pose source policy: 'off' disables SLEAP, 'discover' uses pre-existing H5 files, " "'generate' is NOT IMPLEMENTED, 'auto' uses discover if enabled."),
     )
     gpu: Optional[int] = Field(
         None,
         description="GPU index to use (None = default/auto, -1 = force CPU).",
     )
 
-    def resolve_model_path(self, models_root: Path) -> Optional[Path]:
-        """Resolve model_path relative to models_root.
+    @model_validator(mode="after")
+    def validate_mode_consistency(self) -> "SLEAPConfig":
+        """Ensure mode is valid.
 
-        Args:
-            models_root: Base directory for pose estimation models.
+        Raises:
+            ValueError: If mode='generate' (not implemented for SLEAP).
 
-        Returns:
-            Absolute path to model file, or None if model_path not set.
+        Note:
+            Model validation is deferred to runtime since models are defined
+            per-camera in metadata, not in pipeline config.
         """
-        if self.model_path is None:
-            return None
-        if self.model_path.is_absolute():
-            return self.model_path
-        return (models_root / self.model_path).resolve()
+        # If enabled is False, mode should be 'off' (auto-correct)
+        if not self.enabled and self.mode != "off":
+            self.mode = "off"
+
+        # If mode is 'off', set enabled to False for consistency
+        if self.mode == "off":
+            self.enabled = False
+
+        # SLEAP generate mode not implemented
+        if self.mode == "generate":
+            raise ValueError("SLEAP mode='generate' is not yet implemented. " "Use mode='discover' to ingest pre-existing SLEAP H5 files.")
+
+        return self
 
 
 class PreprocessingConfig(BaseModel, extra="forbid"):

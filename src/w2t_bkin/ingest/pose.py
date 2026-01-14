@@ -451,10 +451,7 @@ def create_skeleton(
     return Skeleton(name=name, nodes=nodes, edges=edges_array)
 
 
-def create_skeletons_container(
-    name: str,
-    skeletons: List[Skeleton],
-) -> Skeletons:
+def create_skeletons_container(name: str, skeletons: List[Skeleton]) -> Skeletons:
     """Create a Skeletons container (NWB LabMetaData) for one or more skeletons.
 
     The Skeletons container is added to the NWBFile as LabMetaData, then

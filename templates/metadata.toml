@@ -149,6 +149,82 @@ name = "sync"
 description = "Synchronization data between Bpod and cameras"
 
 # =============================================================================
+# POSE ESTIMATION CONFIGURATION
+# =============================================================================
+# This section defines per-camera pose estimation models and optional
+# skeleton/mapping configurations for harmonization and assembly.
+#
+# Structure:
+#   - pose.models: Define reusable pose models (DLC/SLEAP)
+#   - pose.cameras: Associate each camera with a model and optional configs
+#   - pose.mappings: (Optional) Keypoint name harmonization rules
+#   - pose.skeletons: (Optional) Skeleton definitions with edges
+#
+# Note: Models are referenced by model_id, allowing hierarchical overrides
+# (global → subject → session) via recursive dict merge.
+
+# -----------------------------------------------------------------------------
+# Pose Models (DLC/SLEAP model definitions)
+# -----------------------------------------------------------------------------
+[pose.models]
+  # Example DLC model for camera 0 (overhead view)
+  [pose.models.dlc_cam0]
+  source = "dlc"  # "dlc" or "sleap"
+  path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to paths.models_root
+  # description = "DLC model trained on overhead view, 95% training set"
+
+  # Example DLC model for camera 1 (side view)
+  [pose.models.dlc_cam1]
+  source = "dlc"
+  path = "iteration-1/BA_W2T_cam1.sideview-trainset95shuffle1/config.yaml"
+  # description = "DLC model trained on side view"
+
+  # Example SLEAP model (if using SLEAP)
+  # [pose.models.sleap_cam0]
+  # source = "sleap"
+  # path = "sleap_models/cam0_model.h5"
+
+# -----------------------------------------------------------------------------
+# Camera-Model Associations
+# -----------------------------------------------------------------------------
+[pose.cameras]
+  # Camera 0: overhead view with DLC
+  [pose.cameras.camera_0]
+  source = "dlc"           # Must match pose.models.<model_id>.source
+  model_id = "dlc_cam0"    # References pose.models.dlc_cam0
+  # mapping_id = "dlc_to_canonical"  # Optional: keypoint name harmonization
+  # skeleton_id = "rat_skeleton"     # Optional: skeleton definition for this camera
+
+  # Camera 1: side view with DLC
+  [pose.cameras.camera_1]
+  source = "dlc"
+  model_id = "dlc_cam1"
+  # mapping_id = "dlc_to_canonical"
+  # skeleton_id = "rat_skeleton"
+
+# -----------------------------------------------------------------------------
+# Keypoint Mappings (Optional: harmonize names across models/sources)
+# -----------------------------------------------------------------------------
+[pose.mappings]
+  # Example: map DLC-specific keypoint names to canonical skeleton
+  # [pose.mappings.dlc_to_canonical]
+  # snout = "nose"
+  # ear_left = "ear_l"
+  # ear_right = "ear_r"
+  # spine_base = "spine1"
+
+# -----------------------------------------------------------------------------
+# Skeleton Definitions (Optional: define edges for visualization)
+# -----------------------------------------------------------------------------
+[pose.skeletons]
+  # Example skeleton with edges
+  # [pose.skeletons.rat_skeleton]
+  # name = "Rat body skeleton"
+  # nodes = ["nose", "ear_l", "ear_r", "spine1", "spine2", "spine3", "tail_base", "tail_mid", "tail_tip"]
+  # # Edges as [node_index_1, node_index_2] pairs (0-indexed into nodes list)
+  # edges = [[0, 1], [0, 2], [0, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8]]
+
+# =============================================================================
 # PIPELINE SOURCE DEFINITIONS (Not NWB Metadata)
 # =============================================================================
 
@@ -198,3 +274,81 @@ description = "Audio cue onset pulses"
 id = "ttl_hitmiss"
 paths = "TTLs/*_hitmiss.txt"
 description = "Trial outcome signals"
+
+# =============================================================================
+# POSE DATA CONFIGURATION
+# =============================================================================
+
+# Pose estimation source files and configuration
+# Use this section when mode='discover' to specify which H5 files to use
+
+# Camera-specific pose data sources
+# Each entry maps a camera_id to its pose H5 file
+[[pose.cameras]]
+camera_id = "camera_0"             # Must match [[cameras]].id
+source = "dlc"                     # dlc | sleap
+h5_path = "dlc-pose/camera_0.h5"  # Relative to intermediate_root/session_id/
+mapping_id = "canonical_mouse"     # Optional: reference to [[pose.mappings]]
+skeleton_id = "mouse_bodyparts"    # Optional: reference to [[pose.skeletons]]
+
+[[pose.cameras]]
+camera_id = "camera_1"
+source = "dlc"
+h5_path = "dlc-pose/camera_1.h5"
+mapping_id = "canonical_mouse"
+skeleton_id = "mouse_bodyparts"
+
+# Body part name mappings (harmonization to canonical names)
+# Used by harmonize_to_canonical() to standardize bodypart names
+[[pose.mappings]]
+id = "canonical_mouse"
+description = "DLC model-specific to canonical mouse bodypart names"
+
+[pose.mappings.map]
+# DLC name → canonical name
+nose = "snout"
+leftear = "ear_left"
+rightear = "ear_right"
+bodycentre = "body_center"
+tailbase = "tail_base"
+tailend = "tail_tip"
+
+# Skeleton definitions (nodes and edges for visualization)
+# Edges are optional; if not provided, auto-derived from H5 bodyparts
+[[pose.skeletons]]
+id = "mouse_bodyparts"
+name = "Mouse Full Body"
+description = "Standard mouse skeleton with head, body, and tail"
+
+[[pose.skeletons.nodes]]
+name = "snout"
+[[pose.skeletons.nodes]]
+name = "ear_left"
+[[pose.skeletons.nodes]]
+name = "ear_right"
+[[pose.skeletons.nodes]]
+name = "body_center"
+[[pose.skeletons.nodes]]
+name = "tail_base"
+[[pose.skeletons.nodes]]
+name = "tail_tip"
+
+[[pose.skeletons.edges]]
+source = "snout"
+target = "body_center"
+
+[[pose.skeletons.edges]]
+source = "body_center"
+target = "tail_base"
+
+[[pose.skeletons.edges]]
+source = "tail_base"
+target = "tail_tip"
+
+[[pose.skeletons.edges]]
+source = "ear_left"
+target = "body_center"
+
+[[pose.skeletons.edges]]
+source = "ear_right"
+target = "body_center"

@@ -3,8 +3,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
+from pydantic import BaseModel, Field
 from pynwb import NWBFile
 
 from w2t_bkin.config import SessionFlowConfig
@@ -168,3 +169,85 @@ class SessionResult:
     artifacts: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     duration_seconds: Optional[float] = None
+
+
+# =============================================================================
+# Pose Metadata Models (Pydantic for validation)
+# =============================================================================
+
+
+class SkeletonNode(BaseModel, extra="forbid"):
+    """Single node in a pose skeleton."""
+
+    name: str = Field(..., description="Body part name (must be unique within skeleton)")
+
+
+class SkeletonEdge(BaseModel, extra="forbid"):
+    """Edge connecting two nodes in a pose skeleton."""
+
+    source: str = Field(..., description="Source node name")
+    target: str = Field(..., description="Target node name")
+
+
+class PoseSkeleton(BaseModel, extra="forbid"):
+    """Skeleton definition for pose visualization.
+
+    Attributes:
+        id: Unique identifier for this skeleton
+        name: Human-readable name
+        description: Optional description
+        nodes: List of body part nodes
+        edges: Optional list of connections between nodes
+    """
+
+    id: str = Field(..., description="Unique skeleton identifier")
+    name: str = Field(..., description="Human-readable skeleton name")
+    description: Optional[str] = Field(None, description="Optional skeleton description")
+    nodes: List[SkeletonNode] = Field(..., description="Body part nodes")
+    edges: Optional[List[SkeletonEdge]] = Field(None, description="Optional edges between nodes")
+
+
+class PoseMapping(BaseModel, extra="forbid"):
+    """Body part name mapping for harmonization.
+
+    Attributes:
+        id: Unique identifier for this mapping
+        description: Optional description
+        map: Dictionary mapping source names to canonical names
+    """
+
+    id: str = Field(..., description="Unique mapping identifier")
+    description: Optional[str] = Field(None, description="Optional mapping description")
+    map: Dict[str, str] = Field(..., description="Source name → canonical name mapping")
+
+
+class PoseCamera(BaseModel, extra="forbid"):
+    """Pose data source for a specific camera.
+
+    Attributes:
+        camera_id: Camera identifier (must match metadata cameras)
+        source: Pose estimation source (dlc or sleap)
+        h5_path: Path to H5 file relative to interim_dir/session_id
+        mapping_id: Optional reference to pose mapping
+        skeleton_id: Optional reference to skeleton definition
+    """
+
+    camera_id: str = Field(..., description="Camera identifier (must match [[cameras]].id)")
+    source: Literal["dlc", "sleap"] = Field(..., description="Pose estimation source")
+    h5_path: str = Field(..., description="H5 file path relative to interim_dir/session_id")
+    mapping_id: Optional[str] = Field(None, description="Optional mapping ID for name harmonization")
+    skeleton_id: Optional[str] = Field(None, description="Optional skeleton ID for visualization")
+
+
+class PoseMetadata(BaseModel, extra="forbid"):
+    """Complete pose metadata section from metadata.toml.
+
+    Attributes:
+        cameras: Pose data sources per camera
+        mappings: Optional body part name mappings
+        skeletons: Optional skeleton definitions
+    """
+
+    cameras: List[PoseCamera] = Field(default_factory=list, description="Pose data sources for each camera")
+    mappings: List[PoseMapping] = Field(default_factory=list, description="Optional body part name mappings")
+    skeletons: List[PoseSkeleton] = Field(default_factory=list, description="Optional skeleton definitions")

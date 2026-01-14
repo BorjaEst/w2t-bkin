@@ -308,6 +308,76 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
             file_handler.close()
 
 
+def _validate_dlc_generate_mode(session_info, run_logger):
+    """Validate metadata configuration for DLC generate mode.
+
+    Ensures that all cameras configured for DLC have valid model references.
+
+    Args:
+        session_info: Session configuration with metadata
+        run_logger: Prefect logger for reporting validation issues
+
+    Raises:
+        ValueError: If metadata configuration is invalid for generate mode
+    """
+    pose_meta = session_info.metadata.get("pose")
+
+    if not pose_meta:
+        raise ValueError("DLC mode='generate' requires metadata['pose'] section. " "Define pose.models and pose.cameras in your metadata.toml")
+
+    models_meta = pose_meta.get("models", {})
+    cameras_meta = pose_meta.get("cameras", {})
+
+    if not models_meta:
+        raise ValueError(
+            "DLC mode='generate' requires at least one model in metadata['pose']['models']. "
+            "Example:\n"
+            "[pose.models.my_dlc_model]\n"
+            'source = "dlc"\n'
+            'path = "/path/to/config.yaml"'
+        )
+
+    if not cameras_meta:
+        raise ValueError(
+            "DLC mode='generate' requires camera configuration in metadata['pose']['cameras']. "
+            "Example:\n"
+            "[pose.cameras.camera_0]\n"
+            'source = "dlc"\n'
+            'model_id = "my_dlc_model"'
+        )
+
+    # Validate each camera's model reference
+    dlc_cameras = {cid: cfg for cid, cfg in cameras_meta.items() if cfg.get("source") == "dlc"}
+
+    if not dlc_cameras:
+        run_logger.warning("DLC enabled but no cameras have source='dlc' in metadata['pose']['cameras']")
+        return
+
+    errors = []
+    for camera_id, camera_config in dlc_cameras.items():
+        # Check model_id is specified
+        model_id = camera_config.get("model_id")
+        if not model_id:
+            errors.append(f"Camera '{camera_id}' has source='dlc' but no 'model_id' specified")
+            continue
+
+        # Check model_id exists in models
+        if model_id not in models_meta:
+            errors.append(f"Camera '{camera_id}' references model_id='{model_id}' but " f"metadata['pose']['models']['{model_id}'] does not exist")
+            continue
+
+        # Check model has a valid path
+        model_config = models_meta[model_id]
+        model_path = model_config.get("path")
+        if not model_path:
+            errors.append(f"Model '{model_id}' (used by camera '{camera_id}') has no 'path' specified")
+
+    if errors:
+        raise ValueError("DLC generate mode validation failed:\n" + "\n".join(f"  - {err}" for err in errors))
+
+    run_logger.info(f"✓ DLC generate mode validation passed ({len(dlc_cameras)} cameras configured)")
+
+
 def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, dict]:
     """Generate and discover pose estimation artifacts.
 
@@ -322,40 +392,73 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
     dlc_artifacts = {}
     sleap_artifacts = {}
 
-    # Generate or discover DLC artifacts
-    dlc_enabled = session_info.config.preprocessing.dlc.enabled
-    if dlc_enabled:
-        # Generate new DLC artifacts
-        force_rerun = session_info.config.preprocessing.force_rerun
-        if force_rerun:
-            run_logger.info("⚠️  force_rerun=True: Regenerating all DLC poses")
-        else:
-            run_logger.info("Using cached DLC poses (if available)")
+    # Determine DLC effective mode
+    dlc_config = session_info.config.preprocessing.dlc
+    dlc_enabled = dlc_config.enabled
+    dlc_mode = dlc_config.mode
 
-        dlc_artifacts = generate_dlc_session_task(
-            session_info=session_info,
-            force_rerun=force_rerun,
-        )
-        run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
+    # Auto mode: check if metadata defines pose models for generate capability
+    if dlc_mode == "auto":
+        # Check if metadata has pose.models section (indicates generate intent)
+        pose_metadata = session_info.metadata.get("pose", {})
+        has_models = bool(pose_metadata.get("models", {}))
+        dlc_mode = "generate" if has_models else "discover"
+        run_logger.debug(f"DLC auto mode resolved to '{dlc_mode}' (metadata.pose.models present: {has_models})")
+
+    # Preflight validation for generate mode
+    if dlc_enabled and dlc_mode == "generate":
+        _validate_dlc_generate_mode(session_info, run_logger)
+
+    if dlc_enabled and dlc_mode != "off":
+        if dlc_mode == "generate":
+            # Generate new DLC artifacts
+            force_rerun = session_info.config.preprocessing.force_rerun
+            if force_rerun:
+                run_logger.info("⚠️  force_rerun=True: Regenerating all DLC poses")
+            else:
+                run_logger.info("Using cached DLC poses (if available)")
+
+            dlc_artifacts = generate_dlc_session_task(
+                session_info=session_info,
+                force_rerun=force_rerun,
+            )
+            run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
+
+        elif dlc_mode == "discover":
+            # Discover mode: artifacts will be sourced from metadata.pose.cameras
+            # No artifact generation here; ingestion will use metadata directly
+            run_logger.info("DLC mode='discover': Will use H5 files from metadata.pose.cameras")
     else:
         run_logger.info("DLC processing disabled")
 
-    # Discover SLEAP artifacts
-    sleap_enabled = session_info.config.preprocessing.sleap.enabled
-    if sleap_enabled:
-        # Discover existing SLEAP files (SLEAP generation not yet implemented)
-        for camera_id, video_paths in discovery.camera_files.items():
-            # Camera-specific SLEAP output directory
-            camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-            artifacts = discover_sleap_poses_task(
-                video_paths=video_paths,
-                sleap_dir=camera_sleap_dir,
-                camera_id=camera_id,
-            )
-            if artifacts:
-                sleap_artifacts[camera_id] = artifacts
-        if sleap_artifacts:
-            run_logger.info(f"Found SLEAP artifacts for {len(sleap_artifacts)} cameras")
+    # Determine SLEAP effective mode
+    sleap_config = session_info.config.preprocessing.sleap
+    sleap_enabled = sleap_config.enabled
+    sleap_mode = sleap_config.mode
+
+    # Auto mode for SLEAP defaults to discover (generate not implemented)
+    if sleap_mode == "auto":
+        sleap_mode = "discover"
+
+    if sleap_enabled and sleap_mode != "off":
+        if sleap_mode == "generate":
+            # SLEAP generation not implemented
+            run_logger.warning("SLEAP mode='generate' not implemented; skipping")
+
+        elif sleap_mode == "discover":
+            # Discover mode: artifacts will be sourced from metadata.pose.cameras
+            # Legacy path for backward compatibility (if no metadata)
+            for camera_id, video_paths in discovery.camera_files.items():
+                camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
+                artifacts = discover_sleap_poses_task(
+                    video_paths=video_paths,
+                    sleap_dir=camera_sleap_dir,
+                    camera_id=camera_id,
+                )
+                if artifacts:
+                    sleap_artifacts[camera_id] = artifacts
+            if sleap_artifacts:
+                run_logger.info(f"Found SLEAP artifacts for {len(sleap_artifacts)} cameras")
     else:
         run_logger.info("SLEAP processing disabled")
 
@@ -366,8 +469,8 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
     """Ingest pose estimation data from DLC and SLEAP.
 
     Args:
-        dlc_artifacts: DLC artifact paths
-        sleap_artifacts: SLEAP artifact paths
+        dlc_artifacts: DLC artifact paths from generation (mode='generate')
+        sleap_artifacts: SLEAP artifact paths from discovery
         discovery: File discovery results
         session_info: Session configuration
         run_logger: Prefect logger
@@ -377,7 +480,80 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
     """
     pose_data = {}
 
-    # Ingest DLC poses
+    # Check if metadata has pose section for discover mode
+    pose_metadata = session_info.metadata.get("pose", {})
+    pose_cameras = pose_metadata.get("cameras", {})  # Dict keyed by camera_id
+
+    # If discover mode and metadata.pose.cameras exists, use metadata-driven ingestion
+    dlc_mode = session_info.config.preprocessing.dlc.mode
+    sleap_mode = session_info.config.preprocessing.sleap.mode
+
+    # Auto mode resolution (check metadata.pose.models presence)
+    if dlc_mode == "auto":
+        has_models = bool(pose_metadata.get("models", {}))
+        dlc_mode = "generate" if has_models else "discover"
+    if sleap_mode == "auto":
+        has_models = bool(pose_metadata.get("models", {}))
+        sleap_mode = "generate" if has_models else "discover"
+
+    # Metadata-driven ingestion (discover mode with explicit pose.cameras)
+    if pose_cameras and (dlc_mode == "discover" or sleap_mode == "discover"):
+        run_logger.info(f"Using metadata-driven pose ingestion for {len(pose_cameras)} cameras")
+
+        # Get optional mappings dict
+        mappings_dict = pose_metadata.get("mappings", {})
+
+        # Ingest poses from metadata.pose.cameras (dict keyed by camera_id)
+        for camera_id, camera_config in pose_cameras.items():
+            source = camera_config.get("source")
+            model_id = camera_config.get("model_id")
+
+            # Skip if wrong source for current mode
+            if source == "dlc" and dlc_mode != "discover":
+                continue
+            if source == "sleap" and sleap_mode != "discover":
+                continue
+
+            # For discover mode, expect H5 files already present in interim
+            # Use stem-based discovery from the camera's interim dir
+            if camera_id in discovery.camera_files:
+                video_paths = discovery.camera_files[camera_id]
+
+                # Get optional mapping
+                mapping = None
+                if "mapping_id" in camera_config:
+                    mapping_id = camera_config["mapping_id"]
+                    if mapping_id in mappings_dict:
+                        mapping = mappings_dict[mapping_id]
+
+                # Ingest based on source
+                if source == "dlc":
+                    camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
+                    dlc_poses = ingest_dlc_poses_task(
+                        video_paths=video_paths,
+                        dlc_dir=camera_dlc_dir,
+                        camera_id=camera_id,
+                    )
+                    if dlc_poses:
+                        # Apply mapping if specified (harmonization deferred to assembly for now)
+                        pose_data[camera_id] = dlc_poses
+                        run_logger.info(f"Ingested DLC poses for {camera_id} ({len(dlc_poses)} video(s))")
+
+                elif source == "sleap":
+                    camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
+                    sleap_poses = ingest_sleap_poses_task(
+                        video_paths=video_paths,
+                        sleap_dir=camera_sleap_dir,
+                        camera_id=camera_id,
+                    )
+                    if sleap_poses:
+                        pose_data[camera_id] = sleap_poses
+                        run_logger.info(f"Ingested SLEAP poses for {camera_id} ({len(sleap_poses)} video(s))")
+
+        return pose_data
+
+    # Legacy artifact-based ingestion (generate mode or backward compatibility)
+    # Ingest DLC poses from generated artifacts
     for camera_id, artifacts in dlc_artifacts.items():
         if camera_id in discovery.camera_files:
             video_paths = discovery.camera_files[camera_id]

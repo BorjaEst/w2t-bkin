@@ -88,10 +88,11 @@ def generate_sleap_poses(video_paths: List[Path], model_path: Path, output_dir: 
 def discover_sleap_poses_for_session(session_info: SessionInfo) -> Dict[str, List[SLEAPArtifact]]:
     """Discover SLEAP pose estimation outputs for all cameras in a session.
 
-    Convenience function that processes all cameras configured for SLEAP.
+    Searches for existing SLEAP outputs for cameras configured with source='sleap'
+    in metadata["pose"]["cameras"].
 
     Args:
-        session_info: Session configuration
+        session_info: Session configuration with metadata containing pose.cameras section
 
     Returns:
         Dictionary mapping camera_id to list of SLEAPArtifact objects
@@ -104,25 +105,43 @@ def discover_sleap_poses_for_session(session_info: SessionInfo) -> Dict[str, Lis
 
     logger.info(f"Discovering SLEAP outputs for session {session_info.session_id}")
 
-    # Get camera configurations
-    cameras = session_info.metadata.get("cameras", [])
-
-    if not cameras:
-        logger.warning("No cameras configured in metadata")
+    # Validate metadata structure
+    pose_meta = session_info.metadata.get("pose")
+    if not pose_meta:
+        logger.warning("metadata['pose'] section is missing, nothing to discover")
         return {}
 
-    # Process each camera
+    cameras_meta = pose_meta.get("cameras", {})
+    if not cameras_meta:
+        logger.warning("No cameras configured in metadata['pose']['cameras']")
+        return {}
+
+    # Get video path patterns from base cameras metadata
+    base_cameras = session_info.metadata.get("cameras", [])
+    camera_patterns = {cam["id"]: cam["paths"] for cam in base_cameras}
+
+    # Process each camera configured for SLEAP
     all_artifacts = {}
 
-    for camera in cameras:
-        camera_id = camera["id"]
-        pattern = camera["paths"]
+    for camera_id, camera_config in cameras_meta.items():
+        # Skip cameras not using SLEAP
+        if camera_config.get("source") != "sleap":
+            logger.debug(f"Skipping camera '{camera_id}': source is '{camera_config.get('source')}', not 'sleap'")
+            continue
+
+        # Get video path pattern for this camera
+        if camera_id not in camera_patterns:
+            logger.warning(f"Camera '{camera_id}' not found in metadata['cameras'], skipping")
+            all_artifacts[camera_id] = []
+            continue
+
+        pattern = camera_patterns[camera_id]
 
         # Discover video files
         video_paths = utils.discover_files(session_info.session_dir, pattern, sort=True)
 
         if not video_paths:
-            logger.warning(f"No videos found for camera '{camera_id}'")
+            logger.warning(f"No videos found for camera '{camera_id}' with pattern '{pattern}'")
             all_artifacts[camera_id] = []
             continue
 

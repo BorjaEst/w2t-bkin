@@ -28,15 +28,39 @@ warn_on_mismatch = false      # Warn instead of fail
 # =============================================================================
 
 [preprocessing]
-force_rerun = false # Regenerate all intermediate files
+force_rerun = false # Regenerate all intermediate files (applies to 'generate' mode only)
 
+# -----------------------------------------------------------------------------
+# DeepLabCut Pose Estimation
+# -----------------------------------------------------------------------------
 [preprocessing.dlc]
 enabled = true
-# gpu = 0                               # GPU index (omit for auto-detect)
+mode = "auto"  # off | discover | generate | auto
+               # - off: Skip DLC entirely
+               # - discover: Use pre-existing H5 files (camera/model mapping in metadata.pose)
+               # - generate: Run DLC inference (requires metadata.pose.cameras + metadata.pose.models)
+               # - auto: Generate if metadata defines models, otherwise discover
+               #
+               # Model selection is now per-camera in metadata.toml:
+               # [pose.cameras.<camera_id>]
+               # model_id = "<model_id>"  # References pose.models.<model_id>.path
 
+# gpu = 0                               # GPU index (omit for auto-detect, -1 for CPU)
+# save_csv = false                      # Export CSV in addition to H5
+
+# -----------------------------------------------------------------------------
+# SLEAP Pose Estimation
+# -----------------------------------------------------------------------------
 [preprocessing.sleap]
 enabled = false
-# gpu = 0                               # GPU index (omit for auto-detect)
+mode = "auto"  # off | discover | auto (generate NOT IMPLEMENTED)
+               # - off: Skip SLEAP entirely
+               # - discover: Use pre-existing H5 files (camera/model mapping in metadata.pose)
+               # - auto: Same as discover when enabled
+               #
+               # Model selection is per-camera in metadata.toml (same as DLC)
+
+# gpu = 0                               # GPU index (omit for auto-detect, -1 for CPU)
 
 # =============================================================================
 # Logging Configuration
