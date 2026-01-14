@@ -4,16 +4,23 @@ A modular, reproducible Python pipeline for processing multi-camera rodent behav
 
 ## Features
 
-- [x] 🧠 **NWB-Native**: Direct NWB file creation, no intermediate formats
-- [x] 🔄 **Prefect Orchestration**: Workflow management with monitoring UI
-- [x] 📹 **Multi-Camera Support**: Synchronized video processing with pose estimation
-- [x] 🐭 **Behavior Analysis**: Bpod task recording and TTL synchronization
-- [ ] 🎯 **Pose Estimation**: DeepLabCut and SLEAP integration
-- [ ] 📊 **Facial Metrics**: Facemap-based facial movement analysis
-- [x] ✅ **Validation**: Automated NWB file validation and inspection
-- [x] 🐳 **Flexible Execution**: Local Python or Docker workers
+- 🧠 **NWB-Native**: Write NWB directly
+- 🔄 **Prefect Orchestration**: UI + run tracking
+- 🧰 **Experiment Workspace Tools**: Initialize data folders + metadata
+- ✅ **Validation & Inspection**: `w2t-bkin validate` / `w2t-bkin inspect`
+- 🧪 **Development Execution**: `w2t-bkin server start --dev` (runs flows locally)
+
+## Status (What Works Today)
+
+- [x] **Dev mode**: Prefect server + local execution via Runner (`--dev`)
+- [x] **Config defaults**: `configuration.toml` provides default parameters; you can override them in Prefect UI before each run
+- [ ] **Production mode (Docker workers)**: Work-in-progress (has bugs). Help welcome.
+- [ ] **Pose estimation (DLC/SLEAP)**: Planned / partial
+- [ ] **Facemap facial metrics**: Planned / partial
 
 ## Prerequisites
+
+### For production (in progress)
 
 - **Python**: 3.10 (Some package requirements do not support 3.11+ yet)
   - Install from [python.org](https://www.python.org/downloads/)
@@ -22,13 +29,35 @@ A modular, reproducible Python pipeline for processing multi-camera rodent behav
   - Installs Docker automatically
   - No Docker knowledge required
 
-## Installation [Production]
+### For development / local execution
+
+- **Python**: 3.10 (Some package requirements do not support 3.11+ yet)
+  - Install from [python.org](https://www.python.org/downloads/)
+- **Git**: For cloning the repository
+
+and then:
 
 ```bash
-# Base installation (CLI + Prefect server/UI + data management)
-pip install w2t-bkin
+# Recommended for now (dev mode + local execution)
+git clone https://github.com/BorjaEst/w2t-bkin.git
+git submodule update --init --recursive
+pip install nwb-extensions ndx-events
+pip install nwb-extensions ndx-pose
+pip install nwb-extensions ndx-structured-behavior
+```
 
-# OR full installation with worker capabilities (includes ML/video processing)
+## Installation
+
+For production use with Docker workers (work in progress), use:
+
+```bash
+pip install w2t-bkin
+```
+
+For development, testing or local running (no docker), use:
+
+```bash
+# Recommended for now (dev mode + local execution)
 pip install w2t-bkin[worker]
 ```
 
@@ -76,21 +105,18 @@ cp /path/to/dlc-model /data/my-experiment/models/
 ```bash
 cd /data/my-experiment
 
-# Production mode (uses Docker workers)
-w2t-bkin server start --config configs/standard.toml
-
-# Development mode (runs flows locally with Runner - requires worker extras)
-w2t-bkin server start --config configs/standard.toml --dev
+# Development mode (currently the supported path)
+w2t-bkin server start --dev
 
 # This will:
 # 1. Start Prefect server
-# 2. Create flow deployments (prod) or serve flows (dev)
-# 3. Open browser to http://localhost:4200
+# 2. Serve flows locally (Runner)
+# 3. Open browser to <http://localhost:4200>
 ```
 
 ### 4. Run Workflows in Prefect UI
 
-1. Open **http://localhost:4200** (opens automatically)
+1. Open <http://localhost:4200> (opens automatically)
 2. Navigate to **Deployments**
 3. Select **process-session** or **batch-process**
 4. Click **Run** and fill in parameters:
@@ -100,26 +126,9 @@ w2t-bkin server start --config configs/standard.toml --dev
 
 ### 5. Start Workers (Production Mode Only)
 
-> **⚠️ Important:** The `w2t-bkin worker` command does not exist. Use Prefect CLI or Docker directly.
+Production mode is currently work-in-progress.
 
-**Production mode** requires workers to execute flows. Choose one method:
-
-**Method 1: Prefect CLI (requires `pip install w2t-bkin[worker]`)**
-
-```bash
-# Start a process worker with concurrency limit
-prefect worker start --pool default-pool --type process --limit 4
-```
-
-**Method 2: Docker (recommended for production)**
-
-```bash
-# Source the worker environment and start Docker worker
-source .workers/.env
-prefect worker start --pool docker-pool --type docker
-```
-
-**Development mode** runs flows in the server process - no worker needed!
+Development mode runs flows in the server process (Runner) — no worker needed.
 
 ---
 
@@ -128,14 +137,14 @@ prefect worker start --pool docker-pool --type docker
 ### Discover Available Sessions
 
 ```bash
-# List all sessions
-w2t-bkin discover configs/standard.toml
+# List all sessions (pass the experiment root)
+w2t-bkin discover /data/my-experiment
 
 # Filter by subject
-w2t-bkin discover configs/standard.toml --subject mouse-001
+w2t-bkin discover /data/my-experiment --subject mouse-001
 
 # Output formats
-w2t-bkin discover configs/standard.toml --format json
+w2t-bkin discover /data/my-experiment --format json
 ```
 
 ### Validate NWB Output
@@ -154,7 +163,7 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │  User                                   │
 │  1. w2t-bkin server start [--dev]       │
@@ -215,37 +224,18 @@ w2t-bkin inspect /data/my-experiment/data/processed/mouse-001/session-001/*.nwb
 
 ### Deployment Options
 
-**Option 1: Server + Docker Workers (Recommended)**
+#### Development Mode (Supported)
 
 ```bash
-# Server machine
-pip install w2t-bkin                # ~30 MB (Prefect, CLI, config)
-w2t-bkin server start              # Starts UI at localhost:4200
-
-# Docker workers (pre-built images from GitHub Container Registry)
-docker pull ghcr.io/borjaest/w2t-bkin:latest
-docker run ... ghcr.io/borjaest/w2t-bkin:latest  # Contains all ML/video dependencies
+pip install w2t-bkin[worker]
+cd /data/my-experiment
+w2t-bkin server start --dev
 ```
 
-**Benefits:**
+#### Production Mode (Docker Workers) — WIP
 
-- Clean separation: Server handles UI, workers handle processing
-- No dependency conflicts on server machine
-- Easy scaling: Run multiple Docker workers
-
-**Option 2: Development Mode (Local)**
-
-```bash
-# Single machine with worker extras installed
-pip install w2t-bkin[worker]       # ~630 MB (everything)
-w2t-bkin server start --dev        # Flows run in server process via Runner
-```
-
-**Benefits:**
-
-- Fastest iteration (no container overhead)
-- Simplest setup for development and debugging
-- Live code changes without rebuild
+- Goal: server/UI stays lightweight; workers run in Docker
+- Current status: being stabilized (bugs exist). Contributions welcome.
 
 ### Dependency Breakdown
 
@@ -259,43 +249,6 @@ w2t-bkin server start --dev        # Flows run in server process via Runner
 | **Video**      | ❌                 | ✅ FFmpeg, scipy       |
 | **Validation** | ❌                 | ✅ nwbinspector        |
 | **Total Size** | ~30 MB             | ~630 MB                |
-
----
-
-## Advanced Configuration
-
-### Custom Work Pools
-
-```bash
-# Start server with local work pool (requires [worker] extras)
-w2t-bkin server start --work-pool local
-
-# Start server with custom port
-w2t-bkin server start --port 5000
-```
-
-### Python API (Advanced Users)
-
-For scripting and automation:
-
-```python
-from w2t_bkin.api import SessionFlowConfig
-from w2t_bkin.flows import process_session_flow
-
-# Create configuration
-config = SessionFlowConfig(
-    config_path="configs/standard.toml",
-    subject_id="mouse-001",
-    session_id="session-001",
-    skip_pose=True  # Optional: skip specific steps
-)
-
-# Direct execution (no Prefect needed)
-result = process_session_flow(config=config)
-
-if result.success:
-    print(f"✓ NWB written to: {result.nwb_path}")
-```
 
 ---
 
@@ -352,6 +305,6 @@ If you use this pipeline in your research, please cite:
 
 ## Support
 
-- **Issues**: https://github.com/BorjaEst/w2t-bkin/issues
-- **Discussions**: https://github.com/BorjaEst/w2t-bkin/discussions
-- **Documentation**: https://github.com/BorjaEst/w2t-bkin/tree/main/docs
+- **Issues**: <https://github.com/BorjaEst/w2t-bkin/issues>
+- **Discussions**: <https://github.com/BorjaEst/w2t-bkin/discussions>
+- **Documentation**: <https://github.com/BorjaEst/w2t-bkin/tree/main/docs>

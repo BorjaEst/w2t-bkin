@@ -14,7 +14,7 @@ Task Organization:
 - finalization_tasks.py: NWB writing and validation tasks
 """
 
-from w2t_bkin.tasks.artifacts import discover_sleap_poses_task, generate_dlc_poses_task, generate_dlc_session_task
+from w2t_bkin.tasks.artifacts import discover_dlc_poses_task, discover_sleap_poses_task, generate_dlc_poses_task, generate_dlc_session_task
 from w2t_bkin.tasks.assembly import add_skeletons_task, assemble_behavior_task, assemble_pose_task
 from w2t_bkin.tasks.discovery import discover_all_files_task, discover_bpod_files_task, discover_camera_files_task, discover_ttl_files_task
 from w2t_bkin.tasks.finalization import create_provenance_task, finalize_session_task, generate_figures_task, validate_nwb_task, write_nwb_task, write_sidecars_task
@@ -38,6 +38,7 @@ __all__ = [
     "generate_dlc_poses_task",
     "generate_dlc_session_task",
     "discover_sleap_poses_task",
+    "discover_dlc_poses_task",
     # Ingestion tasks
     "ingest_bpod_task",
     "ingest_dlc_poses_task",

@@ -46,6 +46,7 @@ from w2t_bkin.tasks import (
     compute_alignment_stats_task,
     create_nwb_file_task,
     discover_all_files_task,
+    discover_dlc_poses_task,
     discover_sleap_poses_task,
     finalize_session_task,
     generate_dlc_session_task,
@@ -425,10 +426,19 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
             run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
 
         elif dlc_mode == "discover":
-            # Discover mode: H5 files discovered by stem-matching videos
+            # Discover mode: find pre-existing H5 files via stem-matching
             # Files must exist in interim/dlc-pose/<camera_id>/ with names matching {video_stem}DLC*.h5
-            # No artifact generation here; ingestion will use stem-based discovery
-            run_logger.info("DLC mode='discover': Will use stem-based H5 discovery from interim/dlc-pose/<camera_id>/")
+            for camera_id, video_paths in discovery.camera_files.items():
+                camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
+                artifacts = discover_dlc_poses_task(
+                    video_paths=video_paths,
+                    dlc_dir=camera_dlc_dir,
+                    camera_id=camera_id,
+                )
+                if artifacts:
+                    dlc_artifacts[camera_id] = artifacts
+            if dlc_artifacts:
+                run_logger.info(f"Found DLC artifacts for {len(dlc_artifacts)} cameras")
     else:
         run_logger.info("DLC processing disabled")
 
