@@ -237,6 +237,19 @@ class BpodConfig(BaseModel, extra="forbid"):
         default=True,
         description="Parse Bpod .mat files when present in the session raw data.",
     )
+    pattern: str = Field(
+        default="Bpod/*.mat",
+        description="Glob pattern for Bpod MAT files (relative to the session directory). This is used when session metadata does not provide a [bpod] section.",
+    )
+
+    order: Literal["name_asc", "name_desc", "time_asc", "time_desc"] = Field(
+        default="time_asc",
+        description="Sort order used when multiple Bpod files match the pattern.",
+    )
+    continuous_time: bool = Field(
+        default=True,
+        description="If True, offsets timestamps to form a continuous timeline across multiple Bpod files. This only matters when more than one MAT file is merged.",
+    )
     sync: BpodSyncConfig = Field(
         default_factory=BpodSyncConfig,
         description="Mappings that define how Bpod trial events align to TTL/video time.",

@@ -74,6 +74,11 @@ Runtime checks for sync and integrity.
 Controls Bpod parsing and (optional) Bpod-to-TTL alignment rules.
 
 - `parse` (optional, default `true`): parse Bpod MAT files if present
+- `pattern` (optional, default `Bpod/*.mat`): glob pattern for Bpod MAT files (relative to the session directory)
+- `order` (optional, default `time_asc`): sort order for multiple Bpod files: `name_asc` | `name_desc` | `time_asc` | `time_desc`
+- `continuous_time` (optional, default `true`): if true, offsets timestamps to form a continuous timeline across files
+
+Note: if the session metadata includes a `[bpod]` section (in `metadata.toml`/`session.toml`), those values take precedence for that session.
 
 ### `[[bpod.sync.trial_types]]`
 

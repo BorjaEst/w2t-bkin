@@ -41,6 +41,16 @@ mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
 warn_on_mismatch = false      # Warn instead of fail when within tolerance
 
 # =============================================================================
+# Bpod Configuration
+# =============================================================================
+
+[bpod]
+parse = true
+pattern = "Bpod/*.mat"
+order = "time_asc"     # name_asc | name_desc | time_asc | time_desc
+continuous_time = true
+
+# =============================================================================
 # Data Acquisition
 # =============================================================================
 

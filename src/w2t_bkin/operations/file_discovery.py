@@ -76,7 +76,11 @@ def discover_bpod_files(session_dir: Path, bpod_config: Dict) -> Dict[str, List[
         logger.debug("No Bpod configuration - skipping discovery")
         return {"bpod": []}
 
-    pattern = bpod_config.get("paths", "Bpod/*.mat")
+    # Support both legacy and current metadata keys.
+    # - metadata template uses: path
+    # - some code paths use: paths
+    # - config-driven fallback uses: pattern
+    pattern = bpod_config.get("path") or bpod_config.get("paths") or bpod_config.get("pattern") or "Bpod/*.mat"
     order = bpod_config.get("order", "name_asc")
 
     logger.debug(f"Scanning Bpod files: pattern={pattern}")
@@ -147,6 +151,14 @@ def discover_all_files(session_info: SessionInfo) -> DiscoveryResult:
     cameras = session_info.metadata.get("cameras", [])
     ttls = session_info.metadata.get("TTLs", [])
     bpod_config = session_info.metadata.get("bpod")
+    if not bpod_config and getattr(session_info, "config", None) is not None and getattr(session_info.config, "bpod", None) is not None:
+        # Allow discovery to run even when metadata omits [bpod] by using deployment config defaults.
+        # This is useful for projects that standardize Bpod layout across sessions.
+        if session_info.config.bpod.parse:
+            bpod_config = {
+                "pattern": session_info.config.bpod.pattern,
+                "order": session_info.config.bpod.order,
+            }
 
     logger.info(f"Discovering files in {session_info.session_dir}")
     logger.debug(f"  Cameras: {len(cameras)}, TTLs: {len(ttls)}, Bpod: {bpod_config is not None}")

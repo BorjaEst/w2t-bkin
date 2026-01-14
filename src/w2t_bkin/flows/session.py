@@ -28,36 +28,13 @@ Example:
 
 from datetime import datetime
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional
 
 from prefect import flow, get_run_logger
 from prefect.runtime import flow_run as flow_run_runtime
-from pynwb import NWBFile
 
-from w2t_bkin import utils
+from w2t_bkin import tasks, utils
 from w2t_bkin.config import SessionFlowConfig
 from w2t_bkin.models import SessionInfo, SessionResult
-from w2t_bkin.tasks import (
-    add_skeletons_task,
-    align_trials_task,
-    assemble_behavior_task,
-    assemble_pose_task,
-    compute_alignment_stats_task,
-    create_nwb_file_task,
-    discover_all_files_task,
-    discover_dlc_poses_task,
-    discover_sleap_poses_task,
-    finalize_session_task,
-    generate_dlc_session_task,
-    generate_figures_task,
-    ingest_bpod_task,
-    ingest_dlc_poses_task,
-    ingest_sleap_poses_task,
-    ingest_ttl_task,
-    setup_flow_session_task,
-    verify_session_inputs_task,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +73,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # =====================================================================
         run_logger.info("Phase 0: Loading session configuration")
 
-        session_info: SessionInfo = setup_flow_session_task(subject_id, session_id, config)
+        session_info: SessionInfo = tasks.setup_flow_session_task(subject_id, session_id, config)
 
         # Setup file logging to pipeline.log with Prefect flow-run isolation
         log_file = session_info.output_dir / "pipeline.log"
@@ -121,14 +98,14 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
             run_logger.warning(f"File logging disabled - no Prefect context isolation available: {e}")
             file_handler.close()  # Clean up unused handler
 
-        nwbfile = create_nwb_file_task(session_info)
+        nwbfile = tasks.create_nwb_file_task(session_info)
 
         # =====================================================================
         # Phase 1: Discovery
         # =====================================================================
         run_logger.info("Phase 1: Discovering files")
 
-        discovery = discover_all_files_task(session_info)
+        discovery = tasks.discover_all_files_task(session_info)
 
         n_cameras = len(discovery.camera_files)
         n_bpod = len(discovery.bpod_files)
@@ -140,7 +117,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # =====================================================================
         run_logger.info("Phase 1.5: Verifying session inputs")
 
-        verification_result = verify_session_inputs_task(discovery, session_info)
+        verification_result = tasks.verify_session_inputs_task(discovery, session_info)
 
         if session_info.config.verification.enabled:
             if session_info.config.verification.check_frame_counts:
@@ -167,11 +144,17 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # Ingest Bpod behavioral data
         bpod_data = None
         if session_info.config.bpod.parse and discovery.bpod_files:
-            bpod_data = ingest_bpod_task(
-                session_dir=session_info.session_dir,
-                pattern="Bpod/*.mat",
-                order="time_asc",
-                continuous_time=False,
+            # Prefer per-session metadata configuration when provided; otherwise fall back to deployment config.
+            bpod_meta = session_info.metadata.get("bpod") or {}
+            bpod_pattern = bpod_meta.get("path") or bpod_meta.get("paths") or bpod_meta.get("pattern") or session_info.config.bpod.pattern
+            bpod_order = bpod_meta.get("order") or session_info.config.bpod.order
+            bpod_continuous_time = bpod_meta.get("continuous_time", session_info.config.bpod.continuous_time)
+
+            bpod_data = tasks.ingest_bpod_task(
+                session_info.session_dir,
+                pattern=bpod_pattern,
+                order=bpod_order,
+                continuous_time=bpod_continuous_time,
             )
             run_logger.info(f"Ingested Bpod data: {bpod_data.n_trials} trials")
 
@@ -183,10 +166,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         if discovery.ttl_files:
             ttl_configs = session_info.metadata.get("TTLs", [])
             ttl_patterns = {ttl["id"]: ttl["paths"] for ttl in ttl_configs}
-            ttl_data = ingest_ttl_task(
-                session_dir=session_info.session_dir,
-                ttl_patterns=ttl_patterns,
-            )
+            ttl_data = tasks.ingest_ttl_task(session_dir=session_info.session_dir, ttl_patterns=ttl_patterns)
             run_logger.info(f"Ingested TTL data for {len(ttl_data)} channels")
 
         # Align trials with TTL
@@ -206,11 +186,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # Assemble behavior tables
         if bpod_data:
             trial_offsets = trial_alignment.trial_offsets if trial_alignment else []
-            assemble_behavior_task(
-                nwbfile=nwbfile,
-                bpod_data=bpod_data,
-                trial_offsets=trial_offsets,
-            )
+            tasks.assemble_behavior_task(nwbfile, bpod_data, trial_offsets)
             run_logger.info("Assembled behavior tables")
 
         # Assemble pose estimation data
@@ -228,7 +204,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
             "subject": session_info.metadata,
         }
 
-        finalization_result = finalize_session_task(
+        finalization_result = tasks.finalize_session_task(
             nwbfile=nwbfile,
             output_dir=session_info.output_dir,
             session_id=session_id,
@@ -242,7 +218,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
             nwb_path = finalization_result.get("nwb_path")
             pipeline_profile_path = session_info.output_dir / "pipeline_profile.json"
 
-            figure_paths = generate_figures_task(
+            figure_paths = tasks.generate_figures_task(
                 output_dir=session_info.output_dir,
                 alignment_stats=alignment_stats,
                 trial_alignment=trial_alignment,
@@ -419,10 +395,7 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
             else:
                 run_logger.info("Using cached DLC poses (if available)")
 
-            dlc_artifacts = generate_dlc_session_task(
-                session_info=session_info,
-                force_rerun=force_rerun,
-            )
+            dlc_artifacts = tasks.generate_dlc_session_task(session_info, force_rerun)
             run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
 
         elif dlc_mode == "discover":
@@ -430,11 +403,7 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
             # Files must exist in interim/dlc-pose/<camera_id>/ with names matching {video_stem}DLC*.h5
             for camera_id, video_paths in discovery.camera_files.items():
                 camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
-                artifacts = discover_dlc_poses_task(
-                    video_paths=video_paths,
-                    dlc_dir=camera_dlc_dir,
-                    camera_id=camera_id,
-                )
+                artifacts = tasks.discover_dlc_poses_task(video_paths, camera_dlc_dir, camera_id)
                 if artifacts:
                     dlc_artifacts[camera_id] = artifacts
             if dlc_artifacts:
@@ -461,11 +430,7 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
             # Legacy path for backward compatibility (if no metadata)
             for camera_id, video_paths in discovery.camera_files.items():
                 camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-                artifacts = discover_sleap_poses_task(
-                    video_paths=video_paths,
-                    sleap_dir=camera_sleap_dir,
-                    camera_id=camera_id,
-                )
+                artifacts = tasks.discover_sleap_poses_task(video_paths, camera_sleap_dir, camera_id)
                 if artifacts:
                     sleap_artifacts[camera_id] = artifacts
             if sleap_artifacts:
@@ -544,11 +509,7 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
                 # Ingest based on source
                 if source == "dlc":
                     camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
-                    dlc_poses = ingest_dlc_poses_task(
-                        video_paths=video_paths,
-                        dlc_dir=camera_dlc_dir,
-                        camera_id=camera_id,
-                    )
+                    dlc_poses = tasks.ingest_dlc_poses_task(video_paths, camera_dlc_dir, camera_id)
                     if dlc_poses:
                         # Apply mapping if specified (harmonization deferred to assembly for now)
                         pose_data[camera_id] = dlc_poses
@@ -556,11 +517,7 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
 
                 elif source == "sleap":
                     camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-                    sleap_poses = ingest_sleap_poses_task(
-                        video_paths=video_paths,
-                        sleap_dir=camera_sleap_dir,
-                        camera_id=camera_id,
-                    )
+                    sleap_poses = tasks.ingest_sleap_poses_task(video_paths, camera_sleap_dir, camera_id)
                     if sleap_poses:
                         pose_data[camera_id] = sleap_poses
                         run_logger.info(f"Ingested SLEAP poses for {camera_id} ({len(sleap_poses)} video(s))")
@@ -574,7 +531,7 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
             video_paths = discovery.camera_files[camera_id]
             # Camera-specific DLC directory
             camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
-            dlc_poses = ingest_dlc_poses_task(
+            dlc_poses = tasks.ingest_dlc_poses_task(
                 video_paths=video_paths,
                 dlc_dir=camera_dlc_dir,
                 camera_id=camera_id,
@@ -588,7 +545,7 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
             video_paths = discovery.camera_files[camera_id]
             # Camera-specific SLEAP directory
             camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-            sleap_poses = ingest_sleap_poses_task(
+            sleap_poses = tasks.ingest_sleap_poses_task(
                 video_paths=video_paths,
                 sleap_dir=camera_sleap_dir,
                 camera_id=camera_id,
@@ -633,11 +590,7 @@ def _align_trials_with_ttl(bpod_data, ttl_data, session_info, run_logger):
     # Extract TTL pulse timestamps
     ttl_pulses = {ttl_id: ttl.timestamps for ttl_id, ttl in ttl_data.items()}
 
-    trial_alignment = align_trials_task(
-        trial_type_configs=trial_type_configs,
-        bpod_data=bpod_data.data,
-        ttl_pulses=ttl_pulses,
-    )
+    trial_alignment = tasks.align_trials_task(trial_type_configs, bpod_data.data, ttl_pulses)
 
     if trial_alignment.warnings:
         for warning in trial_alignment.warnings:
@@ -664,11 +617,7 @@ def _compute_sync_stats(trial_alignment, ttl_data, run_logger):
 
     # Convert trial_offsets dict to list of values
     trial_offsets_list = list(trial_alignment.trial_offsets.values()) if isinstance(trial_alignment.trial_offsets, dict) else trial_alignment.trial_offsets
-
-    alignment_stats = compute_alignment_stats_task(
-        trial_offsets=trial_offsets_list,
-        ttl_channels=ttl_channels,
-    )
+    alignment_stats = tasks.compute_alignment_stats_task(trial_offsets_list, ttl_channels)
 
     run_logger.info("Computed alignment statistics")
     return alignment_stats
@@ -706,7 +655,7 @@ def _assemble_pose_data(nwbfile, pose_data, session_info, ttl_data, run_logger):
         if isinstance(pose_cam_cfg, dict) and pose_cam_cfg.get("skeleton_id"):
             camera_config["skeleton_id"] = pose_cam_cfg["skeleton_id"]
 
-        assemble_pose_task(
+        tasks.assemble_pose_task(
             nwbfile=nwbfile,
             camera_id=camera_id,
             pose_data_list=pose_list,
