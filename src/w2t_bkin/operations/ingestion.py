@@ -223,22 +223,20 @@ def ingest_session_data(session_info: SessionInfo, camera_files: Dict[str, List[
 
     # Ingest pose data
     if not skip_pose:
-        # DLC
+        # DLC (uses normalized folder: interim/dlc-pose/<camera_id>)
         if session_info.config.preprocessing.dlc.enabled:
-            interim_dlc_dir = session_info.interim_dir / "dlc"
-
             for camera_id, video_paths in camera_files.items():
                 if video_paths:
+                    interim_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
                     pose_data = ingest_dlc_poses(video_paths=video_paths, dlc_dir=interim_dlc_dir, camera_id=camera_id)
                     if pose_data:
                         result["pose_data"][camera_id] = pose_data
 
-        # SLEAP
+        # SLEAP (uses normalized folder: interim/sleap-pose/<camera_id>)
         if session_info.config.preprocessing.sleap.enabled:
-            interim_sleap_dir = session_info.interim_dir / "sleap"
-
             for camera_id, video_paths in camera_files.items():
                 if video_paths:
+                    interim_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
                     pose_data = ingest_sleap_poses(video_paths=video_paths, sleap_dir=interim_sleap_dir, camera_id=camera_id)
                     if pose_data:
                         # Merge or replace existing

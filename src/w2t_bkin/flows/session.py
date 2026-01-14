@@ -425,9 +425,10 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
             run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
 
         elif dlc_mode == "discover":
-            # Discover mode: artifacts will be sourced from metadata.pose.cameras
-            # No artifact generation here; ingestion will use metadata directly
-            run_logger.info("DLC mode='discover': Will use H5 files from metadata.pose.cameras")
+            # Discover mode: H5 files discovered by stem-matching videos
+            # Files must exist in interim/dlc-pose/<camera_id>/ with names matching {video_stem}DLC*.h5
+            # No artifact generation here; ingestion will use stem-based discovery
+            run_logger.info("DLC mode='discover': Will use stem-based H5 discovery from interim/dlc-pose/<camera_id>/")
     else:
         run_logger.info("DLC processing disabled")
 
@@ -496,9 +497,14 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
         has_models = bool(pose_metadata.get("models", {}))
         sleap_mode = "generate" if has_models else "discover"
 
-    # Metadata-driven ingestion (discover mode with explicit pose.cameras)
+    # Metadata-driven ingestion (discover mode with pose.cameras config)
+    # Uses stem-based discovery: matches video files to H5 files by filename stem
+    # H5s must be in interim/{dlc-pose|sleap-pose}/<camera_id>/ with appropriate naming:
+    #   - DLC: {video_stem}DLC*.h5
+    #   - SLEAP: *{video_stem}*.h5
+    # Multiple videos per camera (e.g., buffer rollover) → multiple H5s → list of PoseData
     if pose_cameras and (dlc_mode == "discover" or sleap_mode == "discover"):
-        run_logger.info(f"Using metadata-driven pose ingestion for {len(pose_cameras)} cameras")
+        run_logger.info(f"Using stem-based pose ingestion for {len(pose_cameras)} camera(s) " f"(H5s in interim/{{dlc|sleap}}-pose/<camera_id>/)")
 
         # Get optional mappings dict
         mappings_dict = pose_metadata.get("mappings", {})
@@ -514,8 +520,7 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
             if source == "sleap" and sleap_mode != "discover":
                 continue
 
-            # For discover mode, expect H5 files already present in interim
-            # Use stem-based discovery from the camera's interim dir
+            # Stem-based discovery from camera's video files
             if camera_id in discovery.camera_files:
                 video_paths = discovery.camera_files[camera_id]
 

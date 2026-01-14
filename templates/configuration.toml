@@ -33,17 +33,21 @@ force_rerun = false # Regenerate all intermediate files (applies to 'generate' m
 # -----------------------------------------------------------------------------
 # DeepLabCut Pose Estimation
 # -----------------------------------------------------------------------------
+# H5 Discovery Contract (stem-based):
+#   - H5 files must be in interim/dlc-pose/<camera_id>/
+#   - Filenames must match video stems: {video_stem}DLC*.h5
+#
+# Model selection (for generate mode):
+#   - Per-camera models: metadata.pose.cameras.<camera_id>.model_id
+#   - Model paths: metadata.pose.models.<model_id>.path
+#
 [preprocessing.dlc]
 enabled = true
 mode = "auto"  # off | discover | generate | auto
                # - off: Skip DLC entirely
-               # - discover: Use pre-existing H5 files (camera/model mapping in metadata.pose)
+               # - discover: Use pre-existing H5s (stem-based discovery from interim/dlc-pose/<camera_id>/)
                # - generate: Run DLC inference (requires metadata.pose.cameras + metadata.pose.models)
-               # - auto: Generate if metadata defines models, otherwise discover
-               #
-               # Model selection is now per-camera in metadata.toml:
-               # [pose.cameras.<camera_id>]
-               # model_id = "<model_id>"  # References pose.models.<model_id>.path
+               # - auto: Generate if metadata.pose.models exists, otherwise discover
 
 # gpu = 0                               # GPU index (omit for auto-detect, -1 for CPU)
 # save_csv = false                      # Export CSV in addition to H5
@@ -51,14 +55,16 @@ mode = "auto"  # off | discover | generate | auto
 # -----------------------------------------------------------------------------
 # SLEAP Pose Estimation
 # -----------------------------------------------------------------------------
+# H5 Discovery Contract (stem-based):
+#   - H5 files must be in interim/sleap-pose/<camera_id>/
+#   - Filenames must match video stems: *{video_stem}*.h5
+#
 [preprocessing.sleap]
 enabled = false
 mode = "auto"  # off | discover | auto (generate NOT IMPLEMENTED)
                # - off: Skip SLEAP entirely
-               # - discover: Use pre-existing H5 files (camera/model mapping in metadata.pose)
+               # - discover: Use pre-existing H5s (stem-based discovery from interim/sleap-pose/<camera_id>/)
                # - auto: Same as discover when enabled
-               #
-               # Model selection is per-camera in metadata.toml (same as DLC)
 
 # gpu = 0                               # GPU index (omit for auto-detect, -1 for CPU)
 

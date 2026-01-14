@@ -369,12 +369,13 @@ class DLCConfig(BaseModel, extra="forbid"):
 
     Mode Controls:
         - off: Skip DLC processing entirely (enabled=False)
-        - discover: Use pre-existing H5 files from interim/dlc-pose (camera-model mapping in metadata.pose)
+        - discover: Use pre-existing H5 files via stem-based discovery
+                   H5s must be in interim/dlc-pose/<camera_id>/ with names {video_stem}DLC*.h5
         - generate: Run DLC inference to create H5 files (requires metadata.pose.cameras + metadata.pose.models)
-        - auto: Attempt generate if metadata has model definitions, otherwise discover
+        - auto: Generate if metadata.pose.models exists, otherwise discover
 
     Note:
-        Model selection is now per-camera via metadata.pose.cameras.<camera_id>.model_id,
+        Model selection is per-camera via metadata.pose.cameras.<camera_id>.model_id,
         which references metadata.pose.models.<model_id>.path (relative to paths.models_root).
     """
 
@@ -422,12 +423,13 @@ class SLEAPConfig(BaseModel, extra="forbid"):
 
     Mode Controls:
         - off: Skip SLEAP processing entirely (enabled=False)
-        - discover: Use pre-existing H5 files from interim/sleap-pose (camera-model mapping in metadata.pose)
+        - discover: Use pre-existing H5 files via stem-based discovery
+                   H5s must be in interim/sleap-pose/<camera_id>/ with names *{video_stem}*.h5
         - generate: Run SLEAP inference (NOT IMPLEMENTED - will raise error)
         - auto: Discover if enabled (generate mode not yet supported)
 
     Note:
-        Model selection is now per-camera via metadata.pose.cameras.<camera_id>.model_id,
+        Model selection is per-camera via metadata.pose.cameras.<camera_id>.model_id,
         which references metadata.pose.models.<model_id>.path (relative to paths.models_root).
     """
 

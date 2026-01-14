@@ -57,18 +57,33 @@ force_rerun = false # Force re-run even if outputs exist (applies to 'generate' 
 # -----------------------------------------------------------------------------
 # Pose Estimation: DLC & SLEAP
 # -----------------------------------------------------------------------------
-# Model selection is per-camera via metadata.pose.cameras.<camera_id>.model_id
-# See metadata.toml template for pose section structure
+# H5 Discovery Contract (stem-based):
+#   - H5 files must be in interim/{dlc-pose|sleap-pose}/<camera_id>/
+#   - Filenames must match video stems:
+#     * DLC: {video_stem}DLC*.h5
+#     * SLEAP: *{video_stem}*.h5
+#
+# Model selection (for generate mode):
+#   - Per-camera models defined in metadata.pose.cameras.<camera_id>.model_id
+#   - Model paths in metadata.pose.models.<model_id>.path (relative to models_root)
+#   - See metadata.toml template for full pose section structure
 
 [preprocessing.dlc]
 enabled = false
 mode = "auto"       # off | discover | generate | auto
+# - off: Skip DLC entirely
+# - discover: Use pre-existing H5s (stem-based discovery)
+# - generate: Run DLC inference (requires metadata.pose.models)
+# - auto: Generate if metadata.pose.models exists, else discover
 # gpu = 0      # GPU device ID (omit for auto-detect, -1 for CPU)
 # save_csv = false  # Export CSV in addition to H5
 
 [preprocessing.sleap]
 enabled = false
 mode = "auto"         # off | discover | auto (generate NOT IMPLEMENTED)
+# - off: Skip SLEAP entirely
+# - discover: Use pre-existing H5s (stem-based discovery)
+# - auto: Same as discover (generate not implemented)
 # gpu = 0      # GPU device ID (omit for auto-detect, -1 for CPU)
 
 # =============================================================================

@@ -105,16 +105,21 @@ def assemble_pose_estimation(
     Pure function that builds PoseEstimation objects and adds to behavior module.
     Modifies nwbfile in place.
 
+    Multi-video handling: For cameras with multiple video chunks (e.g., buffer rollover),
+    each video gets its own PoseEstimation object with synchronized timestamps. This
+    effectively concatenates pose data across the session while preserving provenance
+    (original_videos field records which video each chunk came from).
+
     Args:
         nwbfile: NWB file object to modify
         camera_id: Camera identifier
-        pose_data_list: List of PoseData for this camera
+        pose_data_list: List of PoseData for this camera (one per video chunk)
         camera_config: Camera configuration (fps, ttl_id, skeleton_id)
         ttl_pulses: TTL pulse data (optional for timestamp alignment)
         skeletons_config: Skeleton definitions (optional)
 
     Returns:
-        List of created PoseEstimation objects
+        List of created PoseEstimation objects (one per video chunk)
 
     Raises:
         ValueError: If pose assembly fails

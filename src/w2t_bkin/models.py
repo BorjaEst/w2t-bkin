@@ -221,20 +221,20 @@ class PoseMapping(BaseModel, extra="forbid"):
     map: Dict[str, str] = Field(..., description="Source name → canonical name mapping")
 
 
-class PoseCamera(BaseModel, extra="forbid"):
-    """Pose data source for a specific camera.
+class PoseCameraConfig(BaseModel, extra="forbid"):
+    """Pose configuration for a specific camera.
+
+    H5 files are discovered by stem-matching video files in interim/{dlc-pose|sleap-pose}/<camera_id>/
 
     Attributes:
-        camera_id: Camera identifier (must match metadata cameras)
         source: Pose estimation source (dlc or sleap)
-        h5_path: Path to H5 file relative to interim_dir/session_id
+        model_id: Model identifier for generate mode (references pose.models.<model_id>)
         mapping_id: Optional reference to pose mapping
         skeleton_id: Optional reference to skeleton definition
     """
 
-    camera_id: str = Field(..., description="Camera identifier (must match [[cameras]].id)")
     source: Literal["dlc", "sleap"] = Field(..., description="Pose estimation source")
-    h5_path: str = Field(..., description="H5 file path relative to interim_dir/session_id")
+    model_id: Optional[str] = Field(None, description="Model ID for generate mode (references pose.models.<id>)")
     mapping_id: Optional[str] = Field(None, description="Optional mapping ID for name harmonization")
     skeleton_id: Optional[str] = Field(None, description="Optional skeleton ID for visualization")
 
@@ -243,11 +243,13 @@ class PoseMetadata(BaseModel, extra="forbid"):
     """Complete pose metadata section from metadata.toml.
 
     Attributes:
-        cameras: Pose data sources per camera
-        mappings: Optional body part name mappings
-        skeletons: Optional skeleton definitions
+        models: Pose estimation models (source + path)
+        cameras: Pose configuration per camera (dict keyed by camera_id)
+        mappings: Optional body part name mappings (dict keyed by mapping_id)
+        skeletons: Optional skeleton definitions (dict keyed by skeleton_id)
     """
 
-    cameras: List[PoseCamera] = Field(default_factory=list, description="Pose data sources for each camera")
-    mappings: List[PoseMapping] = Field(default_factory=list, description="Optional body part name mappings")
-    skeletons: List[PoseSkeleton] = Field(default_factory=list, description="Optional skeleton definitions")
+    models: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Pose models: {model_id: {source, path}}")
+    cameras: Dict[str, PoseCameraConfig] = Field(default_factory=dict, description="Pose config per camera: {camera_id: config}")
+    mappings: Dict[str, Dict[str, str]] = Field(default_factory=dict, description="Optional mappings: {mapping_id: {src: dst}}")
+    skeletons: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Optional skeletons: {skeleton_id: definition}")

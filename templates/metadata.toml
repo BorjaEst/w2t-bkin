@@ -6,9 +6,6 @@
 # OPTIONAL METADATA FIELDS
 # =============================================================================
 
-# Lab-specific ID for the session
-session_id = "000001"
-
 # Name of person(s) who performed experiment (can be a list)
 experimenter = ["Esteban, Borja", "Python, Code"]
 
@@ -148,85 +145,26 @@ description = "Processed behavioral data including pose estimates and synchroniz
 name = "sync"
 description = "Synchronization data between Bpod and cameras"
 
-# =============================================================================
-# POSE ESTIMATION CONFIGURATION
-# =============================================================================
-# This section defines per-camera pose estimation models and optional
-# skeleton/mapping configurations for harmonization and assembly.
-#
-# Structure:
-#   - pose.models: Define reusable pose models (DLC/SLEAP)
-#   - pose.cameras: Associate each camera with a model and optional configs
-#   - pose.mappings: (Optional) Keypoint name harmonization rules
-#   - pose.skeletons: (Optional) Skeleton definitions with edges
-#
-# Note: Models are referenced by model_id, allowing hierarchical overrides
-# (global → subject → session) via recursive dict merge.
-
-# -----------------------------------------------------------------------------
-# Pose Models (DLC/SLEAP model definitions)
-# -----------------------------------------------------------------------------
-[pose.models]
-  # Example DLC model for camera 0 (overhead view)
-  [pose.models.dlc_cam0]
-  source = "dlc"  # "dlc" or "sleap"
-  path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to paths.models_root
-  # description = "DLC model trained on overhead view, 95% training set"
-
-  # Example DLC model for camera 1 (side view)
-  [pose.models.dlc_cam1]
-  source = "dlc"
-  path = "iteration-1/BA_W2T_cam1.sideview-trainset95shuffle1/config.yaml"
-  # description = "DLC model trained on side view"
-
-  # Example SLEAP model (if using SLEAP)
-  # [pose.models.sleap_cam0]
-  # source = "sleap"
-  # path = "sleap_models/cam0_model.h5"
-
-# -----------------------------------------------------------------------------
-# Camera-Model Associations
-# -----------------------------------------------------------------------------
-[pose.cameras]
-  # Camera 0: overhead view with DLC
-  [pose.cameras.camera_0]
-  source = "dlc"           # Must match pose.models.<model_id>.source
-  model_id = "dlc_cam0"    # References pose.models.dlc_cam0
-  # mapping_id = "dlc_to_canonical"  # Optional: keypoint name harmonization
-  # skeleton_id = "rat_skeleton"     # Optional: skeleton definition for this camera
-
-  # Camera 1: side view with DLC
-  [pose.cameras.camera_1]
-  source = "dlc"
-  model_id = "dlc_cam1"
-  # mapping_id = "dlc_to_canonical"
-  # skeleton_id = "rat_skeleton"
-
-# -----------------------------------------------------------------------------
-# Keypoint Mappings (Optional: harmonize names across models/sources)
-# -----------------------------------------------------------------------------
-[pose.mappings]
-  # Example: map DLC-specific keypoint names to canonical skeleton
-  # [pose.mappings.dlc_to_canonical]
-  # snout = "nose"
-  # ear_left = "ear_l"
-  # ear_right = "ear_r"
-  # spine_base = "spine1"
-
-# -----------------------------------------------------------------------------
-# Skeleton Definitions (Optional: define edges for visualization)
-# -----------------------------------------------------------------------------
-[pose.skeletons]
-  # Example skeleton with edges
-  # [pose.skeletons.rat_skeleton]
-  # name = "Rat body skeleton"
-  # nodes = ["nose", "ear_l", "ear_r", "spine1", "spine2", "spine3", "tail_base", "tail_mid", "tail_tip"]
-  # # Edges as [node_index_1, node_index_2] pairs (0-indexed into nodes list)
-  # edges = [[0, 1], [0, 2], [0, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8]]
 
 # =============================================================================
 # PIPELINE SOURCE DEFINITIONS (Not NWB Metadata)
 # =============================================================================
+
+# TTL synchronization channels
+[[TTLs]]
+id = "ttl_camera"
+paths = "TTLs/*_frame.txt"
+description = "Camera exposure pulses (frame sync)"
+
+[[TTLs]]
+id = "ttl_cue"
+paths = "TTLs/*_cue.txt"
+description = "Audio cue onset pulses"
+
+[[TTLs]]
+id = "ttl_hitmiss"
+paths = "TTLs/*_hitmiss.txt"
+description = "Trial outcome signals"
 
 [bpod]
 path = "Bpod/*.mat"
@@ -259,19 +197,34 @@ paths = "Video/pupil_left/*.avi"
 fps = 30.0
 ttl_id = "ttl_camera"
 
-# TTL synchronization channels
-[[TTLs]]
-id = "ttl_camera"
-paths = "TTLs/*_frame.txt"
-description = "Camera exposure pulses (frame sync)"
+# Pose estimation models (for generate mode)
+[pose.models.dlc_cam0]
+source = "dlc"
+path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to models_root
 
-[[TTLs]]
-id = "ttl_cue"
-paths = "TTLs/*_cue.txt"
-description = "Audio cue onset pulses"
+[pose.models.dlc_cam1]
+source = "dlc"
+path = "iteration-1/BA_W2T_cam1.../config.yaml"
 
-[[TTLs]]
-id = "ttl_hitmiss"
-paths = "TTLs/*_hitmiss.txt"
-description = "Trial outcome signals"
+# Pose configuration per camera
+[pose.cameras.camera_0]
+source = "dlc"           # dlc | sleap
+model_id = "dlc_cam0"   # References pose.models.dlc_cam0 (used in generate mode)
+mapping_id = "canonical"  # Optional: references pose.mappings.canonical
+skeleton_id = "mouse"     # Optional: references pose.skeletons.mouse
+
+[pose.cameras.camera_1]
+source = "dlc"
+model_id = "dlc_cam1"
+
+# Optional: Body part name mappings for harmonization
+[pose.mappings.canonical]
+snout = "nose"
+ear_l = "ear_left"
+ear_r = "ear_right"
+
+# Optional: Skeleton definitions for visualization
+[pose.skeletons.mouse]
+name = "Mouse skeleton"
+nodes = ["nose", "ear_left", "ear_right", "neck", "body", "tail_base"]
 
