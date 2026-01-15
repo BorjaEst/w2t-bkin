@@ -207,11 +207,6 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
             run_logger.info("Synchronization skipped (no TTL data or disabled)")
     logger.debug(f"Computed Offsets: {offsets}")
 
-    # Compute alignment statistics
-    logger.info("Computing alignment statistics")
-    if offsets and data.get("ttl"):
-        sync_statistics = sync_tasks.compute_alignment_stats_task(offsets, data.get("ttl", {}))
-
     # =====================================================================
     # Phase 5: Assembly
     # =====================================================================

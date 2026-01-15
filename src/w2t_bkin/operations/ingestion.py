@@ -202,12 +202,20 @@ def ingest_bpod(
         continuous_time=continuous_time,
     )
 
+    # Extract sync configuration from metadata (for TTL alignment)
+    bpod_meta = info.metadata.get("bpod", {})
+    sync_config = bpod_meta.get("sync", {})
+    sync_trial_types = sync_config.get("trial_types", [])
+
     bpod_data = BpodData(
         data=merged_data,
         source_files=bpod_files,
+        sync_trial_types=sync_trial_types,
     )
 
     logger.info(f"Ingested Bpod data: {bpod_data.n_trials} trials from {len(bpod_files)} file(s)")
+    if sync_trial_types:
+        logger.debug(f"Loaded {len(sync_trial_types)} trial type sync configuration(s)")
 
     return bpod_data
 

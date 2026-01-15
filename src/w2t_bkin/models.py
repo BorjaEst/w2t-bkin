@@ -157,10 +157,17 @@ class BpodData:
     Attributes:
         data: Parsed Bpod data dictionary (from parse_bpod)
         source_files: Paths to .mat files that were merged
+        sync_trial_types: Trial type sync configuration from metadata (for TTL alignment)
     """
 
     data: Dict[str, Any]
     source_files: List[Path]
+    sync_trial_types: List[Dict[str, Any]] = None  # Default to None for backward compatibility
+
+    def __post_init__(self):
+        """Initialize sync_trial_types to empty list if None."""
+        if self.sync_trial_types is None:
+            self.sync_trial_types = []
 
     @property
     def n_trials(self) -> int:
