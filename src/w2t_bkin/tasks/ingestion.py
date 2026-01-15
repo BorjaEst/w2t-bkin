@@ -138,3 +138,14 @@ def align_trials_task(trial_type_configs: Dict, bpod_data: Dict[str, Any], ttl_p
     logger.info("Aligning Bpod trials to TTL pulses")
 
     return align_trials_to_ttl(trial_type_configs=trial_type_configs, bpod_data=bpod_data, ttl_pulses=ttl_pulses)
+
+
+@task(
+    name="Count All Video Frames",
+    description="Count total frames for all discovered camera videos",
+    tags=["discovery", "io", "counting"],
+    cache_policy=None,
+    retries=1,
+)
+def verify_camera_ttl_sync_task(discovery: DiscoveryResult, config: DiscoveryConfig) -> Dict[str, int]:
+    pass  # TODO: Implement this task using count_all_camera_frames operation

@@ -32,7 +32,6 @@ Example:
 """
 
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -121,43 +120,26 @@ def _execute_session_pipeline(nwbfile, info: SessionInfo, config: SessionConfig,
     discovery = discovery_tasks.discover_all_files_task(info)
     run_logger.info("Discovered files:")  # TODO: log here short summary of discovered files
 
-    if config.discovery.camera_ttl_mismatch.enable:
-        run_logger.info("Verifying camera/TTL synchronization")
-        discovery_tasks.verify_camera_ttl_sync_task(discovery, config.discovery)
-    else:
-        run_logger.info("Verification skipped (disabled)")
-
     # =====================================================================
     # Phase 2: Artifact Generation
     # =====================================================================
     run_logger.info("Phase 2: Resolving pose plan and generating artifacts")
-    pose_plan: artifacts.PosePlan = artifacts.resolve_pose_plan(session_info, run_logger)
-    run_logger.info(f"Pose plan: DLC={pose_plan.should_generate_dlc}, SLEAP={pose_plan.should_generate_sleap}")
-
-    if pose_plan.should_generate_dlc:
-        tasks.validate_dlc_generate_mode(session_info)
-        force_rerun = session_info.config.preprocessing.force_rerun
-        run_logger.info(f"{'⚠️  Regenerating' if force_rerun else 'Using cached'} DLC poses")
-        dlc_artifacts = tasks.generate_dlc_artifacts(session_info, force_rerun)
-        run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
-    elif pose_plan.dlc_mode == "discover":
-        dlc_artifacts = tasks.discover_dlc_artifacts(session_info)
-        run_logger.info("DLC discover mode: skipping generation (ingestion in Phase 3)")
-    else:
-        dlc_artifacts = {}
-        run_logger.info("DLC disabled")
-
-    if pose_plan.should_generate_sleap:
-        tasks.validate_sleap_generate_mode(session_info)
-        force_rerun = session_info.config.preprocessing.force_rerun
-        run_logger.info(f"{'⚠️  Regenerating' if force_rerun else 'Using cached'} SLEAP poses")
-        sleap_artifacts = tasks.generate_sleap_artifacts(session_info, force_rerun)
-    elif pose_plan.sleap_mode == "discover":
-        sleap_artifacts = tasks.discover_sleap_artifacts(session_info)
-        run_logger.info("SLEAP discover mode: skipping generation (ingestion in Phase 3)")
-    else:
-        sleap_artifacts = {}
-        run_logger.info("SLEAP disabled")
+    match config.artifacts.mode:
+        case "generate":
+            artifacts = artifacts_tasks.generate_artifacts_task(discovery, info, config.artifacts)
+            logger.info("Generated pose artifacts")
+        case "discover":
+            artifacts = artifacts_tasks.discover_artifacts_task(discovery, info)
+            logger.info("Discovered existing pose artifacts")
+        case "auto":
+            artifacts = artifacts_tasks.auto_artifacts_task(discovery, info, config.artifacts)
+            logger.info("Auto-resolved and processed pose artifacts")
+        case "off":
+            artifacts = {}
+            logger.info("Pose artifact generation skipped (mode='off')")
+        case _:
+            raise ValueError(f"Invalid artifacts.mode: {config.artifacts.mode}")
+    logger.debug(f"Artifacts: {artifacts}")
 
     # =====================================================================
     # Phase 3: Ingestion
@@ -193,6 +175,12 @@ def _execute_session_pipeline(nwbfile, info: SessionInfo, config: SessionConfig,
     else:
         ttl_data = {}
         run_logger.info("No TTL patterns found in metadata; skipping TTL ingestion")
+
+    if config.discovery.camera_ttl_mismatch.enable:
+        run_logger.info("Verifying camera/TTL synchronization")
+        discovery_tasks.verify_camera_ttl_sync_task(discovery, config.discovery)
+    else:
+        run_logger.info("Verification skipped (disabled)")
 
     # Align trials with TTL
     trial_alignment = ingestion.align_trials_with_ttl(bpod_data, ttl_data, session_info, run_logger)

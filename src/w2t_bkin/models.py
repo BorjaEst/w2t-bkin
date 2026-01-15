@@ -77,6 +77,8 @@ class DiscoveryResult:
     camera_files: Dict[str, List[Path]]
     bpod_files: Dict[str, List[Path]]
     ttl_files: Dict[str, List[Path]]
+    pose_files: Dict[str, List[Path]]
+    models_files: Dict[str, Path]
 
 
 @dataclass

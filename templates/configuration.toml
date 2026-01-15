@@ -1,38 +1,59 @@
 # =============================================================================
+# Logging Configuration
+# =============================================================================
+[logging]
+
+level = "INFO"     # DEBUG | INFO | WARNING | ERROR | CRITICAL
+structured = false # Use JSON format
+
+# =============================================================================
 # Discovery (Raw data loading, validation, etc.)
 # Session logs auto-created: {output_root}/{subject}/{session}/pipeline.log
 # =============================================================================
-
 [discovery]
 
 # TTLs configuration
-ttl_signals.enable_loading = true    # Enable discovery of TTL signal files
-
-# Cameras configuration
-cameras.enable_loading = true  # Enable discovery of camera video files
-cameras.ttl_validation = false      # Verify frame/TTL sync (false = skip TTL checks)
-cameras.ttl_tolerance = 0       # Max allowed frame/pulse difference
-cameras.mismatch_warn_only = false   # Warn instead of fail
-
-# Bpod configuration
-bpod.enable_loading = true     # Enable discovery of Bpod behavioral files
-bpod.continuous_time = true    # Use continuous time for Bpod events
+discover_cameras = true     # Enable discovery of camera video files
+discover_ttl_signals = true # Enable discovery of TTL signal files
+discover_bpod = true        # Enable discovery of Bpod behavioral files
+discover_pose = true        # Enable discovery of pose data files
+discover_models = true      # Enable discovery of pose estimation models
 
 # =============================================================================
 # Artifacts (Pose and any interim data generation)
 # =============================================================================
+[artifacts]
 
-[artifacts.dlc]
-mode = "auto"  # off | discover | generate | auto
+mode = "auto" # off | discover | generate | auto
 # gpu = 0        # GPU index (omit for auto-detect, -1 for CPU)
-# save_csv = true   # Save DLC CSV outputs alongside H5 files
-               
+
+# =============================================================================
+# Ingestion Configuration
+# =============================================================================
+[ingest]
+
+# TTLs configuration
+ttl_signals.enable_loading = true # Enable discovery of TTL signal files
+
+# Cameras configuration
+cameras.enable_loading = true      # Enable discovery of camera video files
+cameras.ttl_validation = false     # Verify frame/TTL sync (false = skip TTL checks)
+cameras.ttl_tolerance = 0          # Max allowed frame/pulse difference
+cameras.mismatch_warn_only = false # Warn instead of fail
+
+# Bpod configuration
+bpod.enable_loading = true  # Enable discovery of Bpod behavioral files
+bpod.continuous_time = true # Use continuous time for Bpod events
+
+# Pose configuration
+pose.enable_loading = true # Enable discovery of pose data files
+pose.file_type = "h5"      # Preferred pose estimation file type to load (h5 or csv)
 
 # =============================================================================
 # Synchronization Strategy
 # =============================================================================
-
 [synchronization]
+
 strategy = "hardware_pulse"
 reference_channel = "ttl_camera"
 
@@ -40,15 +61,3 @@ reference_channel = "ttl_camera"
 method = "nearest"
 tolerance_s = 0.002
 global_offset_s = 0.0
-
-
-
-                # GPU index (omit for auto-detect, -1 for CPU)
-
-# =============================================================================
-# Logging Configuration
-# =============================================================================
-
-[logging]
-level = "INFO"     # DEBUG | INFO | WARNING | ERROR | CRITICAL
-structured = false # Use JSON format

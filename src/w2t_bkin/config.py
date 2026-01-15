@@ -513,8 +513,49 @@ class BpodConfig(BaseModel, extra="forbid"):
     )
 
 
-class PoseProcessingConfig(BaseModel, extra="forbid"):
-    """DeepLabCut or SLEAP pose estimation configuration."""
+class PoseConfig(BaseModel, extra="forbid"):
+    enable_loading: bool = Field(
+        default=True,
+        description="If True, parse pose estimation H5 files when present in the session raw data.",
+    )
+    file_type: Literal["h5", "csv"] = Field(
+        default="h5",
+        description="Preferred pose estimation file type to load (h5 or csv).",
+    )
+
+
+# =============================================================================
+# Configuration Models - Session Level
+# =============================================================================
+
+
+class DiscoveryConfig(BaseModel, extra="forbid"):
+    """File discovery patterns and policies."""
+
+    discover_cameras: bool = Field(
+        default=True,
+        description="Enable discovery of camera video files",
+    )
+    discover_ttl_signals: bool = Field(
+        default=True,
+        description="Enable discovery of TTL signal files",
+    )
+    discover_bpod: bool = Field(
+        default=True,
+        description="Enable discovery of Bpod behavioral files",
+    )
+    discover_pose: bool = Field(
+        default=True,
+        description="Enable discovery of pose data files",
+    )
+    discover_models: bool = Field(
+        default=True,
+        description="Enable discovery of pose estimation models",
+    )
+
+
+class ArtifactsConfig(BaseModel, extra="forbid"):
+    """Policies for handling intermediate artifacts (pose, TTL, etc.)."""
 
     mode: Literal["off", "discover", "generate", "auto"] = Field(
         default="auto",
@@ -535,40 +576,28 @@ class PoseProcessingConfig(BaseModel, extra="forbid"):
     )
 
 
-# =============================================================================
-# Configuration Models - Session Level
-# =============================================================================
-
-
-class DiscoveryConfig(BaseModel, extra="forbid"):
-    """File discovery patterns and policies."""
+class IngestionConfig(BaseModel, extra="forbid"):
+    """How raw data files are ingested and parsed."""
 
     ttl_signals: TTLsConfig = Field(
         default_factory=TTLsConfig,
-        description=("Parameters controlling TTL channel discovery and validation."),
+        description="Parameters controlling camera-TTL mismatch checking.",
     )
     cameras: CamerasConfig = Field(
         default_factory=CamerasConfig,
-        description=("Parameters controlling camera-TTL mismatch checking."),
+        description="Settings for ingesting camera video files.",
     )
     bpod: BpodConfig = Field(
         default_factory=BpodConfig,
-        description=("Settings for parsing and synchronizing Bpod behavioral data."),
+        description="Settings for ingesting Bpod behavioral data.",
+    )
+    pose: PoseConfig = Field(
+        default_factory=PoseConfig,
+        description="Settings for ingesting pose estimation data.",
     )
 
 
-class ArtifactsConfig(BaseModel, extra="forbid"):
-    dlc: PoseProcessingConfig = Field(
-        default_factory=PoseProcessingConfig,
-        description="DeepLabCut pose estimation configuration.",
-    )
-    sleap: PoseProcessingConfig = Field(
-        default_factory=PoseProcessingConfig,
-        description="SLEAP pose estimation configuration.",
-    )
-
-
-class IngestionConfig(BaseModel, extra="forbid"):
+class SynchronizationConfig(BaseModel, extra="forbid"):
     pass
 
 

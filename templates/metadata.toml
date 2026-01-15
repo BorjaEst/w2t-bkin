@@ -200,21 +200,20 @@ ttl_id = "ttl_camera"
 [pose.models.dlc_cam0]
 source = "dlc"
 path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to models_root
+artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 
 [pose.models.dlc_cam1]
 source = "dlc"
 path = "iteration-1/BA_W2T_cam1.../config.yaml"
+artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 
 # Pose configuration per camera
 [pose.cameras.camera_0]
-source = "dlc"           # dlc | sleap
 model_id = "dlc_cam0"   # References pose.models.dlc_cam0 (used in generate mode)
 mapping_id = "canonical"  # Optional: references pose.mappings.canonical
 skeleton_id = "mouse"     # Optional: references pose.skeletons.mouse
-artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 
 [pose.cameras.camera_1]
-source = "dlc"           # dlc | sleap
 model_id = "dlc_cam1"   # References pose.models.dlc_cam1 (used in generate mode)
 artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 

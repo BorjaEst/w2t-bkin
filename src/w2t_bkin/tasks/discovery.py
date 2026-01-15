@@ -34,30 +34,21 @@ def discover_all_files_task(info: SessionInfo, config: DiscoveryConfig) -> Disco
     Returns:
         DiscoveryResult with all discovered files
     """
-    logger.info(f"Discovering all files for session {info.session_dir}")
-    cameras = info.metadata.get("cameras", [])
-    ttls = info.metadata.get("TTLs", [])
-    bpod = info.metadata.get("bpod", None)
-    pose = info.metadata.get("pose", {})
-
-    logger.info(f"Discovering files in {info.raw_dir}")
+    logger.info(f"Discovering all files for session {info.raw_dir}")
+    cameras = info.metadata.get("cameras", []) if config.discover_cameras else []
+    ttls = info.metadata.get("TTLs", []) if config.discover_ttl_signals else []
+    bpod = info.metadata.get("bpod", None) if config.discover_bpod else None
+    pose = info.metadata.get("pose", {}) if config.discover_pose else {}
     logger.debug(f"  Cameras: {len(cameras)}, TTLs: {len(ttls)}, Bpod: {bpod is not None}, Pose: {pose.keys()}")
 
-    # Discover files
-    camera_files = discover_camera_files(info.session_dir, cameras)
-    ttl_files = discover_ttl_files(info.session_dir, ttls)
-    bpod_files = discover_bpod_files(info.session_dir, bpod)
-    pose = discover_pose_files(info.session_dir, pose)
+    logger.info(f"Discovering all models for session {info.session_dir}")
+    models = info.metadata.get("pose", {}).get("models", {}) if config.discover_models else {}
+    logger.debug(f"  Models: {models.keys()}")
 
-    return DiscoveryResult(camera_files=camera_files, bpod_files=bpod_files, ttl_files=ttl_files)
-
-
-@task(
-    name="Count All Video Frames",
-    description="Count total frames for all discovered camera videos",
-    tags=["discovery", "io", "counting"],
-    cache_policy=None,
-    retries=1,
-)
-def verify_camera_ttl_sync_task(discovery: DiscoveryResult, config: DiscoveryConfig) -> Dict[str, int]:
-    pass  # TODO: Implement this task using count_all_camera_frames operation
+    return DiscoveryResult(
+        camera_files=discover_camera_files(info.session_dir, cameras),
+        ttl_files=discover_ttl_files(info.session_dir, ttls),
+        bpod_files=discover_bpod_files(info.session_dir, bpod),
+        pose_files=discover_pose_files(info.session_dir, pose),
+        models_files=discover_pose_models(info.session_dir, models),
+    )

@@ -117,3 +117,7 @@ def discover_bpod_files(session_dir: Path, meta: Dict) -> Dict[str, List[Path]]:
 
 def discover_pose_files(session_dir: Path, meta: Dict) -> Dict[str, List[Path]]:
     pass  # TODO implement pose file discovery
+
+
+def discover_model_files(session_dir: Path, meta: Dict) -> Dict[str, List[Path]]:
+    pass  # TODO implement model file discovery

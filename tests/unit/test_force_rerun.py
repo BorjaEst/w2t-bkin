@@ -54,7 +54,7 @@ class TestForceRerunBehavior:
         """When force_rerun=False, should use cached outputs if available."""
         from unittest.mock import MagicMock, Mock
 
-        from w2t_bkin.operations.dlc_generator import generate_dlc_poses
+        from w2t_bkin.operations.pose_generator import generate_dlc_poses
 
         # Create a fake cached H5 file
         output_dir = tmp_path / "dlc-pose"
@@ -90,7 +90,7 @@ class TestForceRerunBehavior:
 
     def test_generate_dlc_respects_force_rerun_true(self, tmp_path):
         """When force_rerun=True, should regenerate even if cached."""
-        from w2t_bkin.operations.dlc_generator import generate_dlc_poses
+        from w2t_bkin.operations.pose_generator import generate_dlc_poses
 
         # Create a fake cached H5 file
         output_dir = tmp_path / "dlc-pose"
