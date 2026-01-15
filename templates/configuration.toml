@@ -30,7 +30,7 @@ mode = "auto" # off | discover | generate | auto
 # =============================================================================
 # Ingestion Configuration
 # =============================================================================
-[ingest]
+[ingestion]
 
 # TTLs configuration
 ttl_signals.enable_loading = true # Enable discovery of TTL signal files
@@ -54,10 +54,15 @@ pose.file_type = "h5"      # Preferred pose estimation file type to load (h5 or 
 # =============================================================================
 [synchronization]
 
-strategy = "hardware_pulse"
-reference_channel = "ttl_camera"
+# Strategy and channel
+strategy = "hardware_pulse"      # rate_based | hardware_pulse | network_stream
+reference_channel = "ttl_camera" # Reference channel ID for synchronization
 
-[synchronization.alignment]
-method = "nearest"
-tolerance_s = 0.002
-global_offset_s = 0.0
+# Alignment method and parameters
+alignment_method = "nearest" # nearest | linear
+tolerance = 0.002            # Seconds
+global_offset = 0.0          # Seconds
+
+# =============================================================================
+# Assembly Configuration
+# =============================================================================

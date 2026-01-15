@@ -142,75 +142,77 @@ def _execute_session_pipeline(nwbfile, info: SessionInfo, config: SessionConfig,
     logger.debug(f"Artifacts: {artifacts}")
 
     # =====================================================================
-    # Phase 3: Ingestion
+    # Phase 3: Ingestion and verification
     # =====================================================================
     run_logger.info("Phase 3: Ingesting data")
+    data = {}
 
-    # Ingest Bpod behavioral data
-    bpod_data = None
-    if session_info.config.bpod.parse and discovery.bpod_files:
-        pattern, order, continuous_time = ingestion.resolve_bpod_ingest_params(session_info)
-        bpod_data = tasks.ingest_bpod_task(session_info.session_dir, pattern=pattern, order=order, continuous_time=continuous_time)
-        run_logger.info(f"Ingested Bpod data: {bpod_data.n_trials} trials")
+    # Ingest TTL pulses signals from ttl files
+    if config.ingestion.ttl_signals.enable_loading:
+        run_logger.info("Ingesting TTL pulse signals")
+        data["ttl"] = ttl_data = ingestion_tasks.ingest_ttl_task(discovery, info, config.ingestion)
+    else:
+        ttl_data = None
+        run_logger.info("TTL pulse ingestion skipped (disabled in config)")
+    run_logger.debug(f"TTL Data: {ttl_data}")
+
+    # Ingest Cameras (frame data, transcoding, etc.)
+    if config.ingestion.cameras.enable_loading:
+        run_logger.info("Ingesting camera data")
+        data["cameras"] = cameras_data = ingestion_tasks.ingest_cameras_task(discovery, info, config.ingestion)  # This step validates count
+    else:
+        cameras_data = None
+        run_logger.info("Camera data ingestion skipped (disabled in config)")
+    run_logger.debug(f"Cameras Data: {cameras_data}")
+
+    # Ingest Bpod data from mat files into dict structure
+    if config.ingestion.bpod.enable_loading:
+        run_logger.info("Ingesting Bpod data")
+        data["bpod"] = bpod_data = ingestion_tasks.ingest_bpod_task(discovery, info, config.ingestion)
+    else:
+        bpod_data = None
+        run_logger.info("Bpod data ingestion skipped (disabled in config)")
+    run_logger.debug(f"Bpod Data: {bpod_data}")
 
     # Ingest pose data using the resolved plan for DLC
-    pose_ingest = ingestion.resolve_pose_plan(session_info)
-    if pose_plan.ingestion_strategy == "none":
-        run_logger.info("No pose data to ingest (both DLC and SLEAP disabled)")
-        pose_data = {}
-    elif pose_plan.ingestion_strategy == "metadata_stem":
-        run_logger.info("Ingesting pose data via metadata stem-matching")
-        pose_data = tasks.ingest_pose_via_metadata_stem(dlc_artifacts, sleap_artifacts, discovery, session_info)
-    elif pose_plan.ingestion_strategy == "artifact_list":
-        run_logger.info("Ingesting pose data via artifact list")
-        pose_data = tasks.ingest_pose_via_artifact_list(dlc_artifacts, sleap_artifacts, discovery, session_info)
-
-    # Ingest TTL pulses
-    ttl_ingestion = ingestion.resolve_ttl_patterns(session_info)
-    if ttl_ingestion.has_patterns:
-        ttl_data, warnings = tasks.ingest_ttl_task(session_info.session_dir, ttl_ingestion.patterns)
-        for warning in warnings:
-            run_logger.warning(f"TTL ingestion: {warning}")
-        run_logger.info(f"Ingested TTL data for {len(ttl_data)} channels")
+    if config.ingestion.pose.enable_loading:
+        run_logger.info("Ingesting pose data")
+        data["pose"] = pose_data = ingestion.ingest_pose_data(artifacts, discovery, info, run_logger)
     else:
-        ttl_data = {}
-        run_logger.info("No TTL patterns found in metadata; skipping TTL ingestion")
-
-    if config.discovery.camera_ttl_mismatch.enable:
-        run_logger.info("Verifying camera/TTL synchronization")
-        discovery_tasks.verify_camera_ttl_sync_task(discovery, config.discovery)
-    else:
-        run_logger.info("Verification skipped (disabled)")
-
-    # Align trials with TTL
-    trial_alignment = ingestion.align_trials_with_ttl(bpod_data, ttl_data, session_info, run_logger)
+        pose_data = None
+        run_logger.info("Pose data ingestion skipped (disabled in config)")
+    run_logger.debug(f"Pose Data: {pose_data}")
 
     # =====================================================================
     # Phase 4: Synchronization
     # =====================================================================
     run_logger.info("Phase 4: Computing synchronization statistics")
+    match config.synchronization.strategy:
+        case "rate_based" if data.get("ttl") is not None:
+            offsets = sync_tasks.compute_rate_based_offsets_task(data, config.synchronization)
+            logger.info("Generated pose artifacts")
+        case "hardware_pulse" if data.get("ttl") is not None:
+            offsets = sync_tasks.compute_hardware_pulse_offsets_task(data, config.synchronization)
+            logger.info("Discovered existing pose artifacts")
+        case "network_stream" if data.get("ttl") is not None:
+            offsets = sync_tasks.compute_network_stream_offsets_task(data, config.synchronization)
+            logger.info("Auto-resolved and processed pose artifacts")
+        case _:
+            offsets = {}  # No synchronization
+            run_logger.info("Synchronization skipped (no TTL data or disabled)")
+    logger.debug(f"Computed Offsets: {offsets}")
 
-    # Align behavioral trials with TTL pulses
-    bpod_plan = sync.prepare_bpod_sync_plan(bpod_data, session_info)
-    if bpod_plan.requires_alignment:
-        run_logger.info("Skipping trial alignment (missing Bpod or TTL data)")
-        trial_alignment = None
-    elif bpod_plan.no_trial_types:
-        run_logger.info("Skipping trial alignment (no trial_type configs in metadata)")
-        trial_alignment = None
-    else:
-        ttl_pulses = {ttl_id: ttl.timestamps for ttl_id, ttl in ttl_data.items()}
-        trial_alignment, warnings = tasks.align_trials_task(trial_type_configs, bpod_data.data, ttl_pulses)
-        for warning in warnings:
-            run_logger.warning(f"Trial alignment: {warning}")
-        run_logger.info("Aligned behavioral trials with TTL pulses")
-
-    alignment_stats = sync.compute_sync_stats(trial_alignment, ttl_data, run_logger)
+    # Compute alignment statistics
+    logger.info("Computing alignment statistics")
+    if offsets and data.get("ttl"):
+        sync_statistics = sync_tasks.compute_alignment_stats_task(offsets, data.get("ttl", {}))
 
     # =====================================================================
     # Phase 5: Assembly
     # =====================================================================
     run_logger.info("Phase 5: Assembling NWB data structures")
+
+    # Assemble TTL data
 
     # Assemble behavior tables
     if bpod_data:
