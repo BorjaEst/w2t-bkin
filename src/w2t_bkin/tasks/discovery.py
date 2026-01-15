@@ -10,7 +10,7 @@ from w2t_bkin import utils
 from w2t_bkin.config import DiscoveryConfig
 from w2t_bkin.exceptions import IngestError
 from w2t_bkin.models import DiscoveryResult, SessionInfo
-from w2t_bkin.operations import discover_bpod_files, discover_camera_files, discover_pose_files, discover_pose_models, discover_ttl_files
+from w2t_bkin.operations.discovery import discover_bpod_files, discover_camera_files, discover_pose_files, discover_pose_models, discover_ttl_files
 
 logger = logging.getLogger(__name__)
 

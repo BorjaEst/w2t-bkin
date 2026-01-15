@@ -164,7 +164,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     # Ingest Cameras (frame data, transcoding, etc.)
     if config.ingestion.video.enable_loading:
         run_logger.info("Ingesting video data")
-        data["video"] = video_data = ingestion_tasks.ingest_video_task(discovery, info, config.ingestion)  # This step validates count
+        data["video"] = video_data = ingestion_tasks.ingest_video_task(discovery, info, config.ingestion, ttl_data)  # Pass ttl_data for validation
     else:
         video_data = None
         run_logger.info("Camera data ingestion skipped (disabled in config)")
@@ -182,7 +182,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     # Ingest pose data using the resolved plan for DLC
     if config.ingestion.pose.enable_loading:
         run_logger.info("Ingesting pose data")
-        data["pose"] = pose_data = ingestion_tasks.ingest_pose_data(discovery, artifacts, info, run_logger)
+        data["pose"] = pose_data = ingestion_tasks.ingest_pose_task(discovery, artifacts, info, config.ingestion)
     else:
         pose_data = None
         run_logger.info("Pose data ingestion skipped (disabled in config)")
