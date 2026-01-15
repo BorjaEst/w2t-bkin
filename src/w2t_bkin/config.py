@@ -231,7 +231,25 @@ class AssemblyConfig(BaseModel, extra="forbid"):
 
 
 class FinalizationConfig(BaseModel, extra="forbid"):
-    pass
+    """Final processing steps before output (NWB export, QC generation)."""
+
+    qc_report: bool = Field(
+        default=True,
+        description="If True, generate a QC report after NWB creation.",
+    )
+    alignment_stats: bool = Field(
+        default=True,
+        description="If True, include alignment statistics in the NWB file.",
+    )
+    provenance: bool = Field(
+        default=True,
+        description="If True, include data provenance information in NWB.",
+    )
+
+
+# =============================================================================
+# Configuration Models - Batch and Session Levels
+# =============================================================================
 
 
 class SessionConfig(BaseModel, extra="forbid"):

@@ -76,3 +76,12 @@ ttls.mode = "assemble"     # skip | assemble
 behavior.mode = "assemble" # skip | assemble 
 videos.mode = "link"       # skip | assemble | link
 pose.mode = "assemble"     # skip | assemble
+
+# =============================================================================
+# Finalization Configuration
+# =============================================================================
+[finalization]
+
+qc_report = true       # Generate QC report after NWB creation
+alignment_stats = true # Include alignment statistics in the NWB file
+provenance = true      # Include data provenance information in NWB

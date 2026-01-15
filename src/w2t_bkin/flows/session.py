@@ -110,6 +110,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
 
     Extracted to keep the flow function clean and allow proper context manager usage.
     """
+    start_time = datetime.now()  # Track total duration
 
     # =====================================================================
     # Phase 1: Discovery
@@ -247,53 +248,46 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     run_logger.info("Phase 6: Writing and validating NWB file")
 
     # Create provenance metadata
-    config_dict = {"nwb": session_info.config.nwb.model_dump(mode="json"), "metadata": session_info.metadata}
-    provenance = tasks.create_provenance_task(config_dict=config_dict, alignment_stats=alignment_stats, pipeline_version="v2")
-
-    # Write NWB file with provenance
-    nwb_path = session_info.output_dir / f"{session_dir}.nwb"
-    nwb_path = tasks.write_nwb_task(nwbfile=nwbfile, output_path=nwb_path, provenance=provenance)
-    run_logger.info(f"Wrote NWB file: {nwb_path}")
+    result = finalization_tasks.write_nwb_file_task(nwbfile, info, config.finalization)
+    logger.info("NWB file written successfully")
 
     # Write sidecar files
-    sidecar_paths = tasks.write_sidecars_task(output_dir=session_info.output_dir, alignment_stats=alignment_stats, provenance=provenance)
-    run_logger.info(f"Wrote {len(sidecar_paths)} sidecar files")
+    if config.finalization.qc_report:
+        qc_result = finalization_tasks.write_qc_report_task(info, data, offsets)
+        logger.info("Generated QC report sidecar files")
+    else:
+        qc_result = None
+        logger.info("Sidecar file generation skipped (disabled in config)")
+
+    # Generate alignment statistics
+    if config.finalization.alignment_stats and offsets and data.get("ttl"):
+        alignment_stats = finalization_tasks.compute_alignment_stats_task(offsets, data.get("ttl", {}))
+        logger.info("Computed alignment statistics for NWB")
+    else:
+        alignment_stats = None
+        logger.info("Alignment statistics generation skipped (disabled in config)")
+
+    # Generate provenance metadata
+    if config.finalization.provenance:
+        provenance = finalization_tasks.create_provenance_data_task(info, data, config)
+        logger.info("Created provenance metadata")
+    else:
+        provenance = None
+        logger.info("Provenance metadata creation skipped (disabled in config)")
 
     # Validate NWB file
-    validation_results = tasks.validate_nwb_task(nwb_path=nwb_path, skip_validation=False)
-    run_logger.info(f"NWB validation: {len(validation_results) if validation_results else 0} issues")
-
-    # Generate diagnostic figures
-    try:
-        pipeline_profile_path = session_info.output_dir / "pipeline_profile.json"
-        figure_paths = tasks.generate_figures_task(
-            output_dir=session_info.output_dir,
-            alignment_stats=alignment_stats,
-            trial_alignment=trial_alignment,
-            bpod_data=bpod_data,
-            ttl_data=ttl_data,
-            pose_data=pose_data,
-            nwb_path=nwb_path,
-            pipeline_profile_path=pipeline_profile_path if pipeline_profile_path.exists() else None,
-        )
-        run_logger.info(f"Generated {len(figure_paths)} diagnostic figures")
-    except Exception as e:
-        run_logger.warning(f"Figure generation failed: {e}")
+    validation_results = finalization_tasks.validate_nwb_file_task(result.nwb_path, config.finalization.skip_validation)
+    logger.info("NWB file validation completed")
 
     # Build successful result
-    duration = (datetime.now() - start_time).total_seconds()
-    result = SessionResult(
+    return SessionResult(
         success=True,
-        subject_dir=subject_dir,
-        session_dir=session_dir,
-        nwb_path=nwb_path,
+        session_info=info,
+        configuration=config,
+        nwb_path=info.processed_dir / f"{info.session_dir}.nwb",
         validation=validation_results,
-        artifacts={"dlc": dlc_artifacts or {}, "sleap": sleap_artifacts or {}},
-        duration_seconds=duration,
+        duration=(datetime.now() - start_time).total_seconds(),
     )
-
-    run_logger.info(f"Session processing complete: {subject_dir}/{session_dir} (duration: {duration:.1f}s)")
-    return result
 
 
 @contextmanager
