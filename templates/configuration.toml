@@ -21,6 +21,7 @@ discover_models = true      # Enable discovery of pose estimation models
 
 # =============================================================================
 # Artifacts (Pose and any interim data generation)
+# Preprocessing steps to generate pose data, etc.
 # =============================================================================
 [artifacts]
 
@@ -29,6 +30,7 @@ mode = "auto" # off | discover | generate | auto
 
 # =============================================================================
 # Ingestion Configuration
+# What data modalities to load and how and how to validate them
 # =============================================================================
 [ingestion]
 
@@ -51,6 +53,7 @@ pose.file_type = "h5"      # Preferred pose estimation file type to load (h5 or 
 
 # =============================================================================
 # Synchronization Strategy
+# Which synchronization strategy to use and its parameters
 # =============================================================================
 [synchronization]
 
@@ -65,4 +68,11 @@ global_offset = 0.0          # Seconds
 
 # =============================================================================
 # Assembly Configuration
+# How to assemble different data modalities into NWB
 # =============================================================================
+[assembly]
+
+ttls.mode = "assemble"     # skip | assemble 
+behavior.mode = "assemble" # skip | assemble 
+videos.mode = "link"       # skip | assemble | link
+pose.mode = "assemble"     # skip | assemble

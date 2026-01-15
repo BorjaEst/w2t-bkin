@@ -64,8 +64,32 @@ class PoseConfig(BaseModel, extra="forbid"):
     )
 
 
-class TTLSynchConfig(BaseModel, extra="forbid"):
-    """Parameters controlling camera-TTL mismatch checking."""
+class BasicAssembleConfig(BaseModel, extra="forbid"):
+    """How normal data streams are assembled into NWB structures."""
+
+    mode: Literal["skip", "assemble"] = Field(
+        default="assemble",
+        description=(
+            "How to handle this data type during NWB assembly: "
+            "'skip' disables assembly of this data type into NWB; "
+            "'assemble' enables assembly into NWB."
+            "'link' Not supported for this data type."
+        ),
+    )
+
+
+class ExtendedAssembleConfig(BaseModel, extra="forbid"):
+    """How normal data streams are assembled into NWB structures."""
+
+    mode: Literal["skip", "assemble", "link"] = Field(
+        default="assemble",
+        description=(
+            "How to handle this data type during NWB assembly: "
+            "'skip' disables assembly of this data type into NWB; "
+            "'assemble' enables assembly into NWB."
+            "'link' creates external links to pre-existing NWB structures (if available)."
+        ),
+    )
 
 
 # =============================================================================
@@ -186,7 +210,24 @@ class SynchronizationConfig(BaseModel, extra="forbid"):
 
 
 class AssemblyConfig(BaseModel, extra="forbid"):
-    pass
+    """How ingested data streams are combined into unified datasets."""
+
+    ttls: BasicAssembleConfig = Field(
+        default_factory=BasicAssembleConfig,
+        description="How TTL pulse data streams are assembled into NWB structures.",
+    )
+    behavior: BasicAssembleConfig = Field(
+        default_factory=BasicAssembleConfig,
+        description="How behavioral data streams are assembled into NWB structures.",
+    )
+    videos: ExtendedAssembleConfig = Field(
+        default_factory=ExtendedAssembleConfig,
+        description="How video data streams are assembled into NWB structures.",
+    )
+    pose: BasicAssembleConfig = Field(
+        default_factory=BasicAssembleConfig,
+        description="How pose estimation data streams are assembled into NWB structures.",
+    )
 
 
 class FinalizationConfig(BaseModel, extra="forbid"):
