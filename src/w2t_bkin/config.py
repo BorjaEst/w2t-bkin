@@ -22,7 +22,7 @@ class TTLsConfig(BaseModel, extra="forbid"):
     )
 
 
-class CamerasConfig(BaseModel, extra="forbid"):
+class VideoConfig(BaseModel, extra="forbid"):
     enable_loading: bool = Field(
         default=True,
         description="If True, parse camera video files when present in the session raw data.",
@@ -164,8 +164,8 @@ class IngestionConfig(BaseModel, extra="forbid"):
         default_factory=TTLsConfig,
         description="Parameters controlling camera-TTL mismatch checking.",
     )
-    cameras: CamerasConfig = Field(
-        default_factory=CamerasConfig,
+    video: VideoConfig = Field(
+        default_factory=VideoConfig,
         description="Settings for ingesting camera video files.",
     )
     bpod: BpodConfig = Field(

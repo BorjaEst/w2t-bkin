@@ -41,7 +41,6 @@ from prefect.runtime import flow_run as flow_run_runtime
 
 from w2t_bkin import utils
 from w2t_bkin.config import SessionConfig
-from w2t_bkin.flows.session import artifacts, ingestion, logging, sync
 from w2t_bkin.models import SessionInfo, SessionResult
 from w2t_bkin.tasks import artifacts as artifacts_tasks
 from w2t_bkin.tasks import assembly as assembly_tasks
@@ -156,13 +155,13 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     run_logger.debug(f"TTL Data: {ttl_data}")
 
     # Ingest Cameras (frame data, transcoding, etc.)
-    if config.ingestion.cameras.enable_loading:
-        run_logger.info("Ingesting camera data")
-        data["cameras"] = cameras_data = ingestion_tasks.ingest_cameras_task(discovery, info, config.ingestion)  # This step validates count
+    if config.ingestion.video.enable_loading:
+        run_logger.info("Ingesting video data")
+        data["video"] = video_data = ingestion_tasks.ingest_video_task(discovery, info, config.ingestion)  # This step validates count
     else:
-        cameras_data = None
+        video_data = None
         run_logger.info("Camera data ingestion skipped (disabled in config)")
-    run_logger.debug(f"Cameras Data: {cameras_data}")
+    run_logger.debug(f"Video Data: {video_data}")
 
     # Ingest Bpod data from mat files into dict structure
     if config.ingestion.bpod.enable_loading:
@@ -176,7 +175,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     # Ingest pose data using the resolved plan for DLC
     if config.ingestion.pose.enable_loading:
         run_logger.info("Ingesting pose data")
-        data["pose"] = pose_data = ingestion.ingest_pose_data(artifacts, discovery, info, run_logger)
+        data["pose"] = pose_data = ingestion_tasks.ingest_pose_data(artifacts, discovery, info, run_logger)
     else:
         pose_data = None
         run_logger.info("Pose data ingestion skipped (disabled in config)")
@@ -213,18 +212,33 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     nwbfile = assembly_tasks.create_nwb_file_task(info)
 
     # Assemble TTL data
-    for key, value in config.assembly.model_dump().items():
-        match value.mode:
-            case "assemble":
-                assembly_tasks.assemble_into_file_task(nwbfile, key, data, info)
-                logger.info(f"Assembling {key} data into NWB")
-            case "link":
-                assembly_tasks.link_into_file_task(nwbfile, key, data, info)
-                logger.info(f"Linking {key} data into NWB")
-            case "skip":
-                logger.info(f"Skipping {key} data assembly into NWB")
-            case _:
-                raise ValueError(f"Invalid assembly.{key}.mode: {value.mode}")
+    if config.assembly.ttls.mode == "skip":
+        logger.info("Skipping TTL data assembly into NWB")
+    else:
+        logger.info("Assembling TTL data into NWB")
+        assembly_tasks.assemble_ttl_data(nwbfile, ttl_data, config.assembly)
+
+    # Assemble Bpod data
+    if config.assembly.behavior.mode == "skip":
+        logger.info("Skipping Bpod data assembly into NWB")
+    else:
+        logger.info("Assembling Bpod data into NWB")
+        assembly_tasks.assemble_behavior_tables(nwbfile, bpod_data, offsets, config.assembly)
+
+    # Assemble Pose Estimation data
+    if config.assembly.pose.mode == "skip":
+        logger.info("Skipping pose estimation data assembly into NWB")
+    else:
+        logger.info("Assembling pose estimation data into NWB")
+        assembly_tasks.assemble_pose_estimation(nwbfile, bpod_data, pose_data, config.assembly)
+
+    # Assemble Video data
+    if config.assembly.videos.mode == "skip":
+        logger.info("Skipping video data assembly into NWB")
+    else:
+        logger.info("Assembling video data into NWB")
+        assembly_tasks.assemble_videos_into_nwb(nwbfile, video_data, config.assembly)
+
     logger.debug("NWB assembly completed")
 
     # =====================================================================
