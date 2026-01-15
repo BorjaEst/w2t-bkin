@@ -146,32 +146,6 @@ class TrialAlignment:
     warnings: List[str]
 
 
-@dataclass(frozen=True)
-class PosePlan:
-    """Pose processing execution plan (single source of truth).
-
-    Resolved once from config+metadata, then used by both Phase 2 and Phase 3
-    to prevent mode resolution drift.
-
-    Attributes:
-        dlc_mode: DLC effective mode ("off", "discover", "generate")
-        sleap_mode: SLEAP effective mode ("off", "discover", "generate")
-        ingestion_strategy: How to ingest poses ("metadata_stem", "artifact_list", "none")
-        should_generate_dlc: Whether Phase 2 should run DLC generation
-        should_generate_sleap: Whether Phase 2 should run SLEAP generation (future)
-        has_pose_metadata: Whether metadata.pose section exists
-        reasons: Human-readable decision reasoning for logging
-    """
-
-    dlc_mode: Literal["off", "discover", "generate"]
-    sleap_mode: Literal["off", "discover", "generate"]
-    ingestion_strategy: Literal["metadata_stem", "artifact_list", "none"]
-    should_generate_dlc: bool
-    should_generate_sleap: bool
-    has_pose_metadata: bool
-    reasons: Dict[str, str]
-
-
 @dataclass
 class SessionResult:
     """Final result of session processing.

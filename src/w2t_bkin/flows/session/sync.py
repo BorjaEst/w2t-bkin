@@ -2,7 +2,6 @@
 
 from typing import Dict, Optional
 
-from w2t_bkin import tasks
 from w2t_bkin.models import BpodData, SessionInfo, TrialAlignment, TTLData
 
 
