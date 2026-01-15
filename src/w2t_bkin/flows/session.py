@@ -1,11 +1,12 @@
 """Session-level flow orchestration for w2t-bkin pipeline.
 
 This module defines the main Prefect flow for processing a single session.
-It orchestrates all 21 atomic tasks in the correct sequence, with parallel
+It orchestrates all atomic tasks in the correct sequence, with parallel
 execution for camera-level operations and comprehensive error handling.
 
 Architecture:
     Pure functions (operations/) → Atomic tasks (tasks/) → Flow orchestration (here)
+    Phase helpers extracted to session_steps/ for clarity and maintainability.
 
 Flow Phases:
     0. Configuration: Load config and create NWB file
@@ -34,11 +35,11 @@ from datetime import datetime
 import logging
 
 from prefect import flow, get_run_logger
-from prefect.runtime import flow_run as flow_run_runtime
 
 from w2t_bkin import tasks, utils
 from w2t_bkin.config import SessionFlowConfig
-from w2t_bkin.models import PosePlan, SessionInfo, SessionResult
+from w2t_bkin.flows import session_steps
+from w2t_bkin.models import SessionResult
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,6 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
     """
     run_logger = get_run_logger()
     start_time = datetime.now()
-    file_handler = None
-    file_handler_attached = False
     session_info = None
 
     try:
@@ -76,217 +75,11 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # Phase 0: Configuration
         # =====================================================================
         run_logger.info("Phase 0: Loading session configuration")
+        session_info = tasks.setup_flow_session_task(subject_id, session_id, config)
 
-        session_info: SessionInfo = tasks.setup_flow_session_task(subject_id, session_id, config)
-
-        # Setup file logging to pipeline.log with Prefect flow-run isolation
-        log_file = session_info.output_dir / "pipeline.log"
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_file, mode="w")
-        file_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        file_handler.setFormatter(formatter)
-
-        # Bind handler to current Prefect flow-run context to prevent cross-session contamination
-        try:
-            flow_run_id = flow_run_runtime.id
-            if flow_run_id is None:
-                raise RuntimeError("No Prefect flow run context available")
-            flow_run_filter = utils.PrefectFlowRunFilter(flow_run_id)
-            file_handler.addFilter(flow_run_filter)
-            logging.getLogger("w2t_bkin").addHandler(file_handler)
-            file_handler_attached = True
-            run_logger.info(f"File logging enabled: {log_file} (bound to flow-run {flow_run_id})")
-        except Exception as e:
-            # Only skip file logging (don't attach unfiltered handler to prevent cross-contamination)
-            run_logger.warning(f"File logging disabled - no Prefect context isolation available: {e}")
-            file_handler.close()  # Clean up unused handler
-
-        nwbfile = tasks.create_nwb_file_task(session_info)
-
-        # =====================================================================
-        # Phase 1: Discovery
-        # =====================================================================
-        run_logger.info("Phase 1: Discovering files")
-
-        discovery = tasks.discover_all_files_task(session_info)
-
-        n_cameras = len(discovery.camera_files)
-        n_bpod = len(discovery.bpod_files)
-        n_ttl = len(discovery.ttl_files)
-        run_logger.info(f"Discovered: {n_cameras} cameras, {n_bpod} bpod files, {n_ttl} TTL files")
-
-        # =====================================================================
-        # Phase 1.5: Verification (Fail-Fast)
-        # =====================================================================
-        run_logger.info("Phase 1.5: Verifying session inputs")
-
-        verification_result = tasks.verify_session_inputs_task(discovery, session_info)
-
-        if session_info.config.verification.enabled:
-            if session_info.config.verification.check_frame_counts:
-                total_frames = sum(verification_result.get("frame_counts", {}).values())
-                run_logger.info(f"Verified frame counts: {total_frames} total frames across cameras")
-
-            if session_info.config.verification.check_sync_mismatch:
-                verified_cameras = verification_result.get("verified_cameras", [])
-                run_logger.info(f"Verified synchronization for {len(verified_cameras)} cameras")
-        else:
-            run_logger.info("Verification skipped (disabled in configuration)")
-
-        # =====================================================================
-        # Phase 2: Artifact Generation
-        # =====================================================================
-        run_logger.info("Phase 2: Resolving pose plan and generating artifacts")
-
-        # Resolve pose execution plan (single source of truth for Phase 2 and 3)
-        pose_plan = _resolve_pose_plan(session_info, run_logger)
-
-        dlc_artifacts, sleap_artifacts = _process_pose_artifacts(pose_plan, session_info, run_logger)
-
-        # =====================================================================
-        # Phase 3: Ingestion
-        # =====================================================================
-        run_logger.info("Phase 3: Ingesting data")
-
-        # Ingest Bpod behavioral data
-        bpod_data = None
-        if session_info.config.bpod.parse and discovery.bpod_files:
-            # Prefer per-session metadata configuration when provided; otherwise fall back to deployment config.
-            bpod_meta = session_info.metadata.get("bpod") or {}
-            bpod_pattern = bpod_meta.get("path") or bpod_meta.get("paths") or bpod_meta.get("pattern") or session_info.config.bpod.pattern
-            bpod_order = bpod_meta.get("order") or session_info.config.bpod.order
-            bpod_continuous_time = bpod_meta.get("continuous_time", session_info.config.bpod.continuous_time)
-
-            bpod_data = tasks.ingest_bpod_task(
-                session_info.session_dir,
-                pattern=bpod_pattern,
-                order=bpod_order,
-                continuous_time=bpod_continuous_time,
-            )
-            run_logger.info(f"Ingested Bpod data: {bpod_data.n_trials} trials")
-
-        # Ingest pose data using the resolved plan
-        pose_data = _ingest_pose_data(pose_plan, dlc_artifacts, sleap_artifacts, discovery, session_info, run_logger)
-
-        # Ingest TTL pulses
-        ttl_data = {}
-        if discovery.ttl_files:
-            ttl_configs = session_info.metadata.get("TTLs", [])
-            ttl_patterns = {ttl["id"]: ttl["paths"] for ttl in ttl_configs}
-            ttl_data = tasks.ingest_ttl_task(session_dir=session_info.session_dir, ttl_patterns=ttl_patterns)
-            run_logger.info(f"Ingested TTL data for {len(ttl_data)} channels")
-
-        # Align trials with TTL
-        trial_alignment = _align_trials_with_ttl(bpod_data, ttl_data, session_info, run_logger)
-
-        # =====================================================================
-        # Phase 4: Synchronization
-        # =====================================================================
-        run_logger.info("Phase 4: Computing synchronization statistics")
-        alignment_stats = _compute_sync_stats(trial_alignment, ttl_data, run_logger)
-
-        # =====================================================================
-        # Phase 5: Assembly
-        # =====================================================================
-        run_logger.info("Phase 5: Assembling NWB data structures")
-
-        # Assemble behavior tables
-        if bpod_data:
-            trial_offsets = trial_alignment.trial_offsets if trial_alignment else []
-            tasks.assemble_behavior_task(nwbfile, bpod_data, trial_offsets)
-            run_logger.info("Assembled behavior tables")
-
-        # Assemble pose estimation data
-        if pose_data:
-            _assemble_pose_data(nwbfile, pose_data, session_info, ttl_data, run_logger)
-
-        # =====================================================================
-        # Phase 6: Finalization (atomic task composition)
-        # =====================================================================
-        run_logger.info("Phase 6: Writing and validating NWB file")
-
-        # Build config dict for provenance
-        config_dict = {
-            "nwb": session_info.config.nwb.model_dump(mode="json"),
-            "metadata": session_info.metadata,
-        }
-
-        # Step 1: Create provenance metadata
-        provenance = tasks.create_provenance_task(
-            config_dict=config_dict,
-            alignment_stats=alignment_stats,
-            pipeline_version="v2",
-        )
-
-        # Step 2: Write NWB file with provenance
-        nwb_path = session_info.output_dir / f"{session_id}.nwb"
-        nwb_path = tasks.write_nwb_task(nwbfile=nwbfile, output_path=nwb_path, provenance=provenance)
-        run_logger.info(f"Wrote NWB file: {nwb_path}")
-
-        # Step 3: Write sidecar files (alignment stats, provenance JSON)
-        sidecar_paths = tasks.write_sidecars_task(
-            output_dir=session_info.output_dir,
-            alignment_stats=alignment_stats,
-            provenance=provenance,
-        )
-        run_logger.info(f"Wrote {len(sidecar_paths)} sidecar files")
-
-        # Step 4: Validate NWB file
-        validation_results = tasks.validate_nwb_task(nwb_path=nwb_path, skip_validation=False)
-        if validation_results:
-            run_logger.warning(f"NWB validation found {len(validation_results)} issues")
-        else:
-            run_logger.info("NWB validation passed")
-
-        # Build finalization result dict (for compatibility with existing code)
-        finalization_result = {
-            "nwb_path": nwb_path,
-            "sidecar_paths": sidecar_paths,
-            "validation_results": validation_results,
-            "provenance": provenance,
-        }
-
-        # Generate diagnostic figures
-        try:
-            nwb_path = finalization_result.get("nwb_path")
-            pipeline_profile_path = session_info.output_dir / "pipeline_profile.json"
-
-            figure_paths = tasks.generate_figures_task(
-                output_dir=session_info.output_dir,
-                alignment_stats=alignment_stats,
-                trial_alignment=trial_alignment,
-                bpod_data=bpod_data,
-                ttl_data=ttl_data,
-                pose_data=pose_data,
-                nwb_path=nwb_path,
-                pipeline_profile_path=pipeline_profile_path if pipeline_profile_path.exists() else None,
-            )
-            run_logger.info(f"Generated {len(figure_paths)} diagnostic figures")
-        except Exception as e:
-            run_logger.warning(f"Figure generation failed: {e}")
-
-        # Build successful result
-        result = SessionResult(
-            success=True,
-            subject_id=subject_id,
-            session_id=session_id,
-            nwb_path=finalization_result.get("nwb_path"),
-            validation=finalization_result.get("validation_results"),
-            artifacts={
-                "dlc": dlc_artifacts if dlc_artifacts else {},
-                "sleap": sleap_artifacts if sleap_artifacts else {},
-            },
-            duration_seconds=0,  # Will be set below
-        )
-
-        # Calculate total duration
-        duration = (datetime.now() - start_time).total_seconds()
-        result.duration_seconds = duration
-
-        run_logger.info(f"Session processing complete: {subject_id}/{session_id} " f"(duration: {duration:.1f}s)")
-
-        return result
+        # Setup flow-run-isolated file logging
+        with session_steps.flow_run_file_logger(session_info.output_dir, run_logger):
+            return _execute_session_pipeline(subject_id, session_id, session_info, start_time, run_logger)
 
     except Exception as e:
         duration = (datetime.now() - start_time).total_seconds()
@@ -296,465 +89,145 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         if session_info:
             try:
                 profile_path = session_info.output_dir / "pipeline_profile.json"
-                profile_data = {
-                    "success": False,
-                    "error": str(e),
-                    "phases": [],
-                }
-                utils.write_json(profile_data, profile_path)
+                utils.write_json({"success": False, "error": str(e), "phases": []}, profile_path)
             except Exception:
                 pass  # Ignore errors during error handling
 
-        return SessionResult(
-            success=False,
-            subject_id=subject_id,
-            session_id=session_id,
-            error=str(e),
-            duration_seconds=duration,
-        )
-    finally:
-        # Clean up file handler to prevent cross-session contamination
-        if file_handler_attached:
-            logging.getLogger("w2t_bkin").removeHandler(file_handler)
-            file_handler.close()
+        return SessionResult(success=False, subject_id=subject_id, session_id=session_id, error=str(e), duration_seconds=duration)
 
 
-def _validate_dlc_generate_mode(session_info, run_logger):
-    """Validate metadata configuration for DLC generate mode.
+def _execute_session_pipeline(subject_id: str, session_id: str, session_info, start_time, run_logger) -> SessionResult:
+    """Execute the main session processing pipeline.
 
-    Ensures that all cameras configured for DLC have valid model references.
-
-    Args:
-        session_info: Session configuration with metadata
-        run_logger: Prefect logger for reporting validation issues
-
-    Raises:
-        ValueError: If metadata configuration is invalid for generate mode
+    Extracted to keep the flow function clean and allow proper context manager usage.
     """
-    pose_meta = session_info.metadata.get("pose")
+    # Create NWB file
+    nwbfile = tasks.create_nwb_file_task(session_info)
 
-    if not pose_meta:
-        raise ValueError("DLC mode='generate' requires metadata['pose'] section. " "Define pose.models and pose.cameras in your metadata.toml")
+    # =====================================================================
+    # Phase 1: Discovery
+    # =====================================================================
+    run_logger.info("Phase 1: Discovering files")
+    discovery = tasks.discover_all_files_task(session_info)
+    run_logger.info(f"Discovered: {len(discovery.camera_files)} cameras, {len(discovery.bpod_files)} bpod files, {len(discovery.ttl_files)} TTL files")
 
-    models_meta = pose_meta.get("models", {})
-    cameras_meta = pose_meta.get("cameras", {})
+    # Phase 1.5: Verification (Fail-Fast)
+    if session_info.config.verification.enabled:
+        run_logger.info("Phase 1.5: Verifying session inputs")
+        verification_result = tasks.verify_session_inputs_task(discovery, session_info)
 
-    if not models_meta:
-        raise ValueError(
-            "DLC mode='generate' requires at least one model in metadata['pose']['models']. "
-            "Example:\n"
-            "[pose.models.my_dlc_model]\n"
-            'source = "dlc"\n'
-            'path = "/path/to/config.yaml"'
+        if session_info.config.verification.check_frame_counts:
+            total_frames = sum(verification_result.get("frame_counts", {}).values())
+            run_logger.info(f"Verified frame counts: {total_frames} total frames")
+
+        if session_info.config.verification.check_sync_mismatch:
+            verified_cameras = verification_result.get("verified_cameras", [])
+            run_logger.info(f"Verified synchronization for {len(verified_cameras)} cameras")
+    else:
+        run_logger.info("Verification skipped (disabled in configuration)")
+
+    # =====================================================================
+    # Phase 2: Artifact Generation
+    # =====================================================================
+    run_logger.info("Phase 2: Resolving pose plan and generating artifacts")
+    pose_plan = session_steps.resolve_pose_plan(session_info, run_logger)
+    dlc_artifacts, sleap_artifacts = session_steps.process_pose_artifacts(pose_plan, session_info, run_logger)
+
+    # =====================================================================
+    # Phase 3: Ingestion
+    # =====================================================================
+    run_logger.info("Phase 3: Ingesting data")
+
+    # Ingest Bpod behavioral data
+    bpod_data = None
+    if session_info.config.bpod.parse and discovery.bpod_files:
+        pattern, order, continuous_time = session_steps.resolve_bpod_ingest_params(session_info)
+        bpod_data = tasks.ingest_bpod_task(session_info.session_dir, pattern=pattern, order=order, continuous_time=continuous_time)
+        run_logger.info(f"Ingested Bpod data: {bpod_data.n_trials} trials")
+
+    # Ingest pose data using the resolved plan
+    pose_data = session_steps.ingest_pose_data(pose_plan, dlc_artifacts, sleap_artifacts, discovery, session_info, run_logger)
+
+    # Ingest TTL pulses
+    ttl_data = {}
+    if discovery.ttl_files:
+        ttl_patterns = session_steps.resolve_ttl_patterns(session_info)
+        ttl_data = tasks.ingest_ttl_task(session_dir=session_info.session_dir, ttl_patterns=ttl_patterns)
+        run_logger.info(f"Ingested TTL data for {len(ttl_data)} channels")
+
+    # Align trials with TTL
+    trial_alignment = session_steps.align_trials_with_ttl(bpod_data, ttl_data, session_info, run_logger)
+
+    # =====================================================================
+    # Phase 4: Synchronization
+    # =====================================================================
+    run_logger.info("Phase 4: Computing synchronization statistics")
+    alignment_stats = session_steps.compute_sync_stats(trial_alignment, ttl_data, run_logger)
+
+    # =====================================================================
+    # Phase 5: Assembly
+    # =====================================================================
+    run_logger.info("Phase 5: Assembling NWB data structures")
+
+    # Assemble behavior tables
+    if bpod_data:
+        trial_offsets = trial_alignment.trial_offsets if trial_alignment else []
+        tasks.assemble_behavior_task(nwbfile, bpod_data, trial_offsets)
+        run_logger.info("Assembled behavior tables")
+
+    # Assemble pose estimation data
+    session_steps.assemble_pose_data(nwbfile, pose_data, session_info, ttl_data, run_logger)
+
+    # =====================================================================
+    # Phase 6: Finalization
+    # =====================================================================
+    run_logger.info("Phase 6: Writing and validating NWB file")
+
+    # Create provenance metadata
+    config_dict = {"nwb": session_info.config.nwb.model_dump(mode="json"), "metadata": session_info.metadata}
+    provenance = tasks.create_provenance_task(config_dict=config_dict, alignment_stats=alignment_stats, pipeline_version="v2")
+
+    # Write NWB file with provenance
+    nwb_path = session_info.output_dir / f"{session_id}.nwb"
+    nwb_path = tasks.write_nwb_task(nwbfile=nwbfile, output_path=nwb_path, provenance=provenance)
+    run_logger.info(f"Wrote NWB file: {nwb_path}")
+
+    # Write sidecar files
+    sidecar_paths = tasks.write_sidecars_task(output_dir=session_info.output_dir, alignment_stats=alignment_stats, provenance=provenance)
+    run_logger.info(f"Wrote {len(sidecar_paths)} sidecar files")
+
+    # Validate NWB file
+    validation_results = tasks.validate_nwb_task(nwb_path=nwb_path, skip_validation=False)
+    run_logger.info(f"NWB validation: {len(validation_results) if validation_results else 0} issues")
+
+    # Generate diagnostic figures
+    try:
+        pipeline_profile_path = session_info.output_dir / "pipeline_profile.json"
+        figure_paths = tasks.generate_figures_task(
+            output_dir=session_info.output_dir,
+            alignment_stats=alignment_stats,
+            trial_alignment=trial_alignment,
+            bpod_data=bpod_data,
+            ttl_data=ttl_data,
+            pose_data=pose_data,
+            nwb_path=nwb_path,
+            pipeline_profile_path=pipeline_profile_path if pipeline_profile_path.exists() else None,
         )
+        run_logger.info(f"Generated {len(figure_paths)} diagnostic figures")
+    except Exception as e:
+        run_logger.warning(f"Figure generation failed: {e}")
 
-    if not cameras_meta:
-        raise ValueError(
-            "DLC mode='generate' requires camera configuration in metadata['pose']['cameras']. "
-            "Example:\n"
-            "[pose.cameras.camera_0]\n"
-            'source = "dlc"\n'
-            'model_id = "my_dlc_model"'
-        )
-
-    # Validate each camera's model reference
-    dlc_cameras = {cid: cfg for cid, cfg in cameras_meta.items() if cfg.get("source") == "dlc"}
-
-    if not dlc_cameras:
-        run_logger.warning("DLC enabled but no cameras have source='dlc' in metadata['pose']['cameras']")
-        return
-
-    errors = []
-    for camera_id, camera_config in dlc_cameras.items():
-        # Check model_id is specified
-        model_id = camera_config.get("model_id")
-        if not model_id:
-            errors.append(f"Camera '{camera_id}' has source='dlc' but no 'model_id' specified")
-            continue
-
-        # Check model_id exists in models
-        if model_id not in models_meta:
-            errors.append(f"Camera '{camera_id}' references model_id='{model_id}' but " f"metadata['pose']['models']['{model_id}'] does not exist")
-            continue
-
-        # Check model has a valid path
-        model_config = models_meta[model_id]
-        model_path = model_config.get("path")
-        if not model_path:
-            errors.append(f"Model '{model_id}' (used by camera '{camera_id}') has no 'path' specified")
-
-    if errors:
-        raise ValueError("DLC generate mode validation failed:\n" + "\n".join(f"  - {err}" for err in errors))
-
-    run_logger.info(f"✓ DLC generate mode validation passed ({len(dlc_cameras)} cameras configured)")
-
-
-def _resolve_pose_plan(session_info: SessionInfo, run_logger) -> PosePlan:
-    """Resolve pose processing execution plan.
-
-    Single source of truth for mode resolution and ingestion strategy.
-    Prevents drift between artifact generation (Phase 2) and ingestion (Phase 3).
-
-    Args:
-        session_info: Session configuration with metadata
-        run_logger: Prefect logger for reporting resolution decisions
-
-    Returns:
-        PosePlan with effective modes, ingestion strategy, and reasons
-    """
-    dlc_config = session_info.config.preprocessing.dlc
-    sleap_config = session_info.config.preprocessing.sleap
-    pose_metadata = session_info.metadata.get("pose", {})
-    has_models = bool(pose_metadata.get("models", {}))
-    has_cameras = bool(pose_metadata.get("cameras", {}))
-    has_pose_section = bool(pose_metadata)
-
-    # Resolve DLC effective mode
-    dlc_mode = dlc_config.mode
-    if not dlc_config.enabled:
-        dlc_effective = "off"
-        dlc_reason = "disabled in config"
-    elif dlc_mode == "off":
-        dlc_effective = "off"
-        dlc_reason = "mode='off'"
-    elif dlc_mode == "auto":
-        # Auto: generate if models defined, otherwise discover
-        if has_models:
-            dlc_effective = "generate"
-            dlc_reason = "mode='auto' → 'generate' (metadata.pose.models present)"
-        else:
-            dlc_effective = "discover"
-            dlc_reason = "mode='auto' → 'discover' (no metadata.pose.models)"
-    else:
-        # Explicit mode (discover or generate)
-        dlc_effective = dlc_mode
-        dlc_reason = f"mode='{dlc_mode}' (explicit)"
-
-    # Resolve SLEAP effective mode
-    sleap_mode = sleap_config.mode
-    if not sleap_config.enabled:
-        sleap_effective = "off"
-        sleap_reason = "disabled in config"
-    elif sleap_mode == "off":
-        sleap_effective = "off"
-        sleap_reason = "mode='off'"
-    elif sleap_mode == "auto":
-        # Auto: always discover for SLEAP (generate not implemented)
-        sleap_effective = "discover"
-        sleap_reason = "mode='auto' → 'discover' (generate not implemented)"
-    elif sleap_mode == "generate":
-        # Should have been caught by config validation, but be defensive
-        run_logger.warning("SLEAP mode='generate' not implemented, coercing to 'discover'")
-        sleap_effective = "discover"
-        sleap_reason = "mode='generate' → 'discover' (not implemented)"
-    else:
-        sleap_effective = sleap_mode
-        sleap_reason = f"mode='{sleap_mode}' (explicit)"
-
-    # Determine ingestion strategy
-    if dlc_effective == "off" and sleap_effective == "off":
-        ingestion_strategy = "none"
-        strategy_reason = "both DLC and SLEAP disabled"
-    elif has_cameras and (dlc_effective == "discover" or sleap_effective == "discover"):
-        ingestion_strategy = "metadata_stem"
-        strategy_reason = "metadata.pose.cameras exists + discover mode active"
-    elif dlc_effective == "generate" or sleap_effective == "generate":
-        ingestion_strategy = "artifact_list"
-        strategy_reason = "generation mode active (consume Phase 2 artifacts)"
-    else:
-        # Fallback: no metadata cameras, using discover → try legacy discovery
-        ingestion_strategy = "artifact_list"
-        strategy_reason = "discover mode without metadata.pose.cameras (legacy path)"
-
-    # Determine what Phase 2 should generate
-    should_generate_dlc = dlc_effective == "generate"
-    should_generate_sleap = sleap_effective == "generate"  # Will be False until implemented
-
-    plan = PosePlan(
-        dlc_mode=dlc_effective,
-        sleap_mode=sleap_effective,
-        ingestion_strategy=ingestion_strategy,
-        should_generate_dlc=should_generate_dlc,
-        should_generate_sleap=should_generate_sleap,
-        has_pose_metadata=has_pose_section,
-        reasons={
-            "dlc": dlc_reason,
-            "sleap": sleap_reason,
-            "ingestion_strategy": strategy_reason,
-        },
+    # Build successful result
+    duration = (datetime.now() - start_time).total_seconds()
+    result = SessionResult(
+        success=True,
+        subject_id=subject_id,
+        session_id=session_id,
+        nwb_path=nwb_path,
+        validation=validation_results,
+        artifacts={"dlc": dlc_artifacts or {}, "sleap": sleap_artifacts or {}},
+        duration_seconds=duration,
     )
 
-    run_logger.info(f"Pose plan resolved: DLC={dlc_effective}, SLEAP={sleap_effective}, " f"ingestion={ingestion_strategy} | {dlc_reason}; {sleap_reason}")
-
-    return plan
-
-
-def _process_pose_artifacts(plan: PosePlan, session_info, run_logger) -> tuple[dict, dict]:
-    """Generate pose estimation artifacts (Phase 2: generation only).
-
-    Args:
-        plan: Resolved pose execution plan
-        session_info: Session configuration
-        run_logger: Prefect logger
-
-    Returns:
-        Tuple of (dlc_artifacts, sleap_artifacts)
-        Only populated in generate mode; discover mode returns empty dicts
-    """
-    dlc_artifacts = {}
-    sleap_artifacts = {}
-
-    # Phase 2 is now pure generation; discovery happens in Phase 3 ingestion
-    run_logger.info(f"Phase 2 (Artifacts): DLC={plan.dlc_mode}, SLEAP={plan.sleap_mode}")
-
-    # DLC generation
-    if plan.should_generate_dlc:
-        _validate_dlc_generate_mode(session_info, run_logger)
-        force_rerun = session_info.config.preprocessing.force_rerun
-        if force_rerun:
-            run_logger.info("⚠️  force_rerun=True: Regenerating all DLC poses")
-        else:
-            run_logger.info("Using cached DLC poses (if available)")
-
-        dlc_artifacts = tasks.generate_dlc_session_task(session_info, force_rerun)
-        run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
-    elif plan.dlc_mode == "discover":
-        run_logger.info("DLC discover mode: skipping generation (ingestion in Phase 3)")
-    else:
-        run_logger.info("DLC disabled")
-
-    # SLEAP generation (placeholder for future implementation)
-    if plan.should_generate_sleap:
-        run_logger.warning("SLEAP generation requested but not implemented")
-    elif plan.sleap_mode == "discover":
-        run_logger.info("SLEAP discover mode: skipping generation (ingestion in Phase 3)")
-    else:
-        run_logger.info("SLEAP disabled")
-
-    return dlc_artifacts, sleap_artifacts
-
-
-def _ingest_pose_data(plan: PosePlan, dlc_artifacts, sleap_artifacts, discovery, session_info, run_logger) -> dict:
-    """Ingest pose estimation data from DLC and SLEAP.
-
-    Args:
-        plan: Resolved pose execution plan
-        dlc_artifacts: DLC artifact paths from Phase 2 generation
-        sleap_artifacts: SLEAP artifact paths from Phase 2 generation
-        discovery: File discovery results
-        session_info: Session configuration
-        run_logger: Prefect logger
-
-    Returns:
-        Dictionary mapping camera_id to list of pose data
-    """
-    pose_data = {}
-
-    run_logger.info(f"Phase 3 (Ingestion): strategy={plan.ingestion_strategy}, " f"DLC={plan.dlc_mode}, SLEAP={plan.sleap_mode}")
-
-    # Early exit if no pose processing
-    if plan.ingestion_strategy == "none":
-        run_logger.info("No pose data to ingest (both DLC and SLEAP disabled)")
-        return pose_data
-
-    pose_metadata = session_info.metadata.get("pose", {})
-    pose_cameras = pose_metadata.get("cameras", {})  # Dict keyed by camera_id
-
-    # Strategy 1: Metadata-driven stem-based discovery
-    # Uses metadata.pose.cameras to find H5s matching video stems
-    # H5s must be in interim/{dlc-pose|sleap-pose}/<camera_id>/ with appropriate naming:
-    #   - DLC: {video_stem}DLC*.h5
-    #   - SLEAP: *{video_stem}*.h5
-    if plan.ingestion_strategy == "metadata_stem":
-        if not pose_cameras:
-            run_logger.warning("Ingestion strategy is 'metadata_stem' but metadata.pose.cameras is empty")
-            return pose_data
-
-        run_logger.info(f"Ingesting via metadata stem-matching for {len(pose_cameras)} camera(s)")
-        mappings_dict = pose_metadata.get("mappings", {})
-
-        for camera_id, camera_config in pose_cameras.items():
-            source = camera_config.get("source")
-
-            # Skip cameras not matching active modes
-            if source == "dlc" and plan.dlc_mode == "off":
-                continue
-            if source == "sleap" and plan.sleap_mode == "off":
-                continue
-
-            # Stem-based discovery from camera's video files
-            if camera_id in discovery.camera_files:
-                video_paths = discovery.camera_files[camera_id]
-
-                # Get optional mapping
-                mapping = None
-                if "mapping_id" in camera_config:
-                    mapping_id = camera_config["mapping_id"]
-                    if mapping_id in mappings_dict:
-                        mapping = mappings_dict[mapping_id]
-
-                # Ingest based on source
-                if source == "dlc":
-                    camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
-                    dlc_poses = tasks.ingest_dlc_poses_task(video_paths, camera_dlc_dir, camera_id)
-                    if dlc_poses:
-                        # Apply mapping if specified (harmonization deferred to assembly for now)
-                        pose_data[camera_id] = dlc_poses
-                        run_logger.info(f"Ingested DLC poses for {camera_id} ({len(dlc_poses)} video(s))")
-
-                elif source == "sleap":
-                    camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-                    sleap_poses = tasks.ingest_sleap_poses_task(video_paths, camera_sleap_dir, camera_id)
-                    if sleap_poses:
-                        pose_data[camera_id] = sleap_poses
-                        run_logger.info(f"Ingested SLEAP poses for {camera_id} ({len(sleap_poses)} video(s))")
-
-        return pose_data
-
-    # Strategy 2: Artifact-list ingestion (generate mode or legacy discover)
-    # Consume artifacts produced in Phase 2 or discovered earlier
-    elif plan.ingestion_strategy == "artifact_list":
-        run_logger.info("Ingesting via artifact list (from Phase 2 generation)")
-
-    # Ingest DLC poses from artifacts
-    if dlc_artifacts:
-        for camera_id, artifacts in dlc_artifacts.items():
-            if camera_id in discovery.camera_files:
-                video_paths = discovery.camera_files[camera_id]
-                # Camera-specific DLC directory
-                camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
-                dlc_poses = tasks.ingest_dlc_poses_task(
-                    video_paths=video_paths,
-                    dlc_dir=camera_dlc_dir,
-                    camera_id=camera_id,
-                )
-                if dlc_poses:
-                    pose_data[camera_id] = dlc_poses
-
-    # Ingest SLEAP poses from artifacts
-    if sleap_artifacts:
-        for camera_id, artifacts in sleap_artifacts.items():
-            if camera_id in discovery.camera_files:
-                video_paths = discovery.camera_files[camera_id]
-                # Camera-specific SLEAP directory
-                camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-                sleap_poses = tasks.ingest_sleap_poses_task(
-                    video_paths=video_paths,
-                    sleap_dir=camera_sleap_dir,
-                    camera_id=camera_id,
-                )
-                if sleap_poses:
-                    # Merge with existing DLC poses if present
-                    if camera_id in pose_data:
-                        pose_data[camera_id].extend(sleap_poses)
-                    else:
-                        pose_data[camera_id] = sleap_poses
-
-    if pose_data:
-        run_logger.info(f"Ingested pose data for {len(pose_data)} cameras")
-
-    return pose_data
-
-
-def _align_trials_with_ttl(bpod_data, ttl_data, session_info, run_logger):
-    """Align behavioral trials with TTL pulses.
-
-    Args:
-        bpod_data: Bpod behavioral data
-        ttl_data: TTL pulse data
-        session_info: Session configuration
-        run_logger: Prefect logger
-
-    Returns:
-        Trial alignment result or None
-    """
-    if not (bpod_data and ttl_data):
-        return None
-
-    # Extract trial_type configs from metadata
-    bpod_meta = session_info.metadata.get("bpod", {})
-    sync_meta = bpod_meta.get("sync", {}) if isinstance(bpod_meta, dict) else {}
-    trial_type_configs = sync_meta.get("trial_types", []) if isinstance(sync_meta, dict) else []
-
-    if not trial_type_configs:
-        run_logger.info("Skipping trial alignment (no trial_type configs in metadata)")
-        return None
-
-    # Extract TTL pulse timestamps
-    ttl_pulses = {ttl_id: ttl.timestamps for ttl_id, ttl in ttl_data.items()}
-
-    trial_alignment = tasks.align_trials_task(trial_type_configs, bpod_data.data, ttl_pulses)
-
-    if trial_alignment.warnings:
-        for warning in trial_alignment.warnings:
-            run_logger.warning(f"Trial alignment: {warning}")
-
-    return trial_alignment
-
-
-def _compute_sync_stats(trial_alignment, ttl_data, run_logger):
-    """Compute synchronization statistics.
-
-    Args:
-        trial_alignment: Trial alignment results
-        ttl_data: TTL pulse data
-        run_logger: Prefect logger
-
-    Returns:
-        Alignment statistics or None
-    """
-    if not (trial_alignment and ttl_data):
-        return None
-
-    ttl_channels = {ttl_id: len(ttl.timestamps) for ttl_id, ttl in ttl_data.items()}
-
-    # Convert trial_offsets dict to list of values
-    trial_offsets_list = list(trial_alignment.trial_offsets.values()) if isinstance(trial_alignment.trial_offsets, dict) else trial_alignment.trial_offsets
-    alignment_stats = tasks.compute_alignment_stats_task(trial_offsets_list, ttl_channels)
-
-    run_logger.info("Computed alignment statistics")
-    return alignment_stats
-
-
-def _assemble_pose_data(nwbfile, pose_data, session_info, ttl_data, run_logger):
-    """Assemble pose estimation data into NWB file.
-
-    Args:
-        nwbfile: NWB file object
-        pose_data: Dictionary of pose data by camera
-        session_info: Session configuration
-        ttl_data: TTL pulse data
-        run_logger: Prefect logger
-    """
-    if not pose_data:
-        return
-
-    cameras_meta = session_info.metadata.get("cameras", [])
-    camera_configs_dict = {cam["id"]: cam for cam in cameras_meta} if cameras_meta else {}
-
-    pose_meta = session_info.metadata.get("pose", {})
-    pose_cameras_config = pose_meta.get("cameras", {})
-
-    # Skeleton definitions: prefer pose.skeletons (current templates) and fall back
-    # to a legacy top-level 'skeletons' if present.
-    skeletons_config = pose_meta.get("skeletons") or session_info.metadata.get("skeletons")
-
-    for camera_id, pose_list in pose_data.items():
-        camera_config = camera_configs_dict.get(camera_id, {}).copy()
-
-        # Allow pose metadata to supply skeleton selection per camera.
-        # Camera metadata remains the source of fps/ttl_id and file discovery.
-        pose_cam_cfg = pose_cameras_config.get(camera_id, {}) if isinstance(pose_cameras_config, dict) else {}
-        if isinstance(pose_cam_cfg, dict) and pose_cam_cfg.get("skeleton_id"):
-            camera_config["skeleton_id"] = pose_cam_cfg["skeleton_id"]
-
-        tasks.assemble_pose_task(
-            nwbfile=nwbfile,
-            camera_id=camera_id,
-            pose_data_list=pose_list,
-            camera_config=camera_config,
-            ttl_pulses=ttl_data if ttl_data else None,
-            skeletons_config=skeletons_config,
-        )
-
-    run_logger.info(f"Assembled pose data for {len(pose_data)} cameras")
+    run_logger.info(f"Session processing complete: {subject_id}/{session_id} (duration: {duration:.1f}s)")
+    return result
