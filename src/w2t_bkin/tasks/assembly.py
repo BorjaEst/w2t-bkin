@@ -50,6 +50,42 @@ def create_nwb_file_task(session_info: SessionInfo) -> NWBFile:
 
     return nwbfile
 
+
 @task(
+    name="Assemble Events Table",
+    description="Assemble TTL events into NWB file",
+    tags=["nwb", "assembly", "ttl"],
+    retries=1,
 )
-def assemble_into_file_task(nwbfile: NWBFile, key: SessionInfo, config: SessionConfig, bpod_data: Optional[BpodData] = None, ttl_data: Optional[TTLData] = None, pose_data: Optional[PoseData] = None) -> NWBFile:
+def assemble_events_table(nwbfile: NWBFile, ttl_data: TTLData, config: SessionConfig) -> None:
+    pass
+
+
+@task(
+    name="Assemble Behavior Tables",
+    description="Assemble behavioral data into NWB file",
+    tags=["nwb", "assembly", "behavior"],
+    retries=1,
+)
+def assemble_behavior_tables(nwbfile: NWBFile, bpod_data: BpodData, trial_offsets: List[float], config: SessionConfig) -> Tuple[Any, Any, Any]:
+    pass
+
+
+@task(
+    name="Assemble Pose Estimation Data",
+    description="Assemble pose estimation data into NWB file",
+    tags=["nwb", "assembly", "pose"],
+    retries=1,
+)
+def assemble_pose_estimation(nwbfile: NWBFile, pose_data: Optional[List[PoseData]], config: SessionConfig) -> None:
+    pass
+
+
+@task(
+    name="Assemble Video Data",
+    description="Assemble video data into NWB file",
+    tags=["nwb", "assembly", "video"],
+    retries=1,
+)
+def assemble_videos_into_nwb(nwbfile: NWBFile, video_info: Any, config: SessionConfig) -> None:
+    pass

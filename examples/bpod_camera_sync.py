@@ -56,7 +56,7 @@ from w2t_bkin.ingest.behavior import (
     extract_task_arguments,
 )
 from w2t_bkin.ingest.bpod import parse_bpod
-from w2t_bkin.ingest.ttl import get_ttl_pulses
+from w2t_bkin.ingest.events import get_ttl_pulses
 from w2t_bkin.sync import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
 from w2t_bkin.utils import convert_matlab_struct, count_ttl_pulses, count_video_frames, discover_files, to_scalar
 

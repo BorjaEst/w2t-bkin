@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 from w2t_bkin import config, sync
-from w2t_bkin.ingest import behavior, bpod, ttl
+from w2t_bkin.ingest import behavior, bpod, events
 
 
 def trials_to_dataframe(trials: TrialsTable, task: Task) -> pd.DataFrame:
@@ -200,7 +200,7 @@ def main():
         "ttl_camera": "TTLs/*.xa_7_0*.txt",
         "ttl_cue": "TTLs/corrected_3_trials_TTLs.txt",  # Limited to 3 trials
     }
-    ttl_pulses = ttl.get_ttl_pulses(session_dir, ttl_patterns)
+    ttl_pulses = events.get_ttl_pulses(session_dir, ttl_patterns)
 
     # Parse Bpod data
     bpod_data = bpod.parse_bpod(session_dir=session_dir, pattern="Bpod/*.mat", order="name_asc", continuous_time=False)

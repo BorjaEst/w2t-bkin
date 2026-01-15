@@ -216,7 +216,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
         logger.info("Skipping TTL data assembly into NWB")
     else:
         logger.info("Assembling TTL data into NWB")
-        assembly_tasks.assemble_ttl_data(nwbfile, ttl_data, config.assembly)
+        assembly_tasks.assemble_events_table(nwbfile, ttl_data, config.assembly)
 
     # Assemble Bpod data
     if config.assembly.behavior.mode == "skip":
