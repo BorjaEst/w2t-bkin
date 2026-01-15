@@ -86,11 +86,10 @@ def process_session_flow(subject_dir: str, session_dir: str, config: SessionConf
         # =====================================================================
         run_logger.info("Phase 0: Loading session configuration")
         session_info = initialization_tasks.setup_flow_session_task(subject_dir, session_dir, config)
-        nwbfile = initialization_tasks.create_nwb_file_task(session_info)
 
         # Setup flow-run-isolated file logging
         with flow_run_file_logger(session_info.processed_dir, run_logger):
-            return _execute_session_pipeline(nwbfile, session_info, start_time, run_logger)
+            return _execute_session_pipeline(session_info, start_time, run_logger)
 
     except Exception as e:
         duration = (datetime.now() - start_time).total_seconds()
@@ -107,7 +106,7 @@ def process_session_flow(subject_dir: str, session_dir: str, config: SessionConf
         return SessionResult(success=False, subject_dir=subject_dir, session_dir=session_dir, error=str(e), duration_seconds=duration)
 
 
-def _execute_session_pipeline(nwbfile, info: SessionInfo, config: SessionConfig, run_logger) -> SessionResult:
+def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logger) -> SessionResult:
     """Execute the main session processing pipeline.
 
     Extracted to keep the flow function clean and allow proper context manager usage.
@@ -211,17 +210,22 @@ def _execute_session_pipeline(nwbfile, info: SessionInfo, config: SessionConfig,
     # Phase 5: Assembly
     # =====================================================================
     run_logger.info("Phase 5: Assembling NWB data structures")
+    nwbfile = assembly_tasks.create_nwb_file_task(info)
 
     # Assemble TTL data
-
-    # Assemble behavior tables
-    if bpod_data:
-        trial_offsets = trial_alignment.trial_offsets if trial_alignment else []
-        tasks.assemble_behavior_task(nwbfile, bpod_data, trial_offsets)
-        run_logger.info("Assembled behavior tables")
-
-    # Assemble pose estimation data
-    assembly.assemble_pose_data(nwbfile, pose_data, session_info, ttl_data, run_logger)
+    for key, value in config.assembly.model_dump().items():
+        match value.mode:
+            case "assemble":
+                assembly_tasks.assemble_into_file_task(nwbfile, key, data, info)
+                logger.info(f"Assembling {key} data into NWB")
+            case "link":
+                assembly_tasks.link_into_file_task(nwbfile, key, data, info)
+                logger.info(f"Linking {key} data into NWB")
+            case "skip":
+                logger.info(f"Skipping {key} data assembly into NWB")
+            case _:
+                raise ValueError(f"Invalid assembly.{key}.mode: {value.mode}")
+    logger.debug("NWB assembly completed")
 
     # =====================================================================
     # Phase 6: Finalization
