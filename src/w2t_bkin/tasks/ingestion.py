@@ -1,21 +1,15 @@
 """Prefect tasks for data ingestion."""
 
 import logging
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from prefect import task
+from prefect import get_run_logger, task
 
 from w2t_bkin.config import IngestionConfig
 from w2t_bkin.models import ArtifactsResult, BpodData, DiscoveryResult, PoseData, SessionInfo, TTLData, VideoData
-from w2t_bkin.operations import ingestion
+from w2t_bkin.operations import ingestion as ingestion_ops
 
 logger = logging.getLogger(__name__)
-
-
-# NOTE IMPORTANT THE VALIDATION PROCESS LIKE COUNTING TRIALS ETC SHOULD BE DONE IN THE INGESTION STEP
-# THIS IS CONTOLLED BY THE INGESTION CONFIG,
-# FOR EXAMPLE IN VIDEO INGEST, IF CONFIG SAYS ttl_validation TRUE, WE VALIDATE THE VIDEO FILES AGAINST THE TTL DATA
 
 
 @task(
@@ -26,8 +20,24 @@ logger = logging.getLogger(__name__)
     retry_delay_seconds=5,
 )
 def ingest_ttl_task(discovery: DiscoveryResult, info: SessionInfo, config: IngestionConfig) -> Dict[str, TTLData]:
-    logger.info(f"Ingesting TTL pulses for session {info.session_id}")
-    # TODO: complete ingestion operation
+    """Ingest TTL pulse data from discovered files.
+
+    Args:
+        discovery: Discovery result containing ttl_files
+        info: Session information
+        config: Ingestion configuration
+
+    Returns:
+        Dict mapping ttl_id to TTLData
+    """
+    run_logger = get_run_logger()
+    run_logger.info(f"Ingesting TTL pulses for session {info.session_id}")
+
+    # Delegate to pure operation
+    ttl_data = ingestion_ops.ingest_ttls(discovery=discovery, info=info)
+
+    run_logger.info(f"Completed TTL ingestion: {len(ttl_data)} channel(s)")
+    return ttl_data
 
 
 @task(
@@ -37,10 +47,39 @@ def ingest_ttl_task(discovery: DiscoveryResult, info: SessionInfo, config: Inges
     retries=2,
     retry_delay_seconds=5,
 )
-def ingest_video_taks(discovery: DiscoveryResult, TTL_data: Dict[str, TTLData], info: SessionInfo, config: IngestionConfig) -> Dict[str, VideoData]:
-    logger.info(f"Ingesting TTL pulses for session {info.session_id}")
-    # TODO: complete ingestion operation
-    # TODO: Here we validate according to config and load video metadata, we need ttl data
+def ingest_video_task(
+    discovery: DiscoveryResult,
+    info: SessionInfo,
+    config: IngestionConfig,
+    ttl_data: Optional[Dict[str, TTLData]] = None,
+) -> Dict[str, VideoData]:
+    """Ingest video metadata with optional TTL validation.
+
+    Args:
+        discovery: Discovery result containing camera_files
+        info: Session information
+        config: Ingestion configuration
+        ttl_data: TTL data (required if ttl_validation enabled)
+
+    Returns:
+        Dict mapping camera_id to VideoData
+    """
+    run_logger = get_run_logger()
+    run_logger.info(f"Ingesting video data for session {info.session_id}")
+
+    # Delegate to pure operation
+    video_data = ingestion_ops.ingest_videos(
+        discovery=discovery,
+        info=info,
+        ttl_data=ttl_data,
+        enable_loading=config.video.enable_loading,
+        ttl_validation=config.video.ttl_validation,
+        ttl_tolerance=config.video.ttl_tolerance,
+        mismatch_warn_only=config.video.mismatch_warn_only,
+    )
+
+    run_logger.info(f"Completed video ingestion: {len(video_data)} camera(s)")
+    return video_data
 
 
 @task(
@@ -50,9 +89,34 @@ def ingest_video_taks(discovery: DiscoveryResult, TTL_data: Dict[str, TTLData], 
     retries=2,
     retry_delay_seconds=5,
 )
-def ingest_bpod_task(session_dir: Path, pattern: str, order: str = "time_asc", continuous_time: bool = False) -> BpodData:
-    logger.info(f"Ingesting Bpod data from {session_dir}")
-    # TODO: complete ingestion operation
+def ingest_bpod_task(discovery: DiscoveryResult, info: SessionInfo, config: IngestionConfig) -> Optional[BpodData]:
+    """Ingest Bpod behavioral data from discovered files.
+
+    Args:
+        discovery: Discovery result containing bpod_files
+        info: Session information
+        config: Ingestion configuration
+
+    Returns:
+        BpodData or None if no files or loading disabled
+    """
+    run_logger = get_run_logger()
+    run_logger.info(f"Ingesting Bpod data for session {info.session_id}")
+
+    # Delegate to pure operation
+    bpod_data = ingestion_ops.ingest_bpod(
+        discovery=discovery,
+        info=info,
+        enable_loading=config.bpod.enable_loading,
+        continuous_time=config.bpod.continuous_time,
+    )
+
+    if bpod_data:
+        run_logger.info(f"Completed Bpod ingestion: {bpod_data.n_trials} trials")
+    else:
+        run_logger.info("Bpod ingestion returned None (no data or disabled)")
+
+    return bpod_data
 
 
 @task(
@@ -62,6 +126,29 @@ def ingest_bpod_task(session_dir: Path, pattern: str, order: str = "time_asc", c
     retries=2,
     retry_delay_seconds=5,
 )
-def ingest_pose_data(discovery: DiscoveryResult, artifacts: ArtifactsResult, info: SessionInfo, config: IngestionConfig) -> Dict[str, PoseData]:
-    logger.info(f"Ingesting pose data for session {info.session_id}")
-    # TODO: complete ingestion operation
+def ingest_pose_task(discovery: DiscoveryResult, artifacts: ArtifactsResult, info: SessionInfo, config: IngestionConfig) -> Dict[str, List[PoseData]]:
+    """Ingest pose estimation data from artifacts or discovery.
+
+    Args:
+        discovery: Discovery result
+        artifacts: Artifacts result containing pose file paths
+        info: Session information
+        config: Ingestion configuration
+
+    Returns:
+        Dict mapping camera_id to list of PoseData
+    """
+    run_logger = get_run_logger()
+    run_logger.info(f"Ingesting pose data for session {info.session_id}")
+
+    # Delegate to pure operation
+    pose_data = ingestion_ops.ingest_pose(
+        discovery=discovery,
+        artifacts=artifacts,
+        info=info,
+        enable_loading=config.pose.enable_loading,
+        file_type=config.pose.file_type,
+    )
+
+    run_logger.info(f"Completed pose ingestion: {len(pose_data)} camera(s)")
+    return pose_data
