@@ -59,15 +59,15 @@ logger = logging.getLogger(__name__)
     log_prints=True,
     persist_result=True,
 )
-def process_session_flow(subject_dir: str, session_dir: str, config: SessionConfig) -> SessionResult:
+def process_session_flow(subject_id: str, session_id: str, config: SessionConfig) -> SessionResult:
     """Process a single session through the complete w2t-bkin pipeline.
 
     This flow orchestrates all atomic Prefect tasks to transform raw behavioral
     and pose data into a validated NWB file. Paths come from environment variables.
 
     Args:
-        subject_dir: Subject identifier (e.g., "subject-001")
-        session_dir: Session identifier (e.g., "session-001")
+        subject_id: Subject identifier (e.g., "subject-001")
+        session_id: Session identifier (e.g., "session-001")
         config: Pipeline configuration (baked from configuration.toml at deployment time)
 
     Returns:
@@ -78,13 +78,13 @@ def process_session_flow(subject_dir: str, session_dir: str, config: SessionConf
     session_info = None
 
     try:
-        run_logger.info(f"Starting session processing: {subject_dir}/{session_dir}")
+        run_logger.info(f"Starting session processing: {subject_id}/{session_id}")
 
         # =====================================================================
         # Phase 0: Initialization
         # =====================================================================
         run_logger.info("Phase 0: Loading session configuration")
-        session_info = initialization_tasks.setup_flow_session_task(subject_dir, session_dir, config)
+        session_info = initialization_tasks.setup_flow_session_task(subject_id, session_id, config)
 
         # Setup flow-run-isolated file logging
         with flow_run_file_logger(session_info.processed_dir, run_logger):
@@ -97,12 +97,18 @@ def process_session_flow(subject_dir: str, session_dir: str, config: SessionConf
         # Write error profile if possible
         if session_info:
             try:
-                profile_path = session_info.output_dir / "pipeline_profile.json"
+                profile_path = session_info.processed_dir / "pipeline_profile.json"
                 utils.write_json({"success": False, "error": str(e), "phases": []}, profile_path)
             except Exception:
                 pass  # Ignore errors during error handling
 
-        return SessionResult(success=False, subject_dir=subject_dir, session_dir=session_dir, error=str(e), duration_seconds=duration)
+        return SessionResult(
+            success=False,
+            subject_id=subject_id if session_info is None else session_info.subject_id,
+            session_id=session_id if session_info is None else session_info.session_id,
+            error=str(e),
+            duration_seconds=duration,
+        )
 
 
 def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logger) -> SessionResult:
@@ -176,7 +182,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     # Ingest pose data using the resolved plan for DLC
     if config.ingestion.pose.enable_loading:
         run_logger.info("Ingesting pose data")
-        data["pose"] = pose_data = ingestion_tasks.ingest_pose_data(artifacts, discovery, info, run_logger)
+        data["pose"] = pose_data = ingestion_tasks.ingest_pose_data(discovery, artifacts, info, run_logger)
     else:
         pose_data = None
         run_logger.info("Pose data ingestion skipped (disabled in config)")
@@ -282,9 +288,9 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     # Build successful result
     return SessionResult(
         success=True,
-        session_info=info,
-        configuration=config,
-        nwb_path=info.processed_dir / f"{info.session_dir}.nwb",
+        subject_id=info.subject_id,
+        session_id=info.session_id,
+        nwb_path=info.processed_dir / f"{info.session_id}.nwb",
         validation=validation_results,
         duration=(datetime.now() - start_time).total_seconds(),
     )
