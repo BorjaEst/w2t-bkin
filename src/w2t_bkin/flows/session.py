@@ -38,7 +38,7 @@ from prefect.runtime import flow_run as flow_run_runtime
 
 from w2t_bkin import tasks, utils
 from w2t_bkin.config import SessionFlowConfig
-from w2t_bkin.models import SessionInfo, SessionResult
+from w2t_bkin.models import PosePlan, SessionInfo, SessionResult
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +137,12 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         # =====================================================================
         # Phase 2: Artifact Generation
         # =====================================================================
-        run_logger.info("Phase 2: Generating pose artifacts")
-        dlc_artifacts, sleap_artifacts = _process_pose_artifacts(discovery, session_info, run_logger)
+        run_logger.info("Phase 2: Resolving pose plan and generating artifacts")
+
+        # Resolve pose execution plan (single source of truth for Phase 2 and 3)
+        pose_plan = _resolve_pose_plan(session_info, run_logger)
+
+        dlc_artifacts, sleap_artifacts = _process_pose_artifacts(pose_plan, session_info, run_logger)
 
         # =====================================================================
         # Phase 3: Ingestion
@@ -162,8 +166,8 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
             )
             run_logger.info(f"Ingested Bpod data: {bpod_data.n_trials} trials")
 
-        # Ingest pose data
-        pose_data = _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, run_logger)
+        # Ingest pose data using the resolved plan
+        pose_data = _ingest_pose_data(pose_plan, dlc_artifacts, sleap_artifacts, discovery, session_info, run_logger)
 
         # Ingest TTL pulses
         ttl_data = {}
@@ -198,25 +202,50 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
             _assemble_pose_data(nwbfile, pose_data, session_info, ttl_data, run_logger)
 
         # =====================================================================
-        # Phase 6: Finalization
+        # Phase 6: Finalization (atomic task composition)
         # =====================================================================
         run_logger.info("Phase 6: Writing and validating NWB file")
 
-        # Convert config to dict for finalization
-        # Note: session_info.metadata is the merged result of root + subject + session metadata
+        # Build config dict for provenance
         config_dict = {
             "nwb": session_info.config.nwb.model_dump(mode="json"),
             "metadata": session_info.metadata,
         }
 
-        finalization_result = tasks.finalize_session_task(
-            nwbfile=nwbfile,
-            output_dir=session_info.output_dir,
-            session_id=session_id,
+        # Step 1: Create provenance metadata
+        provenance = tasks.create_provenance_task(
             config_dict=config_dict,
             alignment_stats=alignment_stats,
-            skip_validation=False,  # Always validate (controlled via config.qc.generate_report if needed)
+            pipeline_version="v2",
         )
+
+        # Step 2: Write NWB file with provenance
+        nwb_path = session_info.output_dir / f"{session_id}.nwb"
+        nwb_path = tasks.write_nwb_task(nwbfile=nwbfile, output_path=nwb_path, provenance=provenance)
+        run_logger.info(f"Wrote NWB file: {nwb_path}")
+
+        # Step 3: Write sidecar files (alignment stats, provenance JSON)
+        sidecar_paths = tasks.write_sidecars_task(
+            output_dir=session_info.output_dir,
+            alignment_stats=alignment_stats,
+            provenance=provenance,
+        )
+        run_logger.info(f"Wrote {len(sidecar_paths)} sidecar files")
+
+        # Step 4: Validate NWB file
+        validation_results = tasks.validate_nwb_task(nwb_path=nwb_path, skip_validation=False)
+        if validation_results:
+            run_logger.warning(f"NWB validation found {len(validation_results)} issues")
+        else:
+            run_logger.info("NWB validation passed")
+
+        # Build finalization result dict (for compatibility with existing code)
+        finalization_result = {
+            "nwb_path": nwb_path,
+            "sidecar_paths": sidecar_paths,
+            "validation_results": validation_results,
+            "provenance": provenance,
+        }
 
         # Generate diagnostic figures
         try:
@@ -360,30 +389,32 @@ def _validate_dlc_generate_mode(session_info, run_logger):
     run_logger.info(f"✓ DLC generate mode validation passed ({len(dlc_cameras)} cameras configured)")
 
 
-def _resolve_pose_modes(session_info: SessionInfo, run_logger) -> tuple[str, str, dict]:
-    """Resolve effective pose processing modes for DLC and SLEAP.
+def _resolve_pose_plan(session_info: SessionInfo, run_logger) -> PosePlan:
+    """Resolve pose processing execution plan.
 
-    Single source of truth for mode resolution to prevent drift between
-    artifact generation and ingestion phases.
+    Single source of truth for mode resolution and ingestion strategy.
+    Prevents drift between artifact generation (Phase 2) and ingestion (Phase 3).
 
     Args:
         session_info: Session configuration with metadata
         run_logger: Prefect logger for reporting resolution decisions
 
     Returns:
-        Tuple of (dlc_effective_mode, sleap_effective_mode, resolution_info)
-        where modes are in {"off", "discover", "generate"}
-        and resolution_info contains reasoning for logging
+        PosePlan with effective modes, ingestion strategy, and reasons
     """
     dlc_config = session_info.config.preprocessing.dlc
     sleap_config = session_info.config.preprocessing.sleap
     pose_metadata = session_info.metadata.get("pose", {})
     has_models = bool(pose_metadata.get("models", {}))
     has_cameras = bool(pose_metadata.get("cameras", {}))
+    has_pose_section = bool(pose_metadata)
 
     # Resolve DLC effective mode
     dlc_mode = dlc_config.mode
-    if dlc_mode == "off":
+    if not dlc_config.enabled:
+        dlc_effective = "off"
+        dlc_reason = "disabled in config"
+    elif dlc_mode == "off":
         dlc_effective = "off"
         dlc_reason = "mode='off'"
     elif dlc_mode == "auto":
@@ -401,7 +432,10 @@ def _resolve_pose_modes(session_info: SessionInfo, run_logger) -> tuple[str, str
 
     # Resolve SLEAP effective mode
     sleap_mode = sleap_config.mode
-    if sleap_mode == "off":
+    if not sleap_config.enabled:
+        sleap_effective = "off"
+        sleap_reason = "disabled in config"
+    elif sleap_mode == "off":
         sleap_effective = "off"
         sleap_reason = "mode='off'"
     elif sleap_mode == "auto":
@@ -417,89 +451,96 @@ def _resolve_pose_modes(session_info: SessionInfo, run_logger) -> tuple[str, str
         sleap_effective = sleap_mode
         sleap_reason = f"mode='{sleap_mode}' (explicit)"
 
-    resolution_info = {
-        "dlc": {"effective": dlc_effective, "reason": dlc_reason, "has_models": has_models, "has_cameras": has_cameras},
-        "sleap": {"effective": sleap_effective, "reason": sleap_reason},
-    }
+    # Determine ingestion strategy
+    if dlc_effective == "off" and sleap_effective == "off":
+        ingestion_strategy = "none"
+        strategy_reason = "both DLC and SLEAP disabled"
+    elif has_cameras and (dlc_effective == "discover" or sleap_effective == "discover"):
+        ingestion_strategy = "metadata_stem"
+        strategy_reason = "metadata.pose.cameras exists + discover mode active"
+    elif dlc_effective == "generate" or sleap_effective == "generate":
+        ingestion_strategy = "artifact_list"
+        strategy_reason = "generation mode active (consume Phase 2 artifacts)"
+    else:
+        # Fallback: no metadata cameras, using discover → try legacy discovery
+        ingestion_strategy = "artifact_list"
+        strategy_reason = "discover mode without metadata.pose.cameras (legacy path)"
 
-    run_logger.debug(f"Pose mode resolution: DLC={dlc_effective} ({dlc_reason}), SLEAP={sleap_effective} ({sleap_reason})")
+    # Determine what Phase 2 should generate
+    should_generate_dlc = dlc_effective == "generate"
+    should_generate_sleap = sleap_effective == "generate"  # Will be False until implemented
 
-    return dlc_effective, sleap_effective, resolution_info
+    plan = PosePlan(
+        dlc_mode=dlc_effective,
+        sleap_mode=sleap_effective,
+        ingestion_strategy=ingestion_strategy,
+        should_generate_dlc=should_generate_dlc,
+        should_generate_sleap=should_generate_sleap,
+        has_pose_metadata=has_pose_section,
+        reasons={
+            "dlc": dlc_reason,
+            "sleap": sleap_reason,
+            "ingestion_strategy": strategy_reason,
+        },
+    )
+
+    run_logger.info(f"Pose plan resolved: DLC={dlc_effective}, SLEAP={sleap_effective}, " f"ingestion={ingestion_strategy} | {dlc_reason}; {sleap_reason}")
+
+    return plan
 
 
-def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, dict]:
-    """Generate and discover pose estimation artifacts.
+def _process_pose_artifacts(plan: PosePlan, session_info, run_logger) -> tuple[dict, dict]:
+    """Generate pose estimation artifacts (Phase 2: generation only).
 
     Args:
-        discovery: File discovery results
+        plan: Resolved pose execution plan
         session_info: Session configuration
         run_logger: Prefect logger
 
     Returns:
         Tuple of (dlc_artifacts, sleap_artifacts)
+        Only populated in generate mode; discover mode returns empty dicts
     """
     dlc_artifacts = {}
     sleap_artifacts = {}
 
-    # Resolve effective modes using single source of truth
-    dlc_mode, sleap_mode, resolution_info = _resolve_pose_modes(session_info, run_logger)
+    # Phase 2 is now pure generation; discovery happens in Phase 3 ingestion
+    run_logger.info(f"Phase 2 (Artifacts): DLC={plan.dlc_mode}, SLEAP={plan.sleap_mode}")
 
-    # Log resolution decisions
-    run_logger.info(f"Pose artifact phase: DLC mode={dlc_mode}, SLEAP mode={sleap_mode}")
-
-    # Preflight validation for DLC generate mode
-    if dlc_mode == "generate":
+    # DLC generation
+    if plan.should_generate_dlc:
         _validate_dlc_generate_mode(session_info, run_logger)
+        force_rerun = session_info.config.preprocessing.force_rerun
+        if force_rerun:
+            run_logger.info("⚠️  force_rerun=True: Regenerating all DLC poses")
+        else:
+            run_logger.info("Using cached DLC poses (if available)")
 
-    if dlc_mode != "off":
-        if dlc_mode == "generate":
-            # Generate new DLC artifacts
-            force_rerun = session_info.config.preprocessing.force_rerun
-            if force_rerun:
-                run_logger.info("⚠️  force_rerun=True: Regenerating all DLC poses")
-            else:
-                run_logger.info("Using cached DLC poses (if available)")
-
-            dlc_artifacts = tasks.generate_dlc_session_task(session_info, force_rerun)
-            run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
-
-        elif dlc_mode == "discover":
-            # Discover mode: find pre-existing H5 files via stem-matching
-            # Files must exist in interim/dlc-pose/<camera_id>/ with names matching {video_stem}DLC*.h5
-            for camera_id, video_paths in discovery.camera_files.items():
-                camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
-                artifacts = tasks.discover_dlc_poses_task(video_paths, camera_dlc_dir, camera_id)
-                if artifacts:
-                    dlc_artifacts[camera_id] = artifacts
-            if dlc_artifacts:
-                run_logger.info(f"Found DLC artifacts for {len(dlc_artifacts)} cameras")
+        dlc_artifacts = tasks.generate_dlc_session_task(session_info, force_rerun)
+        run_logger.info(f"Generated DLC artifacts for {len(dlc_artifacts)} cameras")
+    elif plan.dlc_mode == "discover":
+        run_logger.info("DLC discover mode: skipping generation (ingestion in Phase 3)")
     else:
-        run_logger.info("DLC processing disabled")
+        run_logger.info("DLC disabled")
 
-    if sleap_mode != "off":
-        if sleap_mode == "discover":
-            # Discover mode: artifacts will be sourced from metadata.pose.cameras
-            # Legacy path for backward compatibility (if no metadata)
-            for camera_id, video_paths in discovery.camera_files.items():
-                camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-                artifacts = tasks.discover_sleap_poses_task(video_paths, camera_sleap_dir, camera_id)
-                if artifacts:
-                    sleap_artifacts[camera_id] = artifacts
-            if sleap_artifacts:
-                run_logger.info(f"Found SLEAP artifacts for {len(sleap_artifacts)} cameras")
-        # Note: sleap_mode='generate' should never occur (blocked by config validation)
+    # SLEAP generation (placeholder for future implementation)
+    if plan.should_generate_sleap:
+        run_logger.warning("SLEAP generation requested but not implemented")
+    elif plan.sleap_mode == "discover":
+        run_logger.info("SLEAP discover mode: skipping generation (ingestion in Phase 3)")
     else:
-        run_logger.info("SLEAP processing disabled")
+        run_logger.info("SLEAP disabled")
 
     return dlc_artifacts, sleap_artifacts
 
 
-def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, run_logger) -> dict:
+def _ingest_pose_data(plan: PosePlan, dlc_artifacts, sleap_artifacts, discovery, session_info, run_logger) -> dict:
     """Ingest pose estimation data from DLC and SLEAP.
 
     Args:
-        dlc_artifacts: DLC artifact paths from generation (mode='generate')
-        sleap_artifacts: SLEAP artifact paths from discovery
+        plan: Resolved pose execution plan
+        dlc_artifacts: DLC artifact paths from Phase 2 generation
+        sleap_artifacts: SLEAP artifact paths from Phase 2 generation
         discovery: File discovery results
         session_info: Session configuration
         run_logger: Prefect logger
@@ -509,36 +550,36 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
     """
     pose_data = {}
 
-    # Check if metadata has pose section for discover mode
+    run_logger.info(f"Phase 3 (Ingestion): strategy={plan.ingestion_strategy}, " f"DLC={plan.dlc_mode}, SLEAP={plan.sleap_mode}")
+
+    # Early exit if no pose processing
+    if plan.ingestion_strategy == "none":
+        run_logger.info("No pose data to ingest (both DLC and SLEAP disabled)")
+        return pose_data
+
     pose_metadata = session_info.metadata.get("pose", {})
     pose_cameras = pose_metadata.get("cameras", {})  # Dict keyed by camera_id
 
-    # Use single resolver to get effective modes (prevents drift)
-    dlc_mode, sleap_mode, resolution_info = _resolve_pose_modes(session_info, run_logger)
-
-    run_logger.info(f"Pose ingestion phase: DLC mode={dlc_mode}, SLEAP mode={sleap_mode}")
-
-    # Metadata-driven ingestion (discover mode with pose.cameras config)
-    # Uses stem-based discovery: matches video files to H5 files by filename stem
+    # Strategy 1: Metadata-driven stem-based discovery
+    # Uses metadata.pose.cameras to find H5s matching video stems
     # H5s must be in interim/{dlc-pose|sleap-pose}/<camera_id>/ with appropriate naming:
     #   - DLC: {video_stem}DLC*.h5
     #   - SLEAP: *{video_stem}*.h5
-    # Multiple videos per camera (e.g., buffer rollover) → multiple H5s → list of PoseData
-    if pose_cameras and (dlc_mode == "discover" or sleap_mode == "discover"):
-        run_logger.info(f"Using stem-based pose ingestion for {len(pose_cameras)} camera(s) " f"(H5s in interim/{{dlc|sleap}}-pose/<camera_id>/)")
+    if plan.ingestion_strategy == "metadata_stem":
+        if not pose_cameras:
+            run_logger.warning("Ingestion strategy is 'metadata_stem' but metadata.pose.cameras is empty")
+            return pose_data
 
-        # Get optional mappings dict
+        run_logger.info(f"Ingesting via metadata stem-matching for {len(pose_cameras)} camera(s)")
         mappings_dict = pose_metadata.get("mappings", {})
 
-        # Ingest poses from metadata.pose.cameras (dict keyed by camera_id)
         for camera_id, camera_config in pose_cameras.items():
             source = camera_config.get("source")
-            model_id = camera_config.get("model_id")
 
-            # Skip if wrong source for current mode
-            if source == "dlc" and dlc_mode != "discover":
+            # Skip cameras not matching active modes
+            if source == "dlc" and plan.dlc_mode == "off":
                 continue
-            if source == "sleap" and sleap_mode != "discover":
+            if source == "sleap" and plan.sleap_mode == "off":
                 continue
 
             # Stem-based discovery from camera's video files
@@ -570,38 +611,44 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
 
         return pose_data
 
-    # Legacy artifact-based ingestion (generate mode or backward compatibility)
-    # Ingest DLC poses from generated artifacts
-    for camera_id, artifacts in dlc_artifacts.items():
-        if camera_id in discovery.camera_files:
-            video_paths = discovery.camera_files[camera_id]
-            # Camera-specific DLC directory
-            camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
-            dlc_poses = tasks.ingest_dlc_poses_task(
-                video_paths=video_paths,
-                dlc_dir=camera_dlc_dir,
-                camera_id=camera_id,
-            )
-            if dlc_poses:
-                pose_data[camera_id] = dlc_poses
+    # Strategy 2: Artifact-list ingestion (generate mode or legacy discover)
+    # Consume artifacts produced in Phase 2 or discovered earlier
+    elif plan.ingestion_strategy == "artifact_list":
+        run_logger.info("Ingesting via artifact list (from Phase 2 generation)")
 
-    # Ingest SLEAP poses
-    for camera_id, artifacts in sleap_artifacts.items():
-        if camera_id in discovery.camera_files:
-            video_paths = discovery.camera_files[camera_id]
-            # Camera-specific SLEAP directory
-            camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-            sleap_poses = tasks.ingest_sleap_poses_task(
-                video_paths=video_paths,
-                sleap_dir=camera_sleap_dir,
-                camera_id=camera_id,
-            )
-            if sleap_poses:
-                # Merge with existing DLC poses if present
-                if camera_id in pose_data:
-                    pose_data[camera_id].extend(sleap_poses)
-                else:
-                    pose_data[camera_id] = sleap_poses
+    # Ingest DLC poses from artifacts
+    if dlc_artifacts:
+        for camera_id, artifacts in dlc_artifacts.items():
+            if camera_id in discovery.camera_files:
+                video_paths = discovery.camera_files[camera_id]
+                # Camera-specific DLC directory
+                camera_dlc_dir = session_info.interim_dir / "dlc-pose" / camera_id
+                dlc_poses = tasks.ingest_dlc_poses_task(
+                    video_paths=video_paths,
+                    dlc_dir=camera_dlc_dir,
+                    camera_id=camera_id,
+                )
+                if dlc_poses:
+                    pose_data[camera_id] = dlc_poses
+
+    # Ingest SLEAP poses from artifacts
+    if sleap_artifacts:
+        for camera_id, artifacts in sleap_artifacts.items():
+            if camera_id in discovery.camera_files:
+                video_paths = discovery.camera_files[camera_id]
+                # Camera-specific SLEAP directory
+                camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
+                sleap_poses = tasks.ingest_sleap_poses_task(
+                    video_paths=video_paths,
+                    sleap_dir=camera_sleap_dir,
+                    camera_id=camera_id,
+                )
+                if sleap_poses:
+                    # Merge with existing DLC poses if present
+                    if camera_id in pose_data:
+                        pose_data[camera_id].extend(sleap_poses)
+                    else:
+                        pose_data[camera_id] = sleap_poses
 
     if pose_data:
         run_logger.info(f"Ingested pose data for {len(pose_data)} cameras")
