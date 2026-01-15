@@ -45,7 +45,6 @@ continuous_time = true
 force_rerun = false # Regenerate all intermediate files
 
 [preprocessing.dlc]
-enabled = true
 mode = "auto"  # off | discover | generate | auto
 # gpu = 0      # GPU index (omit for auto-detect)
 

@@ -381,7 +381,7 @@ class DLCConfig(BaseModel, extra="forbid"):
     """DeepLabCut (DLC) pose estimation settings.
 
     Mode Controls:
-        - off: Skip DLC processing entirely (enabled=False)
+        - off: Skip DLC processing entirely
         - discover: Use pre-existing H5 files via stem-based discovery
                    H5s must be in interim/dlc-pose/<camera_id>/ with names {video_stem}DLC*.h5
         - generate: Run DLC inference to create H5 files (requires metadata.pose.cameras + metadata.pose.models)
@@ -392,10 +392,6 @@ class DLCConfig(BaseModel, extra="forbid"):
         which references metadata.pose.models.<model_id>.path (relative to paths.models_root).
     """
 
-    enabled: bool = Field(
-        default=False,
-        description="If True, enable DLC pose processing (behavior depends on mode).",
-    )
     mode: Literal["off", "discover", "generate", "auto"] = Field(
         default="auto",
         description=(
@@ -412,47 +408,25 @@ class DLCConfig(BaseModel, extra="forbid"):
         description="If True, export pose results as CSV in addition to HDF5.",
     )
 
-    @model_validator(mode="after")
-    def validate_mode_consistency(self) -> "DLCConfig":
-        """Ensure mode and enabled are consistent.
-
-        Note:
-            Model validation is deferred to runtime (session flow) since models
-            are now defined per-camera in metadata, not in pipeline config.
-        """
-        # If enabled is False, mode should be 'off' (auto-correct)
-        if not self.enabled and self.mode != "off":
-            self.mode = "off"
-
-        # If mode is 'off', set enabled to False for consistency
-        if self.mode == "off":
-            self.enabled = False
-
-        return self
-
 
 class SLEAPConfig(BaseModel, extra="forbid"):
     """SLEAP pose estimation settings.
 
     Mode Controls:
-        - off: Skip SLEAP processing entirely (enabled=False)
+        - off: Skip SLEAP processing entirely
         - discover: Use pre-existing H5 files via stem-based discovery
                    H5s must be in interim/sleap-pose/<camera_id>/ with names *{video_stem}*.h5
         - generate: Run SLEAP inference (NOT IMPLEMENTED - will raise error)
-        - auto: Discover if enabled (generate mode not yet supported)
+        - auto: Defaults to discover (generate mode not yet supported)
 
     Note:
         Model selection is per-camera via metadata.pose.cameras.<camera_id>.model_id,
         which references metadata.pose.models.<model_id>.path (relative to paths.models_root).
     """
 
-    enabled: bool = Field(
-        default=False,
-        description="If True, enable SLEAP pose processing (behavior depends on mode).",
-    )
     mode: Literal["off", "discover", "generate", "auto"] = Field(
         default="auto",
-        description=("Pose source policy: 'off' disables SLEAP, 'discover' uses pre-existing H5 files, " "'generate' is NOT IMPLEMENTED, 'auto' uses discover if enabled."),
+        description=("Pose source policy: 'off' disables SLEAP, 'discover' uses pre-existing H5 files, " "'generate' is NOT IMPLEMENTED, 'auto' defaults to discover."),
     )
     gpu: Optional[int] = Field(
         None,
@@ -470,14 +444,6 @@ class SLEAPConfig(BaseModel, extra="forbid"):
             Model validation is deferred to runtime since models are defined
             per-camera in metadata, not in pipeline config.
         """
-        # If enabled is False, mode should be 'off' (auto-correct)
-        if not self.enabled and self.mode != "off":
-            self.mode = "off"
-
-        # If mode is 'off', set enabled to False for consistency
-        if self.mode == "off":
-            self.enabled = False
-
         # SLEAP generate mode not implemented
         if self.mode == "generate":
             raise ValueError("SLEAP mode='generate' is not yet implemented. " "Use mode='discover' to ingest pre-existing SLEAP H5 files.")

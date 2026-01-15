@@ -52,9 +52,8 @@ force_rerun = false # Regenerate all intermediate files (applies to 'generate' m
 #   - Model paths: metadata.pose.models.<model_id>.path
 #
 [preprocessing.dlc]
-enabled = true
 mode = "auto"  # off | discover | generate | auto
-               # - off: Skip DLC entirely
+               # - off: Skip DLC entirely (equivalent to old enabled=false)
                # - discover: Use pre-existing H5s (stem-based discovery from interim/dlc-pose/<camera_id>/)
                # - generate: Run DLC inference (requires metadata.pose.cameras + metadata.pose.models)
                # - auto: Generate if metadata.pose.models exists, otherwise discover
@@ -70,11 +69,10 @@ mode = "auto"  # off | discover | generate | auto
 #   - Filenames must match video stems: *{video_stem}*.h5
 #
 [preprocessing.sleap]
-enabled = false
-mode = "auto"  # off | discover | auto (generate NOT IMPLEMENTED)
-               # - off: Skip SLEAP entirely
+mode = "off"   # off | discover | auto (generate NOT IMPLEMENTED)
+               # - off: Skip SLEAP entirely (default, generate not implemented)
                # - discover: Use pre-existing H5s (stem-based discovery from interim/sleap-pose/<camera_id>/)
-               # - auto: Same as discover when enabled
+               # - auto: Same as discover
 
 # gpu = 0                               # GPU index (omit for auto-detect, -1 for CPU)
 

@@ -18,10 +18,14 @@ Flow Phases:
 
 Example:
     >>> from w2t_bkin.flows import process_session_flow
+    >>> from w2t_bkin.config import SessionFlowConfig
+    >>>
+    >>> # Typical usage (config loaded from TOML at deployment time)
+    >>> config = SessionFlowConfig(...)
     >>> result = process_session_flow(
-    ...     config_path="config.toml",
     ...     subject_id="subject-001",
-    ...     session_id="session-001"
+    ...     session_id="session-001",
+    ...     config=config
     ... )
     >>> print(f"Success: {result.success}, NWB: {result.nwb_path}")
 """
@@ -199,9 +203,10 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
         run_logger.info("Phase 6: Writing and validating NWB file")
 
         # Convert config to dict for finalization
+        # Note: session_info.metadata is the merged result of root + subject + session metadata
         config_dict = {
-            "nwb": session_info.config.nwb.__dict__ if hasattr(session_info.config.nwb, "__dict__") else {},
-            "subject": session_info.metadata,
+            "nwb": session_info.config.nwb.model_dump(mode="json"),
+            "metadata": session_info.metadata,
         }
 
         finalization_result = tasks.finalize_session_task(
@@ -355,6 +360,73 @@ def _validate_dlc_generate_mode(session_info, run_logger):
     run_logger.info(f"✓ DLC generate mode validation passed ({len(dlc_cameras)} cameras configured)")
 
 
+def _resolve_pose_modes(session_info: SessionInfo, run_logger) -> tuple[str, str, dict]:
+    """Resolve effective pose processing modes for DLC and SLEAP.
+
+    Single source of truth for mode resolution to prevent drift between
+    artifact generation and ingestion phases.
+
+    Args:
+        session_info: Session configuration with metadata
+        run_logger: Prefect logger for reporting resolution decisions
+
+    Returns:
+        Tuple of (dlc_effective_mode, sleap_effective_mode, resolution_info)
+        where modes are in {"off", "discover", "generate"}
+        and resolution_info contains reasoning for logging
+    """
+    dlc_config = session_info.config.preprocessing.dlc
+    sleap_config = session_info.config.preprocessing.sleap
+    pose_metadata = session_info.metadata.get("pose", {})
+    has_models = bool(pose_metadata.get("models", {}))
+    has_cameras = bool(pose_metadata.get("cameras", {}))
+
+    # Resolve DLC effective mode
+    dlc_mode = dlc_config.mode
+    if dlc_mode == "off":
+        dlc_effective = "off"
+        dlc_reason = "mode='off'"
+    elif dlc_mode == "auto":
+        # Auto: generate if models defined, otherwise discover
+        if has_models:
+            dlc_effective = "generate"
+            dlc_reason = "mode='auto' → 'generate' (metadata.pose.models present)"
+        else:
+            dlc_effective = "discover"
+            dlc_reason = "mode='auto' → 'discover' (no metadata.pose.models)"
+    else:
+        # Explicit mode (discover or generate)
+        dlc_effective = dlc_mode
+        dlc_reason = f"mode='{dlc_mode}' (explicit)"
+
+    # Resolve SLEAP effective mode
+    sleap_mode = sleap_config.mode
+    if sleap_mode == "off":
+        sleap_effective = "off"
+        sleap_reason = "mode='off'"
+    elif sleap_mode == "auto":
+        # Auto: always discover for SLEAP (generate not implemented)
+        sleap_effective = "discover"
+        sleap_reason = "mode='auto' → 'discover' (generate not implemented)"
+    elif sleap_mode == "generate":
+        # Should have been caught by config validation, but be defensive
+        run_logger.warning("SLEAP mode='generate' not implemented, coercing to 'discover'")
+        sleap_effective = "discover"
+        sleap_reason = "mode='generate' → 'discover' (not implemented)"
+    else:
+        sleap_effective = sleap_mode
+        sleap_reason = f"mode='{sleap_mode}' (explicit)"
+
+    resolution_info = {
+        "dlc": {"effective": dlc_effective, "reason": dlc_reason, "has_models": has_models, "has_cameras": has_cameras},
+        "sleap": {"effective": sleap_effective, "reason": sleap_reason},
+    }
+
+    run_logger.debug(f"Pose mode resolution: DLC={dlc_effective} ({dlc_reason}), SLEAP={sleap_effective} ({sleap_reason})")
+
+    return dlc_effective, sleap_effective, resolution_info
+
+
 def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, dict]:
     """Generate and discover pose estimation artifacts.
 
@@ -369,24 +441,17 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
     dlc_artifacts = {}
     sleap_artifacts = {}
 
-    # Determine DLC effective mode
-    dlc_config = session_info.config.preprocessing.dlc
-    dlc_enabled = dlc_config.enabled
-    dlc_mode = dlc_config.mode
+    # Resolve effective modes using single source of truth
+    dlc_mode, sleap_mode, resolution_info = _resolve_pose_modes(session_info, run_logger)
 
-    # Auto mode: check if metadata defines pose models for generate capability
-    if dlc_mode == "auto":
-        # Check if metadata has pose.models section (indicates generate intent)
-        pose_metadata = session_info.metadata.get("pose", {})
-        has_models = bool(pose_metadata.get("models", {}))
-        dlc_mode = "generate" if has_models else "discover"
-        run_logger.debug(f"DLC auto mode resolved to '{dlc_mode}' (metadata.pose.models present: {has_models})")
+    # Log resolution decisions
+    run_logger.info(f"Pose artifact phase: DLC mode={dlc_mode}, SLEAP mode={sleap_mode}")
 
-    # Preflight validation for generate mode
-    if dlc_enabled and dlc_mode == "generate":
+    # Preflight validation for DLC generate mode
+    if dlc_mode == "generate":
         _validate_dlc_generate_mode(session_info, run_logger)
 
-    if dlc_enabled and dlc_mode != "off":
+    if dlc_mode != "off":
         if dlc_mode == "generate":
             # Generate new DLC artifacts
             force_rerun = session_info.config.preprocessing.force_rerun
@@ -411,21 +476,8 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
     else:
         run_logger.info("DLC processing disabled")
 
-    # Determine SLEAP effective mode
-    sleap_config = session_info.config.preprocessing.sleap
-    sleap_enabled = sleap_config.enabled
-    sleap_mode = sleap_config.mode
-
-    # Auto mode for SLEAP defaults to discover (generate not implemented)
-    if sleap_mode == "auto":
-        sleap_mode = "discover"
-
-    if sleap_enabled and sleap_mode != "off":
-        if sleap_mode == "generate":
-            # SLEAP generation not implemented
-            run_logger.warning("SLEAP mode='generate' not implemented; skipping")
-
-        elif sleap_mode == "discover":
+    if sleap_mode != "off":
+        if sleap_mode == "discover":
             # Discover mode: artifacts will be sourced from metadata.pose.cameras
             # Legacy path for backward compatibility (if no metadata)
             for camera_id, video_paths in discovery.camera_files.items():
@@ -435,6 +487,7 @@ def _process_pose_artifacts(discovery, session_info, run_logger) -> tuple[dict, 
                     sleap_artifacts[camera_id] = artifacts
             if sleap_artifacts:
                 run_logger.info(f"Found SLEAP artifacts for {len(sleap_artifacts)} cameras")
+        # Note: sleap_mode='generate' should never occur (blocked by config validation)
     else:
         run_logger.info("SLEAP processing disabled")
 
@@ -460,17 +513,10 @@ def _ingest_pose_data(dlc_artifacts, sleap_artifacts, discovery, session_info, r
     pose_metadata = session_info.metadata.get("pose", {})
     pose_cameras = pose_metadata.get("cameras", {})  # Dict keyed by camera_id
 
-    # If discover mode and metadata.pose.cameras exists, use metadata-driven ingestion
-    dlc_mode = session_info.config.preprocessing.dlc.mode
-    sleap_mode = session_info.config.preprocessing.sleap.mode
+    # Use single resolver to get effective modes (prevents drift)
+    dlc_mode, sleap_mode, resolution_info = _resolve_pose_modes(session_info, run_logger)
 
-    # Auto mode resolution (check metadata.pose.models presence)
-    if dlc_mode == "auto":
-        has_models = bool(pose_metadata.get("models", {}))
-        dlc_mode = "generate" if has_models else "discover"
-    if sleap_mode == "auto":
-        has_models = bool(pose_metadata.get("models", {}))
-        sleap_mode = "generate" if has_models else "discover"
+    run_logger.info(f"Pose ingestion phase: DLC mode={dlc_mode}, SLEAP mode={sleap_mode}")
 
     # Metadata-driven ingestion (discover mode with pose.cameras config)
     # Uses stem-based discovery: matches video files to H5 files by filename stem

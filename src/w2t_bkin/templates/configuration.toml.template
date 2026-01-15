@@ -79,9 +79,8 @@ force_rerun = false # Force re-run even if outputs exist (applies to 'generate' 
 #   - See metadata.toml template for full pose section structure
 
 [preprocessing.dlc]
-enabled = false
 mode = "auto"       # off | discover | generate | auto
-# - off: Skip DLC entirely
+# - off: Skip DLC entirely (equivalent to old enabled=false)
 # - discover: Use pre-existing H5s (stem-based discovery)
 # - generate: Run DLC inference (requires metadata.pose.models)
 # - auto: Generate if metadata.pose.models exists, else discover
@@ -89,9 +88,8 @@ mode = "auto"       # off | discover | generate | auto
 # save_csv = false  # Export CSV in addition to H5
 
 [preprocessing.sleap]
-enabled = false
-mode = "auto"         # off | discover | auto (generate NOT IMPLEMENTED)
-# - off: Skip SLEAP entirely
+mode = "off"          # off | discover | auto (generate NOT IMPLEMENTED)
+# - off: Skip SLEAP entirely (default, generate not implemented)
 # - discover: Use pre-existing H5s (stem-based discovery)
 # - auto: Same as discover (generate not implemented)
 # gpu = 0      # GPU device ID (omit for auto-detect, -1 for CPU)
