@@ -32,6 +32,100 @@ from w2t_bkin.models import SessionInfo
 logger = logging.getLogger(__name__)
 
 
+@task(
+    name="Setup Session",
+    description="Build SessionInfo from environment variables and configuration",
+    tags=["config", "initialization"],
+    retries=1,
+)
+def setup_flow_session_task(
+    subject_id: str,
+    session_id: str,
+    session_config: SessionConfig,
+) -> SessionInfo:
+    """Initialize session by loading metadata and setting up directories.
+
+    This task orchestrates the initialization phase:
+    1. Read and validate environment variables
+    2. Compute session-specific paths
+    3. Load and merge hierarchical metadata
+    4. Create interim and output directories
+    5. Apply logging configuration
+
+    Args:
+        subject_id: Subject identifier (e.g., 'subject-001')
+        session_id: Session identifier (e.g., 'session-001')
+        session_config: Pipeline configuration
+
+    Returns:
+        SessionInfo with all paths and merged metadata
+
+    Raises:
+        EnvironmentError: If required environment variables are missing
+        FileNotFoundError: If raw session directory does not exist
+        ValueError: If no metadata files are found
+    """
+    logger.debug(f"Initializing session: {subject_id}/{session_id}")
+
+    # Read paths from environment
+    raw_root, interim_root, output_root, models_root, root_metadata = read_required_env_paths()
+
+    logger.info("Paths from environment:")
+    logger.info(f"  Raw root: {raw_root}")
+    logger.info(f"  Interim root: {interim_root}")
+    logger.info(f"  Output root: {output_root}")
+    logger.info(f"  Models root: {models_root}")
+    if root_metadata:
+        logger.info(f"  Root metadata: {root_metadata}")
+
+    # Compute session-specific paths
+    raw_dir, interim_dir, processed_dir = build_session_paths(
+        subject_id=subject_id,
+        session_id=session_id,
+        raw_root=raw_root,
+        interim_root=interim_root,
+        output_root=output_root,
+    )
+
+    logger.debug(f"Session paths:")
+    logger.debug(f"  Raw: {raw_dir}")
+    logger.debug(f"  Interim: {interim_dir}")
+    logger.debug(f"  Processed: {processed_dir}")
+
+    # Load and merge metadata
+    metadata = load_session_metadata(
+        raw_root=raw_root,
+        subject_id=subject_id,
+        session_id=session_id,
+        root_metadata=root_metadata,
+    )
+
+    logger.info(f"Loaded metadata from {len(build_metadata_paths(raw_root, subject_id, session_id, root_metadata))} file(s)")
+
+    # Create interim and output directories with write permission checks
+    utils.ensure_directory(interim_dir, check_writable=True)
+    utils.ensure_directory(processed_dir, check_writable=True)
+
+    logger.debug(f"Created/verified directories: {interim_dir}, {processed_dir}")
+
+    # Apply logging configuration
+    log_level = session_config.logging.level
+    logging.getLogger("w2t_bkin").setLevel(getattr(logging, log_level))
+    logger.info(f"Applied logging level: {log_level}")
+
+    logger.info(f"SessionInfo initialized for {subject_id}/{session_id}")
+
+    return SessionInfo(
+        subject_id=subject_id,
+        session_id=session_id,
+        metadata=metadata,
+        raw_dir=raw_dir,
+        interim_dir=interim_dir,
+        processed_dir=processed_dir,
+        models_dir=models_root,
+    )
+
+
 def read_required_env_paths() -> Tuple[Path, Path, Path, Path, Path | None]:
     """Read and validate required environment variables for data paths.
 
@@ -137,97 +231,3 @@ def load_session_metadata(
 
     # Load and merge metadata hierarchically
     return load_metadata(metadata_paths)
-
-
-@task(
-    name="Setup Session",
-    description="Build SessionInfo from environment variables and configuration",
-    tags=["config", "initialization"],
-    retries=1,
-)
-def setup_flow_session_task(
-    subject_id: str,
-    session_id: str,
-    session_config: SessionConfig,
-) -> SessionInfo:
-    """Initialize session by loading metadata and setting up directories.
-
-    This task orchestrates the initialization phase:
-    1. Read and validate environment variables
-    2. Compute session-specific paths
-    3. Load and merge hierarchical metadata
-    4. Create interim and output directories
-    5. Apply logging configuration
-
-    Args:
-        subject_id: Subject identifier (e.g., 'subject-001')
-        session_id: Session identifier (e.g., 'session-001')
-        session_config: Pipeline configuration
-
-    Returns:
-        SessionInfo with all paths and merged metadata
-
-    Raises:
-        EnvironmentError: If required environment variables are missing
-        FileNotFoundError: If raw session directory does not exist
-        ValueError: If no metadata files are found
-    """
-    logger.debug(f"Initializing session: {subject_id}/{session_id}")
-
-    # Read paths from environment
-    raw_root, interim_root, output_root, models_root, root_metadata = read_required_env_paths()
-
-    logger.info("Paths from environment:")
-    logger.info(f"  Raw root: {raw_root}")
-    logger.info(f"  Interim root: {interim_root}")
-    logger.info(f"  Output root: {output_root}")
-    logger.info(f"  Models root: {models_root}")
-    if root_metadata:
-        logger.info(f"  Root metadata: {root_metadata}")
-
-    # Compute session-specific paths
-    raw_dir, interim_dir, processed_dir = build_session_paths(
-        subject_id=subject_id,
-        session_id=session_id,
-        raw_root=raw_root,
-        interim_root=interim_root,
-        output_root=output_root,
-    )
-
-    logger.debug(f"Session paths:")
-    logger.debug(f"  Raw: {raw_dir}")
-    logger.debug(f"  Interim: {interim_dir}")
-    logger.debug(f"  Processed: {processed_dir}")
-
-    # Load and merge metadata
-    metadata = load_session_metadata(
-        raw_root=raw_root,
-        subject_id=subject_id,
-        session_id=session_id,
-        root_metadata=root_metadata,
-    )
-
-    logger.info(f"Loaded metadata from {len(build_metadata_paths(raw_root, subject_id, session_id, root_metadata))} file(s)")
-
-    # Create interim and output directories with write permission checks
-    utils.ensure_directory(interim_dir, check_writable=True)
-    utils.ensure_directory(processed_dir, check_writable=True)
-
-    logger.debug(f"Created/verified directories: {interim_dir}, {processed_dir}")
-
-    # Apply logging configuration
-    log_level = session_config.logging.level
-    logging.getLogger("w2t_bkin").setLevel(getattr(logging, log_level))
-    logger.info(f"Applied logging level: {log_level}")
-
-    logger.info(f"SessionInfo initialized for {subject_id}/{session_id}")
-
-    return SessionInfo(
-        subject_id=subject_id,
-        session_id=session_id,
-        metadata=metadata,
-        raw_dir=raw_dir,
-        interim_dir=interim_dir,
-        processed_dir=processed_dir,
-        models_dir=models_root,
-    )
