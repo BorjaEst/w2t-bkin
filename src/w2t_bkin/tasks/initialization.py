@@ -3,17 +3,12 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
 
 from prefect import task
-from pynwb import NWBFile
 
 from w2t_bkin.config import SessionConfig
-from w2t_bkin.core.session import build_metadata_paths
-from w2t_bkin.core.session import create_nwb_file as core_create_nwb_file
-from w2t_bkin.core.session import load_metadata
+from w2t_bkin.core.session import build_metadata_paths, load_metadata
 from w2t_bkin.models import SessionInfo
-from w2t_bkin.operations import build_session_info, create_nwb_file
 
 logger = logging.getLogger(__name__)
 

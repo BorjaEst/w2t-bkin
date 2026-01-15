@@ -10,8 +10,8 @@ from prefect import task
 from w2t_bkin import utils
 from w2t_bkin.config import DiscoveryConfig
 from w2t_bkin.exceptions import IngestError
-from w2t_bkin.models import DiscoveryResult, DLCArtifact, SessionInfo, SLEAPArtifact
-from w2t_bkin.operations import discover_dlc_poses, discover_sleap_poses, generate_dlc_poses, generate_dlc_poses_for_session, pose_generation
+from w2t_bkin.models import ArtifactsResult, DiscoveryResult, SessionInfo
+from w2t_bkin.operations import pose_generator
 
 logger = logging.getLogger(__name__)
 

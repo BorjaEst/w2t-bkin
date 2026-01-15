@@ -41,15 +41,3 @@ def compute_hardware_pulse_offsets_task(data: DataResult, config: Synchronizatio
 )
 def compute_network_stream_offsets_task(data: DataResult, config: SynchronizationConfig) -> SyncResults:
     pass  # TODO: implement
-
-
-@task(
-    name="Compute Alignment Statistics",
-    description="Calculate trial-TTL alignment statistics",
-    tags=["sync", "statistics"],
-    retries=1,
-)
-def compute_alignment_stats_task(offsets: OffsetsResults, ttl_data) -> SyncStatistics:
-
-    logger.info("Computing alignment statistics")
-    pass  # TODO: implement compute_alignment_statistics_from_result
