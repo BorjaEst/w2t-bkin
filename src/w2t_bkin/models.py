@@ -13,9 +13,22 @@ from w2t_bkin.config import SessionConfig
 
 @dataclass
 class SessionResult:
+    """Result of a session processing flow.
+
+    Attributes:
+        success: Whether processing succeeded
+        subject_id: Subject identifier
+        session_id: Session identifier
+        nwb_path: Path to generated NWB file (if successful)
+        validation: Validation results
+        artifacts: Generated artifacts metadata
+        error: Error message (if failed)
+        duration_seconds: Processing duration
+    """
+
     success: bool
-    subject_dir: str
-    session_dir: str
+    subject_id: str
+    session_id: str
     nwb_path: Optional[Path] = None
     validation: Optional[List[Dict[str, Any]]] = None
     artifacts: Optional[Dict[str, Any]] = None
@@ -25,51 +38,25 @@ class SessionResult:
 
 @dataclass(frozen=True)
 class SessionInfo:
+    """Immutable session configuration and paths.
+
+    Attributes:
+        subject_id: Subject identifier (e.g., 'subject-001')
+        session_id: Session identifier (e.g., 'session-001')
+        metadata: Parsed and merged metadata from TOML files
+        raw_dir: Path to raw session directory ($W2T_RAW_ROOT/<subject>/<session>)
+        interim_dir: Path to interim data directory ($W2T_INTERMEDIATE_ROOT/<subject>/<session>)
+        processed_dir: Path to processed output directory ($W2T_OUTPUT_ROOT/<subject>/<session>)
+        models_dir: Path to pose models directory ($W2T_MODELS_ROOT)
+    """
+
+    subject_id: str  # Subject identifier
+    session_id: str  # Session identifier
     metadata: Dict[str, Any]  # Parsed metadata.toml content
-    subject_dir: str  # Path to subject director
-    session_dir: str  # Path to session directory
-    processed_dir: Path  # Path to processed output directory
+    raw_dir: Path  # Path to raw session directory
     interim_dir: Path  # Path to interim data directory
-    raw_dir: Path  # Path to raw data directory
+    processed_dir: Path  # Path to processed output directory
     models_dir: Path  # Path to pose models directory
-
-
-@dataclass(frozen=True)
-class DLCArtifact:
-    """Result of DLC pose estimation for one video.
-
-    Attributes:
-        path: Path to generated H5 file
-        camera_id: Camera identifier
-        model_name: DLC model name
-        generated_at: Timestamp of generation
-        cached: Whether this was loaded from cache
-    """
-
-    path: Path
-    camera_id: str
-    model_name: str
-    generated_at: datetime
-    cached: bool = False
-
-
-@dataclass(frozen=True)
-class SLEAPArtifact:
-    """Result of SLEAP pose estimation for one video.
-
-    Attributes:
-        path: Path to generated SLEAP file
-        camera_id: Camera identifier
-        model_name: SLEAP model name
-        generated_at: Timestamp of generation
-        cached: Whether this was loaded from cache
-    """
-
-    path: Path
-    camera_id: str
-    model_name: str
-    generated_at: datetime
-    cached: bool = False
 
 
 @dataclass
@@ -82,138 +69,120 @@ class DiscoveryResult:
 
 
 @dataclass
-class BpodData:
-    """Parsed Bpod behavioral data.
+class ArtifactsResult:
+    """Resolved intermediate artifacts for a session.
 
-    Attributes:
-        data: Complete Bpod data structure
-        n_trials: Number of trials extracted
+    This is primarily used to pass pose artifact file paths (DLC/SLEAP outputs)
+    from Phase 2 (artifacts) into Phase 3 (ingestion).
+
+    Notes:
+        - Prefect can persist dataclass results via pickling; Path objects are OK.
+        - Downstream code should key by camera_id.
     """
 
-    data: Dict[str, Any]
-    n_trials: int
-
-
-@dataclass
-class PoseData:
-    """Pose estimation data for one video.
-
-    Attributes:
-        video_path: Path to video file
-        frames: Pose coordinates per frame
-        metadata: Pose model metadata (bodyparts, scorer, etc.)
-    """
-
-    video_path: Path
-    frames: Any  # numpy array or similar
-    metadata: Dict[str, Any]
+    pose_h5_by_camera: Dict[str, List[Path]]
+    pose_csv_by_camera: Dict[str, List[Path]]
+    status_by_camera: Dict[str, Dict[str, Any]]
 
 
 @dataclass
 class TTLData:
-    """TTL pulse timestamps.
+    """Ingested TTL pulse data for a single channel.
 
     Attributes:
-        ttl_id: TTL channel identifier
-        timestamps: Pulse timestamps in seconds
+        channel_id: TTL channel identifier (e.g., 'ttl_camera')
+        timestamps: Sorted list of pulse timestamps in seconds
+        source_files: Paths to files that contributed pulses
     """
 
-    ttl_id: str
+    channel_id: str
     timestamps: List[float]
+    source_files: List[Path]
+
+    @property
+    def pulse_count(self) -> int:
+        """Total number of pulses."""
+        return len(self.timestamps)
 
 
 @dataclass
-class TrialAlignment:
-    """Trial alignment result.
+class VideoChunk:
+    """Single video file metadata.
 
     Attributes:
-        trial_offsets: Mapping from trial number to offset time (seconds)
-        warnings: Alignment warnings
+        path: Path to video file
+        frame_count: Number of frames in this video
     """
 
-    trial_offsets: Dict[int, float]
-    warnings: List[str]
+    path: Path
+    frame_count: int
 
 
-# =============================================================================
-# Pose Metadata Models (Pydantic for validation)
-# =============================================================================
-
-
-class SkeletonNode(BaseModel, extra="forbid"):
-    """Single node in a pose skeleton."""
-
-    name: str = Field(..., description="Body part name (must be unique within skeleton)")
-
-
-class SkeletonEdge(BaseModel, extra="forbid"):
-    """Edge connecting two nodes in a pose skeleton."""
-
-    source: str = Field(..., description="Source node name")
-    target: str = Field(..., description="Target node name")
-
-
-class PoseSkeleton(BaseModel, extra="forbid"):
-    """Skeleton definition for pose visualization.
+@dataclass
+class VideoData:
+    """Ingested video metadata for a single camera.
 
     Attributes:
-        id: Unique identifier for this skeleton
-        name: Human-readable name
-        description: Optional description
-        nodes: List of body part nodes
-        edges: Optional list of connections between nodes
+        camera_id: Camera identifier (e.g., 'camera_0')
+        videos: List of video chunks (multiple files per camera supported)
+        fps: Nominal frames per second (may be None if only TTL sync)
+        ttl_id: TTL channel used for frame sync (optional)
     """
 
-    id: str = Field(..., description="Unique skeleton identifier")
-    name: str = Field(..., description="Human-readable skeleton name")
-    description: Optional[str] = Field(None, description="Optional skeleton description")
-    nodes: List[SkeletonNode] = Field(..., description="Body part nodes")
-    edges: Optional[List[SkeletonEdge]] = Field(None, description="Optional edges between nodes")
+    camera_id: str
+    videos: List[VideoChunk]
+    fps: Optional[float] = None
+    ttl_id: Optional[str] = None
+
+    @property
+    def total_frames(self) -> int:
+        """Total frame count across all video chunks."""
+        return sum(v.frame_count for v in self.videos)
+
+    @property
+    def frame_counts(self) -> List[int]:
+        """Per-file frame counts (for NWB ImageSeries.starting_frame)."""
+        return [v.frame_count for v in self.videos]
+
+    @property
+    def video_paths(self) -> List[Path]:
+        """Paths to all video files."""
+        return [v.path for v in self.videos]
 
 
-class PoseMapping(BaseModel, extra="forbid"):
-    """Body part name mapping for harmonization.
+@dataclass
+class BpodData:
+    """Ingested Bpod behavioral data.
 
     Attributes:
-        id: Unique identifier for this mapping
-        description: Optional description
-        map: Dictionary mapping source names to canonical names
+        data: Parsed Bpod data dictionary (from parse_bpod)
+        source_files: Paths to .mat files that were merged
     """
 
-    id: str = Field(..., description="Unique mapping identifier")
-    description: Optional[str] = Field(None, description="Optional mapping description")
-    map: Dict[str, str] = Field(..., description="Source name → canonical name mapping")
+    data: Dict[str, Any]
+    source_files: List[Path]
+
+    @property
+    def n_trials(self) -> int:
+        """Number of trials in the session."""
+        session_data = self.data.get("SessionData", {})
+        return int(session_data.get("nTrials", 0))
 
 
-class PoseCameraConfig(BaseModel, extra="forbid"):
-    """Pose configuration for a specific camera.
-
-    H5 files are discovered by stem-matching video files in interim/{dlc-pose|sleap-pose}/<camera_id>/
+@dataclass
+class PoseData:
+    """Ingested pose estimation data for one camera/video.
 
     Attributes:
-        source: Pose estimation source (dlc or sleap)
-        model_id: Model identifier for generate mode (references pose.models.<model_id>)
-        mapping_id: Optional reference to pose mapping
-        skeleton_id: Optional reference to skeleton definition
+        camera_id: Camera identifier
+        video_path: Path to video file this pose data corresponds to
+        pose_path: Path to pose estimation file (H5 or CSV)
+        frames: List of frame dicts with keypoints (from import_dlc_pose/import_sleap_pose)
+        metadata: PoseMetadata object with scorer, source_software, etc.
     """
 
-    source: Literal["dlc", "sleap"] = Field(..., description="Pose estimation source")
-    model_id: Optional[str] = Field(None, description="Model ID for generate mode (references pose.models.<id>)")
-    mapping_id: Optional[str] = Field(None, description="Optional mapping ID for name harmonization")
-    skeleton_id: Optional[str] = Field(None, description="Optional skeleton ID for visualization")
-
-
-class PoseMetadata(BaseModel, extra="forbid"):
-    """Complete pose metadata section from metadata.toml.
-
-    Attributes:
-        models: Pose estimation models (source + path)
-        cameras: Pose configuration per camera (dict keyed by camera_id)
-        mappings: Optional body part name mappings (dict keyed by mapping_id)
-        skeletons: Optional skeleton definitions (dict keyed by skeleton_id)
-    """
-
-    models: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Pose models: {model_id: {source, path}}")
-    cameras: Dict[str, PoseCameraConfig] = Field(default_factory=dict, description="Pose config per camera: {camera_id: config}")
-    mappings: Dict[str, Dict[str, str]] = Field(default_factory=dict, description="Optional mappings: {mapping_id: {src: dst}}")
-    skeletons: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Optional skeletons: {skeleton_id: definition}")
+    camera_id: str
+    video_path: Path
+    pose_path: Path
+    frames: List[Dict[str, Any]]
+    metadata: Any  # PoseMetadata from ingest.pose

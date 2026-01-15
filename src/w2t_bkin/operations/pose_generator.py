@@ -1,400 +1,260 @@
-"""Pure functions for generating pose estimation artifacts."""
+"""Operations for discovering and generating pose estimation artifacts.
 
-from datetime import datetime
+This module bridges metadata + discovered videos to concrete intermediate pose
+artifacts stored under the session interim directory.
+
+Supported sources:
+        - DeepLabCut (DLC) via `w2t_bkin.processors.dlc`
+        - SLEAP discovery only (generation TODO)
+"""
+
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
-from w2t_bkin import utils
-from w2t_bkin.models import DLCArtifact, SessionInfo, SLEAPArtifact
-from w2t_bkin.processors.dlc import DLCInferenceOptions, predict_output_paths, run_dlc_inference_batch, validate_dlc_model
+from w2t_bkin.config import ArtifactsConfig
+from w2t_bkin.exceptions import IngestError
+from w2t_bkin.metadata import Metadata
+from w2t_bkin.models import ArtifactsResult, DiscoveryResult, SessionInfo
+from w2t_bkin.processors import dlc
 
 logger = logging.getLogger(__name__)
 
 
-def discover_dlc_poses(video_paths: List[Path], dlc_dir: Path, camera_id: str) -> List[DLCArtifact]:
-    """Discover existing DLC pose estimation outputs.
+def _get_metadata(info: SessionInfo) -> Metadata:
+    try:
+        return Metadata.model_validate(info.metadata)
+    except Exception as e:
+        raise IngestError(
+            message="Failed to validate merged metadata for pose artifacts",
+            context={"error": str(e)},
+            hint="Fix metadata TOML structure under [pose] and session required fields.",
+        )
 
-    Pure function that looks for DLC H5 files matching video file names.
-    Does not execute DLC inference.
 
-    Args:
-        video_paths: List of video file paths to find DLC outputs for
-        dlc_dir: Directory containing DLC H5 output files
-        camera_id: Camera identifier
+def _camera_is_optional(meta: Metadata, camera_id: str) -> bool:
+    for cam in meta.cameras:
+        if cam.id == camera_id:
+            return bool(cam.optional)
+    return False
 
-    Returns:
-        List of DLCArtifact objects for found H5 files
-    """
-    logger.info(f"Discovering DLC outputs for {len(video_paths)} video(s) in {dlc_dir}")
 
-    if not dlc_dir.exists():
-        logger.debug(f"DLC output directory does not exist: {dlc_dir}")
-        return []
+def resolve_artifact_subdir(meta: Metadata, camera_id: str) -> str:
+    """Resolve artifact subdirectory name for a pose camera."""
 
-    artifacts = []
+    pose_cam = meta.pose.cameras.get(camera_id)
+    if pose_cam is None:
+        raise IngestError(
+            message="Pose camera not configured",
+            context={"camera_id": camera_id},
+            hint="Add [pose.cameras.<camera_id>] to metadata.toml.",
+        )
 
-    for video_path in video_paths:
-        video_stem = video_path.stem
+    if pose_cam.artifacts:
+        return pose_cam.artifacts
 
-        # Look for H5 files matching video stem
-        # DLC outputs: {video_stem}DLC*.h5
-        pattern = f"{video_stem}DLC*.h5"
-        matching_h5 = list(dlc_dir.glob(pattern))
+    if pose_cam.model_id:
+        model = meta.pose.models.get(pose_cam.model_id)
+        if model and getattr(model, "artifacts", None):
+            return str(model.artifacts)
 
-        if matching_h5:
-            # Use first match (should only be one per video)
-            h5_path = matching_h5[0]
+    # Fallback by source
+    return "dlc-pose" if pose_cam.source == "dlc" else "sleap-pose"
 
-            # Extract model name from filename if possible
-            # Format: {video_stem}DLC_{model_name}_{...}.h5
-            model_name = "unknown"
-            if "DLC_" in h5_path.name:
-                parts = h5_path.name.split("DLC_")[1].split("_")
-                if parts:
-                    model_name = parts[0]
 
-            artifacts.append(
-                DLCArtifact(
-                    path=h5_path,
-                    camera_id=camera_id,
-                    model_name=model_name,
-                    generated_at=datetime.fromtimestamp(h5_path.stat().st_mtime),
-                    cached=True,
-                )
+def _expected_pose_globs(source: str, video_stem: str) -> Tuple[str, Optional[str]]:
+    """Return (h5_glob, csv_glob) for a given source and video stem."""
+    if source == "dlc":
+        return f"{video_stem}DLC_*.h5", f"{video_stem}DLC_*.csv"
+    # SLEAP naming varies; keep discovery permissive
+    return f"{video_stem}*.h5", f"{video_stem}*.csv"
+
+
+def discover_pose_artifacts(discovery: DiscoveryResult, info: SessionInfo) -> ArtifactsResult:
+    meta = _get_metadata(info)
+
+    pose_h5_by_camera: Dict[str, List[Path]] = {}
+    pose_csv_by_camera: Dict[str, List[Path]] = {}
+    status_by_camera: Dict[str, Dict] = {}
+
+    for camera_id, pose_cam in meta.pose.cameras.items():
+        artifact_subdir = resolve_artifact_subdir(meta, camera_id)
+        camera_dir = info.interim_dir / artifact_subdir / camera_id
+
+        videos = discovery.camera_files.get(camera_id, [])
+        h5_paths: List[Path] = []
+        csv_paths: List[Path] = []
+        missing_for_all_videos = True
+
+        for video_path in videos:
+            h5_glob, csv_glob = _expected_pose_globs(pose_cam.source, video_path.stem)
+            found_h5 = sorted(camera_dir.glob(h5_glob))
+            found_csv = sorted(camera_dir.glob(csv_glob)) if csv_glob else []
+            if found_h5:
+                missing_for_all_videos = False
+            h5_paths.extend(found_h5)
+            csv_paths.extend(found_csv)
+
+        pose_h5_by_camera[camera_id] = h5_paths
+        pose_csv_by_camera[camera_id] = csv_paths
+
+        status_by_camera[camera_id] = {
+            "mode": "discover",
+            "artifact_subdir": artifact_subdir,
+            "videos": [str(p) for p in videos],
+            "h5_count": len(h5_paths),
+            "csv_count": len(csv_paths),
+        }
+
+        if (not videos) and not _camera_is_optional(meta, camera_id):
+            raise IngestError(
+                message="No video files discovered for pose camera",
+                context={"camera_id": camera_id, "interim_dir": str(info.interim_dir)},
+                hint="Ensure [cameras] includes this camera and raw videos exist for the session.",
             )
 
-            logger.debug(f"Found DLC output: {h5_path.name}")
-        else:
-            logger.debug(f"No DLC output found for {video_path.name}")
-
-    logger.info(f"Discovered {len(artifacts)} DLC artifact(s) for camera '{camera_id}'")
-    return artifacts
-
-
-def generate_dlc_poses(
-    video_paths: List[Path], model_path: Path, output_dir: Path, camera_id: str, force_rerun: bool = False, gpu_index: int | None = None, save_csv: bool = False
-) -> List[DLCArtifact]:
-    """Generate DLC pose estimation for video files.
-
-    Pure function that runs DLC inference on videos. Checks for cached
-    outputs and only regenerates if needed.
-
-    Args:
-        video_paths: List of video file paths to process
-        model_path: Path to DLC model config.yaml
-        output_dir: Directory to write H5 output files
-        camera_id: Camera identifier
-        force_rerun: If True, regenerate even if outputs exist
-        gpu_index: GPU index to use (None for auto-detect)
-        save_csv: Also generate CSV output files
-
-    Returns:
-        List of DLCArtifact objects with paths to generated/cached H5 files
-
-    Raises:
-        ValueError: If model validation fails
-        RuntimeError: If DLC inference fails
-    """
-    logger.info(f"Processing {len(video_paths)} video(s) for camera '{camera_id}'")
-
-    # Validate DLC model
-    model_info = validate_dlc_model(model_path)
-    logger.debug(f"DLC model validated: {model_info.scorer}")
-
-    # Create output directory
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Predict expected output paths
-    expected_outputs = predict_output_paths(video_paths=video_paths, model_info=model_info, output_dir=output_dir)
-
-    # Check which outputs already exist (cached)
-    artifacts = []
-    videos_to_process = []
-
-    for video_path, expected_h5 in zip(video_paths, expected_outputs):
-        if expected_h5.exists() and not force_rerun:
-            # Cached output
-            logger.debug(f"Using cached DLC output: {expected_h5.name}")
-            artifacts.append(
-                DLCArtifact(path=expected_h5, camera_id=camera_id, model_name=model_info.scorer, generated_at=datetime.fromtimestamp(expected_h5.stat().st_mtime), cached=True)
+        if missing_for_all_videos and not _camera_is_optional(meta, camera_id):
+            h5_glob, _ = _expected_pose_globs(pose_cam.source, "<video_stem>")
+            raise IngestError(
+                message="Missing required pose artifacts in discover mode",
+                context={"camera_id": camera_id, "search_dir": str(camera_dir), "expected_glob": h5_glob},
+                hint="Generate pose outputs under interim artifacts or switch artifacts.mode to 'generate' or 'auto'.",
             )
+
+    return ArtifactsResult(
+        pose_h5_by_camera=pose_h5_by_camera,
+        pose_csv_by_camera=pose_csv_by_camera,
+        status_by_camera=status_by_camera,
+    )
+
+
+def _generate_dlc_for_camera(
+    *,
+    camera_id: str,
+    video_paths: List[Path],
+    model_config_path: Path,
+    output_dir: Path,
+    artifacts_config: ArtifactsConfig,
+) -> Tuple[List[Path], List[Path], Dict]:
+    options = dlc.DLCInferenceOptions(gputouse=artifacts_config.gpu, save_as_csv=artifacts_config.save_csv)
+    results = dlc.run_dlc_inference_batch(
+        video_paths=video_paths,
+        model_config_path=model_config_path,
+        output_dir=output_dir,
+        options=options,
+    )
+
+    h5_paths: List[Path] = []
+    csv_paths: List[Path] = []
+    errors: List[Dict] = []
+    for r in results:
+        if r.success and r.h5_output_path:
+            h5_paths.append(r.h5_output_path)
+            if r.csv_output_path:
+                csv_paths.append(r.csv_output_path)
         else:
-            # Need to generate
-            videos_to_process.append(video_path)
+            errors.append({"video": str(r.video_path), "error": r.error_message})
 
-    # Run DLC inference on videos that need processing
-    if videos_to_process:
-        logger.info(f"Running DLC inference on {len(videos_to_process)} video(s)")
-
-        # Configure DLC inference options
-        options = DLCInferenceOptions(gputouse=gpu_index, save_as_csv=save_csv)
-
-        # Run batch inference
-        generated_paths = run_dlc_inference_batch(video_paths=videos_to_process, model_path=model_path, output_dir=output_dir, options=options)
-
-        # Create artifacts for generated outputs
-        for h5_path in generated_paths:
-            artifacts.append(DLCArtifact(path=h5_path, camera_id=camera_id, model_name=model_info.scorer, generated_at=datetime.now(), cached=False))
-
-        logger.info(f"Generated {len(generated_paths)} DLC pose file(s)")
-    else:
-        logger.info(f"All DLC outputs cached for camera '{camera_id}'")
-
-    return artifacts
+    status = {
+        "mode": "generate",
+        "camera_id": camera_id,
+        "model_config": str(model_config_path),
+        "output_dir": str(output_dir),
+        "generated_h5": len(h5_paths),
+        "generated_csv": len(csv_paths),
+        "errors": errors,
+    }
+    return h5_paths, csv_paths, status
 
 
-def generate_dlc_poses_for_session(session_info: SessionInfo, force_rerun: bool = False) -> Dict[str, List[DLCArtifact]]:
-    """Generate DLC pose estimation for all cameras in a session.
+def generate_pose_artifacts(discovery: DiscoveryResult, info: SessionInfo, artifacts_config: ArtifactsConfig) -> ArtifactsResult:
+    meta = _get_metadata(info)
 
-    Iterates over cameras defined in metadata["pose"]["cameras"] and generates
-    DLC poses using per-camera model configurations from metadata["pose"]["models"].
+    pose_h5_by_camera: Dict[str, List[Path]] = {}
+    pose_csv_by_camera: Dict[str, List[Path]] = {}
+    status_by_camera: Dict[str, Dict] = {}
 
-    Args:
-        session_info: Session configuration with metadata containing pose.cameras
-                     and pose.models sections
-        force_rerun: If True, regenerate even if outputs exist
+    for camera_id, pose_cam in meta.pose.cameras.items():
+        videos = discovery.camera_files.get(camera_id, [])
+        if (not videos) and not _camera_is_optional(meta, camera_id):
+            raise IngestError(
+                message="No video files discovered for pose camera; cannot generate pose artifacts",
+                context={"camera_id": camera_id},
+                hint="Ensure raw videos exist and [cameras] metadata includes correct paths.",
+            )
 
-    Returns:
-        Dictionary mapping camera_id to list of DLCArtifact objects
+        if pose_cam.source != "dlc":
+            raise IngestError(
+                message="Pose artifact generation not supported for this source",
+                context={"camera_id": camera_id, "source": pose_cam.source},
+                hint="Use artifacts.mode='discover' for SLEAP until generation is implemented.",
+            )
 
-    Raises:
-        ValueError: If DLC not enabled, pose configuration missing, or model references invalid
-    """
-    dlc_config = session_info.config.preprocessing.dlc
+        if not pose_cam.model_id:
+            raise IngestError(
+                message="Pose camera missing model_id; cannot generate",
+                context={"camera_id": camera_id},
+                hint="Set model_id under [pose.cameras.<camera_id>] in metadata.toml.",
+            )
 
-    if not dlc_config.enabled:
-        logger.info("DLC processing disabled")
-        return {}
+        model = meta.pose.models.get(pose_cam.model_id)
+        if model is None:
+            raise IngestError(
+                message="Pose model not found in metadata",
+                context={"camera_id": camera_id, "model_id": pose_cam.model_id},
+                hint="Define [pose.models.<model_id>] in metadata.toml.",
+            )
 
-    # Validate metadata structure
-    pose_meta = session_info.metadata.get("pose")
-    if not pose_meta:
-        raise ValueError("DLC enabled but metadata['pose'] section is missing")
+        model_config_path = (info.models_dir / model.path).resolve()
+        if not model_config_path.exists():
+            raise IngestError(
+                message="Pose model config file not found",
+                context={"camera_id": camera_id, "model_config_path": str(model_config_path)},
+                hint="Check W2T_MODELS_ROOT and pose.models.<model_id>.path.",
+            )
 
-    cameras_meta = pose_meta.get("cameras", {})
-    models_meta = pose_meta.get("models", {})
+        artifact_subdir = resolve_artifact_subdir(meta, camera_id)
+        output_dir = info.interim_dir / artifact_subdir / camera_id
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not cameras_meta:
-        logger.warning("No cameras configured in metadata['pose']['cameras']")
-        return {}
-
-    if not models_meta:
-        raise ValueError("DLC enabled but metadata['pose']['models'] is empty. Define at least one DLC model.")
-
-    logger.info(f"Starting DLC processing for session {session_info.session_id}")
-    logger.debug(f"Processing {len(cameras_meta)} camera(s) with {len(models_meta)} model(s) available")
-
-    # Get video path patterns from base cameras metadata
-    base_cameras = session_info.metadata.get("cameras", [])
-    camera_patterns = {cam["id"]: cam["paths"] for cam in base_cameras}
-
-    # Process each camera configured for DLC
-    all_artifacts = {}
-
-    for camera_id, camera_config in cameras_meta.items():
-        # Skip cameras not using DLC
-        if camera_config.get("source") != "dlc":
-            logger.debug(f"Skipping camera '{camera_id}': source is '{camera_config.get('source')}', not 'dlc'")
-            continue
-
-        # Resolve model path from model_id reference
-        model_id = camera_config.get("model_id")
-        if not model_id:
-            raise ValueError(f"Camera '{camera_id}' has source='dlc' but no 'model_id' specified")
-
-        if model_id not in models_meta:
-            raise ValueError(f"Camera '{camera_id}' references model_id='{model_id}' but metadata['pose']['models']['{model_id}'] does not exist")
-
-        model_config = models_meta[model_id]
-        model_path = Path(model_config.get("path", ""))
-
-        if not model_path or not model_path.exists():
-            raise ValueError(f"Model '{model_id}' has invalid or missing path: {model_path}")
-
-        logger.debug(f"Camera '{camera_id}' → model '{model_id}': {model_path}")
-
-        # Get video path pattern for this camera
-        if camera_id not in camera_patterns:
-            logger.warning(f"Camera '{camera_id}' not found in metadata['cameras'], skipping")
-            all_artifacts[camera_id] = []
-            continue
-
-        pattern = camera_patterns[camera_id]
-
-        # Discover video files
-        video_paths = utils.discover_files(session_info.session_dir, pattern, sort=True)
-
-        if not video_paths:
-            logger.warning(f"No videos found for camera '{camera_id}' with pattern '{pattern}'")
-            all_artifacts[camera_id] = []
-            continue
-
-        # Create camera-specific output directory
-        camera_output_dir = session_info.interim_dir / "dlc-pose" / camera_id
-
-        # Generate DLC poses with per-camera model
-        artifacts = generate_dlc_poses(
-            video_paths=video_paths,
-            model_path=model_path,
-            output_dir=camera_output_dir,
+        h5_paths, csv_paths, status = _generate_dlc_for_camera(
             camera_id=camera_id,
-            force_rerun=force_rerun,
-            gpu_index=dlc_config.gpu,
-            save_csv=dlc_config.save_csv,
+            video_paths=videos,
+            model_config_path=model_config_path,
+            output_dir=output_dir,
+            artifacts_config=artifacts_config,
         )
 
-        all_artifacts[camera_id] = artifacts
+        pose_h5_by_camera[camera_id] = h5_paths
+        pose_csv_by_camera[camera_id] = csv_paths
+        status_by_camera[camera_id] = status
 
-        logger.info(
-            f"Camera '{camera_id}': {len(artifacts)} artifact(s) " f"({sum(1 for a in artifacts if not a.cached)} generated, " f"{sum(1 for a in artifacts if a.cached)} cached)"
-        )
-
-    return all_artifacts
-
-
-def discover_sleap_poses(video_paths: List[Path], sleap_dir: Path, camera_id: str) -> List[SLEAPArtifact]:
-    """Discover existing SLEAP pose estimation outputs.
-
-    Pure function that looks for SLEAP H5 files matching video file names.
-    Does not execute SLEAP inference.
-
-    Args:
-        video_paths: List of video file paths to find SLEAP outputs for
-        sleap_dir: Directory containing SLEAP H5 output files
-        camera_id: Camera identifier
-
-    Returns:
-        List of SLEAPArtifact objects for found H5 files
-    """
-    logger.info(f"Discovering SLEAP outputs for {len(video_paths)} video(s) in {sleap_dir}")
-
-    if not sleap_dir.exists():
-        logger.debug(f"SLEAP output directory does not exist: {sleap_dir}")
-        return []
-
-    artifacts = []
-
-    for video_path in video_paths:
-        video_stem = video_path.stem
-
-        # Look for H5 files matching video stem
-        # SLEAP outputs: {video_name}.h5, {video_name}.predictions.h5, {video_name}.sleap.h5
-        pattern = f"*{video_stem}*.h5"
-        matching_h5 = list(sleap_dir.glob(pattern))
-
-        if matching_h5:
-            # Use first match (should only be one per video)
-            h5_path = matching_h5[0]
-
-            artifacts.append(
-                SLEAPArtifact(
-                    path=h5_path,
-                    camera_id=camera_id,
-                    model_name="unknown",  # SLEAP doesn't embed model name in output
-                    generated_at=datetime.fromtimestamp(h5_path.stat().st_mtime),
-                    cached=True,
-                )
+        if (not h5_paths) and not _camera_is_optional(meta, camera_id):
+            raise IngestError(
+                message="Pose artifact generation completed but produced no H5 outputs",
+                context={"camera_id": camera_id, "output_dir": str(output_dir), "status": status},
+                hint="Inspect logs for DLC inference errors and ensure DeepLabCut is installed in the runtime environment.",
             )
 
-            logger.debug(f"Found SLEAP output: {h5_path.name}")
-        else:
-            logger.debug(f"No SLEAP output found for {video_path.name}")
-
-    logger.info(f"Discovered {len(artifacts)} SLEAP artifact(s) for camera '{camera_id}'")
-    return artifacts
-
-
-def generate_sleap_poses(video_paths: List[Path], model_path: Path, output_dir: Path, camera_id: str, force_rerun: bool = False) -> List[SLEAPArtifact]:
-    """Generate SLEAP pose estimation for video files.
-
-    Pure function stub for SLEAP inference. Currently not implemented.
-    Use discover_sleap_poses() to find manually-generated outputs.
-
-    Args:
-        video_paths: List of video file paths to process
-        model_path: Path to SLEAP model file
-        output_dir: Directory to write H5 output files
-        camera_id: Camera identifier
-        force_rerun: If True, regenerate even if outputs exist
-
-    Returns:
-        List of SLEAPArtifact objects
-
-    Raises:
-        NotImplementedError: SLEAP inference not yet implemented
-    """
-    raise NotImplementedError("SLEAP inference execution is not yet implemented. " f"Please manually generate SLEAP outputs and place them in: {output_dir}")
+    return ArtifactsResult(
+        pose_h5_by_camera=pose_h5_by_camera,
+        pose_csv_by_camera=pose_csv_by_camera,
+        status_by_camera=status_by_camera,
+    )
 
 
-def discover_sleap_poses_for_session(session_info: SessionInfo) -> Dict[str, List[SLEAPArtifact]]:
-    """Discover SLEAP pose estimation outputs for all cameras in a session.
+def auto_pose_artifacts(discovery: DiscoveryResult, info: SessionInfo, artifacts_config: ArtifactsConfig) -> ArtifactsResult:
+    """Auto mode: discover first; generate when missing and model is available."""
 
-    Searches for existing SLEAP outputs for cameras configured with source='sleap'
-    in metadata["pose"]["cameras"].
+    meta = _get_metadata(info)
 
-    Args:
-        session_info: Session configuration with metadata containing pose.cameras section
+    # First attempt: discover for all cameras
+    try:
+        discovered = discover_pose_artifacts(discovery, info)
+        # If discovery succeeded for required cameras, return.
+        return discovered
+    except IngestError as discover_error:
+        logger.info(f"Auto artifacts: discovery failed; attempting generation. Reason: {discover_error}")
 
-    Returns:
-        Dictionary mapping camera_id to list of SLEAPArtifact objects
-    """
-    sleap_config = session_info.config.preprocessing.sleap
-
-    if not sleap_config.enabled:
-        logger.info("SLEAP processing disabled")
-        return {}
-
-    logger.info(f"Discovering SLEAP outputs for session {session_info.session_id}")
-
-    # Validate metadata structure
-    pose_meta = session_info.metadata.get("pose")
-    if not pose_meta:
-        logger.warning("metadata['pose'] section is missing, nothing to discover")
-        return {}
-
-    cameras_meta = pose_meta.get("cameras", {})
-    if not cameras_meta:
-        logger.warning("No cameras configured in metadata['pose']['cameras']")
-        return {}
-
-    # Get video path patterns from base cameras metadata
-    base_cameras = session_info.metadata.get("cameras", [])
-    camera_patterns = {cam["id"]: cam["paths"] for cam in base_cameras}
-
-    # Process each camera configured for SLEAP
-    all_artifacts = {}
-
-    for camera_id, camera_config in cameras_meta.items():
-        # Skip cameras not using SLEAP
-        if camera_config.get("source") != "sleap":
-            logger.debug(f"Skipping camera '{camera_id}': source is '{camera_config.get('source')}', not 'sleap'")
-            continue
-
-        # Get video path pattern for this camera
-        if camera_id not in camera_patterns:
-            logger.warning(f"Camera '{camera_id}' not found in metadata['cameras'], skipping")
-            all_artifacts[camera_id] = []
-            continue
-
-        pattern = camera_patterns[camera_id]
-
-        # Discover video files
-        video_paths = utils.discover_files(session_info.session_dir, pattern, sort=True)
-
-        if not video_paths:
-            logger.warning(f"No videos found for camera '{camera_id}' with pattern '{pattern}'")
-            all_artifacts[camera_id] = []
-            continue
-
-        # Camera-specific SLEAP output directory
-        camera_sleap_dir = session_info.interim_dir / "sleap-pose" / camera_id
-
-        # Discover SLEAP poses
-        artifacts = discover_sleap_poses(video_paths=video_paths, sleap_dir=camera_sleap_dir, camera_id=camera_id)
-
-        all_artifacts[camera_id] = artifacts
-
-        logger.info(f"Camera '{camera_id}': {len(artifacts)} artifact(s) discovered " f"({len(video_paths) - len(artifacts)} missing)")
-
-    return all_artifacts
+    # Generation path: only DLC supported
+    return generate_pose_artifacts(discovery, info, artifacts_config)

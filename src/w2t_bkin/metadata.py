@@ -172,6 +172,10 @@ class PoseModelMeta(DictLikeModel):
 
     source: Literal["dlc", "sleap"]
     path: str = Field(..., description="Path to model config (relative to models_root in generate mode)")
+    artifacts: Optional[str] = Field(
+        None,
+        description="Optional default artifact subdirectory for outputs (e.g., dlc-pose). Can be overridden per camera.",
+    )
 
 
 class PoseCameraMeta(DictLikeModel):
