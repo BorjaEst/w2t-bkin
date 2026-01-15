@@ -21,7 +21,6 @@ from w2t_bkin.tasks.finalization import create_provenance_task, generate_figures
 from w2t_bkin.tasks.ingestion import align_trials_task, ingest_bpod_task, ingest_dlc_poses_task, ingest_sleap_poses_task, ingest_ttl_task
 from w2t_bkin.tasks.initialization import create_nwb_file_task, setup_flow_session_task
 from w2t_bkin.tasks.synchronization import compute_alignment_stats_task
-from w2t_bkin.tasks.verification import verify_session_inputs_task
 
 __all__ = [
     # Config tasks
@@ -32,8 +31,6 @@ __all__ = [
     "discover_bpod_files_task",
     "discover_ttl_files_task",
     "discover_all_files_task",
-    # Verification tasks
-    "verify_session_inputs_task",
     # Artifact tasks
     "generate_dlc_poses_task",
     "generate_dlc_session_task",

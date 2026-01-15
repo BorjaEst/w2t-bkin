@@ -169,7 +169,6 @@ description = "Trial outcome signals"
 [bpod]
 path = "Bpod/*.mat"
 order = "time_asc"
-continuous_time = false
 
 # Bpod-TTL synchronization configuration
 # Maps each trial type to its sync signal and TTL channel
@@ -212,10 +211,12 @@ source = "dlc"           # dlc | sleap
 model_id = "dlc_cam0"   # References pose.models.dlc_cam0 (used in generate mode)
 mapping_id = "canonical"  # Optional: references pose.mappings.canonical
 skeleton_id = "mouse"     # Optional: references pose.skeletons.mouse
+artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 
 [pose.cameras.camera_1]
-source = "dlc"
-model_id = "dlc_cam1"
+source = "dlc"           # dlc | sleap
+model_id = "dlc_cam1"   # References pose.models.dlc_cam1 (used in generate mode)
+artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 
 # Optional: Body part name mappings for harmonization
 [pose.mappings.canonical]

@@ -5,7 +5,7 @@ import logging
 from prefect import task
 from pynwb import NWBFile
 
-from w2t_bkin.config import SessionFlowConfig
+from w2t_bkin.config import SessionConfig
 from w2t_bkin.models import SessionInfo
 from w2t_bkin.operations import build_session_info, create_nwb_file
 
@@ -19,17 +19,17 @@ logger = logging.getLogger(__name__)
     retries=1,
 )
 def setup_flow_session_task(
-    subject_id: str,
-    session_id: str,
-    session_config: SessionFlowConfig,
+    subject_dir: str,
+    session_dir: str,
+    session_config: SessionConfig,
 ) -> SessionInfo:
     """Build SessionInfo from environment and configuration.
 
     Reads paths from environment variables and combines with config.
 
     Args:
-        subject_id: Subject identifier
-        session_id: Session identifier
+        subject_dir: Subject identifier
+        session_dir: Session identifier
         session_config: Pipeline configuration
 
     Returns:
@@ -39,13 +39,9 @@ def setup_flow_session_task(
         EnvironmentError: If required env vars missing
         FileNotFoundError: If session directory not found
     """
-    logger.info(f"Setting up session for {subject_id}/{session_id}")
+    logger.info(f"Setting up session for {subject_dir}/{session_dir}")
 
-    return build_session_info(
-        subject_id=subject_id,
-        session_id=session_id,
-        session_config=session_config,
-    )
+    return build_session_info(subject_dir, session_dir, session_config)
 
 
 @task(
@@ -68,6 +64,6 @@ def create_nwb_file_task(session_info: SessionInfo) -> NWBFile:
     Raises:
         ValueError: If metadata is invalid
     """
-    logger.info(f"Creating NWB file for session {session_info.session_id}")
+    logger.info(f"Creating NWB file for session {session_info.session_dir}")
 
     return create_nwb_file(session_info)

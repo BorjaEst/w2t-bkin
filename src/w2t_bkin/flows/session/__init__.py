@@ -19,19 +19,20 @@ Flow Phases:
 
 Example:
     >>> from w2t_bkin.flows import process_session_flow
-    >>> from w2t_bkin.config import SessionFlowConfig
+    >>> from w2t_bkin.config import SessionConfig
     >>>
     >>> # Typical usage (config loaded from TOML at deployment time)
-    >>> config = SessionFlowConfig(...)
+    >>> config = SessionConfig(...)
     >>> result = process_session_flow(
-    ...     subject_id="subject-001",
-    ...     session_id="session-001",
+    ...     subject_dir="subject-001",
+    ...     session_dir="session-001",
     ...     config=config
     ... )
     >>> print(f"Success: {result.success}, NWB: {result.nwb_path}")
 """
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -39,10 +40,17 @@ from pathlib import Path
 from prefect import flow, get_run_logger
 from prefect.runtime import flow_run as flow_run_runtime
 
-from w2t_bkin import tasks, utils
-from w2t_bkin.config import SessionFlowConfig
+from w2t_bkin import utils
+from w2t_bkin.config import SessionConfig
 from w2t_bkin.flows.session import artifacts, ingestion, logging, sync
 from w2t_bkin.models import SessionInfo, SessionResult
+from w2t_bkin.tasks import artifacts as artifacts_tasks
+from w2t_bkin.tasks import assembly as assembly_tasks
+from w2t_bkin.tasks import discovery as discovery_tasks
+from w2t_bkin.tasks import finalization as finalization_tasks
+from w2t_bkin.tasks import ingestion as ingestion_tasks
+from w2t_bkin.tasks import initialization as initialization_tasks
+from w2t_bkin.tasks import sync as sync_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +61,15 @@ logger = logging.getLogger(__name__)
     log_prints=True,
     persist_result=True,
 )
-def process_session_flow(subject_id: str, session_id: str, config: SessionFlowConfig) -> SessionResult:
+def process_session_flow(subject_dir: str, session_dir: str, config: SessionConfig) -> SessionResult:
     """Process a single session through the complete w2t-bkin pipeline.
 
     This flow orchestrates all atomic Prefect tasks to transform raw behavioral
     and pose data into a validated NWB file. Paths come from environment variables.
 
     Args:
-        subject_id: Subject identifier (e.g., "subject-001")
-        session_id: Session identifier (e.g., "session-001")
+        subject_dir: Subject identifier (e.g., "subject-001")
+        session_dir: Session identifier (e.g., "session-001")
         config: Pipeline configuration (baked from configuration.toml at deployment time)
 
     Returns:
@@ -72,17 +80,18 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
     session_info = None
 
     try:
-        run_logger.info(f"Starting session processing: {subject_id}/{session_id}")
+        run_logger.info(f"Starting session processing: {subject_dir}/{session_dir}")
 
         # =====================================================================
-        # Phase 0: Configuration
+        # Phase 0: Initialization
         # =====================================================================
         run_logger.info("Phase 0: Loading session configuration")
-        session_info = tasks.setup_flow_session_task(subject_id, session_id, config)
+        session_info = initialization_tasks.setup_flow_session_task(subject_dir, session_dir, config)
+        nwbfile = initialization_tasks.create_nwb_file_task(session_info)
 
         # Setup flow-run-isolated file logging
-        with flow_run_file_logger(session_info.output_dir, run_logger):
-            return _execute_session_pipeline(subject_id, session_id, session_info, start_time, run_logger)
+        with flow_run_file_logger(session_info.processed_dir, run_logger):
+            return _execute_session_pipeline(nwbfile, session_info, start_time, run_logger)
 
     except Exception as e:
         duration = (datetime.now() - start_time).total_seconds()
@@ -96,40 +105,27 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionFlowCo
             except Exception:
                 pass  # Ignore errors during error handling
 
-        return SessionResult(success=False, subject_id=subject_id, session_id=session_id, error=str(e), duration_seconds=duration)
+        return SessionResult(success=False, subject_dir=subject_dir, session_dir=session_dir, error=str(e), duration_seconds=duration)
 
 
-def _execute_session_pipeline(subject_id: str, session_id: str, session_info: SessionInfo, start_time, run_logger) -> SessionResult:
+def _execute_session_pipeline(nwbfile, info: SessionInfo, config: SessionConfig, run_logger) -> SessionResult:
     """Execute the main session processing pipeline.
 
     Extracted to keep the flow function clean and allow proper context manager usage.
     """
-    # Create NWB file
-    nwbfile = tasks.create_nwb_file_task(session_info)
 
     # =====================================================================
     # Phase 1: Discovery
     # =====================================================================
     run_logger.info("Phase 1: Discovering files")
-    discovery = tasks.discover_all_files_task(session_info)
-    run_logger.info(f"Discovered: {len(discovery.camera_files)} cameras, {len(discovery.bpod_files)} bpod files, {len(discovery.ttl_files)} TTL files")
+    discovery = discovery_tasks.discover_all_files_task(info)
+    run_logger.info("Discovered files:")  # TODO: log here short summary of discovered files
 
-    if discovery.    
-
-
-    if session_info.config.verification.enabled:
-        run_logger.info("Phase 1.5: Verifying session inputs")
-        verification_result = tasks.verify_session_inputs_task(discovery, session_info)
-
-        if session_info.config.verification.check_frame_counts:
-            total_frames = sum(verification_result.get("frame_counts", {}).values())
-            run_logger.info(f"Verified frame counts: {total_frames} total frames")
-
-        if session_info.config.verification.check_sync_mismatch:
-            verified_cameras = verification_result.get("verified_cameras", [])
-            run_logger.info(f"Verified synchronization for {len(verified_cameras)} cameras")
+    if config.discovery.camera_ttl_mismatch.enable:
+        run_logger.info("Verifying camera/TTL synchronization")
+        discovery_tasks.verify_camera_ttl_sync_task(discovery, config.discovery)
     else:
-        run_logger.info("Verification skipped (disabled in configuration)")
+        run_logger.info("Verification skipped (disabled)")
 
     # =====================================================================
     # Phase 2: Artifact Generation
@@ -247,7 +243,7 @@ def _execute_session_pipeline(subject_id: str, session_id: str, session_info: Se
     provenance = tasks.create_provenance_task(config_dict=config_dict, alignment_stats=alignment_stats, pipeline_version="v2")
 
     # Write NWB file with provenance
-    nwb_path = session_info.output_dir / f"{session_id}.nwb"
+    nwb_path = session_info.output_dir / f"{session_dir}.nwb"
     nwb_path = tasks.write_nwb_task(nwbfile=nwbfile, output_path=nwb_path, provenance=provenance)
     run_logger.info(f"Wrote NWB file: {nwb_path}")
 
@@ -280,15 +276,15 @@ def _execute_session_pipeline(subject_id: str, session_id: str, session_info: Se
     duration = (datetime.now() - start_time).total_seconds()
     result = SessionResult(
         success=True,
-        subject_id=subject_id,
-        session_id=session_id,
+        subject_dir=subject_dir,
+        session_dir=session_dir,
         nwb_path=nwb_path,
         validation=validation_results,
         artifacts={"dlc": dlc_artifacts or {}, "sleap": sleap_artifacts or {}},
         duration_seconds=duration,
     )
 
-    run_logger.info(f"Session processing complete: {subject_id}/{session_id} (duration: {duration:.1f}s)")
+    run_logger.info(f"Session processing complete: {subject_dir}/{session_dir} (duration: {duration:.1f}s)")
     return result
 
 

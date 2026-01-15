@@ -1,4 +1,34 @@
 # =============================================================================
+# Discovery (Raw data loading, validation, etc.)
+# Session logs auto-created: {output_root}/{subject}/{session}/pipeline.log
+# =============================================================================
+
+[discovery]
+
+# TTLs configuration
+ttl_signals.enable_loading = true    # Enable discovery of TTL signal files
+
+# Cameras configuration
+cameras.enable_loading = true  # Enable discovery of camera video files
+cameras.ttl_validation = false      # Verify frame/TTL sync (false = skip TTL checks)
+cameras.ttl_tolerance = 0       # Max allowed frame/pulse difference
+cameras.mismatch_warn_only = false   # Warn instead of fail
+
+# Bpod configuration
+bpod.enable_loading = true     # Enable discovery of Bpod behavioral files
+bpod.continuous_time = true    # Use continuous time for Bpod events
+
+# =============================================================================
+# Artifacts (Pose and any interim data generation)
+# =============================================================================
+
+[artifacts.dlc]
+mode = "auto"  # off | discover | generate | auto
+# gpu = 0        # GPU index (omit for auto-detect, -1 for CPU)
+# save_csv = true   # Save DLC CSV outputs alongside H5 files
+               
+
+# =============================================================================
 # Synchronization Strategy
 # =============================================================================
 
@@ -11,70 +41,9 @@ method = "nearest"
 tolerance_s = 0.002
 global_offset_s = 0.0
 
-# =============================================================================
-# Verification & Validation
-# Session logs auto-created: {output_root}/{subject}/{session}/pipeline.log
-# =============================================================================
 
-[verification]
-enabled = true                # Master switch
-check_frame_counts = true     # Count frames via ffprobe (slow)
-check_sync_mismatch = true    # Verify frame/TTL sync (false = skip TTL checks)
-mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
-warn_on_mismatch = false      # Warn instead of fail
 
-# =============================================================================
-# Bpod Configuration
-# =============================================================================
-
-[bpod]
-parse = true
-pattern = "Bpod/*.mat"
-order = "time_asc"            # name_asc | name_desc | time_asc | time_desc
-continuous_time = true
-
-# =============================================================================
-# Preprocessing Configuration
-# =============================================================================
-
-[preprocessing]
-force_rerun = false # Regenerate all intermediate files (applies to 'generate' mode only)
-
-# -----------------------------------------------------------------------------
-# DeepLabCut Pose Estimation
-# -----------------------------------------------------------------------------
-# H5 Discovery Contract (stem-based):
-#   - H5 files must be in interim/dlc-pose/<camera_id>/
-#   - Filenames must match video stems: {video_stem}DLC*.h5
-#
-# Model selection (for generate mode):
-#   - Per-camera models: metadata.pose.cameras.<camera_id>.model_id
-#   - Model paths: metadata.pose.models.<model_id>.path
-#
-[preprocessing.dlc]
-mode = "auto"  # off | discover | generate | auto
-               # - off: Skip DLC entirely (equivalent to old enabled=false)
-               # - discover: Use pre-existing H5s (stem-based discovery from interim/dlc-pose/<camera_id>/)
-               # - generate: Run DLC inference (requires metadata.pose.cameras + metadata.pose.models)
-               # - auto: Generate if metadata.pose.models exists, otherwise discover
-
-# gpu = 0                               # GPU index (omit for auto-detect, -1 for CPU)
-# save_csv = false                      # Export CSV in addition to H5
-
-# -----------------------------------------------------------------------------
-# SLEAP Pose Estimation
-# -----------------------------------------------------------------------------
-# H5 Discovery Contract (stem-based):
-#   - H5 files must be in interim/sleap-pose/<camera_id>/
-#   - Filenames must match video stems: *{video_stem}*.h5
-#
-[preprocessing.sleap]
-mode = "off"   # off | discover | auto (generate NOT IMPLEMENTED)
-               # - off: Skip SLEAP entirely (default, generate not implemented)
-               # - discover: Use pre-existing H5s (stem-based discovery from interim/sleap-pose/<camera_id>/)
-               # - auto: Same as discover
-
-# gpu = 0                               # GPU index (omit for auto-detect, -1 for CPU)
+                # GPU index (omit for auto-detect, -1 for CPU)
 
 # =============================================================================
 # Logging Configuration

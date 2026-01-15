@@ -5,33 +5,20 @@ from pathlib import Path
 from typing import Dict, List
 
 from w2t_bkin import utils
+from w2t_bkin.config import DiscoveryConfig
 from w2t_bkin.exceptions import IngestError
+from w2t_bkin.metadata import BpodMeta, CameraMeta, TTLsMeta
 from w2t_bkin.models import DiscoveryResult, SessionInfo
 
 logger = logging.getLogger(__name__)
 
 
-def discover_camera_files(session_dir: Path, camera_configs: List[Dict], sort_order: str = "name_asc") -> Dict[str, List[Path]]:
-    """Discover video files for all configured cameras.
-
-    Pure function that searches for video files matching camera patterns.
-
-    Args:
-        session_dir: Path to session directory
-        camera_configs: List of camera configuration dictionaries
-        sort_order: File sorting order ("name_asc", "name_desc", "mtime_asc", "mtime_desc")
-
-    Returns:
-        Dictionary mapping camera_id to list of video file paths
-
-    Raises:
-        IngestError: If required camera files not found
-    """
+def discover_camera_files(session_dir: Path, metas: List[CameraMeta], sort_order: str = "name_asc") -> Dict[str, List[Path]]:
     camera_files = {}
 
-    for camera in camera_configs:
-        camera_id = camera["id"]
-        pattern = camera["paths"]
+    for camera in metas:
+        camera_id = camera.id
+        pattern = camera.paths
         order = camera.get("order", sort_order)
         optional = camera.get("optional", False)
 
@@ -62,57 +49,10 @@ def discover_camera_files(session_dir: Path, camera_configs: List[Dict], sort_or
     return camera_files
 
 
-def discover_bpod_files(session_dir: Path, bpod_config: Dict) -> Dict[str, List[Path]]:
-    """Discover Bpod data files.
-
-    Args:
-        session_dir: Path to session directory
-        bpod_config: Bpod configuration dictionary
-
-    Returns:
-        Dictionary with 'bpod' key mapping to list of file paths
-    """
-    if not bpod_config:
-        logger.debug("No Bpod configuration - skipping discovery")
-        return {"bpod": []}
-
-    # Support both legacy and current metadata keys.
-    # - metadata template uses: path
-    # - some code paths use: paths
-    # - config-driven fallback uses: pattern
-    pattern = bpod_config.get("path") or bpod_config.get("paths") or bpod_config.get("pattern") or "Bpod/*.mat"
-    order = bpod_config.get("order", "name_asc")
-
-    logger.debug(f"Scanning Bpod files: pattern={pattern}")
-
-    file_paths = utils.discover_files(session_dir, pattern, sort=False)
-
-    if not file_paths:
-        logger.warning(f"No Bpod files found matching pattern: {pattern}")
-        return {"bpod": []}
-
-    # Sort files
-    file_paths = utils.sort_files(file_paths, order)
-
-    logger.info(f"Bpod: found {len(file_paths)} file(s)")
-    logger.debug(f"  Files: {[p.name for p in file_paths]}")
-
-    return {"bpod": file_paths}
-
-
-def discover_ttl_files(session_dir: Path, ttl_configs: List[Dict]) -> Dict[str, List[Path]]:
-    """Discover TTL channel files.
-
-    Args:
-        session_dir: Path to session directory
-        ttl_configs: List of TTL configuration dictionaries
-
-    Returns:
-        Dictionary mapping ttl_id to list of file paths
-    """
+def discover_ttl_files(session_dir: Path, metas: List[Dict]) -> Dict[str, List[Path]]:
     ttl_files = {}
 
-    for ttl in ttl_configs:
+    for ttl in metas:
         ttl_id = ttl["id"]
         pattern = ttl["paths"]
         order = ttl.get("order", "name_asc")
@@ -137,35 +77,43 @@ def discover_ttl_files(session_dir: Path, ttl_configs: List[Dict]) -> Dict[str, 
     return ttl_files
 
 
-def discover_all_files(session_info: SessionInfo) -> DiscoveryResult:
-    """Discover all files for a session.
-
-    Convenience function that discovers cameras, Bpod, and TTL files.
+def discover_bpod_files(session_dir: Path, meta: Dict) -> Dict[str, List[Path]]:
+    """Discover Bpod data files.
 
     Args:
-        session_info: Session configuration
+        session_dir: Path to session directory
+        meta: Bpod configuration dictionary
 
     Returns:
-        DiscoveryResult with all discovered file paths
+        Dictionary with 'bpod' key mapping to list of file paths
     """
-    cameras = session_info.metadata.get("cameras", [])
-    ttls = session_info.metadata.get("TTLs", [])
-    bpod_config = session_info.metadata.get("bpod")
-    if not bpod_config and getattr(session_info, "config", None) is not None and getattr(session_info.config, "bpod", None) is not None:
-        # Allow discovery to run even when metadata omits [bpod] by using deployment config defaults.
-        # This is useful for projects that standardize Bpod layout across sessions.
-        if session_info.config.bpod.parse:
-            bpod_config = {
-                "pattern": session_info.config.bpod.pattern,
-                "order": session_info.config.bpod.order,
-            }
+    if not meta:
+        logger.debug("No Bpod configuration - skipping discovery")
+        return {"bpod": []}
 
-    logger.info(f"Discovering files in {session_info.session_dir}")
-    logger.debug(f"  Cameras: {len(cameras)}, TTLs: {len(ttls)}, Bpod: {bpod_config is not None}")
+    # Support both legacy and current metadata keys.
+    # - metadata template uses: path
+    # - some code paths use: paths
+    # - config-driven fallback uses: pattern
+    pattern = meta.get("path") or meta.get("paths") or meta.get("pattern") or "Bpod/*.mat"
+    order = meta.get("order", "name_asc")
 
-    # Discover files
-    camera_files = discover_camera_files(session_info.session_dir, cameras)
-    ttl_files = discover_ttl_files(session_info.session_dir, ttls)
-    bpod_files = discover_bpod_files(session_info.session_dir, bpod_config)
+    logger.debug(f"Scanning Bpod files: pattern={pattern}")
 
-    return DiscoveryResult(camera_files=camera_files, bpod_files=bpod_files, ttl_files=ttl_files)
+    file_paths = utils.discover_files(session_dir, pattern, sort=False)
+
+    if not file_paths:
+        logger.warning(f"No Bpod files found matching pattern: {pattern}")
+        return {"bpod": []}
+
+    # Sort files
+    file_paths = utils.sort_files(file_paths, order)
+
+    logger.info(f"Bpod: found {len(file_paths)} file(s)")
+    logger.debug(f"  Files: {[p.name for p in file_paths]}")
+
+    return {"bpod": file_paths}
+
+
+def discover_pose_files(session_dir: Path, meta: Dict) -> Dict[str, List[Path]]:
+    pass  # TODO implement pose file discovery

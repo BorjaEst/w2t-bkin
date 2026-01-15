@@ -8,7 +8,7 @@ import pytest
 
 from synthetic import build_raw_folder
 from synthetic.pose_synth import PoseH5Params, create_dlc_pose_h5
-from w2t_bkin.api import SessionFlowConfig
+from w2t_bkin.api import SessionConfig
 from w2t_bkin.flows import process_session_flow
 
 
@@ -70,7 +70,7 @@ class TestFlowPoseIngestion:
         result.config_path.write_text(config_content)
 
         # 4. Run flow
-        config = SessionFlowConfig(
+        config = SessionConfig(
             config_path=str(result.config_path),
             subject_id=subject_id,
             session_id=session_id,

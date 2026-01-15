@@ -571,18 +571,18 @@ def _serve_flows(config_path: Optional[Path]) -> None:
     """
     from prefect import serve
 
-    from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
+    from w2t_bkin.config import BatchFlowConfig, SessionConfig
     from w2t_bkin.flows import batch_process_flow, process_session_flow
 
     package_root = Path(__file__).parent.parent.parent.parent.absolute()
 
-    # Load and normalize config to get both dict and SessionFlowConfig
+    # Load and normalize config to get both dict and SessionConfig
     merged_config_dict, config_json = _load_and_normalize_config(config_path)
 
-    # Build SessionFlowConfig from the merged dict (excluding paths/project)
+    # Build SessionConfig from the merged dict (excluding paths/project)
     # Paths will come from environment variables at runtime
     session_config_data = {k: v for k, v in merged_config_dict.items() if k not in ("project", "paths")}
-    session_config_defaults = SessionFlowConfig(**session_config_data)
+    session_config_defaults = SessionConfig(**session_config_data)
 
     # Set path environment variables for dev mode (only if not already set)
     # This respects .workers/.env and explicit exports
@@ -737,7 +737,7 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
         config_path: Config file path (configuration.toml)
         project_root: Experiment/project root directory (cwd)
     """
-    from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
+    from w2t_bkin.config import BatchFlowConfig, SessionConfig
     from w2t_bkin.flows import batch_process_flow, process_session_flow
 
     package_root = Path(__file__).parent.parent.parent.parent.absolute()
@@ -745,9 +745,9 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
     # Generate container-native config (uses /data, /models, etc.)
     container_config_dict, config_json = _load_and_normalize_config(config_path, for_container=True)
 
-    # Build SessionFlowConfig from container-normalized dict (excluding paths/project)
+    # Build SessionConfig from container-normalized dict (excluding paths/project)
     session_config_data = {k: v for k, v in container_config_dict.items() if k not in ("project", "paths")}
-    session_config_defaults = SessionFlowConfig(**session_config_data)
+    session_config_defaults = SessionConfig(**session_config_data)
 
     # Get Docker image
     docker_image = _get_docker_image(project_root)

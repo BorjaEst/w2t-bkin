@@ -195,7 +195,7 @@ The `process-session` flow is responsible for turning one session’s raw inputs
 Internally it is structured into phases so that failures are easier to diagnose and outputs are easier to interpret.
 
 1. **Phase 0 — Configuration**
-   The session flow is implemented in `src/w2t_bkin/flows/session.py` and is parameterized by `SessionFlowConfig` (defined in `src/w2t_bkin/config.py`).
+   The session flow is implemented in `src/w2t_bkin/flows/session.py` and is parameterized by `SessionConfig` (defined in `src/w2t_bkin/config.py`).
    The flow resolves all runtime paths from environment variables, loads and merges metadata files for the selected subject/session, and initializes the NWB file header.
    At this stage the flow also sets up per-run logging into an output `pipeline.log` file.
 
@@ -245,7 +245,7 @@ Internally it is structured into phases so that failures are easier to diagnose 
 
 - In Prefect UI, select the `process-session` deployment.
 - Provide `subject_id` and `session_id`.
-- Provide `config` (a baked `SessionFlowConfig`, typically derived from `configuration.toml` when deployments are created).
+- Provide `config` (a baked `SessionConfig`, typically derived from `configuration.toml` when deployments are created).
 
 ### Batch Workflow: `batch-process-sessions`
 
@@ -272,7 +272,7 @@ It is designed for reprocessing entire experiments or running large backfills af
 - Provide a `config` (`BatchFlowConfig`) that includes:
   - `subject_filter` and `session_filter`
   - `max_parallel`
-  - `configuration` (the `SessionFlowConfig` applied to each session)
+  - `configuration` (the `SessionConfig` applied to each session)
 
 For the full list of configuration and metadata parameters referenced by these workflows, see:
 

@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 from pynwb import NWBFile
 
-from w2t_bkin.config import SessionFlowConfig
+from w2t_bkin.config import SessionConfig
 from w2t_bkin.core.session import build_metadata_paths
 from w2t_bkin.core.session import create_nwb_file as core_create_nwb_file
 from w2t_bkin.core.session import load_metadata
@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 def build_session_info(
-    subject_id: str,
-    session_id: str,
-    session_config: SessionFlowConfig,
+    subject_dir: str,
+    session_dir: str,
+    session_config: SessionConfig,
 ) -> SessionInfo:
     """Build SessionInfo from environment variables and configuration.
 
@@ -30,8 +30,8 @@ def build_session_info(
     - W2T_MODELS_ROOT: Pose estimation models directory (optional, defaults to 'models')
 
     Args:
-        subject_id: Subject identifier (e.g., "subject-001")
-        session_id: Session identifier (e.g., "session-001")
+        subject_dir: Subject identifier (e.g., "subject-001")
+        session_dir: Session identifier (e.g., "session-001")
         session_config: Pipeline configuration
 
     Returns:
@@ -41,7 +41,7 @@ def build_session_info(
         EnvironmentError: If required environment variables are missing
         FileNotFoundError: If session directory doesn't exist
     """
-    logger.debug(f"Building SessionInfo for {subject_id}/{session_id}")
+    logger.debug(f"Building SessionInfo for {subject_dir}/{session_dir}")
 
     # Read paths from environment (fail fast if missing)
     raw_root_str = os.getenv("W2T_RAW_ROOT")
@@ -71,9 +71,9 @@ def build_session_info(
     logger.info(f"  Models root: {models_root}")
 
     # Determine session-specific paths
-    session_dir = raw_root / subject_id / session_id
-    interim_dir = interim_root / subject_id / session_id
-    output_dir = output_root / subject_id / session_id
+    session_dir = raw_root / subject_dir / session_dir
+    interim_dir = interim_root / subject_dir / session_dir
+    output_dir = output_root / subject_dir / session_dir
 
     if not session_dir.exists():
         raise FileNotFoundError(f"Session directory not found: {session_dir}")
@@ -86,27 +86,26 @@ def build_session_info(
     # Build hierarchical metadata paths
     metadata_paths = build_metadata_paths(
         raw_root=raw_root,
-        subject_id=subject_id,
-        session_id=session_id,
+        subject_dir=subject_dir,
+        session_dir=session_dir,
         root_metadata=root_metadata,
     )
 
     if not metadata_paths:
         raise ValueError(
-            f"No metadata files found for {subject_id}/{session_id}. "
+            f"No metadata files found for {subject_dir}/{session_dir}. "
             f"Expected at least one of: root_metadata, raw_root/metadata.toml, "
-            f"raw_root/{subject_id}/subject.toml, raw_root/{subject_id}/{session_id}/session.toml"
+            f"raw_root/{subject_dir}/subject.toml, raw_root/{subject_dir}/{session_dir}/session.toml"
         )
 
     # Load and merge metadata hierarchically
     metadata = load_metadata(metadata_paths)
 
-    logger.info(f"SessionInfo built for {subject_id}/{session_id}")
+    logger.info(f"SessionInfo built for {subject_dir}/{session_dir}")
 
     return SessionInfo(
-        subject_id=subject_id,
-        session_id=session_id,
-        config=session_config,
+        subject_dir=subject_dir,
+        session_dir=session_dir,
         metadata=metadata,
         session_dir=session_dir,
         interim_dir=interim_dir,
@@ -126,7 +125,7 @@ def create_nwb_file(session_info: SessionInfo) -> NWBFile:
     Returns:
         In-memory NWBFile object (not yet written to disk)
     """
-    logger.debug(f"Creating NWBFile for {session_info.subject_id}/{session_info.session_id}")
+    logger.debug(f"Creating NWBFile for {session_info.subject_dir}/{session_info.session_dir}")
 
     # Create NWBFile directly from metadata using core.session primitive
     nwbfile = core_create_nwb_file(session_info.metadata)

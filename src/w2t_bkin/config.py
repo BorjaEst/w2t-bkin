@@ -22,10 +22,10 @@ Model Path Resolution:
     or SLEAPConfig to get absolute paths.
 
 Typical usage example:
-    >>> from w2t_bkin.config import SessionFlowConfig
+    >>> from w2t_bkin.config import SessionConfig
     >>> from pathlib import Path
     >>>
-    >>> # SessionFlowConfig is used for Prefect flow parameters
+    >>> # SessionConfig is used for Prefect flow parameters
     >>> print(config.synchronization.strategy)
     >>>
     >>> # Resolve DLC model path
@@ -473,7 +473,114 @@ class PreprocessingConfig(BaseModel, extra="forbid"):
 # =============================================================================
 
 
-class SessionFlowConfig(BaseModel, extra="forbid"):
+class TTLsConfig(BaseModel, extra="forbid"):
+    """Parameters controlling camera-TTL mismatch checking."""
+
+    enable: bool = Field(
+        default=True,
+        description=("If True, verify frame/TTL synchronization for cameras configured with TTL sync."),
+    )
+
+
+class CamerasConfig(BaseModel, extra="forbid"):
+    enable_loading: bool = Field(
+        default=True,
+        description="If True, parse camera video files when present in the session raw data.",
+    )
+    ttl_validation: bool = Field(
+        default=True,
+        description=("If True, compare video frame counts against TTL pulse counts for the reference channel."),
+    )
+    ttl_tolerance: int = Field(
+        default=0,
+        ge=0,
+        description=("Allowed absolute mismatch (frames) between frame_count and ttl_pulse_count before failing."),
+    )
+    mismatch_warn_only: bool = Field(
+        default=False,
+        description=("If True, warn (and continue) when mismatch is within tolerance; otherwise raise an error."),
+    )
+
+
+class BpodConfig(BaseModel, extra="forbid"):
+    enable_loading: bool = Field(
+        default=True,
+        description="If True, parse Bpod .mat files when present in the session raw data.",
+    )
+    continuous_time: bool = Field(
+        default=True,
+        description="If True, offsets timestamps to form a continuous timeline across multiple Bpod files. This only matters when more than one MAT file is merged.",
+    )
+
+
+class PoseProcessingConfig(BaseModel, extra="forbid"):
+    """DeepLabCut or SLEAP pose estimation configuration."""
+
+    mode: Literal["off", "discover", "generate", "auto"] = Field(
+        default="auto",
+        description=(
+            "off: disables pose estimation, 'discover' uses pre-existing H5 files; "
+            "discover: Use pre-existing H5 files via stem-based discovery; "
+            "generate: Forces pose estimation to run; "
+            "auto: Generate if metadata.pose.models exists and no pre-existing files are found, otherwise discover;"
+        ),
+    )
+    gpu: Optional[int] = Field(
+        None,
+        description="GPU index to use (None = default/auto, -1 = force CPU).",
+    )
+    save_csv: bool = Field(
+        default=False,
+        description="If True, export pose results as CSV in addition to HDF5.",
+    )
+
+
+# =============================================================================
+# Configuration Models - Session Level
+# =============================================================================
+
+
+class DiscoveryConfig(BaseModel, extra="forbid"):
+    """File discovery patterns and policies."""
+
+    ttl_signals: TTLsConfig = Field(
+        default_factory=TTLsConfig,
+        description=("Parameters controlling TTL channel discovery and validation."),
+    )
+    cameras: CamerasConfig = Field(
+        default_factory=CamerasConfig,
+        description=("Parameters controlling camera-TTL mismatch checking."),
+    )
+    bpod: BpodConfig = Field(
+        default_factory=BpodConfig,
+        description=("Settings for parsing and synchronizing Bpod behavioral data."),
+    )
+
+
+class ArtifactsConfig(BaseModel, extra="forbid"):
+    dlc: PoseProcessingConfig = Field(
+        default_factory=PoseProcessingConfig,
+        description="DeepLabCut pose estimation configuration.",
+    )
+    sleap: PoseProcessingConfig = Field(
+        default_factory=PoseProcessingConfig,
+        description="SLEAP pose estimation configuration.",
+    )
+
+
+class IngestionConfig(BaseModel, extra="forbid"):
+    pass
+
+
+class AssemblyConfig(BaseModel, extra="forbid"):
+    pass
+
+
+class FinalizationConfig(BaseModel, extra="forbid"):
+    pass
+
+
+class SessionConfig(BaseModel, extra="forbid"):
     """Per-session pipeline configuration (shown in Prefect UI).
 
     This model intentionally excludes filesystem paths (handled via environment
@@ -481,41 +588,33 @@ class SessionFlowConfig(BaseModel, extra="forbid"):
     files in default factories.
     """
 
-    synchronization: SynchronizationConfig = Field(
-        ...,
-        description="How modalities (video/TTL/Bpod) are aligned to a common timebase.",
-    )
-    acquisition: AcquisitionConfig = Field(
-        default_factory=AcquisitionConfig,
-        description="Policies for handling raw acquisitions (e.g., multi-file videos).",
-    )
-    verification: VerificationConfig = Field(
-        default_factory=VerificationConfig,
-        description="Runtime checks that validate sync quality and data integrity.",
-    )
-    bpod: BpodConfig = Field(
-        default_factory=BpodConfig,
-        description="Settings for parsing and synchronizing Bpod behavioral data.",
-    )
-    preprocessing: PreprocessingConfig = Field(
-        default_factory=PreprocessingConfig,
-        description="Optional preprocessing steps (pose estimation, intermediate generation).",
-    )
-    video: VideoConfig = Field(
-        default_factory=VideoConfig,
-        description="Video analysis and transcoding settings.",
-    )
-    nwb: NWBConfig = Field(
-        default_factory=NWBConfig,
-        description="NWB export settings and metadata templates.",
-    )
-    qc: QCConfig = Field(
-        default_factory=QCConfig,
-        description="QC summary generation settings.",
-    )
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging verbosity and output format.",
+    )
+    discovery: DiscoveryConfig = Field(
+        default_factory=DiscoveryConfig,
+        description="File discovery patterns and policies.",
+    )
+    artifacts: ArtifactsConfig = Field(
+        default_factory=ArtifactsConfig,
+        description="Policies for handling intermediate artifacts (pose, TTL, sync).",
+    )
+    ingestion: IngestionConfig = Field(
+        default_factory=IngestionConfig,
+        description="How raw data files are ingested and parsed.",
+    )
+    synchronization: SynchronizationConfig = Field(
+        default_factory=SynchronizationConfig,
+        description="How modalities (video/TTL/Bpod) are aligned to a common timebase.",
+    )
+    assembly: AssemblyConfig = Field(
+        default_factory=AssemblyConfig,
+        description="How ingested data streams are combined into unified datasets.",
+    )
+    finalization: FinalizationConfig = Field(
+        default_factory=FinalizationConfig,
+        description="Final processing steps before output (NWB export, QC generation).",
     )
 
 
@@ -536,7 +635,7 @@ class BatchFlowConfig(BaseModel, extra="forbid"):
         le=32,
         description="Maximum number of sessions processed concurrently.",
     )
-    configuration: SessionFlowConfig = Field(
+    configuration: SessionConfig = Field(
         ...,
         description="Session-level configuration applied to every selected session.",
     )

@@ -19,13 +19,13 @@ import pytest
 class TestConfigDomainIntegration:
     """Test integration between config loading and domain validation."""
 
-    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionFlowConfig + env vars")
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionConfig + env vars")
     def test_Should_LoadValidConfig_When_AllRequiredFieldsProvided_Issue2(self):
         """Should successfully load and validate a complete config file.
 
         Tests the full pipeline: TOML parsing → domain validation → deterministic hashing.
 
-        DEPRECATED: load_config() and Config class removed. Use SessionFlowConfig.
+        DEPRECATED: load_config() and Config class removed. Use SessionConfig.
         """
         from w2t_bkin.config import Config, compute_config_hash, load_config
 
@@ -74,11 +74,11 @@ class TestConfigDomainIntegration:
         assert "cam0_top" in nwbfile.devices
         assert "cam1_side" in nwbfile.devices
 
-    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionFlowConfig")
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionConfig")
     def test_Should_FailValidation_When_ConfigMissingRequiredSection_Issue2(self):
         """Should fail when config file is missing required sections (A13).
 
-        DEPRECATED: load_config() removed. SessionFlowConfig validates required fields.
+        DEPRECATED: load_config() removed. SessionConfig validates required fields.
         """
         from w2t_bkin.config import load_config
 
@@ -90,11 +90,11 @@ class TestConfigDomainIntegration:
 
         assert "paths" in str(exc_info.value).lower()
 
-    @pytest.mark.skip(reason="Config class removed - SessionFlowConfig validates via extra='forbid'")
+    @pytest.mark.skip(reason="Config class removed - SessionConfig validates via extra='forbid'")
     def test_Should_FailValidation_When_ConfigHasExtraKeys_Issue2(self):
         """Should fail when config file has extra keys not in schema (A13).
 
-        DEPRECATED: Config class removed. SessionFlowConfig uses extra='forbid'.
+        DEPRECATED: Config class removed. SessionConfig uses extra='forbid'.
         """
         from w2t_bkin.config import load_config
 
@@ -182,11 +182,11 @@ class TestUtilsConfigIntegration:
         with pytest.raises(ValueError, match="Directory traversal not allowed"):
             sanitize_path("../../../etc/passwd")
 
-    @pytest.mark.skip(reason="Config class removed - SessionFlowConfig is the runtime model")
+    @pytest.mark.skip(reason="Config class removed - SessionConfig is the runtime model")
     def test_Should_WriteAndReadJSON_When_ConfigSerialized_Issue2(self):
         """Should correctly serialize and deserialize config data via JSON utils.
 
-        DEPRECATED: Config class removed. Use SessionFlowConfig.model_dump(mode='json').
+        DEPRECATED: Config class removed. Use SessionConfig.model_dump(mode='json').
         """
         from w2t_bkin.config import load_config
         from w2t_bkin.utils import read_json, write_json

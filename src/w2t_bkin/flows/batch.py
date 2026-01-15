@@ -32,7 +32,7 @@ from typing import Dict, List
 
 from prefect import flow, get_run_logger, task
 
-from w2t_bkin.config import BatchFlowConfig, SessionFlowConfig
+from w2t_bkin.config import BatchFlowConfig, SessionConfig
 from w2t_bkin.flows.session import process_session_flow
 from w2t_bkin.models import SessionResult
 from w2t_bkin.utils import discover_sessions_in_raw_root
@@ -222,7 +222,7 @@ def batch_process_flow(config: BatchFlowConfig) -> BatchResult:
 def process_single_session_task(
     subject_id: str,
     session_id: str,
-    config: SessionFlowConfig,
+    config: SessionConfig,
 ) -> SessionResult:
     """Task wrapper for process_session_flow to enable parallel execution.
 

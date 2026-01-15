@@ -7,7 +7,7 @@ At server startup (dev and prod), the effective configuration is built by mergin
 1. Base defaults from `configs/standard.toml`
 2. Project overrides from `<experiment_root>/configuration.toml`
 
-Only the non-path sections are passed into Prefect as the `SessionFlowConfig` parameter.
+Only the non-path sections are passed into Prefect as the `SessionConfig` parameter.
 Filesystem roots are provided via environment variables at runtime.
 
 ## Runtime filesystem roots (environment variables)

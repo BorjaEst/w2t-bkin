@@ -16,11 +16,11 @@ import pytest
 class TestConfigLoading:
     """Test configuration file loading and parsing."""
 
-    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionFlowConfig + env vars")
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionConfig + env vars")
     def test_Should_LoadValidConfig_When_ValidTOMLProvided(self):
         """Should successfully load a valid config.toml file.
         
-        DEPRECATED: load_config() removed. Use SessionFlowConfig directly.
+        DEPRECATED: load_config() removed. Use SessionConfig directly.
         """
         from w2t_bkin.config import load_config
 
@@ -30,11 +30,11 @@ class TestConfigLoading:
         assert config.paths.raw_root == Path("tests/fixtures/data/raw").resolve()
         assert config.synchronization.strategy == "hardware_pulse"
 
-    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionFlowConfig + env vars")
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionConfig + env vars")
     def test_Should_RejectConfig_When_MissingRequiredKey(self):
         """Should reject config missing required key (A13).
         
-        DEPRECATED: load_config() removed. Use SessionFlowConfig directly.
+        DEPRECATED: load_config() removed. Use SessionConfig directly.
         """"
         from w2t_bkin.config import load_config
 
@@ -43,11 +43,11 @@ class TestConfigLoading:
         with pytest.raises((ValidationError, KeyError)):
             load_config(config_path)
 
-    @pytest.mark.skip(reason="Config class removed - SessionFlowConfig validates via Pydantic extra='forbid'")
+    @pytest.mark.skip(reason="Config class removed - SessionConfig validates via Pydantic extra='forbid'")
     def test_Should_RejectConfig_When_ExtraKeyPresent(self):
         """Should reject config with extra key not in schema (A13).
         
-        DEPRECATED: Config class removed. Use SessionFlowConfig for runtime validation.
+        DEPRECATED: Config class removed. Use SessionConfig for runtime validation.
         """"
         from w2t_bkin.config import AlignmentConfig, Config, SynchronizationConfig
 
