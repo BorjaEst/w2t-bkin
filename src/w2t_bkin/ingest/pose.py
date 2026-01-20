@@ -22,7 +22,9 @@ Re-exported ndx-pose classes:
 
 import logging
 from pathlib import Path
+import threading
 from typing import Dict, List, Literal, Optional, Tuple, Union
+import uuid
 
 import h5py
 from ndx_pose import PoseEstimation, PoseEstimationSeries, Skeleton, Skeletons
@@ -34,6 +36,12 @@ from w2t_bkin.exceptions import PoseError
 from w2t_bkin.utils import derive_bodyparts_from_data, log_missing_keypoints, normalize_keypoints_to_dict
 
 logger = logging.getLogger(__name__)
+
+# NOTE: PyTables / h5py rely on libhdf5 which is frequently not thread-safe.
+# When Prefect runs multiple tasks in a single process (threaded task runner),
+# concurrent HDF5 reads can segfault. We serialize all HDF5 IO to keep workers
+# stable.
+_HDF5_IO_LOCK = threading.Lock()
 
 
 class PoseMetadata:
@@ -178,7 +186,8 @@ def import_dlc_pose(h5_path: Path, mapping: Optional[Dict[str, str]] = None) -> 
         raise PoseError(f"DLC H5 file not found: {h5_path}")
 
     try:
-        df = pd.read_hdf(h5_path)
+        with _HDF5_IO_LOCK:
+            df = pd.read_hdf(h5_path)
 
         # Extract metadata from MultiIndex columns
         scorer = df.columns.levels[0][0]  # First level is scorer
@@ -280,30 +289,31 @@ def import_sleap_pose(h5_path: Path, mapping: Optional[Dict[str, str]] = None) -
         raise PoseError(f"SLEAP H5 file not found: {h5_path}")
 
     try:
-        with h5py.File(h5_path, "r") as f:
-            # Read datasets
-            node_names_raw = f["node_names"][:]
-            # Decode bytes to strings if necessary
-            node_names = [name.decode("utf-8") if isinstance(name, bytes) else str(name) for name in node_names_raw]
+        with _HDF5_IO_LOCK:
+            with h5py.File(h5_path, "r") as f:
+                # Read datasets
+                node_names_raw = f["node_names"][:]
+                # Decode bytes to strings if necessary
+                node_names = [name.decode("utf-8") if isinstance(name, bytes) else str(name) for name in node_names_raw]
 
-            points = f["instances/points"][:]  # (frames, instances, nodes, 2)
-            scores = f["instances/point_scores"][:]  # (frames, instances, nodes)
+                points = f["tracks"][:]  # (n_instances, n_coords, n_nodes, n_frames)
+                scores = f["point_scores"][:]  # (n_instances, n_nodes, n_frames)
 
-            # Try to extract model name from provenance (if available)
-            model_name = "unknown"
-            version = None
-            if "provenance" in f.attrs:
-                provenance = f.attrs["provenance"]
-                if isinstance(provenance, bytes):
-                    provenance = provenance.decode("utf-8")
-                # Simple extraction - could be enhanced
-                if "model" in str(provenance).lower():
-                    model_name = "SLEAP_model"
+                # Try to extract model name from provenance (if available)
+                model_name = "unknown"
+                version = None
+                if "provenance" in f.attrs:
+                    provenance = f.attrs["provenance"]
+                    if isinstance(provenance, bytes):
+                        provenance = provenance.decode("utf-8")
+                    # Simple extraction - could be enhanced
+                    if "model" in str(provenance).lower():
+                        model_name = "SLEAP_model"
 
-            logger.debug(f"Found {len(node_names)} SLEAP nodes: {node_names}")
+                logger.debug(f"Found {len(node_names)} SLEAP nodes: {node_names}")
 
         frames = []
-        n_frames, n_instances, n_nodes, n_coords = points.shape
+        n_instances, n_coords, n_nodes, n_frames = points.shape
 
         # Validate coordinate dimensions (2D for now, but structured for 3D extension)
         if n_coords not in [2, 3]:
@@ -315,9 +325,9 @@ def import_sleap_pose(h5_path: Path, mapping: Optional[Dict[str, str]] = None) -
             # Handle first instance only (single animal)
             # For multi-animal support, would need to iterate over instances
             for node_idx, node_name in enumerate(node_names):
-                x = points[frame_idx, 0, node_idx, 0]
-                y = points[frame_idx, 0, node_idx, 1]
-                confidence = scores[frame_idx, 0, node_idx]
+                x = points[0, 0, node_idx, frame_idx]
+                y = points[0, 1, node_idx, frame_idx]
+                confidence = scores[0, node_idx, frame_idx]
 
                 # Skip invalid points (NaN or zero score)
                 if np.isnan(x) or np.isnan(y) or confidence == 0:
@@ -568,7 +578,7 @@ def build_pose_estimation_series(
 def build_pose_estimation(
     data: Tuple[List[Dict], PoseMetadata],
     reference_times: List[float],
-    skeleton: Skeleton,
+    skeleton: Optional[Skeleton] = None,
     original_videos: Optional[List[str]] = None,
     labeled_videos: Optional[List[str]] = None,
     dimensions: Optional[np.ndarray] = None,
@@ -587,9 +597,11 @@ def build_pose_estimation(
               keypoints, and metadata contains scorer, confidence_definition, etc.
               Bodyparts are auto-detected from the pose_data.
         reference_times: Timestamps for each frame (must match frame count)
-        skeleton: Pre-created Skeleton object with nodes matching bodyparts.
-                  Use create_skeleton() to create this. The skeleton name is used
-                  to construct the PoseEstimation name and description.
+        skeleton: Optional pre-created Skeleton object with nodes matching bodyparts.
+              If None, a Skeleton is auto-created from the detected bodyparts
+              with empty edges and a deterministic uuid5-derived name.
+              The skeleton name is used to construct the PoseEstimation name
+              and description.
         original_videos: Paths to original video files (can be multiple videos)
         labeled_videos: Paths to labeled video files (can be multiple videos)
         dimensions: Video dimensions array shape (n_videos, 2)
@@ -641,17 +653,24 @@ def build_pose_estimation(
     if not bodyparts:
         raise PoseError("No bodyparts found in pose data")
 
-    # Validate skeleton nodes match bodyparts
-    skeleton_nodes = skeleton.nodes
-    if not all(bp in skeleton_nodes for bp in bodyparts):
-        missing = set(bodyparts) - set(skeleton_nodes)
-        raise PoseError(f"Skeleton missing required bodyparts: {missing}")
-
     # Extract metadata (all required fields from PoseMetadata)
     confidence_definition = metadata.confidence_definition
     scorer = metadata.scorer
     source_software = metadata.source_software
     source_software_version = metadata.source_software_version or "unknown"
+
+    # Ensure PoseEstimation always has a non-None skeleton.
+    # ndx-pose PoseEstimation.nodes/edges dereference PoseEstimation.skeleton.
+    if skeleton is None:
+        key = f"w2t_bkin|pose|{source_software}|{source_software_version}|{scorer}|{','.join(bodyparts)}"
+        skel_id = uuid.uuid5(uuid.NAMESPACE_URL, key).hex[:8]
+        skeleton = create_skeleton(name=f"subject_{skel_id}", nodes=bodyparts, edges=[])
+    else:
+        # Validate provided skeleton nodes match detected bodyparts
+        skeleton_nodes = skeleton.nodes
+        if not all(bp in skeleton_nodes for bp in bodyparts):
+            missing = set(bodyparts) - set(skeleton_nodes)
+            raise PoseError(f"Skeleton missing required bodyparts: {missing}")
 
     # Convert reference_times to numpy array
     timestamps_array = np.array(reference_times, dtype=float)

@@ -545,6 +545,39 @@ class TestPoseEstimation:
         # Should have auto-detected 2 bodyparts
         assert len(pe.pose_estimation_series) == 2
 
+    def test_build_pose_estimation_skeleton_optional_autocreate(self, sample_pose_data, sample_metadata):
+        """Test that skeleton can be omitted and is auto-created deterministically."""
+        timestamps = [0.0, 0.033, 0.066]
+
+        pe1 = build_pose_estimation(
+            data=(sample_pose_data, sample_metadata),
+            reference_times=timestamps,
+            skeleton=None,
+        )
+        pe2 = build_pose_estimation(
+            data=(sample_pose_data, sample_metadata),
+            reference_times=timestamps,
+            skeleton=None,
+        )
+
+        assert pe1.skeleton is not None
+        assert list(pe1.skeleton.nodes) == sorted(sample_metadata.bodyparts)
+        assert pe1.skeleton.name == pe2.skeleton.name
+        assert pe1.name == f"PoseEstimation_{pe1.skeleton.name}"
+
+    def test_build_pose_estimation_preserves_provided_skeleton(self, sample_pose_data, sample_metadata, sample_skeleton):
+        """Test that provided skeleton is preserved when passed."""
+        timestamps = [0.0, 0.033, 0.066]
+
+        pe = build_pose_estimation(
+            data=(sample_pose_data, sample_metadata),
+            reference_times=timestamps,
+            skeleton=sample_skeleton,
+        )
+
+        assert pe.skeleton.name == "test_skeleton"
+        assert pe.name == "PoseEstimation_test_skeleton"
+
 
 # ============================================================================
 # Integration Tests

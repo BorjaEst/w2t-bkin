@@ -10,6 +10,7 @@ from pynwb import NWBFile
 
 from w2t_bkin.config import SessionConfig
 from w2t_bkin.metadata import BpodSyncTrialTypeMeta, Metadata
+from w2t_bkin.utils import convert_matlab_struct
 
 
 @dataclass
@@ -173,7 +174,7 @@ class BpodData:
     @property
     def n_trials(self) -> int:
         """Number of trials in the session."""
-        session_data = self.data.get("SessionData", {})
+        session_data = convert_matlab_struct(self.data.get("SessionData", {}))
         return int(session_data.get("nTrials", 0))
 
 
