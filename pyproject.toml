@@ -32,6 +32,7 @@ dependencies = [
     "prefect~=3.6.0",
     "prefect-docker~=0.7.0",
     "asyncpg~=0.29.0",
+    "scipy~=1.15.0",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,6 @@ worker = [
     # "facemap~=1.0.0",
     # "deeplabcut[tf]~=2.3.0",
     "ffmpeg-python~=0.2.0",
-    "scipy~=1.15.0",
     "pandas~=2.3.0",
     "h5py~=3.15.0",
     "tables~=3.8.0",
