@@ -511,9 +511,6 @@ def add_video_acquisition(
     ... )
     >>> print(nwbfile.acquisition["camera_0"])
     """
-    from pathlib import Path
-
-    from w2t_bkin import utils
 
     # For multiple video files, compute starting_frame indices
     # PyNWB requires starting_frame array when external_file has multiple files

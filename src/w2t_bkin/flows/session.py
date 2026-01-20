@@ -232,11 +232,14 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
         logger.info("Skipping pose estimation data assembly into NWB")
     else:
         logger.info("Assembling pose estimation data into NWB")
-        assembly_tasks.assemble_pose_estimation(nwbfile, bpod_data, pose_data, config.assembly)
+        assembly_tasks.assemble_pose_estimation(nwbfile, pose_data, video_data, ttl_data, config.assembly)
 
     # Assemble Video data
     if config.assembly.videos.mode == "skip":
         logger.info("Skipping video data assembly into NWB")
+    elif config.assembly.videos.mode == "link":
+        logger.info("Assembling linked video data into NWB")
+        assembly_tasks.assemble_linked_videos_into_nwb(nwbfile, video_data, config.assembly)
     else:
         logger.info("Assembling video data into NWB")
         assembly_tasks.assemble_videos_into_nwb(nwbfile, video_data, config.assembly)
@@ -262,7 +265,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
 
     # Generate alignment statistics
     if config.finalization.alignment_stats and offsets and data.get("ttl"):
-        alignment_stats = finalization_tasks.compute_alignment_stats_task(offsets, data.get("ttl", {}))
+        alignment_stats = sync_tasks.compute_alignment_stats_task(offsets, data.get("ttl", {}))
         logger.info("Computed alignment statistics for NWB")
     else:
         alignment_stats = None
