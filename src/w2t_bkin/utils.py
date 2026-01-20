@@ -50,6 +50,7 @@ Video Analysis:
 
 Logging:
 - configure_logger: Set up structured or standard logging
+- PrefectFlowRunFilter: Filter log records by Prefect flow-run context (prevents cross-session contamination)
 
 Requirements:
 -------------
@@ -731,6 +732,63 @@ def read_json(path: Union[str, Path]) -> Dict[str, Any]:
         return json.load(f)
 
 
+class PrefectFlowRunFilter(logging.Filter):
+    """Logging filter that accepts only records from a specific Prefect flow run.
+
+    Prevents cross-session log contamination when multiple sessions run concurrently
+    in the same worker process. Each session's pipeline.log file handler is bound to
+    its flow-run context via this filter.
+
+    Logs emitted outside any Prefect flow-run context are rejected (they remain in
+    Prefect's run logs but don't pollute session-specific files).
+
+    Args:
+        flow_run_id: The Prefect flow run ID to accept records from.
+                     If None, accepts all records (no filtering).
+
+    Example:
+        >>> from prefect.context import get_run_context
+        >>> ctx = get_run_context()
+        >>> flow_run_filter = PrefectFlowRunFilter(ctx.flow_run.id)
+        >>> handler.addFilter(flow_run_filter)
+    """
+
+    def __init__(self, flow_run_id: Optional[str] = None):
+        super().__init__()
+        self.flow_run_id = flow_run_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Accept record only if it originates from our flow-run context.
+
+        Args:
+            record: Log record to evaluate
+
+        Returns:
+            True if record should be logged, False otherwise
+        """
+        # If no flow_run_id set, accept all records (fallback for non-Prefect usage)
+        if self.flow_run_id is None:
+            return True
+
+        try:
+            # Import here to avoid hard dependency on prefect for utils module
+            from prefect.runtime import flow_run
+
+            # Get current flow run ID from runtime (works in tasks/threads)
+            current_id = flow_run.id
+            if current_id is None:
+                # No flow run context available
+                return False
+
+            # Accept record only if it's from our flow run
+            # Convert both to string to handle UUID vs str comparison
+            return str(current_id) == str(self.flow_run_id)
+        except Exception:
+            # No Prefect runtime available (import-time logs, background threads, etc.)
+            # Reject these records; they'll still appear in Prefect run logs
+            return False
+
+
 def configure_logger(name: str, level: str = "INFO", structured: bool = False) -> logging.Logger:
     """Configure logger with specified settings.
 
@@ -1143,98 +1201,24 @@ def count_ttl_pulses(ttl_path: Path) -> int:
         return 0
 
 
-def load_session_metadata_and_nwb(
-    config: "Config",
-    subject_id: str,
-    session_id: str,
-) -> tuple[Dict[str, Any], NWBFile]:
-    """Load hierarchical metadata and create NWBFile for a session.
-
-    This is a convenience function for the pipeline that:
-    1. Builds the metadata path list from config and session identifiers
-    2. Loads and merges metadata hierarchically
-    3. Creates an NWBFile from the merged metadata
-
-    Parameters
-    ----------
-    config : Config
-        Pipeline configuration
-    subject_id : str
-        Subject identifier (directory name)
-    session_id : str
-        Session identifier (directory name)
-
-    Returns
-    -------
-    tuple[Dict[str, Any], NWBFile]
-        Merged metadata dictionary and created NWBFile
-
-    Raises
-    ------
-    ValueError
-        If no metadata files are found
-    FileNotFoundError
-        If a metadata file in the path list doesn't exist
-
-    Example
-    -------
-    >>> from w2t_bkin.config import load_config
-    >>> from w2t_bkin.utils import load_session_metadata_and_nwb
-    >>>
-    >>> config = load_config("config.toml")
-    >>> metadata, nwbfile = load_session_metadata_and_nwb(
-    ...     config=config,
-    ...     subject_id="subject_01",
-    ...     session_id="session_01"
-    ... )
-    >>> print(f"NWB identifier: {nwbfile.identifier}")
-    """
-    # Import here to avoid circular dependency
-    from w2t_bkin.core.session import build_metadata_paths, create_nwb_file, load_metadata
-
-    # Build metadata paths
-    metadata_paths = build_metadata_paths(
-        raw_root=config.paths.raw_root,
-        subject_id=subject_id,
-        session_id=session_id,
-        root_metadata=config.paths.root_metadata,
-    )
-
-    if not metadata_paths:
-        raise ValueError(
-            f"No metadata files found for subject '{subject_id}', session '{session_id}'. "
-            f"Expected at least one of: root_metadata, raw_root/metadata.toml, "
-            f"raw_root/{subject_id}/subject.toml, raw_root/{subject_id}/{session_id}/session.toml"
-        )
-
-    # Load and merge metadata
-    metadata = load_metadata(metadata_paths)
-
-    # Create NWBFile
-    nwbfile = create_nwb_file(metadata)
-
-    return metadata, nwbfile
-
-
-def discover_sessions(
-    config_path: Union[str, Path],
+def discover_sessions_in_raw_root(
+    raw_root: Path,
     subject_filter: Optional[str] = None,
     session_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Discover all available subject/session combinations in the raw data directory.
+    """Discover sessions in raw data directory with glob pattern support.
 
-    Scans the raw_root directory and returns a list of valid subject/session
-    combinations that can be processed by the pipeline. A valid session must
-    have either a session.toml or metadata.toml file.
+    Scans the raw_root directory and returns valid subject/session combinations.
+    A valid session must have either a session.toml or metadata.toml file.
 
     Parameters
     ----------
-    config_path : Union[str, Path]
-        Path to configuration TOML file
+    raw_root : Path
+        Raw data root directory
     subject_filter : Optional[str], optional
-        Filter results to specific subject ID only (default: None)
+        Glob pattern to filter subjects (e.g., 'subject-*', 'SNA-*')
     session_filter : Optional[str], optional
-        Filter results to specific session ID only (default: None)
+        Glob pattern to filter sessions (e.g., 'session-001', '2024-*')
 
     Returns
     -------
@@ -1247,38 +1231,29 @@ def discover_sessions(
 
     Raises
     ------
-    FileNotFoundError
-        If config file does not exist
     ValueError
         If raw_root does not exist
 
     Example
     -------
     >>> from pathlib import Path
-    >>> from w2t_bkin.utils import discover_sessions
+    >>> from w2t_bkin.utils import discover_sessions_in_raw_root
     >>>
     >>> # Discover all sessions
-    >>> sessions = discover_sessions("config.toml")
-    >>> print(f"Found {len(sessions)} sessions")
+    >>> sessions = discover_sessions_in_raw_root(Path("data/raw"))
     >>>
-    >>> # Filter by subject
-    >>> sessions = discover_sessions("config.toml", subject_filter="subject-001")
-    >>>
-    >>> # Process all sessions
-    >>> for item in sessions:
-    ...     print(f"Processing {item['subject']}/{item['session']}")
-    ...     # run_pipeline(config, item['subject'], item['session'])
+    >>> # Filter by glob pattern
+    >>> sessions = discover_sessions_in_raw_root(
+    ...     Path("data/raw"),
+    ...     subject_filter="subject-*",
+    ...     session_filter="2024-*"
+    ... )
     """
-    from w2t_bkin.config import load_config
-
-    # Load configuration
-    config = load_config(Path(config_path))
-    raw_root = config.paths.raw_root
+    from fnmatch import fnmatch
 
     if not raw_root.exists():
         raise ValueError(f"raw_root does not exist: {raw_root}")
 
-    # Discover subjects and sessions
     discoveries = []
 
     # Iterate through subjects
@@ -1290,8 +1265,8 @@ def discover_sessions(
 
         subject_id = subject_dir.name
 
-        # Apply subject filter
-        if subject_filter and subject_id != subject_filter:
+        # Apply subject filter (glob pattern)
+        if subject_filter and not fnmatch(subject_id, subject_filter):
             continue
 
         # Check for subject.toml
@@ -1307,8 +1282,8 @@ def discover_sessions(
 
             session_id = session_dir.name
 
-            # Apply session filter
-            if session_filter and session_id != session_filter:
+            # Apply session filter (glob pattern)
+            if session_filter and not fnmatch(session_id, session_filter):
                 continue
 
             # Check for session metadata (session.toml or metadata.toml)
@@ -1328,3 +1303,53 @@ def discover_sessions(
                 )
 
     return discoveries
+
+
+def discover_sessions(
+    config_path: Union[str, Path],
+    subject_filter: Optional[str] = None,
+    session_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Discover sessions from config file (CLI convenience wrapper).
+
+    Loads configuration from TOML file and delegates to discover_sessions_in_raw_root.
+
+    Parameters
+    ----------
+    config_path : Union[str, Path]
+        Path to configuration TOML file
+    subject_filter : Optional[str], optional
+        Glob pattern to filter subjects (e.g., 'subject-*')
+    session_filter : Optional[str], optional
+        Glob pattern to filter sessions (e.g., 'session-001')
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        List of session dictionaries (see discover_sessions_in_raw_root)
+
+    Raises
+    ------
+    FileNotFoundError
+        If config file does not exist
+    ValueError
+        If raw_root does not exist
+
+    Example
+    -------
+    >>> from w2t_bkin.utils import discover_sessions
+    >>>
+    >>> # Discover all sessions
+    >>> sessions = discover_sessions("config.toml")
+    >>>
+    >>> # Filter by glob pattern
+    >>> sessions = discover_sessions("config.toml", subject_filter="subject-*")
+    """
+    from w2t_bkin.config import load_config
+
+    config = load_config(Path(config_path))
+    return discover_sessions_in_raw_root(
+        raw_root=config.paths.raw_root,
+        subject_filter=subject_filter,
+        session_filter=session_filter,
+    )

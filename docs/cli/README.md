@@ -1,329 +1,101 @@
 # CLI Reference
 
-## W2T-BKIN Command Line Interface
+The `w2t-bkin` command is a thin UI over Prefect flows and data-management helpers.
 
-The w2t-bkin CLI provides a user-friendly interface to the Prefect-based data processing pipeline. All commands are thin wrappers around Prefect flows, ensuring consistency between CLI and programmatic usage.
+## Data management
 
-## Command Structure
+### Initialize experiment workspace
 
 ```bash
-w2t-bkin [COMMAND] [ARGS] [OPTIONS]
+w2t-bkin data init /data/my-experiment -y --lab "Larkum Lab" --institution "HU Berlin" --experimenters "Alice,Bob"
 ```
 
-### Main Commands
+Creates:
 
-- **`discover`** - List available sessions
-- **`validate`** - Validate NWB file
-- **`inspect`** - Inspect NWB file contents
-- **`version`** - Show version information
+- `data/raw/`, `data/interim/`, `data/processed/`, `data/external/`
+- `models/`
+- `configuration.toml`
+- `.workers/.env` and `.workers/.env.dev` (unless `--skip-docker-env`)
 
-> **Note:** The `run` and `batch` commands are not available in the CLI. They exist in `w2t_bkin.cli.pipeline` as Python functions for programmatic use but require `[worker]` extras. For processing sessions, use the Prefect UI (see below).
-
-### Data Management Commands
-
-- **`data init`** - Initialize experiment structure
-- **`data add-subject`** - Add subject to experiment
-- **`data add-session`** - Add session for subject
-- **`data import-raw`** - Import existing raw data (safe symlinks)
-- **`data validate`** - Validate experiment folder structure
-
-### Quick Start
-
-### Process Sessions via Prefect UI
+### Add a subject
 
 ```bash
-# 1. Start the Prefect server with deployments
+w2t-bkin data add-subject /data/my-experiment SNA-000000 --sex F --age P90D -y
+```
+
+### Add a session
+
+```bash
+w2t-bkin data add-session /data/my-experiment SNA-000000 day1 --description "Baseline" --experimenter Alice -y
+```
+
+### Import existing raw data (symlinks)
+
+Dry-run:
+
+```bash
+w2t-bkin data import-raw /path/to/raw -e /data/my-experiment -s SNA-000000 --session day1
+```
+
+Execute:
+
+```bash
+w2t-bkin data import-raw /path/to/raw -e /data/my-experiment -s SNA-000000 --session day1 --confirm
+```
+
+### Validate structure
+
+```bash
+w2t-bkin data validate /data/my-experiment
+```
+
+## Orchestration (Prefect)
+
+### Start server
+
+From the experiment root:
+
+```bash
 w2t-bkin server start
-
-# 2. In a new terminal, start workers (requires pip install w2t-bkin[worker])
-prefect worker start --pool default-pool --type process
-
-# 3. Open browser at http://localhost:4200
-# 4. Navigate to Deployments → process-session or batch-process
-# 5. Click "Run" and configure parameters in the UI
 ```
 
-### Initialize New Experiment
+Development mode (runs flows locally, no worker required):
 
 ```bash
-w2t-bkin data init /data/my-experiment \
-  --lab "Larkum Lab" \
-  --institution "HU Berlin" \
-  --experimenters "Alice,Bob"
-```
-
-### Discover Available Sessions
-
-```bash
-# List all sessions (JSON format)
-w2t-bkin discover config.toml
-
-# Human-readable table
-w2t-bkin discover config.toml --format plain
-
-# Tab-separated for piping to tools
-w2t-bkin discover config.toml --format tsv
-```
-
-## Documentation Structure
-
-- **[Pipeline Commands](pipeline-commands.md)** - discover, version, server management
-- **[Validation Commands](validation.md)** - validate, inspect
-- **[Data Management](data-management.md)** - init, add-subject, add-session, import-raw, validate
-
-> **Note:** Session processing (`run`/`batch`) happens through the Prefect UI, not CLI commands. See [Pipeline Commands](pipeline-commands.md) for details.
-
-## Getting Help
-
-```bash
-# Show all commands
-w2t-bkin --help
-
-# Show command-specific help
-w2t-bkin run --help
-w2t-bkin data --help
-w2t-bkin data init --help
-```
-
-### Server Management Commands
-
-- **`server start`** - Start Prefect server and create deployments
-- **`server stop`** - Stop the running Prefect server
-- **`server status`** - Check if Prefect server is running
-- **`server restart`** - Restart Prefect server
-
-## Starting the Prefect Server
-
-The server command starts a local Prefect server and automatically creates workflow deployments:
-
-```bash
-# Production mode (uses Docker workers - start workers separately)
-w2t-bkin server start
-
-# Development mode (runs flows locally with Runner - requires worker extras)
 w2t-bkin server start --dev
-
-# Start with custom config
-w2t-bkin server start --config configs/custom.toml
-
-# Start with custom port
-w2t-bkin server start --port 5000
-
-# Check server status
-w2t-bkin server status
-
-# Stop server
-w2t-bkin server stop
 ```
 
-**Starting Workers (Production Mode):**
+Useful commands:
 
-After starting the server, start Prefect workers in a new terminal:
+- `w2t-bkin server status`
+- `w2t-bkin server stop`
+- `w2t-bkin server restart`
+- `w2t-bkin server reset -y`
+
+### Start worker
+
+Production Docker worker:
 
 ```bash
-# Option 1: Use Prefect CLI directly (requires worker extras installed)
-prefect worker start --pool default-pool --type process
-
-# Option 2: Use Docker with worker image (recommended for production)
-# See docker/README.md for complete Docker worker setup instructions
-docker run --rm -d \
-  --name w2t-worker \
-  -v /path/to/data:/data \
-  -e PREFECT_API_URL="http://host.docker.internal:4200/api" \
-  w2t-bkin-worker:latest
+w2t-bkin worker start --pool docker-pool --type docker --limit 1
 ```
 
-> **⚠️ Important:** The `w2t-bkin worker` command does not exist. You must use `prefect worker start` or Docker directly.
-
-After starting workers, use the Prefect UI at http://localhost:4200 to trigger workflows.
-
-## CLI vs Prefect UI vs Python API
-
-Choose the right interface for your workflow:
-
-| Interface            | Best For                                                                    | Advantages                                                                                | Limitations                                                               |
-| -------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **CLI (`w2t-bkin`)** | • Project setup<br>• Quick tests<br>• Single sessions<br>• Debugging        | • Fast to use<br>• No browser needed<br>• Scriptable<br>• Immediate feedback              | • Limited parallelism<br>• No visual monitoring<br>• Manual batch control |
-| **Prefect UI**       | • Production runs<br>• Batch processing<br>• Team workflows<br>• Monitoring | • Visual progress<br>• Real-time logs<br>• Retry management<br>• True parallelism         | • Requires server start<br>• Browser-based                                |
-| **Python API**       | • Custom workflows<br>• Jupyter notebooks<br>• Integration<br>• Automation  | • Full flexibility<br>• Programmatic control<br>• Custom parameters<br>• Embedded in code | • Requires Python knowledge<br>• No built-in UI<br>• Manual orchestration |
-
-### Decision Guide
-
-**Use CLI when**:
-
-- ✅ Setting up a new experiment (`w2t-bkin data init`)
-- ✅ Adding subjects/sessions (`w2t-bkin data add-subject`)
-- ✅ Discovering available sessions (`w2t-bkin discover`)
-- ✅ Quick validation (`w2t-bkin validate`)
-- ✅ Inspecting NWB files (`w2t-bkin inspect`)
-- ✅ Starting/stopping Prefect server (`w2t-bkin server start/stop`)
-
-**Use Prefect UI when**:
-
-- ✅ Processing 10+ sessions in parallel
-- ✅ Monitoring long-running jobs
-- ✅ Team needs to see pipeline status
-- ✅ Want automatic retries on failures
-- ✅ Need execution history and logs
-- ✅ Production deployments
-
-**Use Python API when**:
-
-- ✅ Building custom analysis pipelines
-- ✅ Integrating w2t-bkin into larger workflows
-- ✅ Working in Jupyter notebooks
-- ✅ Need programmatic parameter control
-- ✅ Automating complex batch logic
-
-### Example Workflows
-
-#### Workflow 1: New Experiment Setup (CLI)
+Local process worker (requires worker extras):
 
 ```bash
-# Initialize experiment structure
-w2t-bkin data init /data/experiment-2024 \
-  --lab "Neuroscience Lab" \
-  --institution "University" \
-  -y
-
-# Add subjects
-w2t-bkin data add-subject /data/experiment-2024 mouse-001 --species "Mus musculus" -y
-w2t-bkin data add-subject /data/experiment-2024 mouse-002 --species "Mus musculus" -y
-
-# Add sessions
-w2t-bkin data add-session /data/experiment-2024 mouse-001 session-001 -y
-w2t-bkin data add-session /data/experiment-2024 mouse-001 session-002 -y
-
-# Import raw data files
-w2t-bkin data import-raw /data/experiment-2024 mouse-001 session-001 /source/videos
-
-# Start Prefect server
-cd /data/experiment-2024
-w2t-bkin server start
-
-# In a new terminal, start workers (requires worker extras: pip install w2t-bkin[worker])
-prefect worker start --pool default-pool --type process
-
-# Opens browser at http://localhost:4200 - use UI to trigger workflows
+w2t-bkin worker start --pool default-pool --type process --limit 1
 ```
 
-#### Workflow 2: Production Batch Processing (Prefect UI)
+## Discovery
 
 ```bash
-# Start server
-cd /data/experiment-2024
-w2t-bkin server start
-
-# In a new terminal, start workers for parallel processing
-# Requires worker extras: pip install w2t-bkin[worker]
-prefect worker start --pool default-pool --type process --limit 4
-
-# Server automatically:
-# - Creates deployments (process-session, batch-process)
-# - Opens browser at http://localhost:4200
-
-# In Prefect UI:
-# Navigate to Deployments → batch-process
-# Set parameters via UI (config path, filters, max_parallel)
-# Click Run
-# Monitor progress in Flow Runs tab
+w2t-bkin discover /data/my-experiment --format plain
+w2t-bkin discover /data/my-experiment --subject SNA-000000
 ```
 
-#### Workflow 3: Custom Analysis Pipeline (Python API)
+## NWB utilities
 
-```python
-from w2t_bkin.flows import process_session_flow, SessionFlowConfig
-from w2t_bkin.utils import discover_sessions
-
-# Discover sessions
-sessions = discover_sessions("config.toml", subject_filter="mouse-00[1-3]")
-
-# Custom processing logic
-results = []
-for session in sessions:
-    config = SessionFlowConfig(
-        config_path="config.toml",
-        subject_id=session["subject"],
-        session_id=session["session"],
-        skip_pose=True,  # Already have poses
-        skip_nwb_validation=True  # Speed up for testing
-    )
-
-    result = process_session_flow(config)
-    results.append(result)
-
-# Custom analysis on results
-successful = [r for r in results if r.success]
-print(f"Processed {len(successful)}/{len(results)} sessions")
+```bash
+w2t-bkin validate data/processed/SNA-000000/day1/day1.nwb
+w2t-bkin inspect data/processed/SNA-000000/day1/day1.nwb
 ```
-
-### Migration Path
-
-Start with CLI for setup, use Prefect UI for production:
-
-1. **Initial Setup**: Use CLI to create experiment structure
-
-   ```bash
-   w2t-bkin data init /data/experiment
-   w2t-bkin data add-subject ...
-   w2t-bkin data add-session ...
-   ```
-
-2. **Verify Setup**: Discover available sessions
-
-   ```bash
-   w2t-bkin discover config.toml --format plain
-   ```
-
-3. **Production Processing**: Start server/workers and use Prefect UI
-
-   ```bash
-   # Terminal 1: Start server
-   w2t-bkin server start
-
-   # Terminal 2: Start workers (requires pip install w2t-bkin[worker])
-   prefect worker start --pool default-pool --type process
-
-   # Browser: http://localhost:4200
-   # Use UI to run process-session or batch-process deployment
-   ```
-
-## Design Philosophy
-
-The CLI follows these principles:
-
-1. **Thin Layer**: CLI is purely presentational - all logic in flows/operations
-2. **Prefect-First**: Commands invoke Prefect flows for consistency
-3. **User-Friendly**: Rich output, clear error messages, helpful hints
-4. **Safe Defaults**: Dry-run modes, confirmations for destructive operations
-
-## Architecture
-
-```text
-┌─────────────────────────────────────────┐
-│           CLI Layer (Typer)             │
-│  • Argument parsing                     │
-│  • User interaction (Rich)              │
-│  • Output formatting                    │
-└──────────────┬──────────────────────────┘
-               │ invokes
-┌──────────────▼──────────────────────────┐
-│       Flows Layer (Prefect)             │
-│  • process_session_flow()               │
-│  • batch_process_flow()                 │
-│  • Orchestration & retries              │
-└──────────────┬──────────────────────────┘
-               │ calls
-┌──────────────▼──────────────────────────┐
-│    Operations Layer (Pure Functions)    │
-│  • Business logic                       │
-│  • Data transformations                 │
-│  • NWB construction                     │
-└─────────────────────────────────────────┘
-```
-
-## Next Steps
-
-- Review [Pipeline Commands](pipeline-commands.md) for session processing
-- Review [Data Management](data-management.md) for experiment setup
-- Review [Validation Commands](validation.md) for NWB validation

@@ -13,7 +13,7 @@ from w2t_bkin.models import BpodData, PoseData, TTLData
 logger = logging.getLogger(__name__)
 
 
-def assemble_behavior_tables(nwbfile: NWBFile, bpod_data: BpodData, trial_offsets: List[float]) -> Tuple[Any, Any, Any]:
+def assemble_behavior_tables(nwbfile: NWBFile, bpod_data: BpodData, trial_offsets: Dict[int, float]) -> Tuple[Any, Any, Any]:
     """Assemble behavior tables (states, events, actions) and add to NWB file.
 
     Pure function that extracts behavioral data and builds NWB structures.
@@ -22,7 +22,7 @@ def assemble_behavior_tables(nwbfile: NWBFile, bpod_data: BpodData, trial_offset
     Args:
         nwbfile: NWB file object to modify
         bpod_data: Parsed Bpod data
-        trial_offsets: Trial offset times for alignment
+        trial_offsets: Dict mapping trial_number -> absolute time offset
 
     Returns:
         Tuple of (trials_table, task_recording, task) objects
@@ -105,16 +105,21 @@ def assemble_pose_estimation(
     Pure function that builds PoseEstimation objects and adds to behavior module.
     Modifies nwbfile in place.
 
+    Multi-video handling: For cameras with multiple video chunks (e.g., buffer rollover),
+    each video gets its own PoseEstimation object with synchronized timestamps. This
+    effectively concatenates pose data across the session while preserving provenance
+    (original_videos field records which video each chunk came from).
+
     Args:
         nwbfile: NWB file object to modify
         camera_id: Camera identifier
-        pose_data_list: List of PoseData for this camera
+        pose_data_list: List of PoseData for this camera (one per video chunk)
         camera_config: Camera configuration (fps, ttl_id, skeleton_id)
         ttl_pulses: TTL pulse data (optional for timestamp alignment)
         skeletons_config: Skeleton definitions (optional)
 
     Returns:
-        List of created PoseEstimation objects
+        List of created PoseEstimation objects (one per video chunk)
 
     Raises:
         ValueError: If pose assembly fails

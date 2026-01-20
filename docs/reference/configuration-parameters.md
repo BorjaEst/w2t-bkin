@@ -1,579 +1,151 @@
-# Configuration Parameters Guide
+# Configuration parameters
 
-This document describes configuration parameters for the w2t-bkin pipeline. Configuration controls **HOW** the pipeline processes data.
+The runtime policy is controlled by `<experiment_root>/configuration.toml`.
 
-> **Note**: For data description parameters (cameras, TTLs, subjects), see [Metadata Parameters Guide](metadata-parameters.md).
+At server startup (dev and prod), the effective configuration is built by merging:
 
-## Configuration vs Metadata
+1. Base defaults from `configs/standard.toml`
+2. Project overrides from `<experiment_root>/configuration.toml`
 
-- **Configuration (`config.toml`)**: Pipeline behavior and processing parameters
+Only the non-path sections are passed into Prefect as the `SessionConfig` parameter.
+Filesystem roots are provided via environment variables at runtime.
 
-  - Examples: `force_rerun`, `gpu_index`, `check_sync_mismatch`, `verification` settings
-  - Location: Project root or specified via `--config` flag
-  - Scope: Project-wide processing behavior
+## Runtime filesystem roots (environment variables)
 
-- **Metadata** (`.toml` files in `data/raw/`): Data description and NWB metadata
-  - Examples: Camera paths, TTL channels, Bpod sync mappings, subject info
-  - Location: Hierarchical files in raw data directory
-  - Scope: Experiment/subject/session specific
-  - See: [Metadata Parameters Guide](metadata-parameters.md)
+These variables are required by session runs (see `build_session_info()` in `src/w2t_bkin/operations/session_info.py`).
 
-## Table of Contents
+- `W2T_RAW_ROOT` (required): root containing `data/raw/<subject>/<session>/...`
+- `W2T_INTERMEDIATE_ROOT` (required): root for intermediate artifacts, e.g. `data/interim/<subject>/<session>/...`
+- `W2T_OUTPUT_ROOT` (required): root for final outputs, e.g. `data/processed/<subject>/<session>/...`
+- `W2T_MODELS_ROOT` (optional, default `models`): root for pose models
+- `W2T_ROOT_METADATA` (optional): absolute path to a global metadata TOML applied as the lowest-precedence metadata layer
 
-- [Project Settings](#project-settings)
-- [Path Configuration](#path-configuration)
-- [Synchronization Settings](#synchronization-settings)
-- [Verification Settings](#verification-settings)
-- [Preprocessing Settings](#preprocessing-settings)
-- [Session-Level Logging](#session-level-logging)
-- [Usage Examples](#usage-examples)
+Note: `configuration.toml` may contain a `[paths]` section for deployment-time convenience, but session execution reads roots from the environment.
 
----
+## `[paths]` (deployment-time helpers)
 
-## Project Settings
+These values are used by `w2t-bkin server start` when creating deployments.
 
-### `[project]`
+- `raw_root` (Path, required if present): host path that will be exported as `W2T_RAW_ROOT`
+- `intermediate_root` (Path, required if present): host path that will be exported as `W2T_INTERMEDIATE_ROOT`
+- `output_root` (Path, required if present): host path that will be exported as `W2T_OUTPUT_ROOT`
+- `models_root` (Path, default `models`): host path exported as `W2T_MODELS_ROOT`
+- `root_metadata` (Path, optional): host path exported as `W2T_ROOT_METADATA`
 
-Basic project identification.
+## `[synchronization]`
 
-```toml
-[project]
-name = "w2t-bkin-pipeline"
-```
+Controls how timestamps are aligned across modalities.
 
-**Parameters**:
+- `strategy` (required):
+  - `rate_based`: no TTLs required; uses sampling rates
+  - `hardware_pulse`: aligns via TTL pulses
+  - `network_stream`: aligns via a streamed reference channel
+- `reference_channel` (optional/required): TTL/channel id used as the timebase
+  - Required when `strategy` is `hardware_pulse` or `network_stream`
 
-- `name` (string): Project name for identification
+### `[synchronization.alignment]`
 
----
+- `method` (required):
+  - `nearest`: snap each sample to nearest reference
+  - `linear`: linear interpolation between reference samples
+- `tolerance_s` (required, float >= 0): maximum allowed absolute alignment error (used for verification/QC)
+- `global_offset_s` (optional, default `0.0`): constant offset in seconds applied before alignment
 
-## Path Configuration
+## `[acquisition]`
 
-### `[paths]`
+Policies for multi-file acquisitions (e.g., split/rolled videos).
 
-File system paths for pipeline data organization.
+- `concat_strategy` (optional, default `ffconcat`):
+  - `ffconcat`: FFmpeg concat demuxer
+  - `streamlist`: list-based concatenation
 
-```toml
-[paths]
-raw_root = "data/raw"
-intermediate_root = "data/interim"
-output_root = "data/processed"
-models_root = "models"
-root_metadata = "config/metadata.toml"  # Optional
-```
+## `[verification]`
 
-**Parameters**:
+Runtime checks for sync and integrity.
 
-- `raw_root` (path, required): Root directory containing raw experimental data
-- `intermediate_root` (path, required): Directory for intermediate processing artifacts (DLC poses, etc.)
-- `output_root` (path, required): Directory for final NWB files and results
-- `models_root` (path, default: `"models"`): Directory containing pose estimation models
-- `root_metadata` (path, optional): Global metadata file loaded before raw_root hierarchy
+- `enabled` (optional, default `true`): master switch
+- `check_frame_counts` (optional, default `true`): count frames (accurate but may be slow)
+- `check_sync_mismatch` (optional, default `true`): compare frame counts against TTL pulse counts
+- `mismatch_tolerance_frames` (optional, default `0`, int >= 0): allowed absolute mismatch (frames)
+- `warn_on_mismatch` (optional, default `false`): warn instead of failing when within tolerance
 
-**Notes**:
+## `[bpod]`
 
-- All paths can be absolute or relative to config file location
-- Paths are resolved and validated on load
-- `root_metadata` provides a base layer for metadata hierarchy (see [Metadata Guide](metadata-parameters.md))
+Controls Bpod parsing and (optional) Bpod-to-TTL alignment rules.
 
-### Environment Variable Overrides
+- `parse` (optional, default `true`): parse Bpod MAT files if present
+- `pattern` (optional, default `Bpod/*.mat`): glob pattern for Bpod MAT files (relative to the session directory)
+- `order` (optional, default `time_asc`): sort order for multiple Bpod files: `name_asc` | `name_desc` | `time_asc` | `time_desc`
+- `continuous_time` (optional, default `true`): if true, offsets timestamps to form a continuous timeline across files
 
-Paths can be overridden using environment variables. This is particularly useful for containerized environments (e.g., Docker workers) where paths inside the container differ from the host.
+Note: if the session metadata includes a `[bpod]` section (in `metadata.toml`/`session.toml`), those values take precedence for that session.
 
-**Supported Variables:**
+### `[[bpod.sync.trial_types]]`
 
-- `W2T_RAW_ROOT`: Overrides `paths.raw_root`
-- `W2T_INTERMEDIATE_ROOT`: Overrides `paths.intermediate_root`
-- `W2T_OUTPUT_ROOT`: Overrides `paths.output_root`
-- `W2T_MODELS_ROOT`: Overrides `paths.models_root`
-- `W2T_ROOT_METADATA`: Overrides `paths.root_metadata`
+Defines how to align specific Bpod trial types to TTL channels.
 
-**Precedence:** Environment variables > `config.toml` settings.
+- `trial_type` (required, int >= 0): Bpod trial type label
+- `sync_signal` (required, str): Bpod state/event name whose onset is used for synchronization
+- `sync_ttl` (required, str): TTL id (must match `[[TTLs]].id` in metadata)
 
----
+## `[preprocessing]`
 
-## Synchronization Settings
+Optional preprocessing that creates intermediate artifacts.
 
-### `[synchronization]`
+- `force_rerun` (optional, default `false`): recompute intermediates even if cached
 
-Controls time synchronization strategy across data streams.
+### `[preprocessing.dlc]`
 
-```toml
-[synchronization]
-strategy = "hardware_pulse"
-reference_channel = "ttl_camera"
+- `enabled` (optional, default `false`): enable DLC handling
+- `mode` (optional, default `auto`): `off` | `discover` | `generate` | `auto`
+  - `discover`: ingest pre-existing DLC H5 files (stem-based discovery)
+  - `generate`: run DLC inference (requires `metadata.pose.cameras` + `metadata.pose.models`)
+  - `auto`: `generate` if `metadata.pose.models` exists, otherwise `discover`
+- `gpu` (optional, int): GPU index (`None` = auto, `-1` = force CPU)
+- `save_csv` (optional, default `false`): also export CSV alongside H5
 
-[synchronization.alignment]
-method = "nearest"
-tolerance_s = 0.002
-global_offset_s = 0.0
-```
+### `[preprocessing.sleap]`
 
-**Parameters**:
+- `enabled` (optional, default `false`): enable SLEAP handling
+- `mode` (optional, default `auto`): `off` | `discover` | `generate` | `auto`
+  - `generate` is not implemented and will raise an error
+- `gpu` (optional, int): GPU index (`None` = auto, `-1` = force CPU)
 
-#### `synchronization.strategy`
+## `[video]`
 
-- Type: string
-- Default: `"hardware_pulse"`
-- Options: `"hardware_pulse"`, `"rate_based"`, `"none"`
-- Description: Synchronization method for aligning data streams
+Controls video probing and derived/transcoded outputs.
 
-#### `synchronization.reference_channel`
+### `[video.analysis]`
 
-- Type: string
-- Default: `"ttl_camera"`
-- Description: TTL channel ID used as timing reference (must match metadata `[[TTLs]].id`)
+- `frame_count_timeout` (optional, default `30`): timeout in seconds for frame counting/probing per file
 
-#### `synchronization.alignment.method`
+### `[video.transcode]`
 
-- Type: string
-- Default: `"nearest"`
-- Options: `"nearest"`, `"linear"`, `"previous"`, `"next"`
-- Description: Interpolation method for timestamp alignment
+- `enabled` (optional, default `true`): enable transcoding to standardize codec/format
+- `codec` (optional, default `h264`): FFmpeg codec name (commonly `libx264`)
+- `crf` (optional, default `20`, 0–51): quality value (lower = higher quality)
+- `preset` (optional, default `fast`): encoder preset
+- `keyint` (optional, default `15`, int >= 1): keyframe interval (GOP size) in frames
 
-#### `synchronization.alignment.tolerance_s`
+## `[nwb]`
 
-- Type: float
-- Default: `0.002`
-- Units: seconds
-- Description: Maximum allowed time difference for alignment matches
+Controls NWB export behavior.
 
-#### `synchronization.alignment.global_offset_s`
+- `link_external_video` (optional, default `true`): store videos as external file references in NWB
+- `lab` (optional, default `Lab Name`): lab name written into NWB
+- `institution` (optional, default `Institution Name`): institution written into NWB
+- `file_name_template` (optional, default `{session.id}.nwb`): NWB output filename template
+- `session_description_template` (optional, default `Session {session.id} on {session.date}`): session description template
 
-- Type: float
-- Default: `0.0`
-- Units: seconds
-- Description: Global time offset applied to all streams
+## `[qc]`
 
----
+Controls QC outputs.
 
-## Verification Settings
+- `generate_report` (optional, default `true`): generate QC plots/metrics
+- `out_template` (optional, default `qc/{session.id}`): QC output path under `output_root`
+- `include_verification` (optional, default `true`): include verification results in QC
 
-### Verification Overview
+## `[logging]`
 
-The verification configuration controls various checks performed during pipeline execution, including frame counting, TTL synchronization verification, and error handling behavior.
-
-### Verification Configuration
-
-**Location:** Configuration files (`config.toml`)
-
-```toml
-[verification]
-enabled = true                      # Master switch for all verification checks
-check_frame_counts = true           # Count video frames (can be slow for large videos)
-check_sync_mismatch = true          # Verify frame/TTL synchronization
-skip_nwb_requirements = false       # Skip NWB-required frame counting
-mismatch_tolerance_frames = 0       # Maximum allowed frame/TTL count mismatch
-warn_on_mismatch = false            # Warn instead of fail on mismatch
-```
-
-### Parameters
-
-#### `enabled` (boolean, default: `true`)
-
-Master switch that disables all verification checks when set to `false`.
-
-**Use case:** Disable for rapid prototyping or when verification is not needed.
-
-#### `check_frame_counts` (boolean, default: `true`)
-
-Count frames in video files using ffprobe (accurate but slow).
-
-**Use cases:**
-
-- Set to `false` for faster execution with large videos
-- Recommended to keep `true` for production to ensure data integrity
-
-#### `check_sync_mismatch` (boolean, default: `true`)
-
-Verify that camera frame counts match TTL pulse counts.
-
-**Behavior:**
-
-- When `enabled=true`:
-  - Fails if camera has no TTL files (unless camera is optional)
-  - Fails if frame/pulse count mismatch exceeds tolerance
-- When `enabled=false`:
-  - Skips TTL synchronization verification entirely
-  - No checks performed even if TTL files are available
-
-**Use cases:**
-
-- Set to `false` when processing sessions **without TTL data**
-- Set to `false` for rate-based synchronization strategies
-- Keep `true` for hardware_pulse synchronization to ensure data integrity
-
-**Important Note:** If TTL files are missing for a required camera, you will see:
-
-```text
-⊘ Camera 'camera_name': No TTL files found for 'ttl_id'
-  → Skipping verification (cannot verify without sync data).
-  Set verification.check_sync_mismatch=false if this is expected.
-```
-
-#### `skip_nwb_requirements` (boolean, default: `false`)
-
-Skip NWB-required frame counting for multi-file videos, using FPS-based estimation instead.
-
-**Warning:** Not recommended for production use as it reduces accuracy.
-
-#### `mismatch_tolerance_frames` (integer, default: `0`)
-
-Maximum allowed difference between video frame count and TTL pulse count.
-
-**Examples:**
-
-- `0`: Exact match required
-- `5`: Allow up to 5 frames difference
-- `10`: Allow up to 10 frames difference
-
-#### `warn_on_mismatch` (boolean, default: `false`)
-
-When `true`, log warning instead of failing if mismatch is within tolerance.
-
-**Use case:** Useful for datasets with known minor synchronization issues.
-
-### Examples
-
-#### Example 1: Strict Verification (Production)
-
-```toml
-[verification]
-enabled = true
-check_frame_counts = true
-check_sync_mismatch = true
-skip_nwb_requirements = false
-mismatch_tolerance_frames = 0
-warn_on_mismatch = false
-```
-
-#### Example 2: Fast Processing (Development)
-
-```toml
-[verification]
-enabled = true
-check_frame_counts = false  # Skip slow frame counting
-check_sync_mismatch = false  # Skip TTL verification
-skip_nwb_requirements = true
-mismatch_tolerance_frames = 10
-warn_on_mismatch = true
-```
-
-#### Example 3: Sessions Without TTL Data
-
-```toml
-[verification]
-enabled = true
-check_frame_counts = true  # Still count frames for NWB
-check_sync_mismatch = false  # No TTL data available
-skip_nwb_requirements = false
-mismatch_tolerance_frames = 0
-warn_on_mismatch = false
-```
-
-#### Example 4: Lenient Verification
-
-```toml
-[verification]
-enabled = true
-check_frame_counts = true
-check_sync_mismatch = true
-skip_nwb_requirements = false
-mismatch_tolerance_frames = 5  # Allow small mismatch
-warn_on_mismatch = true  # Only warn, don't fail
-```
-
----
-
-## Preprocessing Settings
-
-### `[preprocessing]`
-
-Controls artifact generation and pose estimation.
-
-```toml
-[preprocessing]
-force_rerun = false
-
-[preprocessing.dlc]
-enabled = true
-# gpu = 0  # Optional: specify GPU index
-
-[preprocessing.sleap]
-enabled = false
-# gpu = 0  # Optional: specify GPU index
-```
-
-**Parameters**:
-
-#### `preprocessing.force_rerun`
-
-- Type: boolean
-- Default: `false`
-- Description: Regenerate all intermediate artifacts even if cached versions exist
-- Use cases:
-  - Changed pose estimation models
-  - Updated processing parameters
-  - Suspected cache corruption
-
-#### `preprocessing.dlc.enabled`
-
-- Type: boolean
-- Default: `true`
-- Description: Enable DeepLabCut pose estimation
-
-#### `preprocessing.dlc.gpu`
-
-- Type: integer
-- Default: Auto-detect
-- Range: 0-7
-- Description: GPU device index for DLC inference
-
-#### `preprocessing.sleap.enabled`
-
-- Type: boolean
-- Default: `false`
-- Description: Enable SLEAP pose estimation
-
-#### `preprocessing.sleap.gpu`
-
-- Type: integer
-- Default: Auto-detect
-- Range: 0-7
-- Description: GPU device index for SLEAP inference
-
-**Notes**:
-
-- Both DLC and SLEAP can be enabled simultaneously
-- GPU selection is per-framework (can use different GPUs)
-- If GPU not specified, pipeline auto-detects available devices
-- `force_rerun` affects all preprocessing (DLC, SLEAP, video processing)
-
----
-
-## Session-Level Logging
-
-### Logging Overview
-
-The pipeline automatically creates session-specific log files capturing all WARNING and ERROR messages for each processed session.
-
-### Log File Locations
-
-For each session, two identical log files are created:
-
-```text
-{output_root}/{subject_id}/{session_id}/pipeline.log
-{intermediate_root}/{subject_id}/{session_id}/pipeline.log
-```
-
-### Logging Behavior
-
-- **Automatic Creation:** Log files are created automatically after Phase 0 (initialization)
-- **Content:** Only WARNING and ERROR level messages
-- **Format:** Standard log format with timestamp, level, logger name, and message
-- **Lifecycle:** Handlers are cleaned up after pipeline completion
-- **Purpose:** Easy troubleshooting of specific session issues in batch processing
-
-### Log Format
-
-```text
-YYYY-MM-DD HH:MM:SS - LEVEL - logger.name - message
-```
-
-### Example Log Content
-
-```text
-2025-12-04 14:03:19 - WARNING - w2t_bkin.core.pipeline.phases.discovery - ⊘ Camera 'face_right' is optional and no files found - skipping
-2025-12-04 14:03:19 - WARNING - w2t_bkin.core.pipeline.phases.discovery - Camera 'face_left': No TTL data available for estimation
-2025-12-04 14:03:20 - ERROR - w2t_bkin.sync.validation - Synchronization mismatch exceeds tolerance: expected 1000 frames, got 995 TTL pulses
-```
-
-### Log File Usage
-
-**View session logs after processing:**
-
-```bash
-# View output directory log
-cat /path/to/output_root/{subject}/{session}/pipeline.log
-
-# View intermediate directory log
-cat /path/to/intermediate_root/{subject}/{session}/pipeline.log
-
-# Search for specific issues
-grep "ERROR" /path/to/output_root/{subject}/{session}/pipeline.log
-grep "Camera.*skipping" /path/to/output_root/{subject}/{session}/pipeline.log
-```
-
-### Benefits
-
-1. **Session Isolation:** Each session has its own log file
-2. **Batch Processing:** Easy to identify which sessions had issues
-3. **Debugging:** Complete warning/error history per session
-4. **Automation:** No manual configuration needed
-
-### Notes
-
-- Log files are **overwritten** on each pipeline run (mode='w')
-- Only captures messages from `w2t_bkin.*` loggers
-- Does not interfere with console output or other logging handlers
-- Minimal overhead: Only writes WARNING and ERROR level messages
-
----
-
-## Usage Examples
-
-### Example 1: Processing Sessions Without TTL
-
-**Problem:** Older sessions don't have TTL synchronization files
-
-**Solution:**
-
-```toml
-# In config.toml
-[verification]
-enabled = true
-check_frame_counts = true  # Still validate video integrity
-check_sync_mismatch = false  # Skip TTL verification
-```
-
-**Result:**
-
-- Frame counting still performed for NWB file
-- TTL synchronization checks skipped
-- No false failures due to missing TTL files
-
-### Example 2: Development vs Production
-
-**Development Configuration:**
-
-```toml
-# Fast processing for development
-[verification]
-enabled = true
-check_frame_counts = false  # Skip slow checks
-check_sync_mismatch = false
-mismatch_tolerance_frames = 10
-warn_on_mismatch = true
-```
-
-**Production Configuration:**
-
-```toml
-# Strict validation for production
-[verification]
-enabled = true
-check_frame_counts = true  # Ensure data integrity
-check_sync_mismatch = true
-mismatch_tolerance_frames = 0  # No tolerance
-warn_on_mismatch = false  # Fail on mismatch
-```
-
----
-
-## Complete Configuration Example
-
-See [`templates/standard.toml`](../../templates/standard.toml) for a complete, annotated configuration file.
-
-```toml
-# =============================================================================
-# Project Configuration
-# =============================================================================
-
-[project]
-name = "w2t-bkin-pipeline"
-
-[paths]
-raw_root = "data/raw"
-intermediate_root = "data/interim"
-output_root = "data/processed"
-models_root = "models"
-
-# =============================================================================
-# Synchronization Strategy
-# =============================================================================
-
-[synchronization]
-strategy = "hardware_pulse"
-reference_channel = "ttl_camera"
-
-[synchronization.alignment]
-method = "nearest"
-tolerance_s = 0.002
-global_offset_s = 0.0
-
-# =============================================================================
-# Verification & Validation
-# =============================================================================
-
-[verification]
-enabled = true
-check_frame_counts = true
-check_sync_mismatch = true
-skip_nwb_requirements = false
-mismatch_tolerance_frames = 0
-warn_on_mismatch = false
-
-# =============================================================================
-# Preprocessing Configuration
-# =============================================================================
-
-[preprocessing]
-force_rerun = false
-
-[preprocessing.dlc]
-enabled = true
-# gpu = 0  # Optional
-
-[preprocessing.sleap]
-enabled = false
-# gpu = 0  # Optional
-
-# =============================================================================
-# Logging Configuration
-# =============================================================================
-
-[logging]
-level = "INFO"
-structured = false
-```
-
----
-
-## Troubleshooting
-
-### Issue: TTL verification failing for sessions without TTL
-
-**Solution:** Set `verification.check_sync_mismatch = false` in config.toml.
-
-### Issue: Can't find session-level logs
-
-**Solution:** Logs are created in:
-
-- `{output_root}/{subject_id}/{session_id}/pipeline.log`
-- `{intermediate_root}/{subject_id}/{session_id}/pipeline.log`
-
-Ensure these directories exist and pipeline completed initialization phase.
-
-### Issue: Figures not being generated
-
-**Possible causes:**
-
-1. Missing trial synchronization configuration in metadata (see [Metadata Guide](metadata-parameters.md#bpod-trial-synchronization))
-2. No TTL or Bpod data available
-3. matplotlib not installed (install with `pip install -e .[worker]`)
-
-**Solution:** Check `pipeline.log` for messages like "Skipping trial alignment (no trial_type configs in metadata)"
-
-### Issue: Force rerun not regenerating artifacts
-
-**Solution:** Ensure `preprocessing.force_rerun = true` in config.toml, not in metadata files.
-
----
-
-## See Also
-
-- **[Metadata Parameters Guide](metadata-parameters.md)** - Camera, TTL, Bpod, and subject configuration
-- **[Templates](../../templates/README.md)** - Example configuration and metadata files
-- [Pipeline Commands](../cli/pipeline-commands.md) - Run and batch processing
-- [Data Management](../cli/data-management.md) - Experiment organization
-- [Caching and Reprocessing](../user-guide/caching-and-reprocessing.md) - Cache management
+- `level` (optional, default `INFO`): `DEBUG` | `INFO` | `WARNING` | `ERROR` | `CRITICAL`
+- `structured` (optional, default `false`): emit JSON logs

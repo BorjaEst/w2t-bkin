@@ -1,8 +1,25 @@
 # W2T-BKIN Docker Configuration
 
-This directory contains the Docker configuration for running w2t-bkin workers in containerized environments.
+This directory contains the Docker configuration for running w2t-bkin in containerized environments.
 
 **Note**: For users on Windows, we recommend [Rancher Desktop](https://rancherdesktop.io/) as it provides Docker runtime automatically without requiring Docker knowledge.
+
+## Image Architecture
+
+W2T-BKIN uses a **two-image architecture** for clean separation of concerns:
+
+1. **Runner Image** (`Dockerfile`) - Flow execution environment
+
+   - Contains w2t-bkin + all dependencies
+   - Used by Prefect deployments (`image=...` parameter)
+   - Containers are short-lived (one per flow run)
+   - **This is what `W2T_DOCKER_IMAGE` should point to**
+
+2. **Worker Image** (`Dockerfile.worker`) - Long-lived worker process
+   - Wraps the runner image
+   - Runs `prefect worker start` to poll for work
+   - Creates runner containers for each flow run
+   - Optional convenience image (you can also run workers via CLI)
 
 ## Prerequisites
 
@@ -19,7 +36,7 @@ This directory contains the Docker configuration for running w2t-bkin workers in
 This is the **primary deployment method** for w2t-bkin. Production mode uses Docker workers exclusively:
 
 ```bash
-# Pull latest worker image
+# Pull latest runner image (for flow execution)
 docker pull ghcr.io/borjaest/w2t-bkin:latest
 
 # Start Prefect server in production mode (from experiment directory)
@@ -27,28 +44,27 @@ cd /path/to/experiment
 w2t-bkin server start --config configs/standard.toml
 
 # Start Docker worker (in a separate terminal)
-# Option 1: Using worker environment created by server
-source .workers/.env
-prefect worker start --pool docker-pool --type docker
+# Option 1: Using CLI (recommended - runs on host)
+w2t-bkin worker start --pool docker-pool --type docker
 
-# Option 2: Direct Docker command (Linux)
-docker run -d --name w2t-worker --network host \
-  -v $(pwd)/data:/data -v $(pwd)/models:/models \
+# Option 2: Using worker image (runs worker in container)
+docker run --rm --name w2t-worker --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -e PREFECT_API_URL=http://127.0.0.1:4200/api \
-  ghcr.io/borjaest/w2t-bkin:latest \
-  prefect worker start --pool docker-pool --type docker
+  ghcr.io/borjaest/w2t-bkin:latest-worker
 ```
 
 The worker will automatically:
 
 - Connect to the Prefect server via the API URL
 - Poll the `docker-pool` for flow runs
-- Start containers for each flow run with the specified image
+- Start **runner containers** for each flow run with the image specified in `W2T_DOCKER_IMAGE`
 - Mount data directories from `.workers/.env`
 
 **Configuration** (`.workers/.env`):
 
 ```bash
+# CRITICAL: This must be the RUNNER image, not the worker image
 W2T_DOCKER_IMAGE=ghcr.io/borjaest/w2t-bkin:latest
 # Add data paths as needed
 ```
@@ -66,39 +82,46 @@ This uses Prefect Runner to serve flows in the server process - no Docker worker
 
 ### Manual Build (For Customization)
 
-Build custom worker images from repository root:
+Build custom images from repository root:
 
 ```bash
-# Build from repository root with explicit Dockerfile path
-docker build -f docker/Dockerfile -t w2t-bkin:local-dev .
+# Step 1: Build runner image (slow - contains all dependencies)
+docker build -f docker/Dockerfile -t w2t-bkin:local .
 
-# Tag for testing
-docker tag w2t-bkin:local-dev ghcr.io/borjaest/w2t-bkin:custom
+# Step 2: Build worker image (fast - wraps runner image)
+docker build -f docker/Dockerfile.worker -t w2t-bkin-worker:local .
 
-# Update .workers/.env to use your custom image
-W2T_DOCKER_IMAGE=ghcr.io/borjaest/w2t-bkin:custom
+# Update .workers/.env to use your custom runner image
+W2T_DOCKER_IMAGE=w2t-bkin:local
 ```
+
+**Important**: The worker image is optional. You can run workers via CLI (`w2t-bkin worker start`) instead of using a worker container.
 
 ## Files
 
-- **Dockerfile**: Multi-stage worker image with optimized layer caching
+- **Dockerfile**: Builds the runner image (for flow execution)
+- **Dockerfile.worker**: Builds the worker image (wraps runner, starts prefect worker)
 - **start-worker.sh**: Entrypoint script for Prefect worker containers
 - **README.md**: This file
 
 ## Build Context
 
-**Critical**: The Dockerfile must be built from the **repository root** (`.`) as the build context because it needs access to:
+**Critical**: Both Dockerfiles must be built from the **repository root** (`.`) as the build context because they need access to:
 
 - `src/` - Python package source code
 - `nwb-extensions/` - Git submodules with NWB extensions
 - `pyproject.toml` - Package dependencies
 - `README.md` - Package metadata
 
-**Correct build command:**
+**Correct build commands:**
 
 ```bash
-docker build -f docker/Dockerfile -t w2t-bkin:worker .
-#            ^^^ Specify Dockerfile      Tag       ^^^ Context = repo root
+# Runner image (base)
+docker build -f docker/Dockerfile -t w2t-bkin:local .
+#            ^^^ Dockerfile path        Tag      ^^^ Context = repo root
+
+# Worker image (wraps runner)
+docker build -f docker/Dockerfile.worker -t w2t-bkin-worker:local .
 ```
 
 ## Environment Variables
@@ -112,14 +135,36 @@ Configure worker behavior via environment variables (in `.env` file or `docker r
 - `WORKER_NAME`: Worker identifier (default: `docker-worker`)
 - `PREFECT_LOGGING_LEVEL`: Log verbosity (default: `INFO`)
 
-### Data Paths
+### Data Volume Mounts
 
-- `DATA_ROOT`: Mount point for data directory (default: `/data`)
-- `MODELS_ROOT`: Mount point for models (default: `/models`)
-- `CONFIG_ROOT`: Mount point for configs (default: `/configs`)
-- `OUTPUT_ROOT`: Mount point for outputs (default: `/output`)
+**Automatic Volume Configuration**: When you run `w2t-bkin server start` in production mode, the `docker-pool` work pool is automatically configured with volume mounts based on your project directory structure:
 
-### Resource Limits
+```text
+Host Path (project_root)              → Container Path
+--------------------------------------   ---------------
+{project_root}/data                   → /data
+{project_root}/models                 → /models
+{project_root}/output                 → /output
+{project_root}/configuration.toml     → /configs/configuration.toml
+```
+
+These mounts are set in the work pool's **base job template** when the pool is created. The runtime configuration (`W2T_RUNTIME_CONFIG_JSON`) uses container-native paths (`/data/raw`, `/models`, etc.), which are then accessible via the automatically mounted volumes.
+
+**No manual volume configuration required** - the Docker worker inherits these mounts from the work pool job template and applies them to every flow-run container it creates.
+
+### Path Override Environment Variables (Advanced)
+
+These variables can override container paths if you have custom requirements, but normally you should configure paths in `configuration.toml` instead:
+
+- `W2T_RAW_ROOT`: Override raw data location (default: `/data/raw`)
+- `W2T_INTERMEDIATE_ROOT`: Override intermediate data location (default: `/data/interim`)
+- `W2T_OUTPUT_ROOT`: Override output location (default: `/output`)
+- `W2T_MODELS_ROOT`: Override models location (default: `/models`)
+- `W2T_ROOT_METADATA`: Override global metadata file (default: `/configs/metadata.toml`)
+
+**Note**: These overrides currently only work when NOT using `W2T_RUNTIME_CONFIG_JSON` (i.e., in legacy/local dev mode). In production deployments, paths are baked into the config JSON.
+
+### Resource Limits (For Container-based Workers)
 
 - `WORKER_REPLICAS`: Number of worker containers (default: `1`)
 - `WORKER_CPU_LIMIT`: Max CPU cores per worker (default: `4`)
@@ -184,27 +229,26 @@ docker build -t w2t-bkin:worker docker
 
 ### Production (Docker Workers)
 
-> **⚠️ Important:** The `w2t-bkin worker` command does not exist. Use one of these methods:
+You can start workers either via the w2t-bkin CLI wrapper (recommended for consistency) or by calling Prefect directly.
 
-**Method 1: Using worker environment**
+#### Method 1: Docker workers via `w2t-bkin`
 
 ```bash
 # Start Prefect server
 w2t-bkin server start
 
 # In another terminal, use the worker environment
-source .workers/.env
-prefect worker start --pool docker-pool --type docker
+w2t-bkin worker start --pool docker-pool --type docker
 ```
 
-**Method 2: Process workers (requires `pip install w2t-bkin[worker]`)**
+#### Method 2: Local process workers (requires `pip install w2t-bkin[worker]`)
 
 ```bash
 # Start Prefect server
 w2t-bkin server start
 
 # In another terminal, start process workers
-prefect worker start --pool default-pool --type process --limit 4
+w2t-bkin worker start --pool default-pool --type process --limit 4
 ```
 
 ### Development (No Workers Needed)

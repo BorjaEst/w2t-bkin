@@ -134,9 +134,6 @@ def minimal_config_toml(tmp_work_dir: Path, fixtures_raw_root: Path) -> Path:
     """Minimal valid config.toml file (updated schema)."""
     config_path = tmp_work_dir / "config.toml"
     config_content = f"""
-[project]
-name = "test-w2t-bkin"
-
 [paths]
 raw_root = "{fixtures_raw_root}"
 intermediate_root = "{tmp_work_dir / "interim"}"

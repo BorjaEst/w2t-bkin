@@ -86,24 +86,35 @@ def init(
 
         # Copy worker configuration template
         try:
-            from w2t_bkin.cli.utils import _load_template
+            from w2t_bkin.cli.utils import _load_template, generate_env_dev_content
 
-            # Worker env file
+            # Worker env file (required - production/Docker settings)
             env_path = workers_dir / ".env"
             env_template = _load_template(".env.template")
             env_path.write_text(env_template)
-            console.print(f"[green]✓[/green] Created .workers/.env (Worker configuration)")
+            console.print(f"[green]✓[/green] Created .workers/.env (Docker/production settings)")
 
-            # Worker README
-            readme_path = workers_dir / "README.md"
-            readme_template = _load_template(".workers-README.md")
-            readme_path.write_text(readme_template)
-            console.print(f"[green]✓[/green] Created .workers/README.md (Worker documentation)")
+            # Worker .env.dev (auto-managed - development paths)
+            env_dev_path = workers_dir / ".env.dev"
+            env_dev_content = generate_env_dev_content(root_path)
+            env_dev_path.write_text(env_dev_content)
+            console.print(f"[green]✓[/green] Created .workers/.env.dev (Auto-managed dev paths)")
 
+            # Worker README (optional)
+            try:
+                readme_path = workers_dir / "README.md"
+                readme_template = _load_template(".workers-README.md")
+                readme_path.write_text(readme_template)
+                console.print(f"[green]✓[/green] Created .workers/README.md (Worker documentation)")
+            except FileNotFoundError:
+                console.print(f"[dim]  (No .workers/README.md template; skipping)[/dim]")
+
+        except FileNotFoundError as e:
+            console.print(f"[yellow]⚠ Worker config template not found: {e}[/yellow]")
         except Exception as e:
             console.print(f"[yellow]⚠ Could not generate worker config: {e}[/yellow]")
 
-        console.print("[dim]  Edit .workers/.env to customize Docker image and paths[/dim]")
+        console.print("[dim]  Edit .workers/.env to customize Docker image (not needed for dev mode)[/dim]")
 
     # Show usage instructions
     console.print("\n[bold green]✓ Experiment initialized successfully![/bold green]")

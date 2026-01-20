@@ -10,7 +10,7 @@ import numpy as np
 from pynwb import NWBFile
 import pytest
 
-from w2t_bkin.ingest.ttl import EventsTable, TTLError, add_ttl_table_to_nwb, extract_ttl_table
+from w2t_bkin.ttl import EventsTable, TTLError, add_ttl_table_to_nwb, extract_ttl_table
 
 
 class TestExtractTTLTable:

@@ -296,6 +296,13 @@ def config_to_toml(config: ConfigModel) -> str:
     # [bpod] - only active section
     lines.append("[bpod]\n")
     lines.append(_toml_kv("parse", config.bpod.parse))
+    # Optional ingestion controls
+    if hasattr(config.bpod, "pattern"):
+        lines.append(_toml_kv("pattern", getattr(config.bpod, "pattern")))
+    if hasattr(config.bpod, "order"):
+        lines.append(_toml_kv("order", getattr(config.bpod, "order")))
+    if hasattr(config.bpod, "continuous_time"):
+        lines.append(_toml_kv("continuous_time", getattr(config.bpod, "continuous_time")))
     lines.append("\n")
 
     # [[bpod.sync.trial_types]]

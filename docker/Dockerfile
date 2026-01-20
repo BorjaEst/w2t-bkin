@@ -132,9 +132,11 @@ RUN mkdir -p src/w2t_bkin && \
 # Step 5: NOW copy the actual source code AND real README.md, then reinstall
 # This step is FAST because all dependencies are already installed
 # Only rebuilds when src/ or README.md changes (30 seconds)
+# CRITICAL: Use --no-deps to prevent reinstalling dependencies (e.g., torch)
+# All deps were installed in Step 4; this only updates the editable package code
 COPY --chown=w2t:w2t src/ ./src/
 COPY --chown=w2t:w2t README.md ./
-RUN pip install --no-cache-dir -e .[worker] && \
+RUN pip install --no-cache-dir --no-deps -e . && \
     pip cache purge
 
 # Remove build dependencies to reduce image size
@@ -174,9 +176,14 @@ ENV LIMIT=1
 ENV PREFECT_LOGGING_LEVEL=INFO
 
 # Copy worker entrypoint script (from docker/ subdirectory since build context is repo root)
+# This script is included in the image but not set as ENTRYPOINT
+# Use Dockerfile.worker to build a worker-specific image
 COPY --chown=w2t:w2t --chmod=755 docker/start-worker.sh /usr/local/bin/start-worker.sh
 
 # Volume mount points (documentation)
 VOLUME ["/data", "/models", "/configs", "/output"]
 
-ENTRYPOINT ["/usr/local/bin/start-worker.sh"]
+# Default CMD for flow-run containers (Prefect will override this)
+# This image is designed to be used as the deployment image (image=...) for Prefect flows
+# For a long-lived worker container, use Dockerfile.worker instead
+CMD ["python", "-m", "w2t_bkin.cli", "version"]

@@ -33,8 +33,12 @@ def plot_ttl_timeline(
     - Draws scatter lines for each channel at a distinct y-level.
     - If matplotlib is unavailable, returns None.
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     if plt is None:  # pragma: no cover
+        logger.info("plot_ttl_timeline: matplotlib not available")
         return None
 
     _ensure_parent(out_path)
@@ -69,8 +73,12 @@ def plot_trial_offsets(
     - X-axis is trial number; Y-axis is offset (seconds).
     - If matplotlib is unavailable, returns None.
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     if plt is None:  # pragma: no cover
+        logger.info("plot_trial_offsets: matplotlib not available")
         return None
 
     _ensure_parent(out_path)

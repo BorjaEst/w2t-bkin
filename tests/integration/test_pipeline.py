@@ -9,7 +9,7 @@ from pynwb import NWBHDF5IO
 import pytest
 
 from synthetic import build_raw_folder
-from w2t_bkin.api import SessionFlowConfig
+from w2t_bkin.api import SessionConfig
 from w2t_bkin.flows import process_session_flow
 
 
@@ -33,7 +33,7 @@ class TestSessionFlowIntegration:
         )
 
         # 2. Run flow
-        config = SessionFlowConfig(
+        config = SessionConfig(
             config_path=str(result.config_path),
             subject_id="subject-001",
             session_id="session-001",
@@ -69,7 +69,7 @@ class TestSessionFlowIntegration:
         )
 
         # 2. Run flow with skip_bpod=True
-        config = SessionFlowConfig(
+        config = SessionConfig(
             config_path=str(result.config_path),
             subject_id="subject-002",
             session_id="session-001",
@@ -97,7 +97,7 @@ class TestSessionFlowIntegration:
         invalid_config.touch()
 
         # 2. Run flow
-        config = SessionFlowConfig(
+        config = SessionConfig(
             config_path=str(invalid_config),
             subject_id="subject-003",
             session_id="session-001",

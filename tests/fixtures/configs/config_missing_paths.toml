@@ -1,5 +1,4 @@
-[project]
-name = "test-project"
+# Test fixture: config missing required [paths] section
 
 [timebase]
 source = "nominal_rate"

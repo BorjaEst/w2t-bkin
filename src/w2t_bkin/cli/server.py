@@ -15,7 +15,6 @@ import webbrowser
 
 import typer
 
-from w2t_bkin.api import BatchFlowConfig, SessionFlowConfig
 from w2t_bkin.cli.utils import console, setup_logging
 from w2t_bkin.utils import read_toml, recursive_dict_update
 
@@ -35,6 +34,7 @@ def start(
     open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open browser automatically"),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging and show server output"),
+    env_file: Optional[Path] = typer.Option(None, "--env-file", help="Environment file to load (default: .workers/.env)"),
 ):
     """Start Prefect server and deploy/serve flows.
 
@@ -63,6 +63,27 @@ def start(
     # This follows standard conventions (make, docker-compose, npm, etc.)
     # and matches the documented workflow: cd {experiment_root} && w2t-bkin server start
     project_root = Path.cwd()
+
+    # Development mode: regenerate .env.dev with correct absolute paths
+    if dev:
+        from w2t_bkin.cli.utils import generate_env_dev_content
+
+        env_dev_path = project_root / ".workers" / ".env.dev"
+        env_dev_path.parent.mkdir(parents=True, exist_ok=True)
+        env_dev_content = generate_env_dev_content(project_root)
+        env_dev_path.write_text(env_dev_content)
+        console.print(f"[dim]  Regenerated {env_dev_path.relative_to(project_root.parent)} with absolute paths[/dim]")
+
+    # Load environment files (before any other env setup)
+    from w2t_bkin.cli.env import load_project_env
+
+    # In dev mode, load both .env and .env.dev (dev paths win)
+    load_project_env(project_root, env_file)
+    if dev:
+        from w2t_bkin.cli.env import load_env_file
+
+        env_dev_path = project_root / ".workers" / ".env.dev"
+        load_env_file(env_dev_path, override=True, silent=False)
 
     # Validate mode and print banner
     _validate_and_print_mode(dev, port)
@@ -253,19 +274,18 @@ def _validate_and_print_mode(dev: bool, port: int) -> None:
 
 def _print_manual_worker_instructions() -> None:
     """Print OS-specific instructions for manually starting workers."""
-    console.print("\n[bold cyan]Start Docker workers (in a new terminal):[/bold cyan]")
+    console.print("\n[bold cyan]Start Workers (in a new terminal):[/bold cyan]")
 
-    if _is_windows() or _is_wsl():
-        console.print("  [yellow]# Windows/WSL - Docker Desktop[/yellow]")
-        console.print("  [dim]w2t-bkin worker start                    # 1 worker[/dim]")
-        console.print("  [dim]w2t-bkin worker start --workers 2        # 2 workers[/dim]")
-    else:
-        console.print("  [yellow]# Linux - use --network host[/yellow]")
-        console.print("  [dim]w2t-bkin worker start                    # 1 worker[/dim]")
-        console.print("  [dim]w2t-bkin worker start --workers 2        # 2 workers[/dim]")
+    console.print("  [yellow]# Production - Docker workers (default)[/yellow]")
+    console.print("  [dim]w2t-bkin worker start                    # 1 worker, concurrency limit 1[/dim]")
+    console.print("  [dim]w2t-bkin worker start --limit 2          # 1 worker, concurrency limit 2[/dim]")
 
-    console.print("\n  [yellow]# Development (process worker, requires worker extras)[/yellow]")
-    console.print("  [dim]w2t-bkin worker start --dev[/dim]")
+    console.print("\n  [yellow]# Multiple workers - run command multiple times[/yellow]")
+    console.print("  [dim]w2t-bkin worker start --name worker-1    # Terminal 1[/dim]")
+    console.print("  [dim]w2t-bkin worker start --name worker-2    # Terminal 2[/dim]")
+
+    console.print("\n  [yellow]# Development - process workers (requires [worker] extras)[/yellow]")
+    console.print("  [dim]w2t-bkin worker start --type process --limit 1[/dim]")
 
 
 def _print_ready_summary(ui_url: str, dev: bool) -> None:
@@ -402,20 +422,20 @@ def _start_prefect_server(port: int, debug: bool) -> subprocess.Popen:
     return server_process
 
 
-def _wait_for_server(process: subprocess.Popen, port: int, max_retries: int = 30) -> bool:
+def _wait_for_server(process: subprocess.Popen, port: int, timeout: int = 45) -> bool:
     """Wait for Prefect server to be ready.
 
     Args:
         process: The server subprocess to monitor
         port: Port number for the Prefect server
-        max_retries: Maximum number of retries (seconds)
+        timeout: Maximum number of retries (seconds)
 
     Returns:
         True if server is ready, False if it failed or timed out
     """
     health_url = f"http://localhost:{port}/api/health"
 
-    for i in range(max_retries):
+    for i in range(timeout):
         if process.poll() is not None:
             console.print(f"[red]Server process exited with code {process.returncode}[/red]")
             return False
@@ -464,11 +484,13 @@ def _open_ui(port: int, open_browser: bool) -> str:
 # ============================================================================
 
 
-def _load_and_normalize_config(config_path: Optional[Path]) -> Tuple[dict, str]:
-    """Load and merge base + project config, normalize paths to absolute.
+def _load_and_normalize_config(config_path: Optional[Path], for_container: bool = False) -> Tuple[dict, str]:
+    """Load and merge base + project config, normalize paths.
 
     Args:
         config_path: Optional project config path (merged on top of base)
+        for_container: If True, use container-native paths (/data, /models, etc.)
+                      instead of host absolute paths. Required for Docker deployments.
 
     Returns:
         Tuple of (merged_config_dict, config_json_string)
@@ -494,13 +516,32 @@ def _load_and_normalize_config(config_path: Optional[Path]) -> Tuple[dict, str]:
         project_dict = read_toml(project_config_path)
         recursive_dict_update(merged_config, project_dict)
 
-    # Resolve paths to absolute paths
+    # Resolve paths: container-native or host-absolute
     if "paths" in merged_config:
         paths = merged_config["paths"]
-        for key in ["raw_root", "intermediate_root", "output_root", "models_root", "root_metadata"]:
-            if key in paths and paths[key]:
-                resolved = (original_cwd / paths[key]).resolve()
-                paths[key] = str(resolved)
+
+        if for_container:
+            # Use container-native paths (Docker volumes will mount host paths here)
+            # These are fixed paths inside the container that match volume mounts
+            container_path_map = {
+                "raw_root": "/data/raw",
+                "intermediate_root": "/data/interim",
+                "output_root": "/data/processed",
+                "models_root": "/models",
+            }
+            for key, container_path in container_path_map.items():
+                if key in paths:
+                    paths[key] = container_path
+            # root_metadata: only set if user explicitly provided it
+            if "root_metadata" in paths and paths["root_metadata"]:
+                # Assume it's under /configs if specified
+                paths["root_metadata"] = "/configs/metadata.toml"
+        else:
+            # Resolve to host absolute paths (dev mode, local execution)
+            for key in ["raw_root", "intermediate_root", "output_root", "models_root", "root_metadata"]:
+                if key in paths and paths[key]:
+                    resolved = (original_cwd / paths[key]).resolve()
+                    paths[key] = str(resolved)
 
     config_json = json.dumps(merged_config)
     return merged_config, config_json
@@ -526,42 +567,58 @@ def _serve_flows(config_path: Optional[Path]) -> None:
     """Serve flows for development using local code.
 
     Args:
-        config_path: Config file path
+        config_path: Config file path (configuration.toml)
     """
     from prefect import serve
 
-    # Import flows lazily so Prefect settings are picked up from the environment
-    # configured in `_setup_prefect_env`.
+    from w2t_bkin.config import BatchFlowConfig, SessionConfig
     from w2t_bkin.flows import batch_process_flow, process_session_flow
 
     package_root = Path(__file__).parent.parent.parent.parent.absolute()
-    _, config_json = _load_and_normalize_config(config_path)
 
-    # Inject runtime config into environment for dev mode
-    os.environ["W2T_RUNTIME_CONFIG_JSON"] = config_json
+    # Load and normalize config to get both dict and SessionConfig
+    merged_config_dict, config_json = _load_and_normalize_config(config_path)
+
+    # Build SessionConfig from the merged dict (excluding paths/project)
+    # Paths will come from environment variables at runtime
+    session_config_data = {k: v for k, v in merged_config_dict.items() if k not in ("project", "paths")}
+    session_config_defaults = SessionConfig(**session_config_data)
+
+    # Set path environment variables for dev mode (only if not already set)
+    # This respects .workers/.env and explicit exports
+    project_root = Path.cwd()
+    os.environ.setdefault("W2T_RAW_ROOT", str(project_root / "data" / "raw"))
+    os.environ.setdefault("W2T_INTERMEDIATE_ROOT", str(project_root / "data" / "interim"))
+    os.environ.setdefault("W2T_OUTPUT_ROOT", str(project_root / "data" / "processed"))
+    os.environ.setdefault("W2T_MODELS_ROOT", str(project_root / "models"))
 
     original_cwd = Path.cwd()
     try:
         os.chdir(package_root)
 
-        # Create deployments and serve them (blocking). This keeps a long-lived
-        # process running that will pick up scheduled / UI-triggered runs.
-        session_config = SessionFlowConfig(
-            subject_id="subject-001",
-            session_id="session-001",
-        )
+        # Create session deployment with config defaults from TOML
         process_session_deployment = process_session_flow.to_deployment(
             name="process-session",
-            parameters={"config": session_config.model_dump()},
+            parameters={
+                "subject_id": "subject-001",  # Example default
+                "session_id": "session-001",  # Example default
+                "config": session_config_defaults.model_dump(mode="json"),  # JSON-safe
+            },
             tags=["w2t-bkin", "development"],
             version="dev",
         )
         console.print("[dim]  ✓ process-session deployment created[/dim]")
 
-        batch_config = BatchFlowConfig(max_parallel=4)
+        # Create batch deployment
+        batch_config_defaults = BatchFlowConfig(
+            configuration=session_config_defaults,
+            subject_filter=None,
+            session_filter=None,
+            max_parallel=4,
+        )
         batch_process_deployment = batch_process_flow.to_deployment(
             name="batch-process",
-            parameters={"config": batch_config.model_dump()},
+            parameters={"config": batch_config_defaults.model_dump(mode="json")},
             tags=["w2t-bkin", "development"],
             version="dev",
         )
@@ -573,7 +630,6 @@ def _serve_flows(config_path: Optional[Path]) -> None:
         try:
             serve(process_session_deployment, batch_process_deployment)
         except KeyboardInterrupt:
-            # Let outer command handle shutdown messaging.
             pass
 
     finally:
@@ -588,7 +644,7 @@ def _handle_prod_mode(config_path: Optional[Path], project_root: Path) -> None:
         project_root: Experiment/project root directory (cwd)
     """
     console.print("[cyan]Creating work pool 'docker-pool'...[/cyan]")
-    _create_work_pool()
+    _create_work_pool(project_root)
     console.print("[green]✓[/green] Work pool created\n")
 
     console.print("[cyan]Deploying flows with Docker image...[/cyan]")
@@ -598,8 +654,18 @@ def _handle_prod_mode(config_path: Optional[Path], project_root: Path) -> None:
     _print_manual_worker_instructions()
 
 
-def _create_work_pool() -> None:
-    """Create Prefect Docker work pool idempotently."""
+def _create_work_pool(project_root: Path) -> None:
+    """Create Prefect Docker work pool with volume mounts.
+
+    Ensures volume mounts are configured even if the pool already exists.
+    This function is idempotent and safe to call multiple times.
+
+    Args:
+        project_root: Experiment/project root directory (cwd when server starts)
+    """
+    import json
+    import tempfile
+
     pool_name = "docker-pool"
 
     # Check if pool already exists
@@ -609,35 +675,92 @@ def _create_work_pool() -> None:
         text=True,
     )
 
-    if result.returncode == 0:
-        console.print(f"[dim]  Work pool '{pool_name}' already exists[/dim]")
-        return
+    pool_exists = result.returncode == 0
 
-    # Create docker-type work pool
-    subprocess.run(
-        _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", "docker"],
-        check=True,
+    if not pool_exists:
+        # Create docker-type work pool
+        console.print(f"[dim]  Creating work pool '{pool_name}'...[/dim]")
+        subprocess.run(
+            _get_prefect_cmd() + ["work-pool", "create", pool_name, "--type", "docker"],
+            check=True,
+            capture_output=True,
+        )
+    else:
+        console.print(f"[dim]  Work pool '{pool_name}' already exists, updating volume configuration...[/dim]")
+
+    # Build volume mount list
+    # Mount project data directories into container at fixed paths
+    volumes = [
+        f"{project_root / 'data'}:/data:rw",
+        f"{project_root / 'models'}:/models:ro",
+    ]
+
+    # Add config mount if configuration.toml exists
+    if (project_root / "configuration.toml").exists():
+        volumes.append(f"{project_root / 'configuration.toml'}:/configs/configuration.toml:ro")
+
+    # Get default base job template to avoid clobbering required fields
+    default_template_result = subprocess.run(
+        _get_prefect_cmd() + ["work-pool", "get-default-base-job-template", "--type", "docker"],
         capture_output=True,
+        text=True,
+        check=True,
     )
+    base_template = json.loads(default_template_result.stdout)
+
+    # Inject volumes into job_configuration
+    if "job_configuration" not in base_template:
+        base_template["job_configuration"] = {}
+    base_template["job_configuration"]["volumes"] = volumes
+
+    # Write to temp file and apply via prefect work-pool set-base-job-template
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(base_template, f)
+        temp_path = f.name
+
+    try:
+        subprocess.run(
+            _get_prefect_cmd() + ["work-pool", "set-base-job-template", pool_name, "--base-job-template", temp_path],
+            check=True,
+            capture_output=True,
+        )
+        console.print(f"[dim]  ✓ Configured volume mounts for '{pool_name}'[/dim]")
+        console.print(f"[dim]    Volumes: {len(volumes)} mounts[/dim]")
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
 
 
 def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
     """Deploy flows for production using Docker image.
 
     Args:
-        config_path: Config file path
+        config_path: Config file path (configuration.toml)
         project_root: Experiment/project root directory (cwd)
     """
-    package_root = Path(__file__).parent.parent.parent.parent.absolute()
-    _, config_json = _load_and_normalize_config(config_path)
-
-    # Import flows lazily so Prefect settings are picked up from the environment
-    # configured in `_setup_prefect_env`.
+    from w2t_bkin.config import BatchFlowConfig, SessionConfig
     from w2t_bkin.flows import batch_process_flow, process_session_flow
+
+    package_root = Path(__file__).parent.parent.parent.parent.absolute()
+
+    # Generate container-native config (uses /data, /models, etc.)
+    container_config_dict, config_json = _load_and_normalize_config(config_path, for_container=True)
+
+    # Build SessionConfig from container-normalized dict (excluding paths/project)
+    session_config_data = {k: v for k, v in container_config_dict.items() if k not in ("project", "paths")}
+    session_config_defaults = SessionConfig(**session_config_data)
 
     # Get Docker image
     docker_image = _get_docker_image(project_root)
     console.print(f"[dim]  Docker image: {docker_image}[/dim]")
+    console.print(f"[dim]  Using container-native paths (/data, /models)[/dim]")
+
+    # Build volume mount list (per-deployment fallback)
+    volumes = [
+        f"{project_root / 'data'}:/data:rw",
+        f"{project_root / 'models'}:/models:ro",
+    ]
+    if (project_root / "configuration.toml").exists():
+        volumes.append(f"{project_root / 'configuration.toml'}:/configs/configuration.toml:ro")
 
     original_cwd = Path.cwd()
     try:
@@ -652,30 +775,41 @@ def _deploy_flows(config_path: Optional[Path], project_root: Path) -> None:
             "job_variables": {
                 "env": {
                     "W2T_RUNTIME_CONFIG_JSON": config_json,
-                }
+                    # Path env vars for container
+                    "W2T_RAW_ROOT": "/data/raw",
+                    "W2T_INTERMEDIATE_ROOT": "/data/interim",
+                    "W2T_OUTPUT_ROOT": "/data/processed",
+                    "W2T_MODELS_ROOT": "/models",
+                },
+                "volumes": volumes,
             },
             "tags": ["w2t-bkin", "production"],
             "version": "1.0.0",
         }
 
-        # Deploy session flow
-        session_config = SessionFlowConfig(
-            subject_id="subject-001",
-            session_id="session-001",
-        )
+        # Deploy session flow with config defaults from TOML
         process_session_flow.deploy(
             name="process-session",
-            parameters={"config": session_config.model_dump()},
+            parameters={
+                "subject_id": "subject-001",  # Example default
+                "session_id": "session-001",  # Example default
+                "config": session_config_defaults.model_dump(mode="json"),  # JSON-safe
+            },
             description="Process a single experimental session through the w2t-bkin pipeline.",
             **common_params,
         )
         console.print("[dim]  ✓ process-session deployed[/dim]")
 
         # Deploy batch flow
-        batch_config = BatchFlowConfig(max_parallel=4)
+        batch_config_defaults = BatchFlowConfig(
+            configuration=session_config_defaults,
+            subject_filter=None,
+            session_filter=None,
+            max_parallel=4,
+        )
         batch_process_flow.deploy(
             name="batch-process",
-            parameters={"config": batch_config.model_dump()},
+            parameters={"config": batch_config_defaults.model_dump(mode="json")},
             description="Process multiple experimental sessions in parallel.",
             **common_params,
         )

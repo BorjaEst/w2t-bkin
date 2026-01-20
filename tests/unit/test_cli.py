@@ -4,6 +4,8 @@ Unit tests for CLI modules.
 Tests the modular CLI structure including pipeline, validation, and data commands.
 """
 
+import sys
+
 import pytest
 from typer.testing import CliRunner
 
@@ -122,4 +124,45 @@ class TestCLIUtils:
 
         assert display_session_result is not None
         assert display_batch_result is not None
-        assert format_discoveries is not None
+
+
+class TestImportIsolation:
+    """Test that base CLI doesn't import worker dependencies."""
+
+    def test_cli_import_no_worker_deps(self):
+        """Test that importing CLI doesn't load worker extras."""
+        # Clear any prior imports
+        worker_deps = ["torch", "tensorflow", "deeplabcut", "facemap"]
+        for dep in worker_deps:
+            if dep in sys.modules:
+                del sys.modules[dep]
+
+        # Import CLI
+        import w2t_bkin.cli
+        import w2t_bkin.cli.worker
+
+        # Verify worker deps are NOT imported
+        for dep in worker_deps:
+            assert dep not in sys.modules, f"{dep} should not be imported by base CLI"
+
+    def test_worker_help_no_heavy_imports(self):
+        """Test that worker --help doesn't trigger heavy imports."""
+        result = runner.invoke(app, ["worker", "--help"])
+        assert result.exit_code == 0
+        assert "worker" in result.stdout.lower()
+
+        # Verify heavy deps not imported
+        worker_deps = ["torch", "tensorflow", "deeplabcut", "facemap"]
+        for dep in worker_deps:
+            assert dep not in sys.modules, f"{dep} should not be imported for worker --help"
+
+    def test_worker_start_help_no_heavy_imports(self):
+        """Test that worker start --help doesn't trigger heavy imports."""
+        result = runner.invoke(app, ["worker", "start", "--help"])
+        assert result.exit_code == 0
+        assert "pool" in result.stdout.lower()
+
+        # Verify heavy deps not imported
+        worker_deps = ["torch", "tensorflow", "deeplabcut", "facemap"]
+        for dep in worker_deps:
+            assert dep not in sys.modules, f"{dep} should not be imported for worker start --help"

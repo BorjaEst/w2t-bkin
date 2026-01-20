@@ -21,7 +21,7 @@ def validate(
     any issues found (critical errors, errors, and warnings).
 
     Example:
-        $ w2t-bkin validate output/session-001/session-001.nwb
+        $ w2t-bkin validate data/processed/subject-001/session-001.nwb
         $ w2t-bkin validate file.nwb --output validation.json
         $ w2t-bkin validate file.nwb --no-show-warnings
     """
@@ -91,7 +91,7 @@ def inspect(
     - Trials table
 
     Example:
-        $ w2t-bkin inspect output/session-001/session-001.nwb
+        $ w2t-bkin inspect data/processed/subject-001/session-001.nwb
         $ w2t-bkin inspect file.nwb --no-show-acquisition
         $ w2t-bkin inspect file.nwb --no-show-trials
     """

@@ -1,36 +1,18 @@
 # =============================================================================
-# w2t-bkin Pipeline Configuration Template
+# w2t-bkin Pipeline Configuration
 # =============================================================================
-# This template shows ALL available configuration options.
-# Sections marked with ⚠️ are planned but not yet implemented.
+# This file defines DEFAULT PARAMETERS for pipeline processing.
+# Paths are configured via environment variables (see .workers/.env).
 #
-# For a minimal working configuration, run: w2t-bkin data init <path>
-# =============================================================================
-
-# =============================================================================
-# Project Configuration
-# =============================================================================
-
-[project]
-name = "w2t-bkin-pipeline"
-
-# =============================================================================
-# Paths Configuration
-# =============================================================================
-# Paths can be configured here OR via environment variables (recommended for workers).
-# Environment variables override these settings:
-# - W2T_RAW_ROOT
-# - W2T_INTERMEDIATE_ROOT
-# - W2T_OUTPUT_ROOT
-# - W2T_MODELS_ROOT
-# - W2T_ROOT_METADATA
+# Required environment variables:
+# - W2T_RAW_ROOT: Raw data directory
+# - W2T_INTERMEDIATE_ROOT: Intermediate processing outputs
+# - W2T_OUTPUT_ROOT: Final NWB output directory
+# - W2T_MODELS_ROOT: Pose estimation models
 #
-[paths]
-raw_root = "data/raw"
-intermediate_root = "data/interim"
-output_root = "data/processed"
-models_root = "models"
-root_metadata = "/home/user/configs/metadata.toml" # Optional: global metadata override
+# For production deployments, these are set automatically by the Docker worker.
+# For development mode, they default to <project_root>/data/raw, etc.
+# =============================================================================
 
 # =============================================================================
 # Synchronization Strategy
@@ -55,9 +37,18 @@ global_offset_s = 0.0       # Global time offset correction
 enabled = true                # Master switch (disables all checks when false)
 check_frame_counts = true     # Count frames via ffprobe (slow but accurate)
 check_sync_mismatch = true    # Verify frame/TTL counts match (false = skip TTL checks)
-skip_nwb_requirements = false # Use FPS estimates instead of exact counts (not recommended)
 mismatch_tolerance_frames = 0 # Max allowed frame/pulse difference
 warn_on_mismatch = false      # Warn instead of fail when within tolerance
+
+# =============================================================================
+# Bpod Configuration
+# =============================================================================
+
+[bpod]
+parse = true
+pattern = "Bpod/*.mat"
+order = "time_asc"     # name_asc | name_desc | time_asc | time_desc
+continuous_time = true
 
 # =============================================================================
 # Data Acquisition
@@ -71,18 +62,37 @@ concat_strategy = "ffconcat" # Video concatenation: ffconcat | mkvmerge
 # =============================================================================
 
 [preprocessing]
-force_rerun = false # Force re-run even if outputs exist
+force_rerun = false # Force re-run even if outputs exist (applies to 'generate' mode only)
+
+# -----------------------------------------------------------------------------
+# Pose Estimation: DLC & SLEAP
+# -----------------------------------------------------------------------------
+# H5 Discovery Contract (stem-based):
+#   - H5 files must be in interim/{dlc-pose|sleap-pose}/<camera_id>/
+#   - Filenames must match video stems:
+#     * DLC: {video_stem}DLC*.h5
+#     * SLEAP: *{video_stem}*.h5
+#
+# Model selection (for generate mode):
+#   - Per-camera models defined in metadata.pose.cameras.<camera_id>.model_id
+#   - Model paths in metadata.pose.models.<model_id>.path (relative to models_root)
+#   - See metadata.toml template for full pose section structure
 
 [preprocessing.dlc]
-enabled = false
-# model_path = "models/my-dlc-model/config.yaml"  # Path to DLC config
-# gpu = 0                                         # GPU device ID
-# save_csv = false                                # Save CSV outputs
+mode = "auto"       # off | discover | generate | auto
+# - off: Skip DLC entirely (equivalent to old enabled=false)
+# - discover: Use pre-existing H5s (stem-based discovery)
+# - generate: Run DLC inference (requires metadata.pose.models)
+# - auto: Generate if metadata.pose.models exists, else discover
+# gpu = 0      # GPU device ID (omit for auto-detect, -1 for CPU)
+# save_csv = false  # Export CSV in addition to H5
 
 [preprocessing.sleap]
-enabled = false
-# model_path = "models/my-sleap-model"            # Path to SLEAP model
-# gpu = 0                                         # GPU device ID
+mode = "off"          # off | discover | auto (generate NOT IMPLEMENTED)
+# - off: Skip SLEAP entirely (default, generate not implemented)
+# - discover: Use pre-existing H5s (stem-based discovery)
+# - auto: Same as discover (generate not implemented)
+# gpu = 0      # GPU device ID (omit for auto-detect, -1 for CPU)
 
 # =============================================================================
 # Video Processing

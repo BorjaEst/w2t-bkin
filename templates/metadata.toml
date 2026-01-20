@@ -6,9 +6,6 @@
 # OPTIONAL METADATA FIELDS
 # =============================================================================
 
-# Lab-specific ID for the session
-session_id = "000001"
-
 # Name of person(s) who performed experiment (can be a list)
 experimenter = ["Esteban, Borja", "Python, Code"]
 
@@ -148,14 +145,30 @@ description = "Processed behavioral data including pose estimates and synchroniz
 name = "sync"
 description = "Synchronization data between Bpod and cameras"
 
+
 # =============================================================================
 # PIPELINE SOURCE DEFINITIONS (Not NWB Metadata)
 # =============================================================================
 
+# TTL synchronization channels
+[[TTLs]]
+id = "ttl_camera"
+paths = "TTLs/*_frame.txt"
+description = "Camera exposure pulses (frame sync)"
+
+[[TTLs]]
+id = "ttl_cue"
+paths = "TTLs/*_cue.txt"
+description = "Audio cue onset pulses"
+
+[[TTLs]]
+id = "ttl_hitmiss"
+paths = "TTLs/*_hitmiss.txt"
+description = "Trial outcome signals"
+
 [bpod]
 path = "Bpod/*.mat"
 order = "time_asc"
-continuous_time = false
 
 # Bpod-TTL synchronization configuration
 # Maps each trial type to its sync signal and TTL channel
@@ -183,18 +196,35 @@ paths = "Video/pupil_left/*.avi"
 fps = 30.0
 ttl_id = "ttl_camera"
 
-# TTL synchronization channels
-[[TTLs]]
-id = "ttl_camera"
-paths = "TTLs/*_frame.txt"
-description = "Camera exposure pulses (frame sync)"
+# Pose estimation models (for generate mode)
+[pose.models.dlc_cam0]
+source = "dlc"
+path = "iteration-1/BA_W2T_cam0.newOct30-trainset95shuffle1/config.yaml"  # Relative to models_root
+artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 
-[[TTLs]]
-id = "ttl_cue"
-paths = "TTLs/*_cue.txt"
-description = "Audio cue onset pulses"
+[pose.models.dlc_cam1]
+source = "dlc"
+path = "iteration-1/BA_W2T_cam1.../config.yaml"
+artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
 
-[[TTLs]]
-id = "ttl_hitmiss"
-paths = "TTLs/*_hitmiss.txt"
-description = "Trial outcome signals"
+# Pose configuration per camera
+[pose.cameras.camera_0]
+model_id = "dlc_cam0"   # References pose.models.dlc_cam0 (used in generate mode)
+mapping_id = "canonical"  # Optional: references pose.mappings.canonical
+skeleton_id = "mouse"     # Optional: references pose.skeletons.mouse
+
+[pose.cameras.camera_1]
+model_id = "dlc_cam1"   # References pose.models.dlc_cam1 (used in generate mode)
+artifacts = "dlc-pose"  # Output artifact subdirectory for interim files
+
+# Optional: Body part name mappings for harmonization
+[pose.mappings.canonical]
+snout = "nose"
+ear_l = "ear_left"
+ear_r = "ear_right"
+
+# Optional: Skeleton definitions for visualization
+[pose.skeletons.mouse]
+name = "Mouse skeleton"
+nodes = ["nose", "ear_left", "ear_right", "neck", "body", "tail_base"]
+

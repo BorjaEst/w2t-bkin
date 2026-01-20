@@ -265,3 +265,45 @@ def _load_template(template_name: str) -> str:
         raise FileNotFoundError(f"Template not found: {template_name} " f"(expected at {template_path})")
 
     return template_path.read_text()
+
+
+def generate_env_dev_content(project_root: Path) -> str:
+    """Generate .env.dev content with absolute paths for development mode.
+
+    This file is auto-managed and should never be manually edited.
+    It will be regenerated on every 'server start --dev' or 'worker start --type process'.
+
+    Args:
+        project_root: Absolute path to experiment/project root
+
+    Returns:
+        Content for .workers/.env.dev file
+    """
+    project_root = project_root.resolve()  # Ensure absolute
+
+    content = [
+        "# =============================================================================",
+        "# W2T-BKIN Development Environment (AUTO-GENERATED)",
+        "# =============================================================================",
+        "# THIS FILE IS AUTO-MANAGED - DO NOT EDIT",
+        "#",
+        "# This file is automatically regenerated on every:",
+        "#   - w2t-bkin server start --dev",
+        "#   - w2t-bkin worker start --type process",
+        "#",
+        "# Any manual edits will be overwritten to ensure correct absolute paths.",
+        "# For production Docker settings, edit .workers/.env instead.",
+        "# =============================================================================",
+        "",
+        "# Development mode paths (host absolute)",
+        f"W2T_RAW_ROOT={project_root / 'data' / 'raw'}",
+        f"W2T_INTERMEDIATE_ROOT={project_root / 'data' / 'interim'}",
+        f"W2T_OUTPUT_ROOT={project_root / 'data' / 'processed'}",
+        f"W2T_MODELS_ROOT={project_root / 'models'}",
+        "",
+        "# Optional: Root metadata path",
+        f"# W2T_ROOT_METADATA={project_root / 'data' / 'raw' / 'metadata.toml'}",
+        "",
+    ]
+
+    return "\n".join(content)

@@ -1,6 +1,3 @@
-[project]
-name = "w2t-bkin-pipeline"
-
 [paths]
 raw_root = "tests/fixtures/data/raw"
 intermediate_root = "data/interim"
@@ -23,7 +20,6 @@ concat_strategy = "ffconcat"          # ffmpeg concat demuxer
 enabled = true                        # Master switch
 check_frame_counts = true             # Count frames via ffprobe
 check_sync_mismatch = true            # Verify frame/TTL sync (false = skip TTL checks)
-skip_nwb_requirements = false         # Use FPS estimates (not recommended)
 mismatch_tolerance_frames = 0         # Max allowed frame/pulse difference
 warn_on_mismatch = false              # Warn instead of fail
 

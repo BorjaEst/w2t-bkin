@@ -222,10 +222,6 @@ def merge_bpod_sessions(file_paths: List[Path], continuous_time: bool = True) ->
     if not file_paths:
         raise BpodParseError("No Bpod files to merge")
 
-    if len(file_paths) == 1:
-        # Single file - just parse and return
-        return parse_bpod_mat(file_paths[0])
-
     # Parse all files
     parsed_files = []
     for path in file_paths:

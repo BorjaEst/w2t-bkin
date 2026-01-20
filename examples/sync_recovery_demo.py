@@ -64,7 +64,7 @@ from pynwb.base import TimeSeries
 from synthetic import build_raw_folder
 from w2t_bkin.figures.sync import plot_sync_recovery
 from w2t_bkin.ingest.bpod import parse_bpod
-from w2t_bkin.ingest.ttl import get_ttl_pulses
+from w2t_bkin.ingest.events import get_ttl_pulses
 from w2t_bkin.sync import fit_robust_linear_model
 from w2t_bkin.utils import configure_logger, convert_matlab_struct
 

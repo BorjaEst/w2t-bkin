@@ -42,7 +42,12 @@ def plot_electrode_locations(
     Returns:
         Path to saved plot, or None if matplotlib is unavailable
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if plt is None:  # pragma: no cover
+        logger.info("plot_electrode_locations: matplotlib not available")
         return None
 
     _ensure_parent(out_path)
@@ -120,7 +125,12 @@ def plot_spike_raster(
     Returns:
         Path to saved plot, or None if matplotlib is unavailable
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if plt is None:  # pragma: no cover
+        logger.info("plot_spike_raster: matplotlib not available")
         return None
 
     _ensure_parent(out_path)
@@ -208,7 +218,12 @@ def plot_firing_rate_distribution(
     Returns:
         Path to saved plot, or None if matplotlib is unavailable
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if plt is None:  # pragma: no cover
+        logger.info("plot_firing_rate_distribution: matplotlib not available")
         return None
 
     _ensure_parent(out_path)
@@ -273,13 +288,18 @@ def plot_unit_quality_metrics(
     Returns:
         Path to saved plot, or None if matplotlib is unavailable or required columns missing
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if plt is None:  # pragma: no cover
+        logger.info("plot_unit_quality_metrics: matplotlib not available")
         return None
 
     # Check for required columns
     required_cols = ["contamination_pct", "amplitude"]
     if not all(col in units_df.columns for col in required_cols):
-        # Silently skip if columns don't exist
+        logger.info(f"plot_unit_quality_metrics: missing required columns {required_cols} (available: {list(units_df.columns)})")
         return None
 
     _ensure_parent(out_path)

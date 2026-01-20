@@ -16,19 +16,26 @@ import pytest
 class TestConfigLoading:
     """Test configuration file loading and parsing."""
 
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionConfig + env vars")
     def test_Should_LoadValidConfig_When_ValidTOMLProvided(self):
-        """Should successfully load a valid config.toml file."""
+        """Should successfully load a valid config.toml file.
+        
+        DEPRECATED: load_config() removed. Use SessionConfig directly.
+        """
         from w2t_bkin.config import load_config
 
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         config = load_config(config_path)
 
-        assert config.project.name == "w2t-bkin-pipeline"
         assert config.paths.raw_root == Path("tests/fixtures/data/raw").resolve()
         assert config.synchronization.strategy == "hardware_pulse"
 
+    @pytest.mark.skip(reason="Config class and load_config() removed - use SessionConfig + env vars")
     def test_Should_RejectConfig_When_MissingRequiredKey(self):
-        """Should reject config missing required key (A13)."""
+        """Should reject config missing required key (A13).
+        
+        DEPRECATED: load_config() removed. Use SessionConfig directly.
+        """"
         from w2t_bkin.config import load_config
 
         config_path = Path("tests/fixtures/configs/missing_paths.toml")
@@ -36,17 +43,21 @@ class TestConfigLoading:
         with pytest.raises((ValidationError, KeyError)):
             load_config(config_path)
 
+    @pytest.mark.skip(reason="Config class removed - SessionConfig validates via Pydantic extra='forbid'")
     def test_Should_RejectConfig_When_ExtraKeyPresent(self):
-        """Should reject config with extra key not in schema (A13)."""
+        """Should reject config with extra key not in schema (A13).
+        
+        DEPRECATED: Config class removed. Use SessionConfig for runtime validation.
+        """"
         from w2t_bkin.config import AlignmentConfig, Config, SynchronizationConfig
 
         config_data = {
-            "project": {"name": "test", "extra_key": "not allowed"},
             "paths": {
                 "raw_root": "data/raw",
                 "intermediate_root": "data/interim",
                 "output_root": "data/processed",
                 "models_root": "models",
+                "extra_key": "not allowed",
             },
             "synchronization": {
                 "strategy": "rate_based",

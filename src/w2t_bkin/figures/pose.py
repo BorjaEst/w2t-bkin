@@ -139,12 +139,18 @@ def plot_pose_keypoints_grid(
     Returns:
         Path to saved plot, or None if matplotlib/cv2 is unavailable
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     if plt is None:  # pragma: no cover
+        logger.info("plot_pose_keypoints_grid: matplotlib not available")
         return None
 
     try:
         import cv2
     except ImportError:  # pragma: no cover
+        logger.info("plot_pose_keypoints_grid: cv2 (OpenCV) not available")
         return None
 
     _ensure_parent(out_path)
@@ -157,6 +163,7 @@ def plot_pose_keypoints_grid(
     # Open video
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
+        logger.info(f"plot_pose_keypoints_grid: cannot open video: {video_path}")
         return None
 
     # Create figure with 3 subplots
