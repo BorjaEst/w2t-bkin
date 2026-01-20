@@ -9,6 +9,7 @@ from prefect import task
 from w2t_bkin import utils
 from w2t_bkin.config import DiscoveryConfig
 from w2t_bkin.exceptions import IngestError
+from w2t_bkin.metadata import PoseMeta
 from w2t_bkin.models import DiscoveryResult, SessionInfo
 from w2t_bkin.operations.discovery import discover_bpod_files, discover_camera_files, discover_pose_files, discover_pose_models, discover_ttl_files
 
@@ -38,14 +39,14 @@ def discover_all_files_task(info: SessionInfo, config: Optional[DiscoveryConfig]
     config = config or DiscoveryConfig()
 
     logger.info(f"Discovering all files for session {info.session_id} in {info.raw_dir}")
-    cameras = info.metadata.get("cameras", []) if config.discover_cameras else []
-    ttls = info.metadata.get("TTLs", []) if config.discover_ttl_signals else []
-    bpod = info.metadata.get("bpod", None) if config.discover_bpod else None
-    pose = info.metadata.get("pose", {}) if config.discover_pose else {}
-    logger.debug(f"  Cameras: {len(cameras)}, TTLs: {len(ttls)}, Bpod: {bpod is not None}, Pose: {pose.keys()}")
+    cameras = info.metadata.cameras if config.discover_cameras else []
+    ttls = info.metadata.TTLs if config.discover_ttl_signals else []
+    bpod = info.metadata.bpod if config.discover_bpod else None
+    pose = info.metadata.pose if config.discover_pose else PoseMeta()
+    logger.debug(f"  Cameras: {len(cameras)}, TTLs: {len(ttls)}, Bpod: {bpod is not None}, Pose: {list(pose.models.keys())}")
 
     logger.info(f"Discovering all models for session {info.session_id}")
-    models = info.metadata.get("pose", {}).get("models", {}) if config.discover_models else {}
+    models = info.metadata.pose.models if config.discover_models else {}
     logger.debug(f"  Models: {models.keys()}")
 
     return DiscoveryResult(

@@ -78,6 +78,22 @@ class BpodTrialTypeProtocol(Protocol):
     description: str
 
 
+def _trial_type_config_value(cfg: object, key: str):
+    """Read a value from a trial-type config.
+
+    The pipeline historically passed dict-like configs, but the strict metadata
+    path now prefers typed Pydantic models.
+    """
+
+    if hasattr(cfg, key):
+        return getattr(cfg, key)
+    if isinstance(cfg, dict):
+        return cfg[key]
+    if hasattr(cfg, "get"):
+        return cfg.get(key)
+    raise TypeError(f"Trial type config must support attribute or dict-style access; missing key '{key}'.")
+
+
 def align_bpod_trials_to_ttl(
     trial_type_configs: List[BpodTrialTypeProtocol],
     bpod_data: Dict,
@@ -167,9 +183,10 @@ def align_bpod_trials_to_ttl(
     # Build trial_type → sync config mapping
     trial_type_map = {}
     for tt_config in trial_type_configs:
-        trial_type_map[tt_config["trial_type"]] = {
-            "sync_signal": tt_config["sync_signal"],
-            "sync_ttl": tt_config["sync_ttl"],
+        trial_type = int(_trial_type_config_value(tt_config, "trial_type"))
+        trial_type_map[trial_type] = {
+            "sync_signal": _trial_type_config_value(tt_config, "sync_signal"),
+            "sync_ttl": _trial_type_config_value(tt_config, "sync_ttl"),
         }
 
     if not trial_type_map:

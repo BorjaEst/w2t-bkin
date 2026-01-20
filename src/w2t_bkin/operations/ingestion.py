@@ -95,8 +95,8 @@ def ingest_videos(
     logger.info(f"Ingesting video data for session {info.session_id}")
 
     # Extract camera metadata
-    cameras_meta = info.metadata.get("cameras", [])
-    camera_meta_by_id = {cam["id"]: cam for cam in cameras_meta}
+    cameras_meta = info.metadata.cameras
+    camera_meta_by_id = {cam.id: cam for cam in cameras_meta}
 
     video_data = {}
 
@@ -106,9 +106,9 @@ def ingest_videos(
             continue
 
         # Get camera metadata
-        cam_meta = camera_meta_by_id.get(camera_id, {})
-        fps = cam_meta.get("fps")
-        ttl_id = cam_meta.get("ttl_id")
+        cam_meta = camera_meta_by_id.get(camera_id)
+        fps = cam_meta.fps if cam_meta is not None else None
+        ttl_id = cam_meta.ttl_id if cam_meta is not None else None
 
         # Count frames for each video
         video_chunks = []
@@ -203,9 +203,10 @@ def ingest_bpod(
     )
 
     # Extract sync configuration from metadata (for TTL alignment)
-    bpod_meta = info.metadata.get("bpod", {})
-    sync_config = bpod_meta.get("sync", {})
-    sync_trial_types = sync_config.get("trial_types", [])
+    bpod_meta = info.metadata.bpod
+    sync_trial_types = []
+    if bpod_meta is not None and bpod_meta.sync is not None:
+        sync_trial_types = bpod_meta.sync.trial_types
 
     bpod_data = BpodData(
         data=merged_data,
@@ -253,9 +254,9 @@ def ingest_pose(
     pose_data_by_camera = {}
 
     # Get pose configuration from metadata
-    pose_meta = info.metadata.get("pose", {})
-    cameras_config = pose_meta.get("cameras", {})
-    mappings = pose_meta.get("mappings", {})
+    pose_meta = info.metadata.pose
+    cameras_config = pose_meta.cameras
+    mappings = pose_meta.mappings
 
     # Determine pose files per camera (from artifacts first, fallback to discovery)
     pose_files_by_camera = {}
@@ -280,9 +281,9 @@ def ingest_pose(
         if not pose_paths:
             continue
 
-        camera_config = cameras_config.get(camera_id, {})
-        source = camera_config.get("source", "dlc")
-        mapping_id = camera_config.get("mapping_id")
+        camera_config = cameras_config.get(camera_id)
+        source = camera_config.source if camera_config is not None else "dlc"
+        mapping_id = camera_config.mapping_id if camera_config is not None else None
         mapping = mappings.get(mapping_id) if mapping_id else None
 
         pose_data_list = []

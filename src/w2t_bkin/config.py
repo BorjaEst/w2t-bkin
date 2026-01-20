@@ -14,7 +14,7 @@ class TTLsConfig(BaseModel, extra="forbid"):
 
     enable_loading: bool = Field(
         default=True,
-        description=("If True, verify frame/TTL synchronization for cameras configured with TTL sync."),
+        description="If True, verify frame/TTL synchronization for cameras configured with TTL sync.",
     )
 
 

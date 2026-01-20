@@ -19,14 +19,16 @@ Prefect Tasks:
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Tuple
 
 from prefect import task
+from pydantic import ValidationError as PydanticValidationError
 
 from w2t_bkin import utils
 from w2t_bkin.config import SessionConfig
 from w2t_bkin.core.session import build_metadata_paths, load_metadata
-from w2t_bkin.exceptions import ConfigError
+from w2t_bkin.exceptions import SessionError
+from w2t_bkin.metadata import Metadata
 from w2t_bkin.models import SessionInfo
 
 logger = logging.getLogger(__name__)
@@ -199,7 +201,7 @@ def load_session_metadata(
     subject_id: str,
     session_id: str,
     root_metadata: Path | None = None,
-) -> Dict:
+) -> Metadata:
     """Load and merge hierarchical session metadata.
 
     Args:
@@ -230,4 +232,19 @@ def load_session_metadata(
         )
 
     # Load and merge metadata hierarchically
-    return load_metadata(metadata_paths)
+    merged = load_metadata(metadata_paths)
+
+    # Strict schema validation (fail fast on unknown keys)
+    try:
+        return Metadata.model_validate(merged)
+    except PydanticValidationError as e:
+        raise SessionError(
+            "Invalid metadata.toml (schema validation failed)",
+            context={
+                "subject_id": subject_id,
+                "session_id": session_id,
+                "metadata_paths": [str(p) for p in metadata_paths],
+                "validation_errors": e.errors(),
+            },
+            hint="Fix unknown/invalid keys in metadata TOML files (strict schema validation is enabled).",
+        )

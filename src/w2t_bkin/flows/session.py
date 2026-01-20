@@ -88,7 +88,7 @@ def process_session_flow(subject_id: str, session_id: str, config: SessionConfig
 
         # Setup flow-run-isolated file logging
         with flow_run_file_logger(session_info.processed_dir, run_logger):
-            return _execute_session_pipeline(session_info, start_time, run_logger)
+            return _execute_session_pipeline(session_info, config, run_logger)
 
     except Exception as e:
         duration = (datetime.now() - start_time).total_seconds()

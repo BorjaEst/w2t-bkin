@@ -12,13 +12,9 @@ from unittest.mock import patch
 import pytest
 
 from w2t_bkin.config import SessionConfig
+from w2t_bkin.exceptions import SessionError
 from w2t_bkin.models import SessionInfo
-from w2t_bkin.tasks.initialization import (
-    build_session_paths,
-    load_session_metadata,
-    read_required_env_paths,
-    setup_flow_session_task,
-)
+from w2t_bkin.tasks.initialization import build_session_paths, load_session_metadata, read_required_env_paths, setup_flow_session_task
 
 
 class TestReadRequiredEnvPaths:
@@ -173,8 +169,35 @@ session_description = "Test session"
         )
 
         # Assert
-        assert metadata["identifier"] == "test-session"
-        assert metadata["session_description"] == "Test session"
+        assert metadata.identifier == "test-session"
+        assert metadata.session_description == "Test session"
+
+    def test_Should_FailFast_When_UnknownKeyPresent(self, tmp_path):
+        """Should raise SessionError when an unknown key is present (strict schema)."""
+        # Arrange
+        raw_root = tmp_path / "raw"
+        subject_id = "subject-001"
+        session_id = "session-001"
+
+        session_dir = raw_root / subject_id / session_id
+        session_dir.mkdir(parents=True)
+
+        session_toml = session_dir / "session.toml"
+        session_toml.write_text(
+            """
+identifier = "test-session"
+session_description = "Test session"
+unknown_key = "nope"
+"""
+        )
+
+        # Act & Assert
+        with pytest.raises(SessionError, match="schema validation failed"):
+            load_session_metadata(
+                raw_root=raw_root,
+                subject_id=subject_id,
+                session_id=session_id,
+            )
 
     def test_Should_MergeMetadata_When_MultipleFilesExist(self, tmp_path):
         """Should merge metadata hierarchically from multiple TOML files."""
@@ -222,10 +245,11 @@ session_description = "Test session"
         )
 
         # Assert - all levels merged
-        assert metadata["institution"] == "Test University"
-        assert metadata["subject"]["subject_id"] == "subject-001"
-        assert metadata["identifier"] == "session-001"
-        assert metadata["session_description"] == "Test session"
+        assert metadata.institution == "Test University"
+        assert metadata.subject is not None
+        assert metadata.subject.subject_id == "subject-001"
+        assert metadata.identifier == "session-001"
+        assert metadata.session_description == "Test session"
 
     def test_Should_RaiseError_When_NoMetadataFilesFound(self, tmp_path):
         """Should raise ValueError when no metadata files are found."""
@@ -290,7 +314,7 @@ session_description = "Test session"
         assert result.interim_dir == interim_root / subject_id / session_id
         assert result.processed_dir == output_root / subject_id / session_id
         assert result.models_dir == models_root.resolve()
-        assert result.metadata["identifier"] == "test-session"
+        assert result.metadata.identifier == "test-session"
 
     def test_Should_CreateDirectories_When_TheyDontExist(self, monkeypatch, tmp_path):
         """Should create interim and processed directories if they don't exist."""

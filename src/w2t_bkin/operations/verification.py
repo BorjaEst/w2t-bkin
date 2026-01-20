@@ -108,11 +108,11 @@ def verify_camera_ttl_sync(
     """
     logger.info("Verifying camera-TTL synchronization")
 
-    cameras = session_info.metadata.get("cameras", [])
+    cameras = session_info.metadata.cameras
 
     for camera in cameras:
-        camera_id = camera["id"]
-        ttl_id = camera.get("ttl_id")
+        camera_id = camera.id
+        ttl_id = camera.ttl_id
 
         # Skip cameras without TTL sync
         if not ttl_id:
@@ -120,7 +120,7 @@ def verify_camera_ttl_sync(
             continue
 
         # Check if camera is optional and missing/empty
-        is_optional = camera.get("optional", False)
+        is_optional = camera.optional
         camera_frame_count = frame_counts.get(camera_id, 0)
 
         # Skip optional cameras with no discovered videos (frame_count=0 or missing)

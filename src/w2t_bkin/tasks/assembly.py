@@ -40,7 +40,7 @@ def create_nwb_file_task(session_info: SessionInfo) -> NWBFile:
     logger.info(f"Creating NWB file for session {session_info.session_id}")
 
     # Create NWBFile directly from metadata using core.session primitive
-    nwbfile = session_core.create_nwb_file(session_info.metadata)
+    nwbfile = session_core.create_nwb_file(session_info.metadata.model_dump(exclude_none=True))
 
     logger.info(f"NWBFile created: identifier='{nwbfile.identifier}'")
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from pynwb import NWBFile
 
 from w2t_bkin.config import SessionConfig
+from w2t_bkin.metadata import BpodSyncTrialTypeMeta, Metadata
 
 
 @dataclass
@@ -52,7 +53,7 @@ class SessionInfo:
 
     subject_id: str  # Subject identifier
     session_id: str  # Session identifier
-    metadata: Dict[str, Any]  # Parsed metadata.toml content
+    metadata: Metadata  # Parsed + validated merged metadata
     raw_dir: Path  # Path to raw session directory
     interim_dir: Path  # Path to interim data directory
     processed_dir: Path  # Path to processed output directory
@@ -162,7 +163,7 @@ class BpodData:
 
     data: Dict[str, Any]
     source_files: List[Path]
-    sync_trial_types: List[Dict[str, Any]] = None  # Default to None for backward compatibility
+    sync_trial_types: List[BpodSyncTrialTypeMeta] = None  # Default to None for backward compatibility
 
     def __post_init__(self):
         """Initialize sync_trial_types to empty list if None."""
