@@ -65,6 +65,26 @@ class TestStateExtraction:
         # Verify timestamps are adjusted by offsets
         # (implementation detail - would need to check specific state times)
 
+    def test_extract_states_with_partial_offsets_defaults_to_zero(self, parsed_bpod_data):
+        """Missing trial offsets must not crash and should default to 0.0.
+
+        This models TTL sync computing offsets for only a subset of trials.
+        """
+        state_types = extract_state_types(parsed_bpod_data)
+        # Intentionally omit trial 2 offset
+        trial_offsets = {1: 0.0, 3: 20.0}
+
+        states, state_indices = extract_states(parsed_bpod_data, state_types, trial_offsets=trial_offsets)
+
+        assert len(states) > 0
+        assert 2 in state_indices
+        assert len(state_indices[2]) > 0
+
+        first_trial2_state_idx = state_indices[2][0]
+        first_trial2_state_start = states["start_time"][first_trial2_state_idx]
+        # Trial 2 starts at 10.0 in the fixture; with missing offset we expect no shift.
+        assert first_trial2_state_start == pytest.approx(10.0)
+
 
 class TestEventExtraction:
     """Test event type and event data extraction."""
@@ -92,6 +112,22 @@ class TestEventExtraction:
 
         # Check events were extracted
         assert len(events) > 0
+
+    def test_extract_events_with_partial_offsets_defaults_to_zero(self, parsed_bpod_data):
+        """Missing trial offsets must not crash and should default to 0.0."""
+        event_types = extract_event_types(parsed_bpod_data)
+        trial_offsets = {1: 0.0, 3: 20.0}
+
+        events, event_indices = extract_events(parsed_bpod_data, event_types, trial_offsets=trial_offsets)
+
+        assert len(events) > 0
+        assert 2 in event_indices
+        assert len(event_indices[2]) > 0
+
+        first_trial2_event_idx = event_indices[2][0]
+        first_trial2_event_ts = events["timestamp"][first_trial2_event_idx]
+        # Trial 2 starts at 10.0 and first event in fixture is ~0.0001
+        assert first_trial2_event_ts == pytest.approx(10.0001)
 
 
 class TestActionExtraction:
@@ -149,6 +185,34 @@ class TestTrialsAndRecording:
         # Check trials were created
         n_trials = parsed_bpod_data["SessionData"]["nTrials"]
         assert len(trials) == n_trials
+
+    def test_build_trials_table_with_partial_offsets_defaults_to_zero(self, parsed_bpod_data):
+        """Missing trial offsets must not crash and should default to 0.0."""
+        state_types = extract_state_types(parsed_bpod_data)
+        event_types = extract_event_types(parsed_bpod_data)
+        action_types = extract_action_types(parsed_bpod_data)
+
+        # Only provide offsets for trials 1 and 3
+        trial_offsets = {1: 0.0, 3: 20.0}
+
+        states, state_indices = extract_states(parsed_bpod_data, state_types, trial_offsets=trial_offsets)
+        events, event_indices = extract_events(parsed_bpod_data, event_types, trial_offsets=trial_offsets)
+        actions, action_indices = extract_actions(parsed_bpod_data, action_types, trial_offsets=trial_offsets)
+
+        recording = build_task_recording(states, events, actions)
+        trials = build_trials_table(
+            parsed_bpod_data,
+            recording,
+            state_indices,
+            event_indices,
+            action_indices,
+            trial_offsets=trial_offsets,
+        )
+
+        assert len(trials) == parsed_bpod_data["SessionData"]["nTrials"]
+
+        # Trial 2 start should remain its relative start timestamp (10.0) with no offset.
+        assert trials["start_time"][1] == pytest.approx(10.0)
 
     def test_trials_contain_references(self, parsed_bpod_data):
         """Test that TrialsTable contains proper references to states/events/actions."""

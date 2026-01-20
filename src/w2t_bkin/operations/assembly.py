@@ -13,7 +13,7 @@ from w2t_bkin.models import BpodData, PoseData, TTLData
 logger = logging.getLogger(__name__)
 
 
-def assemble_behavior_tables(nwbfile: NWBFile, bpod_data: BpodData, trial_offsets: List[float]) -> Tuple[Any, Any, Any]:
+def assemble_behavior_tables(nwbfile: NWBFile, bpod_data: BpodData, trial_offsets: Dict[int, float]) -> Tuple[Any, Any, Any]:
     """Assemble behavior tables (states, events, actions) and add to NWB file.
 
     Pure function that extracts behavioral data and builds NWB structures.
@@ -22,7 +22,7 @@ def assemble_behavior_tables(nwbfile: NWBFile, bpod_data: BpodData, trial_offset
     Args:
         nwbfile: NWB file object to modify
         bpod_data: Parsed Bpod data
-        trial_offsets: Trial offset times for alignment
+        trial_offsets: Dict mapping trial_number -> absolute time offset
 
     Returns:
         Tuple of (trials_table, task_recording, task) objects

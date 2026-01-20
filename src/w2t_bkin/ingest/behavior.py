@@ -66,6 +66,8 @@ Example:
     ...                   task_arguments=task_arguments)
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -269,7 +271,7 @@ def extract_states(
     bpod_data: Dict[str, Any],
     state_types: StateTypesTable,
     trial_offsets: Optional[Dict[int, float]] = None,
-) -> StatesTable:
+) -> Tuple[StatesTable, Dict[int, List[int]]]:
     """Extract state sequences from Bpod data.
 
     Converts RawEvents.Trial[].States to ndx-structured-behavior StatesTable
