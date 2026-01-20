@@ -60,31 +60,21 @@ class PoseConfig(BaseModel, extra="forbid"):
     )
 
 
-class BasicAssembleConfig(BaseModel, extra="forbid"):
+class BaseAssembleConfig(BaseModel, extra="forbid"):
     """How normal data streams are assembled into NWB structures."""
 
     mode: Literal["skip", "assemble"] = Field(
         default="assemble",
-        description=(
-            "How to handle this data type during NWB assembly: "
-            "'skip' disables assembly of this data type into NWB; "
-            "'assemble' enables assembly into NWB."
-            "'link' Not supported for this data type."
-        ),
+        description="How to handle this data type during NWB assembly: 'skip' disables assembly of this data type into NWB; 'assemble' enables assembly into NWB.",
     )
 
 
-class ExtendedAssembleConfig(BaseModel, extra="forbid"):
+class BaseLinkConfig(BaseModel, extra="forbid"):
     """How normal data streams are assembled into NWB structures."""
 
-    mode: Literal["skip", "assemble", "link"] = Field(
+    mode: Literal["skip", "link"] = Field(
         default="assemble",
-        description=(
-            "How to handle this data type during NWB assembly: "
-            "'skip' disables assembly of this data type into NWB; "
-            "'assemble' enables assembly into NWB."
-            "'link' creates external links to pre-existing NWB structures (if available)."
-        ),
+        description="How to handle this data type during NWB assembly: 'skip' disables assembly of this data type into NWB; 'link' creates external links to pre-existing NWB",
     )
 
 
@@ -208,20 +198,20 @@ class SynchronizationConfig(BaseModel, extra="forbid"):
 class AssemblyConfig(BaseModel, extra="forbid"):
     """How ingested data streams are combined into unified datasets."""
 
-    ttls: BasicAssembleConfig = Field(
-        default_factory=BasicAssembleConfig,
+    ttls: BaseAssembleConfig = Field(
+        default_factory=BaseAssembleConfig,
         description="How TTL pulse data streams are assembled into NWB structures.",
     )
-    behavior: BasicAssembleConfig = Field(
-        default_factory=BasicAssembleConfig,
+    behavior: BaseAssembleConfig = Field(
+        default_factory=BaseAssembleConfig,
         description="How behavioral data streams are assembled into NWB structures.",
     )
-    videos: ExtendedAssembleConfig = Field(
-        default_factory=ExtendedAssembleConfig,
+    videos: BaseLinkConfig = Field(
+        default_factory=BaseLinkConfig,
         description="How video data streams are assembled into NWB structures.",
     )
-    pose: BasicAssembleConfig = Field(
-        default_factory=BasicAssembleConfig,
+    pose: BaseAssembleConfig = Field(
+        default_factory=BaseAssembleConfig,
         description="How pose estimation data streams are assembled into NWB structures.",
     )
 
@@ -240,6 +230,10 @@ class FinalizationConfig(BaseModel, extra="forbid"):
     provenance: bool = Field(
         default=True,
         description="If True, include data provenance information in NWB.",
+    )
+    skip_validation: bool = Field(
+        default=False,
+        description="If True, skip NWB validation with nwbinspector.",
     )
 
 
