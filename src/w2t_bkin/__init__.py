@@ -123,9 +123,9 @@ def __getattr__(name: str):
 
         return pose
     elif name == "ttl":
-        from w2t_bkin.ingest import events
+        import w2t_bkin.ttl
 
-        return events
+        return w2t_bkin.ttl
     elif name == "facemap":
         from w2t_bkin.processors import facemap
 

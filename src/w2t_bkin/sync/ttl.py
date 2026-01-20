@@ -11,7 +11,7 @@ Example:
 """
 
 import logging
-from typing import Dict, List, Optional, Protocol, Tuple
+from typing import Dict, List, Optional, Protocol, Sequence, Tuple, TypedDict, Union
 
 import numpy as np
 
@@ -65,17 +65,30 @@ class BpodTrialTypeProtocol(Protocol):
     Defines minimal interface needed by sync.ttl module without
     importing from domain.session.BpodTrialType.
 
+    This module accepts both:
+    - typed configs (e.g. Pydantic models) exposing attributes
+    - dict-based configs (legacy/tests)
+
     Attributes:
         trial_type: Trial type identifier
         sync_signal: Bpod state/event name for alignment
         sync_ttl: TTL channel ID for sync pulses
-        description: Human-readable description
     """
 
     trial_type: int
     sync_signal: str
     sync_ttl: str
-    description: str
+
+
+class BpodTrialTypeDict(TypedDict):
+    """Dict-based trial type sync configuration (legacy/tests)."""
+
+    trial_type: int
+    sync_signal: str
+    sync_ttl: str
+
+
+BpodTrialTypeConfig = Union[BpodTrialTypeProtocol, BpodTrialTypeDict]
 
 
 def _trial_type_config_value(cfg: object, key: str):
@@ -95,7 +108,7 @@ def _trial_type_config_value(cfg: object, key: str):
 
 
 def align_bpod_trials_to_ttl(
-    trial_type_configs: List[BpodTrialTypeProtocol],
+    trial_type_configs: Sequence[BpodTrialTypeConfig],
     bpod_data: Dict,
     ttl_pulses: Dict[str, List[float]],
 ) -> Tuple[Dict[int, float], List[str]]:
@@ -137,7 +150,7 @@ def align_bpod_trials_to_ttl(
 
     Raises:
         SyncError: If trial_type config missing or data structure invalid
-        TypeError: If trial_type_configs is not a list
+        TypeError: If trial_type_configs is not a list or tuple
 
     Example:
         >>> from w2t_bkin.ttl import get_ttl_pulses
@@ -166,8 +179,8 @@ def align_bpod_trials_to_ttl(
     from w2t_bkin.utils import convert_matlab_struct, to_scalar
 
     # Validate input types
-    if not isinstance(trial_type_configs, list):
-        raise TypeError(f"trial_type_configs must be a list, got {type(trial_type_configs).__name__}. " "Expected list of BpodTrialType configs from metadata.")
+    if not isinstance(trial_type_configs, (list, tuple)):
+        raise TypeError(f"trial_type_configs must be a list or tuple, got {type(trial_type_configs).__name__}. " "Expected sequence of trial-type configs (dicts or typed models).")
 
     # Validate Bpod structure
     if "SessionData" not in bpod_data:
@@ -275,7 +288,7 @@ def align_bpod_trials_to_ttl(
     # Log summary of alignment issues if any
     skipped_trials = [w for w in warnings_list if "No more TTL pulses available" in w]
     if skipped_trials:
-        logger.warning(f"⚠ {len(skipped_trials)} trial(s) skipped due to missing TTL pulses (check session log for details)")
+        logger.warning(f"{len(skipped_trials)} trial(s) skipped due to missing TTL pulses (check session log for details)")
 
     logger.info(f"Computed offsets for {len(trial_offsets)} out of {n_trials} trials using TTL sync")
     return trial_offsets, warnings_list

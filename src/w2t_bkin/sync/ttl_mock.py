@@ -11,7 +11,7 @@ Features:
 - **Duration filtering**: Minimum duration requirements for valid signal phases
 - **Frame-to-time conversion**: Automatic FPS-based timestamp generation
 - **Flexible triggering**: Support for ON/OFF transitions, state changes, and custom predicates
-- **TTL file format**: Compatible with w2t_bkin.sync.ttl loader (one timestamp per line)
+- **TTL file format**: Compatible with w2t_bkin.ttl loader (one timestamp per line)
 
 Use Cases:
 ----------
@@ -80,6 +80,7 @@ See Also:
 ---------
 - synthetic.ttl_synth: Pure synthetic TTL generation with deterministic RNG
 - w2t_bkin.sync.ttl: TTL pulse loading and validation
+- w2t_bkin.ttl: TTL file loading and EventsTable conversion
 - w2t_bkin.ingest.pose: DLC pose data import
 """
 
