@@ -38,10 +38,10 @@ mode = "auto" # off | discover | generate | auto
 ttl_signals.enable_loading = true # Enable discovery of TTL signal files
 
 # Cameras configuration
-cameras.enable_loading = true      # Enable discovery of camera video files
-cameras.ttl_validation = false     # Verify frame/TTL sync (false = skip TTL checks)
-cameras.ttl_tolerance = 0          # Max allowed frame/pulse difference
-cameras.mismatch_warn_only = false # Warn instead of fail
+video.enable_loading = true      # Enable discovery of camera video files
+video.ttl_validation = false     # Verify frame/TTL sync (false = skip TTL checks)
+video.ttl_tolerance = 0          # Max allowed frame/pulse difference
+video.mismatch_warn_only = false # Warn instead of fail
 
 # Bpod configuration
 bpod.enable_loading = true  # Enable discovery of Bpod behavioral files
