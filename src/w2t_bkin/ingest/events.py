@@ -40,7 +40,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ndx_events import EventsTable
+from ndx_events import SignalsTable as TTLEventsTable
 import numpy as np
 import pandas as pd
 from pynwb import NWBFile
@@ -163,7 +163,7 @@ def extract_ttl_table(
     name: str = "TTLEvents",
     descriptions: Optional[Dict[str, str]] = None,
     sources: Optional[Dict[str, str]] = None,
-) -> EventsTable:
+) -> TTLEventsTable:
     """Extract EventsTable from TTL pulse timestamps.
 
     Converts a dictionary of TTL pulse timestamps into an ndx-events EventsTable
@@ -262,7 +262,7 @@ def extract_ttl_table(
     ]
 
     # Create EventsTable from DataFrame (bulk insertion - much faster than add_row)
-    ttl_table = EventsTable.from_dataframe(
+    ttl_table = TTLEventsTable.from_dataframe(
         df=df,
         name=name,
         table_description=f"Hardware TTL pulse events from {len(ttl_pulses)} channels, {offset} total pulses",
