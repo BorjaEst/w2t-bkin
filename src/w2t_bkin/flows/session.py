@@ -246,9 +246,6 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
         logger.info("Skipping video data assembly into NWB")
     elif config.assembly.videos.mode == "link":
         logger.info("Assembling linked video data into NWB")
-        assembly_tasks.assemble_linked_videos_into_nwb(nwbfile, video_data, config.assembly)
-    else:
-        logger.info("Assembling video data into NWB")
         assembly_tasks.assemble_videos_into_nwb(nwbfile, video_data, config.assembly)
 
     logger.debug("NWB assembly completed")
