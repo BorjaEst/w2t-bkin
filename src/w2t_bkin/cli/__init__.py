@@ -24,7 +24,7 @@ Workflow:
     3. w2t-bkin data add-session ...
     4. w2t-bkin server start
        OR use --dev flag in step 4 for development
-    6. Use Prefect UI at http://localhost:4200 to run workflows
+    6. Use Prefect UI at http://127.0.0.1:4200 to run workflows
 """
 
 import typer

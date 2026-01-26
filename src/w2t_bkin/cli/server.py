@@ -189,12 +189,12 @@ def status(port: int = typer.Option(4200, "--port", "-p", help="Prefect UI port"
     console.print("[cyan]Checking Prefect server status...[/cyan]\n")
 
     try:
-        health_url = f"http://localhost:{port}/api/health"
+        health_url = f"http://127.0.0.1:{port}/api/health"
 
         try:
             urllib.request.urlopen(health_url, timeout=2)
-            console.print(f"[green]✓[/green] Server is running at http://localhost:{port}")
-            console.print(f"[dim]  UI: http://localhost:{port}[/dim]")
+            console.print(f"[green]✓[/green] Server is running at http://127.0.0.1:{port}")
+            console.print(f"[dim]  UI: http://127.0.0.1:{port}[/dim]")
         except Exception:
             console.print(f"[red]✗[/red] Server is not running on port {port}")
 
@@ -422,7 +422,7 @@ def _start_prefect_server(port: int, debug: bool) -> subprocess.Popen:
     return server_process
 
 
-def _wait_for_server(process: subprocess.Popen, port: int, timeout: int = 45) -> bool:
+def _wait_for_server(process: subprocess.Popen, port: int, timeout: int = 80) -> bool:
     """Wait for Prefect server to be ready.
 
     Args:
@@ -433,7 +433,7 @@ def _wait_for_server(process: subprocess.Popen, port: int, timeout: int = 45) ->
     Returns:
         True if server is ready, False if it failed or timed out
     """
-    health_url = f"http://localhost:{port}/api/health"
+    health_url = f"http://127.0.0.1:{port}/api/health"
 
     for i in range(timeout):
         if process.poll() is not None:
@@ -459,7 +459,7 @@ def _is_port_in_use(port: int) -> bool:
         True if port is in use, False otherwise
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _open_ui(port: int, open_browser: bool) -> str:
@@ -472,7 +472,7 @@ def _open_ui(port: int, open_browser: bool) -> str:
     Returns:
         UI URL
     """
-    ui_url = f"http://localhost:{port}"
+    ui_url = f"http://127.0.0.1:{port}"
     if open_browser:
         console.print(f"[cyan]Opening browser to {ui_url}...[/cyan]")
         webbrowser.open(ui_url)

@@ -38,5 +38,5 @@ The discovery contract is stem-based (see the comments in `configuration.toml`):
 The UI is where you create and run flow runs.
 
 - Start it via `w2t-bkin server start` (or `--dev`)
-- Open http://localhost:4200
+- Open http://127.0.0.1:4200
 - Run deployments like `process-session` or `batch-process`

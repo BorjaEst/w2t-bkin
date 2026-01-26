@@ -124,7 +124,7 @@ def init(
     console.print(f"  3. Start server: [cyan]cd {root_path} && w2t-bkin server start[/cyan]")
     console.print(f"  4. Development: [cyan]w2t-bkin server start --dev[/cyan] (requires worker extras)")
 
-    console.print(f"  4. Use Prefect UI at [cyan]http://localhost:4200[/cyan] to run workflows")
+    console.print(f"  4. Use Prefect UI at [cyan]http://127.0.0.1:4200[/cyan] to run workflows")
 
     console.print("\n[dim]Other server commands:[/dim]")
     console.print(f"  [dim]• w2t-bkin server stop     - Stop server[/dim]")

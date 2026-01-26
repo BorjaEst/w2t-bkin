@@ -15,7 +15,7 @@ Production Workflow:
     2. Start server: w2t-bkin server start
     3. Install worker environment: pip install w2t-bkin[worker] (or use Docker)
     4. Start worker: w2t-bkin worker start
-    5. Submit flows through Prefect UI at http://localhost:4200
+    5. Submit flows through Prefect UI at http://127.0.0.1:4200
 
     This separation allows:
     - Lightweight orchestration (server/UI) without heavy dependencies

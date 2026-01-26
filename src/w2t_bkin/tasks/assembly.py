@@ -158,8 +158,8 @@ def assemble_behavior_tables(
 def assemble_pose_estimation(
     nwbfile: NWBFile,
     pose_data: Optional[Dict[str, List[PoseData]]],
-    video_data: Dict[str, VideoData],
-    ttl_data: Dict[str, TTLData],
+    video_data: Optional[Dict[str, VideoData]],
+    ttl_data: Optional[Dict[str, TTLData]],
     config: AssemblyConfig,
 ) -> None:
     """Assemble pose estimation data into NWB structures (ndx-pose).
@@ -170,7 +170,9 @@ def assemble_pose_estimation(
         nwbfile: NWB file to modify (in-place)
         pose_data: Dict mapping camera_id to list of PoseData (one per video chunk)
         video_data: Dict mapping camera_id to VideoData (for fps/ttl_id)
+            or None when video ingestion is disabled
         ttl_data: Dict mapping ttl_id to TTLData (for timestamp alignment)
+            or None when TTL ingestion is disabled
         config: Assembly configuration
 
     Raises:
@@ -181,6 +183,15 @@ def assemble_pose_estimation(
     if not pose_data:
         run_logger.info("No pose data to assemble (empty dict or None)")
         return
+
+    if video_data is None:
+        run_logger.warning("Video metadata not provided; using default fps=30.0 and no TTL sync.")
+
+    if ttl_data is None:
+        run_logger.warning("TTL data not provided; using FPS timestamps only.")
+
+    video_data_norm = video_data or {}
+    ttl_data_norm = ttl_data or {}
 
     run_logger.info(f"Assembling pose estimation for {len(pose_data)} camera(s)")
 
@@ -194,8 +205,8 @@ def assemble_pose_estimation(
 
         # Build camera config from video_data
         camera_config = {}
-        if camera_id in video_data:
-            vid = video_data[camera_id]
+        if camera_id in video_data_norm:
+            vid = video_data_norm[camera_id]
             camera_config["fps"] = vid.fps if vid.fps is not None else 30.0
             camera_config["ttl_id"] = vid.ttl_id
         else:
@@ -209,7 +220,7 @@ def assemble_pose_estimation(
             camera_id=camera_id,
             pose_data_list=pose_list,
             camera_config=camera_config,
-            ttl_pulses=ttl_data,  # Pass entire dict; function extracts ttl_id channel
+            ttl_pulses=ttl_data_norm,  # Pass entire dict; function extracts ttl_id channel
             skeletons_config=None,  # TODO: extract from metadata if needed
         )
 
@@ -236,7 +247,7 @@ def assemble_pose_estimation(
 )
 def assemble_videos_into_nwb(
     nwbfile: NWBFile,
-    video_data: Dict[str, VideoData],
+    video_data: Optional[Dict[str, VideoData]],
     config: AssemblyConfig,
 ) -> None:
     """Assemble video metadata into NWB ImageSeries with external file links.
@@ -246,7 +257,7 @@ def assemble_videos_into_nwb(
 
     Args:
         nwbfile: NWB file to modify (in-place)
-        video_data: Dict mapping camera_id to VideoData
+        video_data: Dict mapping camera_id to VideoData or None if not ingested
         config: Assembly configuration
 
     Raises:

@@ -8,7 +8,7 @@ From the experiment root:
 w2t-bkin server start
 ```
 
-Open http://localhost:4200
+Open http://127.0.0.1:4200
 
 ## Run a session
 

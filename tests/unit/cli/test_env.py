@@ -109,11 +109,11 @@ class TestLoadEnvFile:
     def test_equals_in_value(self, tmp_path):
         """Test equals sign in value."""
         env_file = tmp_path / ".env"
-        env_file.write_text('CONNECTION_STRING="server=localhost;user=admin"\n')
+        env_file.write_text('CONNECTION_STRING="server=127.0.0.1;user=admin"\n')
 
         result = load_env_file(env_file)
 
-        assert result["CONNECTION_STRING"] == "server=localhost;user=admin"
+        assert result["CONNECTION_STRING"] == "server=127.0.0.1;user=admin"
 
 
 class TestLoadProjectEnv:

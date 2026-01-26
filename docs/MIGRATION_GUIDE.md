@@ -21,4 +21,4 @@ w2t-bkin data init /path/to/experiment -y --lab "..." --institution "..." --expe
 Instead of calling processing functions directly:
 
 - Start Prefect: `w2t-bkin server start` (or `--dev`)
-- Run deployments in the UI at http://localhost:4200
+- Run deployments in the UI at http://127.0.0.1:4200
