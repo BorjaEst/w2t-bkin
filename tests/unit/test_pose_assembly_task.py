@@ -69,5 +69,30 @@ def test_assemble_pose_estimation_handles_none_video_and_ttl(monkeypatch, caplog
         config=AssemblyConfig(),
     )
 
+    # Idempotent retry should not raise or duplicate
+    assembly_tasks.assemble_pose_estimation.fn(
+        nwbfile=nwbfile,
+        pose_data=pose_data,
+        video_data=None,
+        ttl_data=None,
+        config=AssemblyConfig(),
+    )
+
+    behavior_module = nwbfile.processing["behavior"]
+    assert "Skeletons" in behavior_module.data_interfaces
+
+    pose_objects = [obj for obj in behavior_module.data_interfaces.values() if obj.__class__.__name__ == "PoseEstimation"]
+    assert len(pose_objects) == 1
+
+    skeletons_container = behavior_module.data_interfaces["Skeletons"]
+    skeleton_names = []
+    if hasattr(skeletons_container, "skeletons"):
+        skeletons = skeletons_container.skeletons
+        if isinstance(skeletons, dict):
+            skeleton_names = list(skeletons.keys())
+        elif isinstance(skeletons, list):
+            skeleton_names = [skeleton.name for skeleton in skeletons]
+    assert any("skeleton" in name for name in skeleton_names)
+
     assert any("Video metadata not provided" in message for message in caplog.messages)
     assert any("TTL data not provided" in message for message in caplog.messages)

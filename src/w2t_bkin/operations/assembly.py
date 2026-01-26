@@ -130,11 +130,7 @@ def assemble_pose_estimation(
         logger.warning(f"No pose data for camera '{camera_id}'")
         return []
 
-    # Ensure behavior processing module exists
-    if "behavior" not in nwbfile.processing:
-        nwbfile.create_processing_module(name="behavior", description="Behavioral data including pose estimation")
-
-    behavior_module = nwbfile.processing["behavior"]
+    behavior_module = get_or_create_processing_module(nwbfile, name="behavior", description="Behavioral data including pose estimation")
 
     # Get camera parameters with type validation
     fps_raw = camera_config.get("fps", 30.0)
@@ -156,11 +152,17 @@ def assemble_pose_estimation(
         skeleton_name = target_skel_id
         logger.debug(f"Using user-defined skeleton '{skeleton_name}' for {camera_id}")
 
-    # Create skeleton object
     try:
-        skeleton = pose.create_skeleton(name=skeleton_name, nodes=skeleton_nodes, edges=skeleton_edges)
+        skeletons_container = get_or_create_skeletons_container(behavior_module)
+        skeleton = ensure_skeleton(
+            skeletons_container,
+            skeleton_name=skeleton_name,
+            nodes=skeleton_nodes,
+            edges=skeleton_edges,
+            subject=nwbfile.subject,
+        )
     except Exception as e:
-        logger.error(f"Failed to create skeleton for {camera_id}: {e}")
+        logger.error(f"Failed to create Skeleton for {camera_id}: {e}")
         raise ValueError(f"Skeleton creation failed: {e}")
 
     # Process each video's pose data
@@ -207,10 +209,12 @@ def assemble_pose_estimation(
             if len(pose_data_list) > 1:
                 pe.name = f"{pe.name}_{i}"
 
-            behavior_module.add(pe)
-            pose_estimations.append(pe)
-
-            logger.info(f"Added PoseEstimation: {pe.name} ({n_frames} frames)")
+            added = safe_add_data_interface(behavior_module, pe, on_duplicate="skip")
+            if added is pe:
+                pose_estimations.append(pe)
+                logger.info(f"Added PoseEstimation: {pe.name} ({n_frames} frames)")
+            else:
+                logger.info(f"Skipped duplicate PoseEstimation: {pe.name} " f"({n_frames} frames)")
 
         except Exception as e:
             logger.warning(f"Failed to build PoseEstimation for {camera_id} " f"(video {video_path.name}): {e}")
@@ -241,16 +245,176 @@ def add_skeletons_container(nwbfile: NWBFile, skeletons: List[Any]) -> Any:
         return None
 
     try:
-        # Deduplicate by name
+        behavior_module = get_or_create_processing_module(nwbfile, name="behavior", description="Behavioral data including pose estimation")
+        skeletons_container = get_or_create_skeletons_container(behavior_module)
         unique_skeletons = {s.name: s for s in skeletons}.values()
+        for skeleton in unique_skeletons:
+            existing = _find_skeleton_in_container(skeletons_container, skeleton.name)
+            if existing is None:
+                _add_skeleton_to_container(skeletons_container, skeleton)
 
-        skeletons_container = pose.create_skeletons_container(name="Skeletons", skeletons=list(unique_skeletons))
-
-        nwbfile.add_lab_meta_data(skeletons_container)
-
-        logger.debug(f"Added Skeletons container with {len(unique_skeletons)} skeletons")
+        logger.debug("Added Skeletons container with %d skeleton(s)", len({s.name for s in unique_skeletons}))
         return skeletons_container
 
     except Exception as e:
         logger.error(f"Failed to add Skeletons container: {e}")
         raise ValueError(f"Skeletons container creation failed: {e}")
+
+
+def get_or_create_processing_module(nwbfile: NWBFile, name: str, description: str):
+    """Get or create a processing module on the NWB file.
+
+    Args:
+        nwbfile: NWB file object to modify
+        name: Processing module name
+        description: Processing module description
+
+    Returns:
+        Processing module instance
+    """
+    if name in nwbfile.processing:
+        return nwbfile.processing[name]
+
+    return nwbfile.create_processing_module(name=name, description=description)
+
+
+def _unique_interface_name(processing_module, base_name: str) -> str:
+    index = 1
+    candidate = f"{base_name}_{index}"
+    while candidate in processing_module.data_interfaces:
+        index += 1
+        candidate = f"{base_name}_{index}"
+    return candidate
+
+
+def safe_add_data_interface(processing_module, interface, on_duplicate: str = "skip"):
+    """Add a data interface to a processing module with duplicate handling.
+
+    Args:
+        processing_module: NWB processing module
+        interface: NWBDataInterface to add
+        on_duplicate: "skip", "rename", or "error"
+
+    Returns:
+        The added interface, or the existing interface when skipping
+    """
+    if on_duplicate not in {"skip", "rename", "error"}:
+        raise ValueError(f"Unsupported on_duplicate policy: {on_duplicate}")
+
+    name = interface.name
+    existing = processing_module.data_interfaces.get(name)
+    if existing is None:
+        processing_module.add(interface)
+        return interface
+
+    if on_duplicate == "skip":
+        return existing
+
+    if on_duplicate == "rename":
+        interface.name = _unique_interface_name(processing_module, name)
+        processing_module.add(interface)
+        return interface
+
+    raise ValueError(f"Data interface '{name}' already exists in processing module.")
+
+
+def get_or_create_skeletons_container(behavior_module, name: str = "Skeletons"):
+    """Get or create the Skeletons container in the behavior module.
+
+    Args:
+        behavior_module: Processing module for behavioral data
+        name: Name of the Skeletons container
+
+    Returns:
+        Skeletons container
+    """
+    existing = behavior_module.data_interfaces.get(name)
+    if existing is not None:
+        return existing
+
+    try:
+        skeletons_container = pose.Skeletons(skeletons=[])
+    except Exception:
+        skeletons_container = pose.Skeletons(name=name, skeletons=[])
+
+    if getattr(skeletons_container, "name", None) != name:
+        skeletons_container.name = name
+
+    return safe_add_data_interface(behavior_module, skeletons_container, on_duplicate="skip")
+
+
+def _find_skeleton_in_container(skeletons_container, skeleton_name: str):
+    if hasattr(skeletons_container, "skeletons"):
+        skeletons = skeletons_container.skeletons
+        if isinstance(skeletons, dict):
+            return skeletons.get(skeleton_name)
+        if isinstance(skeletons, list):
+            for skeleton in skeletons:
+                if skeleton.name == skeleton_name:
+                    return skeleton
+
+    if hasattr(skeletons_container, "get_skeleton"):
+        try:
+            return skeletons_container.get_skeleton(skeleton_name)
+        except Exception:
+            return None
+
+    if hasattr(skeletons_container, "__getitem__"):
+        try:
+            return skeletons_container[skeleton_name]
+        except Exception:
+            return None
+
+    return None
+
+
+def _add_skeleton_to_container(skeletons_container, skeleton) -> None:
+    if hasattr(skeletons_container, "add_skeleton"):
+        skeletons_container.add_skeleton(skeleton)
+        return
+
+    if hasattr(skeletons_container, "add"):
+        skeletons_container.add(skeleton)
+        return
+
+    if hasattr(skeletons_container, "skeletons"):
+        skeletons = skeletons_container.skeletons
+        if isinstance(skeletons, dict):
+            skeletons[skeleton.name] = skeleton
+            return
+        if isinstance(skeletons, list):
+            skeletons.append(skeleton)
+            return
+
+    raise ValueError("Unable to add Skeleton to Skeletons container.")
+
+
+def ensure_skeleton(skeletons_container, *, skeleton_name: str, nodes: List[str], edges: List[List[int]], subject=None):
+    """Ensure a Skeleton exists in the container and return it.
+
+    Args:
+        skeletons_container: Skeletons container
+        skeleton_name: Skeleton name
+        nodes: Body part node names
+        edges: Edge definitions
+        subject: Optional Subject to link
+
+    Returns:
+        Skeleton instance stored in the container
+    """
+    existing = _find_skeleton_in_container(skeletons_container, skeleton_name)
+    if existing is not None:
+        existing_nodes = list(getattr(existing, "nodes", []))
+        if nodes and existing_nodes and list(nodes) != list(existing_nodes):
+            raise ValueError(f"Skeleton '{skeleton_name}' already exists with different nodes.")
+        return existing
+
+    skeleton = pose.create_skeleton(name=skeleton_name, nodes=nodes, edges=edges)
+    if subject is not None:
+        try:
+            skeleton.subject = subject
+        except Exception:
+            pass
+
+    _add_skeleton_to_container(skeletons_container, skeleton)
+    return skeleton

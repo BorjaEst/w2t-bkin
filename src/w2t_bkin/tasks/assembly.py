@@ -196,8 +196,6 @@ def assemble_pose_estimation(
     run_logger.info(f"Assembling pose estimation for {len(pose_data)} camera(s)")
 
     # Process each camera's pose data
-    all_skeletons = []
-
     for camera_id, pose_list in pose_data.items():
         if not pose_list:
             run_logger.warning(f"Skipping camera '{camera_id}': no pose data")
@@ -224,17 +222,7 @@ def assemble_pose_estimation(
             skeletons_config=None,  # TODO: extract from metadata if needed
         )
 
-        # Collect skeletons for global container
-        for pe in pose_estimations:
-            if hasattr(pe, "skeleton") and pe.skeleton is not None:
-                all_skeletons.append(pe.skeleton)
-
         run_logger.info(f"Added {len(pose_estimations)} PoseEstimation object(s) for camera '{camera_id}'")
-
-    # Add Skeletons container if any skeletons were created
-    if all_skeletons:
-        assembly_ops.add_skeletons_container(nwbfile, all_skeletons)
-        run_logger.info(f"Added Skeletons container with {len(all_skeletons)} skeleton(s)")
 
     run_logger.info("Pose estimation assembly completed")
 
