@@ -192,6 +192,7 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
     # Phase 4: Synchronization
     # =====================================================================
     run_logger.info("Phase 4: Computing synchronization statistics")
+    sync_stats = None
     match config.synchronization.strategy:
         case "rate_based" if data.get("ttl") is not None:
             offsets = sync_tasks.compute_rate_based_offsets_task(data, config.synchronization)
@@ -199,12 +200,18 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
         case "hardware_pulse" if data.get("ttl") is not None:
             offsets = sync_tasks.compute_hardware_pulse_offsets_task(data, config.synchronization)
             logger.info("Discovered existing pose artifacts")
+        case "hardware_pulse_robust" if data.get("ttl") is not None:
+            robust_result = sync_tasks.compute_hardware_pulse_robust_offsets_task(data, config.synchronization)
+            offsets = robust_result.get("offsets", {})
+            sync_stats = robust_result.get("stats")
+            logger.info("Computed robust hardware pulse offsets")
         case "network_stream" if data.get("ttl") is not None:
             offsets = sync_tasks.compute_network_stream_offsets_task(data, config.synchronization)
             logger.info("Auto-resolved and processed pose artifacts")
         case _:
             offsets = {}  # No synchronization
             run_logger.info("Synchronization skipped (no TTL data or disabled)")
+    data["sync_stats"] = sync_stats
     logger.debug(f"Computed Offsets: {offsets}")
 
     # =====================================================================
@@ -265,7 +272,9 @@ def _execute_session_pipeline(info: SessionInfo, config: SessionConfig, run_logg
 
     # Generate alignment statistics
     if config.finalization.alignment_stats and offsets and data.get("ttl"):
-        alignment_stats = sync_tasks.compute_alignment_stats_task(offsets, data.get("ttl", {}))
+        sync_stats = data.get("sync_stats") or {}
+        offset_labels = sync_stats.get("offset_labels") if sync_stats else None
+        alignment_stats = finalization_tasks.compute_alignment_stats_task(offsets, data.get("ttl", {}), offset_labels=offset_labels, robust_stats=sync_stats)
         logger.info("Computed alignment statistics for NWB")
     else:
         alignment_stats = None

@@ -167,7 +167,12 @@ class IngestionConfig(BaseModel, extra="forbid"):
 class SynchronizationConfig(BaseModel, extra="forbid"):
     """How modalities (video/TTL/Bpod) are aligned to a common timebase."""
 
-    strategy: Literal["rate_based", "hardware_pulse", "network_stream"] = Field(
+    strategy: Literal[
+        "rate_based",
+        "hardware_pulse",
+        "hardware_pulse_robust",
+        "network_stream",
+    ] = Field(
         default="hardware_pulse",
         description=(
             "Synchronization strategy used for data:"
@@ -178,20 +183,30 @@ class SynchronizationConfig(BaseModel, extra="forbid"):
     )
     reference_channel: str = Field(
         default="ttl_camera",
-        description="Reference channel name/ID used as the timebase for 'hardware_pulse' and 'network_stream'.",
+        description=("Reference channel name/ID used as the timebase for " "'hardware_pulse' and 'network_stream'."),
     )
     alignment_method: Literal["nearest", "linear"] = Field(
         default="nearest",
-        description="Timestamp mapping method: 'none' disables alignment; 'nearest' snaps to the closest sample; 'linear' interpolates between samples.",
+        description=("Timestamp mapping method: 'none' disables alignment; " "'nearest' snaps to the closest sample; 'linear' " "interpolates between samples."),
     )
     tolerance: float = Field(
         default=0.01,
         ge=0.0,
-        description="Maximum allowed absolute alignment error (seconds) used for validation/QC.",
+        description=("Maximum allowed absolute alignment error (seconds) used " "for validation/QC."),
     )
     global_offset: float = Field(
         default=0.0,
-        description="Constant offset (seconds) added before alignment. Useful for known fixed delays.",
+        description=("Constant offset (seconds) added before alignment. " "Useful for known fixed delays."),
+    )
+    robust_min_matches: int = Field(
+        default=3,
+        ge=1,
+        description=("Minimum number of anchor matches required before drift " "fitting for robust TTL alignment."),
+    )
+    robust_max_start_trial_search: int = Field(
+        default=50,
+        ge=1,
+        description=("Maximum starting trial index to consider when bootstrapping " "robust TTL alignment."),
     )
 
 

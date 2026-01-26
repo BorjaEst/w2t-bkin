@@ -96,7 +96,12 @@ class TestSynchronizationValidation:
         config_path = Path("tests/fixtures/configs/valid_config.toml")
         config = load_config(config_path)
 
-        assert config.synchronization.strategy in ["rate_based", "hardware_pulse", "network_stream"]
+        assert config.synchronization.strategy in [
+            "rate_based",
+            "hardware_pulse",
+            "hardware_pulse_robust",
+            "network_stream",
+        ]
 
     def test_Should_RejectStrategy_When_InvalidEnum(self):
         """Should reject invalid synchronization.strategy value."""

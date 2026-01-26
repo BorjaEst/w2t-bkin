@@ -35,6 +35,7 @@ from w2t_bkin.sync.timebase import NeuropixelsProvider, NominalRateProvider, Tim
 
 # TTL synchronization
 from w2t_bkin.sync.ttl import align_bpod_trials_to_ttl, get_sync_time_from_bpod_trial
+from w2t_bkin.sync.ttl_robust import align_bpod_trials_to_ttl_robust
 
 __all__ = [
     # Exceptions
@@ -57,6 +58,7 @@ __all__ = [
     "align_samples",
     # TTL
     "align_bpod_trials_to_ttl",
+    "align_bpod_trials_to_ttl_robust",
     "get_sync_time_from_bpod_trial",
     # Streams
     "sync_stream_to_timebase",

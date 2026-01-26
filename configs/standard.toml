@@ -58,7 +58,7 @@ pose.file_type = "h5"      # Preferred pose estimation file type to load (h5 or 
 [synchronization]
 
 # Strategy and channel
-strategy = "hardware_pulse"      # rate_based | hardware_pulse | network_stream
+strategy = "hardware_pulse_robust"  # rate_based | hardware_pulse | hardware_pulse_robust | network_stream
 reference_channel = "ttl_camera" # Reference channel ID for synchronization
 
 # Alignment method and parameters

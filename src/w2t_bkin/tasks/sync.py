@@ -22,11 +22,13 @@ from w2t_bkin.config import SynchronizationConfig
 from w2t_bkin.exceptions import SyncError
 from w2t_bkin.models import BpodData, TTLData
 from w2t_bkin.sync.ttl import align_bpod_trials_to_ttl
+from w2t_bkin.sync.ttl_robust import align_bpod_trials_to_ttl_robust
 
 logger = logging.getLogger(__name__)
 
 # Type alias for clarity
 TrialOffsets = Dict[int, float]  # trial_number → absolute time offset
+RobustOffsetsResult = Dict[str, Any]
 
 
 @task(
@@ -128,6 +130,82 @@ def compute_hardware_pulse_offsets_task(data: Dict[str, Any], config: Synchroniz
         run_logger.warning(f"Synchronization produced {len(warnings)} warning(s) (see logs for details)")
 
     return trial_offsets
+
+
+@task(
+    name="Compute Hardware Pulse Offsets (Robust)",
+    description="Compute robust synchronization offsets using hardware TTL pulses",
+    tags=["sync", "hardware_pulse", "robust"],
+    retries=1,
+)
+def compute_hardware_pulse_robust_offsets_task(
+    data: Dict[str, Any],
+    config: SynchronizationConfig,
+) -> RobustOffsetsResult:
+    """Compute trial offsets using robust TTL alignment with drift handling.
+
+    Args:
+        data: Ingestion results containing Bpod and TTL data.
+        config: Synchronization configuration (tolerance, global offset).
+
+    Returns:
+        Dict with keys:
+            - offsets: Dict mapping trial_number → absolute time offset
+            - stats: Dict of alignment statistics and labels
+            - warnings: List of warning strings
+    """
+    run_logger = get_run_logger()
+    run_logger.info("Computing trial offsets using robust TTL alignment")
+
+    bpod_data: Optional[BpodData] = data.get("bpod")
+    ttl_data: Optional[Dict[str, TTLData]] = data.get("ttl")
+
+    if not bpod_data:
+        run_logger.warning("No Bpod data available for robust synchronization")
+        return {"offsets": {}, "stats": {}, "warnings": []}
+
+    if not ttl_data:
+        run_logger.warning("No TTL data available for robust synchronization")
+        return {"offsets": {}, "stats": {}, "warnings": []}
+
+    if not bpod_data.sync_trial_types:
+        raise SyncError("Bpod sync configuration missing. Add [[bpod.sync.trial_types]] " "to metadata.toml with trial_type, sync_signal, and sync_ttl fields.")
+
+    ttl_pulses = {ttl_id: ttl.timestamps for ttl_id, ttl in ttl_data.items()}
+
+    run_logger.debug(
+        "Robust alignment for %s trials across %s TTL channel(s)",
+        bpod_data.n_trials,
+        len(ttl_pulses),
+    )
+
+    offsets, warnings, stats = align_bpod_trials_to_ttl_robust(
+        trial_type_configs=bpod_data.sync_trial_types,
+        bpod_data=bpod_data.data,
+        ttl_pulses=ttl_pulses,
+        tolerance_s=config.tolerance,
+        min_matches=config.robust_min_matches,
+        max_start_trial_search=config.robust_max_start_trial_search,
+    )
+
+    global_offset = config.global_offset
+    if global_offset != 0.0:
+        offsets = {trial_num: offset + global_offset for trial_num, offset in offsets.items()}
+        stats["global_offset_s"] = global_offset
+
+    if warnings:
+        run_logger.warning(
+            "Robust synchronization produced %s warning(s); see logs",
+            len(warnings),
+        )
+
+    run_logger.info(
+        "Robust alignment produced offsets for %s/%s trials",
+        len(offsets),
+        bpod_data.n_trials,
+    )
+
+    return {"offsets": offsets, "stats": stats, "warnings": warnings}
 
 
 @task(

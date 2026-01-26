@@ -270,7 +270,7 @@ def create_timebase_provider_from_config(config, manifest: Optional[Any] = None)
         rate = 30.0
         return create_timebase_provider(source="nominal_rate", rate=rate, offset_s=offset_s)
 
-    elif strategy == "hardware_pulse":
+    elif strategy in {"hardware_pulse", "hardware_pulse_robust"}:
         if manifest is None:
             raise SyncError("Manifest required for hardware_pulse timebase provider")
 

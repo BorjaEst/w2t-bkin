@@ -81,6 +81,8 @@ def write_nwb_file_task(
 def compute_alignment_stats_task(
     offsets: Dict[int, float],
     ttl_data: Dict[str, TTLData],
+    offset_labels: Optional[Dict[str, str]] = None,
+    robust_stats: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Compute alignment quality statistics from trial offsets.
 
@@ -95,6 +97,8 @@ def compute_alignment_stats_task(
             - trial_offsets: {trial_num: offset_s, ...}
             - ttl_channels: {ttl_id: pulse_count, ...}
             - statistics: {n_trials_aligned, offset_mean_s, offset_std_s, ...}
+            - offset_labels: Optional label map for matched/interpolated trials
+            - robust_stats: Optional robust alignment summary
     """
     run_logger = get_run_logger()
     run_logger.info("Computing alignment statistics for QC")
@@ -111,6 +115,8 @@ def compute_alignment_stats_task(
                 "offset_min_s": 0.0,
                 "offset_max_s": 0.0,
             },
+            "offset_labels": offset_labels or {},
+            "robust_stats": robust_stats or {},
         }
 
     # Compute offset statistics
@@ -137,6 +143,8 @@ def compute_alignment_stats_task(
         "trial_offsets": offsets,
         "ttl_channels": {ttl_id: ttl.pulse_count for ttl_id, ttl in ttl_data.items()} if ttl_data else {},
         "statistics": statistics,
+        "offset_labels": offset_labels or {},
+        "robust_stats": robust_stats or {},
     }
 
     run_logger.info(f"Alignment stats: {statistics['n_trials_aligned']} trials, " f"offset={statistics['offset_mean_s']:.4f}±{statistics['offset_std_s']:.4f}s")
@@ -310,7 +318,14 @@ def write_qc_report_task(
             # Compute alignment stats for plotting
             from w2t_bkin.tasks.finalization import compute_alignment_stats_task
 
-            alignment_stats = compute_alignment_stats_task.fn(offsets, ttl_data)
+            sync_stats = data.get("sync_stats") or {}
+            offset_labels = sync_stats.get("offset_labels") if sync_stats else None
+            alignment_stats = compute_alignment_stats_task.fn(
+                offsets,
+                ttl_data,
+                offset_labels=offset_labels,
+                robust_stats=sync_stats,
+            )
 
             sync_path = plot_synchronization_stats(
                 alignment_stats=alignment_stats,

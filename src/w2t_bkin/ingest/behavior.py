@@ -91,6 +91,32 @@ ACTION_STATES = {
 }
 
 
+def _resolve_trial_offset(trial_offsets: Optional[Dict[int, float]], trial_num: int, context: str) -> float:
+    """Resolve trial offset with safe defaults and warnings.
+
+    Args:
+        trial_offsets: Optional mapping of trial number to offset.
+        trial_num: One-based trial index.
+        context: Callsite identifier for logging.
+
+    Returns:
+        Offset in seconds. Defaults to 0.0 if missing or invalid.
+    """
+    if not trial_offsets:
+        return 0.0
+
+    offset = trial_offsets.get(trial_num)
+    if is_nan_or_none(offset):
+        logger.warning("Missing trial offset for trial %s in %s; using 0.0.", trial_num, context)
+        return 0.0
+
+    try:
+        return float(offset)
+    except (TypeError, ValueError):
+        logger.warning("Invalid trial offset for trial %s in %s; using 0.0.", trial_num, context)
+        return 0.0
+
+
 # =============================================================================
 # Type Tables (Metadata)
 # =============================================================================
@@ -313,7 +339,7 @@ def extract_states(
         trial_state_indices[trial_num] = []
 
         # Get time offset for absolute time conversion
-        offset = trial_offsets.get(trial_num) if trial_offsets else 0.0
+        offset = _resolve_trial_offset(trial_offsets, trial_num, "extract_states")
 
         # Extract states
         if hasattr(trial_data, "States"):
@@ -410,7 +436,7 @@ def extract_events(
         trial_event_indices[trial_num] = []
 
         # Get time offset for absolute time conversion
-        offset = trial_offsets.get(trial_num) if trial_offsets else 0.0
+        offset = _resolve_trial_offset(trial_offsets, trial_num, "extract_events")
 
         # Extract events
         if hasattr(trial_data, "Events"):
@@ -507,7 +533,7 @@ def extract_actions(
         trial_action_indices[trial_num] = []
 
         # Get time offset for absolute time conversion
-        offset = trial_offsets.get(trial_num) if trial_offsets else 0.0
+        offset = _resolve_trial_offset(trial_offsets, trial_num, "extract_actions")
 
         # Extract states
         if hasattr(trial_data, "States"):
@@ -627,7 +653,7 @@ def build_trials_table(
         trial_stop_rel = float(to_scalar(end_timestamps, trial_idx))
 
         # Get time offset
-        offset = trial_offsets.get(trial_num) if trial_offsets else 0.0
+        offset = _resolve_trial_offset(trial_offsets, trial_num, "build_trials_table")
 
         # Convert to absolute time
         start_time = offset + trial_start_rel
